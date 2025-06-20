@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Detalle del Empleado{% endblock %}
+{% block page_title %}Detalle del Empleado{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <h1>{{ object.nombre }} {{ object.apellido }}</h1>
+        <p>Cédula: {{ object.cedula }}</p>
+        <p>Email: {{ object.email }}</p>
+    </div>
+</div>
+{% endblock %} 
