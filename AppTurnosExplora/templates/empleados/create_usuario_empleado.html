@@ -1,0 +1,94 @@
+{% extends 'base.html' %}
+
+{% block title %}Crear Usuario y Empleado{% endblock %}
+{% block page_title %}Crear Usuario y Empleado{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-10 col-lg-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-user-plus"></i> Crear Usuario y Empleado</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <h5 class="mb-3 text-secondary"><i class="fas fa-user"></i> Datos de Usuario</h5>
+                        <div class="form-row">
+                            <div class="form-group col-lg-4 col-md-6 col-12">
+                                <label for="id_username"><strong>Usuario:</strong></label>
+                                {{ form.username }}
+                            </div>
+                            <div class="form-group col-lg-4 col-md-6 col-12">
+                                <label for="id_password"><strong>Contraseña:</strong></label>
+                                {{ form.password }}
+                            </div>
+                            <div class="form-group col-lg-4 col-md-12 col-12">
+                                <label for="id_email"><strong>Email:</strong></label>
+                                {{ form.email }}
+                            </div>
+                        </div>
+                        <hr>
+                        <h5 class="mb-3 text-secondary"><i class="fas fa-id-card"></i> Datos de Empleado</h5>
+                        <div class="form-row">
+                            <div class="form-group col-lg-6 col-md-6 col-12">
+                                <label for="id_nombre"><strong>Nombre:</strong></label>
+                                {{ form.nombre }}
+                            </div>
+                            <div class="form-group col-lg-6 col-md-6 col-12">
+                                <label for="id_apellido"><strong>Apellido:</strong></label>
+                                {{ form.apellido }}
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-lg-6 col-md-6 col-12">
+                                <label for="id_cedula"><strong>Cédula:</strong></label>
+                                {{ form.cedula }}
+                            </div>
+                            <div class="form-group col-lg-6 col-md-6 col-12 d-flex align-items-center">
+                                <div class="form-check mt-4">
+                                    {{ form.activo }}
+                                    <label class="form-check-label" for="id_activo"><strong>Activo</strong></label>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="id_roles"><strong>Roles:</strong></label>
+                                {{ form.roles }}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="id_salas"><strong>Salas:</strong></label>
+                                {{ form.salas }}
+                            </div>
+                        </div>
+                        <div class="form-group text-center mt-4">
+                            <button type="submit" class="btn btn-primary px-4">
+                                <i class="fas fa-save"></i> Guardar
+                            </button>
+                            <a href="{% url 'empleados' %}" class="btn btn-secondary px-4">
+                                <i class="fas fa-arrow-left"></i> Cancelar
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Helper para agregar clases a los widgets de los campos
+if (typeof django !== 'undefined' && django.jQuery) {
+    django.jQuery(function($) {
+        $('select').addClass('form-control');
+        $('input[type="text"], input[type="email"], input[type="password"]').addClass('form-control');
+    });
+}
+</script>
+{% endblock %} 

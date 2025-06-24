@@ -1,16 +1,50 @@
 from django.urls import path
 from .views import (
-    EmpleadoListView, EmpleadoDetailView, EmpleadoEditView,
-    RestriccionesView, SeccionesView, JornadasView, RolesView
+    EmpleadoListView, EmpleadoDetailView, EmpleadoEditView, EmpleadoDeleteView,
+    RestriccionesView, SeccionesView, JornadasView, RolesView,
+    RoleListView, RoleCreateView, EmpleadoUsuarioCreateView, AsignarRolesSalasView,
+    SalaListView, SalaCreateView, SalaUpdateView, SalaDeleteView,
+    JornadaListView, JornadaCreateView, JornadaUpdateView, JornadaDeleteView,
+    RestriccionListView, RestriccionCreateView, RestriccionUpdateView, RestriccionDeleteView,
+    SancionListView, SancionCreateView, SancionUpdateView, SancionDeleteView,
+    PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView,
+    ChangePasswordView, RoleUpdateView, RoleDeleteView
 )
 
 urlpatterns = [
     path('', EmpleadoListView.as_view(), name='empleados'),
     path('detail/<int:pk>/', EmpleadoDetailView.as_view(), name='empleado_detail'),
     path('edit/<int:pk>/', EmpleadoEditView.as_view(), name='empleado_edit'),
+    path('delete/<int:pk>/', EmpleadoDeleteView.as_view(), name='empleado_delete'),
     path('restricciones/', RestriccionesView.as_view(), name='restricciones'),
     path('secciones/', SeccionesView.as_view(), name='secciones'),
-    path('jornadas/', JornadasView.as_view(), name='jornadas'),
+    path('jornadas/', JornadaListView.as_view(), name='jornadas_list'),
+    path('jornadas/create/', JornadaCreateView.as_view(), name='jornadas_create'),
+    path('jornadas/edit/<int:pk>/', JornadaUpdateView.as_view(), name='jornadas_edit'),
+    path('jornadas/delete/<int:pk>/', JornadaDeleteView.as_view(), name='jornadas_delete'),
     path('roles/', RolesView.as_view(), name='roles'),
+    path('roles/list/', RoleListView.as_view(), name='roles_list'),
+    path('roles/create/', RoleCreateView.as_view(), name='roles_create'),
+    path('roles/edit/<int:pk>/', RoleUpdateView.as_view(), name='roles_edit'),
+    path('roles/delete/<int:pk>/', RoleDeleteView.as_view(), name='roles_delete'),
+    path('create_usuario_empleado/', EmpleadoUsuarioCreateView.as_view(), name='empleado_usuario_create'),
+    path('asignar_roles_salas/<int:empleado_id>/', AsignarRolesSalasView.as_view(), name='asignar_roles_salas'),
+    path('salas/', SalaListView.as_view(), name='salas_list'),
+    path('salas/create/', SalaCreateView.as_view(), name='salas_create'),
+    path('salas/edit/<int:pk>/', SalaUpdateView.as_view(), name='salas_edit'),
+    path('salas/delete/<int:pk>/', SalaDeleteView.as_view(), name='salas_delete'),
+    path('restricciones/', RestriccionListView.as_view(), name='restricciones_list'),
+    path('restricciones/create/', RestriccionCreateView.as_view(), name='restricciones_create'),
+    path('restricciones/edit/<int:pk>/', RestriccionUpdateView.as_view(), name='restricciones_edit'),
+    path('restricciones/delete/<int:pk>/', RestriccionDeleteView.as_view(), name='restricciones_delete'),
+    path('sanciones/', SancionListView.as_view(), name='sanciones_list'),
+    path('sanciones/create/', SancionCreateView.as_view(), name='sanciones_create'),
+    path('sanciones/edit/<int:pk>/', SancionUpdateView.as_view(), name='sanciones_edit'),
+    path('sanciones/delete/<int:pk>/', SancionDeleteView.as_view(), name='sanciones_delete'),
+    path('pdh/', PDHListView.as_view(), name='pdh_list'),
+    path('pdh/create/', PDHCreateView.as_view(), name='pdh_create'),
+    path('pdh/edit/<int:pk>/', PDHUpdateView.as_view(), name='pdh_edit'),
+    path('pdh/delete/<int:pk>/', PDHDeleteView.as_view(), name='pdh_delete'),
+    path('change-password/<int:user_id>/', ChangePasswordView.as_view(), name='change_password'),
     # Aquí irán más URLs conforme se vayan creando las vistas
 ] 

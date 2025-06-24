@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Eliminar Sala{% endblock %}
+{% block page_title %}Eliminar Sala{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>¿Estás seguro que deseas eliminar esta sala?</h2>
+    <p><strong>{{ object.nombre }}</strong></p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+        <a href="{% url 'salas_list' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 

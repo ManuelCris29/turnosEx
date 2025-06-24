@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Editar Sanción{% endblock %}
+{% block page_title %}Editar Sanción{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h2>Editar Sanción</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+        <a href="{% url 'sanciones_list' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 

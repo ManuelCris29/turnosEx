@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+
+{% block title %}Roles - AppTurnos{% endblock %}
+{% block page_title %}Roles{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Lista de Roles</h2>
+    <a href="{% url 'roles_create' %}" class="btn btn-success mb-3">
+        <i class="fas fa-plus"></i> Nuevo Rol
+    </a>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rol in roles %}
+            <tr>
+                <td>{{ rol.id }}</td>
+                <td>{{ rol.nombre }}</td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="2">No hay roles registrados.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

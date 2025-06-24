@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+
+{% block title %}Permisos Detalle - AppTurnos{% endblock %}
+{% block page_title %}Permisos Detalle{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Lista de Permisos Detalle</h2>
+    <a href="{% url 'permisodetalle_create' %}" class="btn btn-success mb-3">
+        <i class="fas fa-plus"></i> Nuevo Permiso Detalle
+    </a>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Solicitud</th>
+                <th>Solicitante</th>
+                <th>Receptor</th>
+                <th>Tipo Cambio</th>
+                <th>Horas Solicitadas</th>
+                <th>Estado</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for permiso in permisos_detalle %}
+            <tr>
+                <td>{{ permiso.id }}</td>
+                <td>{{ permiso.solicitud.id }}</td>
+                <td>{{ permiso.solicitud.explorador_solicitante.nombre }} {{ permiso.solicitud.explorador_solicitante.apellido }}</td>
+                <td>{{ permiso.solicitud.explorador_receptor.nombre }} {{ permiso.solicitud.explorador_receptor.apellido }}</td>
+                <td>{{ permiso.solicitud.tipo_cambio.nombre }}</td>
+                <td>{{ permiso.horas_solicitadas }} horas</td>
+                <td>
+                    <span class="badge badge-{% if permiso.solicitud.estado == 'pendiente' %}warning{% elif permiso.solicitud.estado == 'aprobado' %}success{% elif permiso.solicitud.estado == 'rechazado' %}danger{% else %}secondary{% endif %}">
+                        {{ permiso.solicitud.estado|title }}
+                    </span>
+                </td>
+                <td>
+                    <a href="{% url 'permisodetalle_edit' permiso.id %}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <a href="{% url 'permisodetalle_delete' permiso.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este permiso detalle?');">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8">No hay permisos detalle registrados.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

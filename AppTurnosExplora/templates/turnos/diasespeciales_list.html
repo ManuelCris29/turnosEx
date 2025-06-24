@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Días Especiales - AppTurnos{% endblock %}
+{% block page_title %}Días Especiales{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Lista de Días Especiales</h2>
+    <a href="{% url 'dias_especiales_create' %}" class="btn btn-success mb-3">
+        <i class="fas fa-plus"></i> Nuevo Día Especial
+    </a>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Fecha</th>
+                <th>Tipo</th>
+                <th>Descripción</th>
+                <th>Recurrente</th>
+                <th>Activo</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for dia in dias_especiales %}
+            <tr>
+                <td>{{ dia.id }}</td>
+                <td>{{ dia.fecha }}</td>
+                <td>{{ dia.tipo }}</td>
+                <td>{{ dia.descripcion }}</td>
+                <td>{% if dia.recurrente %}Sí{% else %}No{% endif %}</td>
+                <td>{% if dia.activo %}Sí{% else %}No{% endif %}</td>
+                <td>
+                    <a href="{% url 'dias_especiales_edit' dia.id %}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <a href="{% url 'dias_especiales_delete' dia.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este día especial?');">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7">No hay días especiales registrados.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

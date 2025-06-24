@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Asignar Roles y Salas{% endblock %}
+{% block page_title %}Asignar Roles y Salas a {{ empleado.nombre }} {{ empleado.apellido }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Asignar Roles y Salas a {{ empleado.nombre }} {{ empleado.apellido }}</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Guardar</button>
+        <a href="{% url 'empleados' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 

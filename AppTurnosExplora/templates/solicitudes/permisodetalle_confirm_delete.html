@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Eliminar Permiso Detalle{% endblock %}
+{% block page_title %}Eliminar Permiso Detalle{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h2>¿Eliminar Permiso Detalle?</h2>
+    <p>¿Estás seguro de que deseas eliminar el permiso detalle de la solicitud <strong>{{ object.solicitud.id }}</strong> con {{ object.horas_solicitadas }} horas solicitadas?</p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+        <a href="{% url 'permisodetalle_list' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 

@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+
+{% block title %}Permisos Especiales - AppTurnos{% endblock %}
+{% block page_title %}Permisos Especiales{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Lista de Permisos Especiales</h2>
+    <a href="{% url 'permisos_especiales_create' %}" class="btn btn-success mb-3">
+        <i class="fas fa-plus"></i> Nuevo Permiso Especial
+    </a>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Empleado</th>
+                <th>Tipo</th>
+                <th>Fecha Inicio</th>
+                <th>Fecha Fin</th>
+                <th>Estado</th>
+                <th>Supervisor</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for permiso in permisos_especiales %}
+            <tr>
+                <td>{{ permiso.id }}</td>
+                <td>{{ permiso.empleado.nombre }} {{ permiso.empleado.apellido }}</td>
+                <td>{{ permiso.get_tipo_display }}</td>
+                <td>{{ permiso.fecha_inicio }}</td>
+                <td>{{ permiso.fecha_fin }}</td>
+                <td>
+                    <span class="badge badge-{% if permiso.estado == 'PENDIENTE' %}warning{% elif permiso.estado == 'APROBADO' %}success{% elif permiso.estado == 'RECHAZADO' %}danger{% else %}secondary{% endif %}">
+                        {{ permiso.get_estado_display }}
+                    </span>
+                </td>
+                <td>{{ permiso.supervisor.nombre }} {{ permiso.supervisor.apellido }}</td>
+                <td>
+                    <a href="{% url 'permisos_especiales_edit' permiso.id %}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <a href="{% url 'permisos_especiales_delete' permiso.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este permiso especial?');">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="8">No hay permisos especiales registrados.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

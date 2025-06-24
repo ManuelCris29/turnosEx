@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Turnos - AppTurnos{% endblock %}
+{% block page_title %}Turnos{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Lista de Turnos</h2>
+    <a href="{% url 'turnos_create' %}" class="btn btn-success mb-3">
+        <i class="fas fa-plus"></i> Nuevo Turno
+    </a>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Explorador</th>
+                <th>Fecha</th>
+                <th>Jornada</th>
+                <th>Sala</th>
+                <th>Tipo de Cambio</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for turno in turnos %}
+            <tr>
+                <td>{{ turno.id }}</td>
+                <td>{{ turno.explorador.nombre }} {{ turno.explorador.apellido }}</td>
+                <td>{{ turno.fecha }}</td>
+                <td>{{ turno.jornada.nombre }}</td>
+                <td>{{ turno.sala.nombre }}</td>
+                <td>{{ turno.tipo_cambio }}</td>
+                <td>
+                    <a href="{% url 'turnos_edit' turno.id %}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <a href="{% url 'turnos_delete' turno.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este turno?');">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7">No hay turnos registrados.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

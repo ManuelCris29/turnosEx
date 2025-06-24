@@ -1,8 +1,41 @@
 from django.shortcuts import render
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView, UpdateView, TemplateView
+from django.views.generic.edit import CreateView, DeleteView
+from django.core.exceptions import PermissionDenied
 from .services.empleado_service import EmpleadoService
-from .models import Empleado
+from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado
+from permisos.models import PDH
+from django import forms
+from django.contrib.auth.models import User
+from django.views import View
+from django.shortcuts import redirect, get_object_or_404
+from django.contrib import messages
+from django.contrib.auth.forms import SetPasswordForm
+from django.urls import reverse_lazy
+
+# Mixin personalizado para verificar permisos de administrador
+class AdminRequiredMixin:
+    def dispatch(self, request, *args, **kwargs):
+        # Verificar si el usuario es staff o tiene rol de Supervisor
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
+        
+        # Si es staff, permitir acceso
+        if request.user.is_staff:
+            return super().dispatch(request, *args, **kwargs)
+        
+        # Verificar si tiene rol de Supervisor
+        try:
+            empleado = request.user.empleado
+            tiene_rol_supervisor = empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists()
+            if tiene_rol_supervisor:
+                return super().dispatch(request, *args, **kwargs)
+        except:
+            pass
+        
+        # Si no cumple ninguna condición, denegar acceso
+        raise PermissionDenied("No tienes permisos de administrador.")
 
 # Create your views here.
 
@@ -10,20 +43,47 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
     template_name = 'empleados/lista.html'
     context_object_name = 'empleados'
     
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Función para verificar si el usuario es administrador
+        def is_admin_user(user):
+            if user.is_staff:
+                return True
+            try:
+                empleado = user.empleado
+                return empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists()
+            except:
+                return False
+        context['is_admin_user'] = is_admin_user(self.request.user)
+        # Si el usuario no tiene empleado, mostrar advertencia
+        try:
+            _ = self.request.user.empleado
+            context['has_empleado'] = True
+        except Exception:
+            context['has_empleado'] = False
+        return context
+    
     def get_queryset(self):
-        query = self.request.GET.get('q', '')
-        if query:
-            return EmpleadoService.buscar_empleados(query)
-        
+        try:
+            empleado = self.request.user.empleado
+        except Exception:
+            return Empleado.objects.none()
+
+        # Mostrar todos los empleados si es admin o supervisor
+        if self.request.user.is_staff or empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists():
+            query = self.request.GET.get('q', '')
+            if query:
+                return EmpleadoService.buscar_empleados(query)
+            return Empleado.objects.all()
+
+        # Si no es admin/supervisor, filtrar por sala o mostrar ninguno
         sala_id = self.request.GET.get('sala')
         if sala_id:
             return EmpleadoService.get_empleados_by_sala(sala_id)
-            
-        # Si el usuario tiene una CompetenciaEmpleado, mostrar empleados de su sala
-        competencia = self.request.user.empleado.competenciaempleado_set.first()
+        competencia = empleado.competenciaempleado_set.first()
         if competencia:
             return EmpleadoService.get_empleados_by_sala(competencia.sala_id)
-        return Empleado.objects.none()  # Si no tiene sala asignada, retornar lista vacía
+        return Empleado.objects.none()
 
 class EmpleadoDetailView(LoginRequiredMixin, DetailView):
     model = Empleado
@@ -34,6 +94,11 @@ class EmpleadoEditView(LoginRequiredMixin, UpdateView):
     template_name = 'empleados/edit.html'
     fields = ['nombre', 'apellido', 'cedula', 'email', 'activo'] # Campos de ejemplo
     success_url = '/empleados/' # Redirigir a la lista después de editar
+
+class EmpleadoDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = Empleado
+    template_name = 'empleados/confirm_delete.html'
+    success_url = '/empleados/'  # Redirigir a la lista después de eliminar
 
 class RestriccionesView(LoginRequiredMixin, TemplateView):
     template_name = 'empleados/placeholder.html'
@@ -46,3 +111,249 @@ class JornadasView(LoginRequiredMixin, TemplateView):
 
 class RolesView(LoginRequiredMixin, TemplateView):
     template_name = 'empleados/placeholder.html'
+
+# CRUD de Roles
+class RoleListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = Role
+    template_name = 'empleados/roles_list.html'
+    context_object_name = 'roles'
+
+class RoleCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = Role
+    template_name = 'empleados/roles_create.html'
+    fields = ['nombre']
+    success_url = '/empleados/roles/'
+
+class RoleUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = Role
+    template_name = 'empleados/roles_edit.html'
+    fields = ['nombre']
+    success_url = '/empleados/roles/'
+
+class RoleDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = Role
+    template_name = 'empleados/roles_confirm_delete.html'
+    success_url = '/empleados/roles/'
+
+# Formulario personalizado para crear usuario, empleado, roles y salas
+class EmpleadoUsuarioForm(forms.Form):
+    username = forms.CharField(label='Usuario', max_length=150, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    password = forms.CharField(label='Contraseña', widget=forms.PasswordInput(attrs={'class': 'form-control'}))
+    email = forms.EmailField(label='Email', widget=forms.EmailInput(attrs={'class': 'form-control'}))
+    nombre = forms.CharField(label='Nombre', max_length=50, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    apellido = forms.CharField(label='Apellido', max_length=50, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    cedula = forms.CharField(label='Cédula', max_length=10, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    activo = forms.BooleanField(label='Activo', required=False, initial=True, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
+    roles = forms.ModelMultipleChoiceField(queryset=Role.objects.all(), required=False, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
+    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=False, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
+
+class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
+    template_name = 'empleados/create_usuario_empleado.html'
+    form_class = EmpleadoUsuarioForm
+
+    def get(self, request):
+        form = self.form_class()
+        return render(request, self.template_name, {'form': form})
+
+    def post(self, request):
+        form = self.form_class(request.POST)
+        if form.is_valid():
+            # Crear usuario
+            user = User.objects.create_user(
+                username=form.cleaned_data['username'],
+                password=form.cleaned_data['password'],
+                email=form.cleaned_data['email']
+            )
+            # Crear empleado
+            empleado = Empleado.objects.create(
+                user=user,
+                nombre=form.cleaned_data['nombre'],
+                apellido=form.cleaned_data['apellido'],
+                cedula=form.cleaned_data['cedula'],
+                email=form.cleaned_data['email'],
+                activo=form.cleaned_data['activo']
+            )
+            # Asignar roles
+            for rol in form.cleaned_data['roles']:
+                EmpleadoRole.objects.create(empleado=empleado, role=rol)
+            # Asignar salas
+            for sala in form.cleaned_data['salas']:
+                CompetenciaEmpleado.objects.create(empleado=empleado, sala=sala)
+            messages.success(request, 'Usuario y empleado creados correctamente.')
+            return redirect('empleados')
+        return render(request, self.template_name, {'form': form})
+
+class AsignarRolesSalasForm(forms.Form):
+    roles = forms.ModelMultipleChoiceField(queryset=Role.objects.all(), required=False)
+    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=False)
+
+class AsignarRolesSalasView(LoginRequiredMixin, AdminRequiredMixin, View):
+    template_name = 'empleados/asignar_roles_salas.html'
+    form_class = AsignarRolesSalasForm
+
+    def get(self, request, empleado_id):
+        empleado = Empleado.objects.get(pk=empleado_id)
+        roles_actuales = empleado.empleadorole_set.values_list('role_id', flat=True)
+        salas_actuales = empleado.competenciaempleado_set.values_list('sala_id', flat=True)
+        form = self.form_class(initial={
+            'roles': roles_actuales,
+            'salas': salas_actuales
+        })
+        return render(request, self.template_name, {'form': form, 'empleado': empleado})
+
+    def post(self, request, empleado_id):
+        empleado = Empleado.objects.get(pk=empleado_id)
+        form = self.form_class(request.POST)
+        if form.is_valid():
+            # Actualizar roles
+            EmpleadoRole.objects.filter(empleado=empleado).delete()
+            for rol in form.cleaned_data['roles']:
+                EmpleadoRole.objects.create(empleado=empleado, role=rol)
+            # Actualizar salas
+            CompetenciaEmpleado.objects.filter(empleado=empleado).delete()
+            for sala in form.cleaned_data['salas']:
+                CompetenciaEmpleado.objects.create(empleado=empleado, sala=sala)
+            messages.success(request, 'Roles y salas actualizados correctamente.')
+            return redirect('empleados')
+        return render(request, self.template_name, {'form': form, 'empleado': empleado})
+
+# CRUD de Salas
+class SalaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = Sala
+    template_name = 'empleados/salas_list.html'
+    context_object_name = 'salas'
+
+class SalaCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = Sala
+    template_name = 'empleados/salas_create.html'
+    fields = ['nombre', 'activo']
+    success_url = '/empleados/salas/'
+
+class SalaUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = Sala
+    template_name = 'empleados/salas_edit.html'
+    fields = ['nombre', 'activo']
+    success_url = '/empleados/salas/'
+
+class SalaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = Sala
+    template_name = 'empleados/salas_confirm_delete.html'
+    success_url = '/empleados/salas/'
+
+# CRUD de Jornadas
+class JornadaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = Jornada
+    template_name = 'empleados/jornadas_list.html'
+    context_object_name = 'jornadas'
+
+class JornadaCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = Jornada
+    template_name = 'empleados/jornadas_create.html'
+    fields = ['nombre', 'hora_inicio', 'hora_fin']
+    success_url = '/empleados/jornadas/'
+
+class JornadaUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = Jornada
+    template_name = 'empleados/jornadas_edit.html'
+    fields = ['nombre', 'hora_inicio', 'hora_fin']
+    success_url = '/empleados/jornadas/'
+
+class JornadaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = Jornada
+    template_name = 'empleados/jornadas_confirm_delete.html'
+    success_url = '/empleados/jornadas/'
+
+# CRUD de Restricciones
+class RestriccionListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = RestriccionEmpleado
+    template_name = 'empleados/restricciones_list.html'
+    context_object_name = 'restricciones'
+
+class RestriccionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = RestriccionEmpleado
+    template_name = 'empleados/restricciones_create.html'
+    fields = ['empleado', 'fecha_inicio', 'fecha_fin', 'recomendacion', 'tipo_restriccion']
+    success_url = '/empleados/restricciones/'
+
+class RestriccionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = RestriccionEmpleado
+    template_name = 'empleados/restricciones_edit.html'
+    fields = ['empleado', 'fecha_inicio', 'fecha_fin', 'recomendacion', 'tipo_restriccion']
+    success_url = '/empleados/restricciones/'
+
+class RestriccionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = RestriccionEmpleado
+    template_name = 'empleados/restricciones_confirm_delete.html'
+    success_url = '/empleados/restricciones/'
+
+# CRUD de Sanciones
+class SancionListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = SancionEmpleado
+    template_name = 'empleados/sanciones_list.html'
+    context_object_name = 'sanciones'
+
+class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = SancionEmpleado
+    template_name = 'empleados/sanciones_create.html'
+    fields = ['explorador', 'fecha_inicio', 'fecha_fin', 'motivo', 'supervisor']
+    success_url = '/empleados/sanciones/'
+
+class SancionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = SancionEmpleado
+    template_name = 'empleados/sanciones_edit.html'
+    fields = ['explorador', 'fecha_inicio', 'fecha_fin', 'motivo', 'supervisor']
+    success_url = '/empleados/sanciones/'
+
+class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = SancionEmpleado
+    template_name = 'empleados/sanciones_confirm_delete.html'
+    success_url = '/empleados/sanciones/'
+
+# CRUD de PDH (Pago de Horas)
+class PDHListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = PDH
+    template_name = 'empleados/pdh_list.html'
+    context_object_name = 'pdhs'
+
+class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = PDH
+    template_name = 'empleados/pdh_create.html'
+    fields = ['empleado', 'fecha', 'horas', 'monto', 'estado']
+    success_url = '/empleados/pdh/'
+
+class PDHUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = PDH
+    template_name = 'empleados/pdh_edit.html'
+    fields = ['empleado', 'fecha', 'horas', 'monto', 'estado']
+    success_url = '/empleados/pdh/'
+
+class PDHDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = PDH
+    template_name = 'empleados/pdh_confirm_delete.html'
+    success_url = '/empleados/pdh/'
+
+class ChangePasswordView(LoginRequiredMixin, AdminRequiredMixin, View):
+    template_name = 'empleados/change_password.html'
+    form_class = SetPasswordForm
+
+    def get(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        form = self.form_class(user)
+        return render(request, self.template_name, {
+            'form': form, 
+            'target_user': user,
+            'empleado': getattr(user, 'empleado', None)
+        })
+
+    def post(self, request, user_id):
+        user = get_object_or_404(User, pk=user_id)
+        form = self.form_class(user, request.POST)
+        if form.is_valid():
+            form.save()
+            messages.success(request, f'Contraseña actualizada correctamente para {user.username}.')
+            return redirect(reverse_lazy('empleados'))
+        return render(request, self.template_name, {
+            'form': form, 
+            'target_user': user,
+            'empleado': getattr(user, 'empleado', None)
+        })

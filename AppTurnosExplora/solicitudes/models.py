@@ -35,11 +35,11 @@ class CambioPermanenteDetalle(models.Model):
 
 class PermisoDetalle(models.Model):
     solicitud=models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='permiso')
+    horas_solicitadas=models.DecimalField(max_digits=5, decimal_places=2, default=0)
     historial=HistoricalRecords()
 
-
     def __str__(self):
-        return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud}" #type:ignore
+        return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud} - horas: {self.horas_solicitadas}" #type:ignore
 
 class DobladaDetalle(models.Model):
     solicitud=models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='doblada')

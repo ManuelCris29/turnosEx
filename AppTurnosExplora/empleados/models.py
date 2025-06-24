@@ -12,7 +12,7 @@ class Jornada(models.Model):
     historial = HistoricalRecords()
     
     def __str__(self):
-        return self.nombre
+        return str(self.nombre)
 
 class Empleado(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -25,14 +25,14 @@ class Empleado(models.Model):
 
     
     def __str__(self):
-        return self.user.username  #type:ignore
+        return f"{self.nombre} {self.apellido} ({self.user.username})"
 
 class Role(models.Model):
     nombre = models.CharField(max_length=50)
     historial = HistoricalRecords()
     
     def __str__(self):
-        return self.nombre
+        return str(self.nombre)
 
 class EmpleadoRole(models.Model):
     empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
@@ -40,7 +40,7 @@ class EmpleadoRole(models.Model):
     historial = HistoricalRecords()
     
     def __str__(self):
-        return f"{self.empleado.user.username} - {self.role.nombre}" #type:ignore
+        return f"{self.empleado.nombre} {self.empleado.apellido} - {self.role.nombre}"
 
 class Sala(models.Model):
     nombre = models.CharField(max_length=50)
@@ -48,7 +48,7 @@ class Sala(models.Model):
     historial = HistoricalRecords()
     
     def __str__(self):
-        return self.nombre
+        return str(self.nombre)
 
 class CompetenciaEmpleado(models.Model):
     empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
@@ -56,7 +56,7 @@ class CompetenciaEmpleado(models.Model):
     historial = HistoricalRecords()
     
     def __str__(self):
-        return f"{self.empleado.user.username} - {self.sala.nombre}" #type:ignore
+        return f"{self.empleado.nombre} {self.empleado.apellido} - {self.sala.nombre}"
 
 class RestriccionEmpleado(models.Model):
     empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
@@ -69,10 +69,10 @@ class RestriccionEmpleado(models.Model):
     historial = HistoricalRecords()
     
     def __str__(self):
-        return f"{self.empleado.user.username} - {self.restriccion.nombre}" #type:ignore
+        return f"{self.empleado.nombre} {self.empleado.apellido} - {self.tipo_restriccion}"
 
 class SancionEmpleado(models.Model):
-    explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
+    explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='sanciones_explorador')
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField(null=True, blank=True)
     motivo = models.TextField()
@@ -82,5 +82,5 @@ class SancionEmpleado(models.Model):
     historial = HistoricalRecords()
     
     def __str__(self):
-        return f"{self.empleado.user.username} - {self.fecha_inicio}" #type:ignore
+        return f"{self.explorador.nombre} {self.explorador.apellido} - {self.fecha_inicio} supervisado por {self.supervisor.nombre} {self.supervisor.apellido}"
 

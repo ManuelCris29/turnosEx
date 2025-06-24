@@ -32,6 +32,7 @@
                 <tr>
                     <th>Cédula</th>
                     <th>Nombre</th>
+                    <th>Usuario</th>
                     <th>Salas</th>
                     <th>Rol</th>
                     <th>Estado</th>
@@ -43,6 +44,13 @@
                 <tr>
                     <td>{{ empleado.cedula }}</td>
                     <td>{{ empleado.nombre }} {{ empleado.apellido }}</td>
+                    <td>
+                        {% if empleado.user %}
+                            <span class="badge badge-info">{{ empleado.user.username }}</span>
+                        {% else %}
+                            <span class="badge badge-warning">Sin usuario</span>
+                        {% endif %}
+                    </td>
                     <td>
                         {% for competencia in empleado.competenciaempleado_set.all %}
                             <span class="badge badge-info">{{ competencia.sala.nombre }}</span>
@@ -67,6 +75,17 @@
                         <a href="{% url 'empleado_edit' empleado.id %}" class="btn btn-primary btn-sm">
                             <i class="fas fa-edit"></i>
                         </a>
+                        {% if is_admin_user %}
+                        <a href="{% url 'change_password' empleado.user.id %}" class="btn btn-warning btn-sm" title="Cambiar Contraseña">
+                            <i class="fas fa-key"></i>
+                        </a>
+                        <a href="{% url 'asignar_roles_salas' empleado.id %}" class="btn btn-warning btn-sm">
+                            <i class="fas fa-user-cog"></i> Roles/Salas
+                        </a>
+                        <a href="{% url 'empleado_delete' empleado.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este empleado?');">
+                            <i class="fas fa-trash-alt"></i>
+                        </a>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -75,6 +94,25 @@
     </div>
     <!-- /.card-body -->
 </div>
+
+{% if is_admin_user %}
+<div class="mb-3">
+    <a href="{% url 'empleado_usuario_create' %}" class="btn btn-primary">
+        <i class="fas fa-user-plus"></i> Nuevo Usuario + Empleado
+    </a>
+</div>
+{% endif %}
+
+{% if not has_empleado %}
+<div class="alert alert-warning mt-3">
+    <strong>Atención:</strong> Tu usuario no tiene un objeto <b>Empleado</b> asociado.<br>
+    {% if is_admin_user %}
+        Por favor, crea tu propio registro de empleado desde <a href="{% url 'empleado_create' %}">aquí</a>.
+    {% else %}
+        Contacta a un administrador para que te registre como empleado.
+    {% endif %}
+</div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}

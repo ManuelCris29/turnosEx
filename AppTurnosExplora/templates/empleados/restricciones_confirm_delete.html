@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Eliminar Restricción{% endblock %}
+{% block page_title %}Eliminar Restricción{% endblock %}
+{% block content %}
+<div class="container mt-4">
+    <h2>¿Eliminar Restricción?</h2>
+    <p>¿Estás seguro de que deseas eliminar la restricción de <strong>{{ object.empleado }}</strong>?</p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+        <a href="{% url 'restricciones_list' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 

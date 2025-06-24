@@ -85,8 +85,8 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="{% url 'permisos_especiales' %}" class="nav-link">
-                                <i class="nav-icon fas fa-id-card"></i>
+                            <a href="{% url 'permisos_especiales_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-calendar-check"></i>
                                 <p>Permisos Especiales</p>
                             </a>
                         </li>
@@ -97,9 +97,33 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="{% url 'restricciones' %}" class="nav-link">
+                            <a href="{% url 'restricciones_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-ban"></i>
                                 <p>Restricciones</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'sanciones_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-gavel"></i>
+                                <p>Sanciones</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'pdh_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-dollar-sign"></i>
+                                <p>PDH</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'permisodetalle_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-clock"></i>
+                                <p>Permisos Detalle</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'tiposolicitudcambio_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-random"></i>
+                                <p>Tipos de Solicitud</p>
                             </a>
                         </li>
                         
@@ -113,25 +137,31 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="{% url 'secciones' %}" class="nav-link">
+                            <a href="{% url 'salas_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-sitemap"></i>
-                                <p>Secciones</p>
+                                <p>Salas</p>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="{% url 'jornadas' %}" class="nav-link">
-                                <i class="nav-icon fas fa-calendar"></i>
+                            <a href="{% url 'turnos_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-calendar-day"></i>
+                                <p>Turnos</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'jornadas_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-calendar-alt"></i>
                                 <p>Jornadas</p>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="{% url 'roles' %}" class="nav-link">
+                            <a href="{% url 'roles_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-user-tag"></i>
                                 <p>Roles y Permisos</p>
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a href="{% url 'dias_especiales' %}" class="nav-link">
+                            <a href="{% url 'dias_especiales_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-star"></i>
                                 <p>Días Especiales</p>
                             </a>

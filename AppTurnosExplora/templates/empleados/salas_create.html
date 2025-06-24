@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Crear Sala{% endblock %}
+{% block page_title %}Crear Sala{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Crear Sala</h2>
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit" class="btn btn-primary">Guardar</button>
+        <a href="{% url 'salas_list' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 

@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Sanciones - AppTurnos{% endblock %}
+{% block page_title %}Sanciones{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Lista de Sanciones</h2>
+    <a href="{% url 'sanciones_create' %}" class="btn btn-success mb-3">
+        <i class="fas fa-plus"></i> Nueva Sanción
+    </a>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Explorador</th>
+                <th>Motivo</th>
+                <th>Supervisor</th>
+                <th>Fecha Inicio</th>
+                <th>Fecha Fin</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sancion in sanciones %}
+            <tr>
+                <td>{{ sancion.id }}</td>
+                <td>{{ sancion.explorador }}</td>
+                <td>{{ sancion.motivo }}</td>
+                <td>{{ sancion.supervisor }}</td>
+                <td>{{ sancion.fecha_inicio }}</td>
+                <td>{{ sancion.fecha_fin }}</td>
+                <td>
+                    <a href="{% url 'sanciones_edit' sancion.id %}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <a href="{% url 'sanciones_delete' sancion.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar esta sanción?');">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="7">No hay sanciones registradas.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %} 

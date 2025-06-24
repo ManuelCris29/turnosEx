@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Eliminar Turno{% endblock %}
+{% block page_title %}Eliminar Turno{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>¿Estás seguro que deseas eliminar este turno?</h2>
+    <p><strong>{{ object.explorador.nombre }} {{ object.explorador.apellido }} - {{ object.fecha }}</strong></p>
+    <form method="post">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-danger">Eliminar</button>
+        <a href="{% url 'turnos_list' %}" class="btn btn-secondary">Cancelar</a>
+    </form>
+</div>
+{% endblock %} 
