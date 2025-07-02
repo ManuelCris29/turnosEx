@@ -5,13 +5,27 @@
 {% block page_title %}Eliminar Empleado{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h2>¿Estás seguro que deseas eliminar este empleado?</h2>
-    <p><strong>{{ object.nombre }} {{ object.apellido }}</strong> ({{ object.user.username }})</p>
-    <form method="post">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-danger">Eliminar</button>
-        <a href="{% url 'empleados' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0"><i class="fas fa-trash-alt"></i> Eliminar Empleado</h4>
+                </div>
+                <div class="card-body text-center">
+                    <p class="lead">¿Estás seguro que deseas eliminar el empleado <strong>{{ object.nombre }} {{ object.apellido }}</strong> ({{ object.user.username }})?</p>
+                    <form method="post">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger px-4">
+                            <i class="fas fa-trash-alt"></i> Eliminar
+                        </button>
+                        <a href="{% url 'empleados' %}" class="btn btn-secondary px-4">
+                            <i class="fas fa-arrow-left"></i> Cancelar
+                        </a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %} 

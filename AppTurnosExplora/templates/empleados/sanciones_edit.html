@@ -1,14 +1,56 @@
 {% extends 'base.html' %}
+{% load widget_tweaks %}
+
 {% block title %}Editar Sanción{% endblock %}
 {% block page_title %}Editar Sanción{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <h2>Editar Sanción</h2>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
-        <a href="{% url 'sanciones_list' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-10 col-lg-8">
+            <div class="card shadow">
+                <div class="card-header bg-danger text-white">
+                    <h4 class="mb-0"><i class="fas fa-gavel"></i> Editar Sanción</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="id_explorador"><i class="fas fa-user"></i> <strong>Explorador:</strong></label>
+                                {{ form.explorador|add_class:'form-control' }}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="id_supervisor"><i class="fas fa-user-tie"></i> <strong>Supervisor:</strong></label>
+                                {{ form.supervisor|add_class:'form-control' }}
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="id_fecha_inicio"><i class="fas fa-calendar-alt"></i> <strong>Fecha Inicio:</strong></label>
+                                {{ form.fecha_inicio|add_class:'form-control' }}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="id_fecha_fin"><i class="fas fa-calendar-alt"></i> <strong>Fecha Fin:</strong></label>
+                                {{ form.fecha_fin|add_class:'form-control' }}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="id_motivo"><i class="fas fa-align-left"></i> <strong>Motivo:</strong></label>
+                            {{ form.motivo|add_class:'form-control' }}
+                        </div>
+                        <div class="form-group text-center mt-4">
+                            <button type="submit" class="btn btn-danger px-4">
+                                <i class="fas fa-save"></i> Guardar Cambios
+                            </button>
+                            <a href="{% url 'sanciones_list' %}" class="btn btn-secondary px-4">
+                                <i class="fas fa-arrow-left"></i> Cancelar
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %} 

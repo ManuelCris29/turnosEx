@@ -102,30 +102,14 @@
                                 <p>Restricciones</p>
                             </a>
                         </li>
-                        <li class="nav-item">
-                            <a href="{% url 'sanciones_list' %}" class="nav-link">
-                                <i class="nav-icon fas fa-gavel"></i>
-                                <p>Sanciones</p>
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a href="{% url 'pdh_list' %}" class="nav-link">
-                                <i class="nav-icon fas fa-dollar-sign"></i>
-                                <p>PDH</p>
-                            </a>
-                        </li>
+                        
                         <li class="nav-item">
                             <a href="{% url 'permisodetalle_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-clock"></i>
                                 <p>Permisos Detalle</p>
                             </a>
                         </li>
-                        <li class="nav-item">
-                            <a href="{% url 'tiposolicitudcambio_list' %}" class="nav-link">
-                                <i class="nav-icon fas fa-random"></i>
-                                <p>Tipos de Solicitud</p>
-                            </a>
-                        </li>
+                        
                         
                         <!-- Admin Section -->
                         {% if user.is_staff %}
@@ -134,6 +118,13 @@
                             <a href="{% url 'empleados' %}" class="nav-link">
                                 <i class="nav-icon fas fa-users"></i>
                                 <p>Empleados/Exploradores</p>
+                            </a>
+                        </li>
+
+                        <li class="nav-item">
+                            <a href="{% url 'tiposolicitudcambio_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-random"></i>
+                                <p>Tipos de Solicitud</p>
                             </a>
                         </li>
                         <li class="nav-item">
@@ -154,6 +145,21 @@
                                 <p>Jornadas</p>
                             </a>
                         </li>
+
+                        <li class="nav-item">
+                            <a href="{% url 'pdh_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-dollar-sign"></i>
+                                <p>PDH</p>
+                            </a>
+                        </li>
+
+                        <li class="nav-item">
+                            <a href="{% url 'sanciones_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-gavel"></i>
+                                <p>Sanciones</p>
+                            </a>
+                        </li>
+
                         <li class="nav-item">
                             <a href="{% url 'roles_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-user-tag"></i>

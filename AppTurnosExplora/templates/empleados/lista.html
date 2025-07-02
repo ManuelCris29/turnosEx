@@ -11,108 +11,106 @@
 {% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h3 class="card-title">Lista de Empleados</h3>
-        <div class="card-tools">
-            <div class="input-group input-group-sm" style="width: 150px;">
-                <input type="text" name="table_search" class="form-control float-right" placeholder="Buscar">
-                <div class="input-group-append">
-                    <button type="submit" class="btn btn-default">
-                        <i class="fas fa-search"></i>
-                    </button>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white d-flex align-items-center justify-content-between">
+                    <h4 class="mb-0"><i class="fas fa-users"></i> Lista de Empleados</h4>
+                    <div>
+                        {% if is_admin_user %}
+                        <a href="{% url 'empleado_usuario_create' %}" class="btn btn-success">
+                            <i class="fas fa-user-plus"></i> Nuevo Usuario + Empleado
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped table-bordered" id="empleados-table">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>Cédula</th>
+                                    <th>Nombre</th>
+                                    <th>Usuario</th>
+                                    <th>Jornada</th>
+                                    <th>Salas</th>
+                                    <th>Rol</th>
+                                    <th>Estado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for empleado, jornada in empleados_jornadas %}
+                                <tr>
+                                    <td>{{ empleado.cedula }}</td>
+                                    <td>{{ empleado.nombre }} {{ empleado.apellido }}</td>
+                                    <td>
+                                        {% if empleado.user %}
+                                            <span class="badge badge-info">{{ empleado.user.username }}</span>
+                                        {% else %}
+                                            <span class="badge badge-warning">Sin usuario</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-secondary">{{ jornada }}</span>
+                                    </td>
+                                    <td>
+                                        {% for competencia in empleado.competenciaempleado_set.all %}
+                                            <span class="badge badge-info">{{ competencia.sala.nombre }}</span>
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        {% for empleado_rol in empleado.empleadorole_set.all %}
+                                            <span class="badge badge-primary">{{ empleado_rol.role.nombre }}</span>
+                                        {% endfor %}
+                                    </td>
+                                    <td>
+                                        {% if empleado.activo %}
+                                        <span class="badge badge-success">Activo</span>
+                                        {% else %}
+                                        <span class="badge badge-danger">Inactivo</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <a href="{% url 'empleado_detail' empleado.id %}" class="btn btn-info btn-sm" title="Ver Detalle">
+                                            <i class="fas fa-eye"></i>
+                                        </a>
+                                        <a href="{% url 'empleado_edit' empleado.id %}" class="btn btn-primary btn-sm" title="Editar">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        {% if is_admin_user %}
+                                        <a href="{% url 'change_password' empleado.user.id %}" class="btn btn-warning btn-sm" title="Cambiar Contraseña">
+                                            <i class="fas fa-key"></i>
+                                        </a>
+                                        <a href="{% url 'asignar_roles_salas' empleado.id %}" class="btn btn-warning btn-sm" title="Roles/Salas">
+                                            <i class="fas fa-user-cog"></i>
+                                        </a>
+                                        <a href="{% url 'empleado_delete' empleado.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este empleado?');">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% if not has_empleado %}
+                    <div class="alert alert-warning mt-3">
+                        <strong>Atención:</strong> Tu usuario no tiene un objeto <b>Empleado</b> asociado.<br>
+                        {% if is_admin_user %}
+                            Por favor, crea tu propio registro de empleado desde <a href="{% url 'empleado_create' %}">aquí</a>.
+                        {% else %}
+                            Contacta a un administrador para que te registre como empleado.
+                        {% endif %}
+                    </div>
+                    {% endif %}
                 </div>
             </div>
         </div>
     </div>
-    <!-- /.card-header -->
-    <div class="card-body table-responsive p-0">
-        <table class="table table-hover text-nowrap" id="empleados-table">
-            <thead>
-                <tr>
-                    <th>Cédula</th>
-                    <th>Nombre</th>
-                    <th>Usuario</th>
-                    <th>Salas</th>
-                    <th>Rol</th>
-                    <th>Estado</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for empleado in empleados %}
-                <tr>
-                    <td>{{ empleado.cedula }}</td>
-                    <td>{{ empleado.nombre }} {{ empleado.apellido }}</td>
-                    <td>
-                        {% if empleado.user %}
-                            <span class="badge badge-info">{{ empleado.user.username }}</span>
-                        {% else %}
-                            <span class="badge badge-warning">Sin usuario</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% for competencia in empleado.competenciaempleado_set.all %}
-                            <span class="badge badge-info">{{ competencia.sala.nombre }}</span>
-                        {% endfor %}
-                    </td>
-                    <td>
-                        {% for empleado_rol in empleado.empleadorole_set.all %}
-                            <span class="badge badge-primary">{{ empleado_rol.role.nombre }}</span>
-                        {% endfor %}
-                    </td>
-                    <td>
-                        {% if empleado.activo %}
-                        <span class="badge badge-success">Activo</span>
-                        {% else %}
-                        <span class="badge badge-danger">Inactivo</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <a href="{% url 'empleado_detail' empleado.id %}" class="btn btn-info btn-sm">
-                            <i class="fas fa-eye"></i>
-                        </a>
-                        <a href="{% url 'empleado_edit' empleado.id %}" class="btn btn-primary btn-sm">
-                            <i class="fas fa-edit"></i>
-                        </a>
-                        {% if is_admin_user %}
-                        <a href="{% url 'change_password' empleado.user.id %}" class="btn btn-warning btn-sm" title="Cambiar Contraseña">
-                            <i class="fas fa-key"></i>
-                        </a>
-                        <a href="{% url 'asignar_roles_salas' empleado.id %}" class="btn btn-warning btn-sm">
-                            <i class="fas fa-user-cog"></i> Roles/Salas
-                        </a>
-                        <a href="{% url 'empleado_delete' empleado.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este empleado?');">
-                            <i class="fas fa-trash-alt"></i>
-                        </a>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-    <!-- /.card-body -->
 </div>
-
-{% if is_admin_user %}
-<div class="mb-3">
-    <a href="{% url 'empleado_usuario_create' %}" class="btn btn-primary">
-        <i class="fas fa-user-plus"></i> Nuevo Usuario + Empleado
-    </a>
-</div>
-{% endif %}
-
-{% if not has_empleado %}
-<div class="alert alert-warning mt-3">
-    <strong>Atención:</strong> Tu usuario no tiene un objeto <b>Empleado</b> asociado.<br>
-    {% if is_admin_user %}
-        Por favor, crea tu propio registro de empleado desde <a href="{% url 'empleado_create' %}">aquí</a>.
-    {% else %}
-        Contacta a un administrador para que te registre como empleado.
-    {% endif %}
-</div>
-{% endif %}
 {% endblock %}
 
 {% block extra_js %}

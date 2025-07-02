@@ -15,8 +15,7 @@ class CambiosTurnoView(LoginRequiredMixin, TemplateView):
 class ConsolidadoHorasView(LoginRequiredMixin, TemplateView):
     template_name = 'turnos/placeholder.html'
 
-class DiasEspecialesView(LoginRequiredMixin, TemplateView):
-    template_name = 'turnos/placeholder.html'
+
 
 # CRUD de Turnos
 class TurnoListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
@@ -41,6 +40,8 @@ class TurnoDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     template_name = 'turnos/turnos_confirm_delete.html'
     success_url = '/turnos/lista/'
 
+class DiasEspecialesView(LoginRequiredMixin, TemplateView):
+    template_name = 'turnos/diasespeciales_list.html'
 # CRUD de Días Especiales
 class DiaEspecialListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     model = DiaEspecial

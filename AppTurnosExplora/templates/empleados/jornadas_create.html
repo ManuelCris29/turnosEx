@@ -1,14 +1,44 @@
 {% extends 'base.html' %}
+{% load widget_tweaks %}
 {% block title %}Nueva Jornada{% endblock %}
 {% block page_title %}Nueva Jornada{% endblock %}
 {% block content %}
-<div class="container mt-4">
-    <h2>Nueva Jornada</h2>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-success">Guardar</button>
-        <a href="{% url 'jornadas_list' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0"><i class="fas fa-clock"></i> Nueva Jornada</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label for="id_nombre"><i class="fas fa-id-badge"></i> <strong>Nombre:</strong></label>
+                            {{ form.nombre|add_class:'form-control' }}
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="id_hora_inicio"><i class="fas fa-clock"></i> <strong>Hora Inicio:</strong></label>
+                                {{ form.hora_inicio|add_class:'form-control' }}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="id_hora_fin"><i class="fas fa-clock"></i> <strong>Hora Fin:</strong></label>
+                                {{ form.hora_fin|add_class:'form-control' }}
+                            </div>
+                        </div>
+                        <div class="form-group text-center mt-4">
+                            <button type="submit" class="btn btn-info px-4">
+                                <i class="fas fa-save"></i> Guardar
+                            </button>
+                            <a href="{% url 'jornadas_list' %}" class="btn btn-secondary px-4">
+                                <i class="fas fa-arrow-left"></i> Cancelar
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %} 

@@ -4,41 +4,53 @@
 {% block page_title %}Tipos de Solicitud de Cambio{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h2>Lista de Tipos de Solicitud de Cambio</h2>
-    <a href="{% url 'tiposolicitudcambio_create' %}" class="btn btn-success mb-3">
-        <i class="fas fa-plus"></i> Nuevo Tipo de Solicitud
-    </a>
-    <table class="table table-bordered">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Nombre</th>
-                <th>Activo</th>
-                <th>Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for tipo in tiposolicitudes %}
-            <tr>
-                <td>{{ tipo.id }}</td>
-                <td>{{ tipo.nombre }}</td>
-                <td>{% if tipo.activo %}Sí{% else %}No{% endif %}</td>
-                <td>
-                    <a href="{% url 'tiposolicitudcambio_edit' tipo.id %}" class="btn btn-primary btn-sm">
-                        <i class="fas fa-edit"></i>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-10 col-lg-8">
+            <div class="card shadow">
+                <div class="card-header" style="background-color: #6f42c1; color: #fff;">
+                    <h4 class="mb-0"><i class="fas fa-list-alt"></i> Lista de Tipos de Solicitud de Cambio</h4>
+                </div>
+                <div class="card-body">
+                    <a href="{% url 'tiposolicitudcambio_create' %}" class="btn btn-success mb-3">
+                        <i class="fas fa-plus"></i> Nuevo Tipo de Solicitud
                     </a>
-                    <a href="{% url 'tiposolicitudcambio_delete' tipo.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este tipo de solicitud?');">
-                        <i class="fas fa-trash-alt"></i>
-                    </a>
-                </td>
-            </tr>
-            {% empty %}
-            <tr>
-                <td colspan="4">No hay tipos de solicitud registrados.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped table-bordered">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Nombre</th>
+                                    <th>Activo</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for tipo in tipos_solicitud %}
+                                <tr>
+                                    <td>{{ tipo.id }}</td>
+                                    <td>{{ tipo.nombre }}</td>
+                                    <td>{% if tipo.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
+                                    <td>
+                                        <a href="{% url 'tiposolicitudcambio_edit' tipo.id %}" class="btn btn-primary btn-sm" title="Editar">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a href="{% url 'tiposolicitudcambio_delete' tipo.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este tipo de solicitud?');">
+                                            <i class="fas fa-trash-alt"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="4">No hay tipos de solicitud registrados.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %} 

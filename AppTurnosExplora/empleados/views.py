@@ -13,6 +13,9 @@ from django.shortcuts import redirect, get_object_or_404
 from django.contrib import messages
 from django.contrib.auth.forms import SetPasswordForm
 from django.urls import reverse_lazy
+from turnos.models import AsignarJornadaExplorador
+from django.utils import timezone
+from .forms import SancionEmpleadoForm, RestriccionEmpleadoForm
 
 # Mixin personalizado para verificar permisos de administrador
 class AdminRequiredMixin:
@@ -61,6 +64,14 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
             context['has_empleado'] = True
         except Exception:
             context['has_empleado'] = False
+        # Agregar jornadas actuales de cada empleado
+        empleados = context.get('empleados', [])
+        empleados_jornadas = []
+        for empleado in empleados:
+            asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado).order_by('-fecha_inicio').first()
+            jornada = asignacion.jornada.nombre if asignacion else "-"
+            empleados_jornadas.append((empleado, jornada))
+        context['empleados_jornadas'] = empleados_jornadas
         return context
     
     def get_queryset(self):
@@ -89,11 +100,50 @@ class EmpleadoDetailView(LoginRequiredMixin, DetailView):
     model = Empleado
     template_name = 'empleados/detail.html'
 
+class EmpleadoEditForm(forms.ModelForm):
+    jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=True, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
+    class Meta:
+        model = Empleado
+        fields = ['nombre', 'apellido', 'cedula', 'email', 'activo']
+
+    def __init__(self, *args, **kwargs):
+        empleado = kwargs.get('instance')
+        super().__init__(*args, **kwargs)
+        if empleado:
+            from turnos.models import AsignarJornadaExplorador
+            asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado).order_by('-fecha_inicio').first()
+            self.fields['jornada'].initial = asignacion.jornada.id if asignacion else None
+
 class EmpleadoEditView(LoginRequiredMixin, UpdateView):
     model = Empleado
     template_name = 'empleados/edit.html'
-    fields = ['nombre', 'apellido', 'cedula', 'email', 'activo'] # Campos de ejemplo
-    success_url = '/empleados/' # Redirigir a la lista después de editar
+    form_class = EmpleadoEditForm
+    success_url = '/empleados/'
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        from turnos.models import AsignarJornadaExplorador
+        jornada = form.cleaned_data['jornada']
+        empleado = self.object
+        # Cierra la asignación anterior si existe
+        asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_fin__isnull=True).order_by('-fecha_inicio').first()
+        if asignacion and asignacion.jornada != jornada:
+            asignacion.fecha_fin = timezone.now().date()
+            asignacion.save()
+            # Crea nueva asignación
+            AsignarJornadaExplorador.objects.create(
+                explorador=empleado,
+                jornada=jornada,
+                fecha_inicio=timezone.now().date()
+            )
+        elif not asignacion:
+            # Si no hay asignación previa, crea una nueva
+            AsignarJornadaExplorador.objects.create(
+                explorador=empleado,
+                jornada=jornada,
+                fecha_inicio=timezone.now().date()
+            )
+        return response
 
 class EmpleadoDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = Empleado
@@ -137,15 +187,16 @@ class RoleDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
 
 # Formulario personalizado para crear usuario, empleado, roles y salas
 class EmpleadoUsuarioForm(forms.Form):
-    username = forms.CharField(label='Usuario', max_length=150, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    password = forms.CharField(label='Contraseña', widget=forms.PasswordInput(attrs={'class': 'form-control'}))
-    email = forms.EmailField(label='Email', widget=forms.EmailInput(attrs={'class': 'form-control'}))
-    nombre = forms.CharField(label='Nombre', max_length=50, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    apellido = forms.CharField(label='Apellido', max_length=50, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    cedula = forms.CharField(label='Cédula', max_length=10, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    username = forms.CharField(label='Usuario', max_length=150, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    password = forms.CharField(label='Contraseña', required=True, widget=forms.PasswordInput(attrs={'class': 'form-control'}))
+    email = forms.EmailField(label='Email', required=True, widget=forms.EmailInput(attrs={'class': 'form-control'}))
+    nombre = forms.CharField(label='Nombre', max_length=50, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    apellido = forms.CharField(label='Apellido', max_length=50, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    cedula = forms.CharField(label='Cédula', max_length=10, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
     activo = forms.BooleanField(label='Activo', required=False, initial=True, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
-    roles = forms.ModelMultipleChoiceField(queryset=Role.objects.all(), required=False, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
-    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=False, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
+    roles = forms.ModelMultipleChoiceField(queryset=Role.objects.all(), required=True, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
+    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=True, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
+    jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=True, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
 
 class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
     template_name = 'empleados/create_usuario_empleado.html'
@@ -156,6 +207,8 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         return render(request, self.template_name, {'form': form})
 
     def post(self, request):
+        from turnos.models import AsignarJornadaExplorador
+        from datetime import date
         form = self.form_class(request.POST)
         if form.is_valid():
             # Crear usuario
@@ -179,6 +232,13 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
             # Asignar salas
             for sala in form.cleaned_data['salas']:
                 CompetenciaEmpleado.objects.create(empleado=empleado, sala=sala)
+            # Asignar jornada
+            jornada = form.cleaned_data['jornada']
+            AsignarJornadaExplorador.objects.create(
+                explorador=empleado,
+                jornada=jornada,
+                fecha_inicio=date.today()
+            )
             messages.success(request, 'Usuario y empleado creados correctamente.')
             return redirect('empleados')
         return render(request, self.template_name, {'form': form})
@@ -271,14 +331,14 @@ class RestriccionListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
 
 class RestriccionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = RestriccionEmpleado
+    form_class = RestriccionEmpleadoForm
     template_name = 'empleados/restricciones_create.html'
-    fields = ['empleado', 'fecha_inicio', 'fecha_fin', 'recomendacion', 'tipo_restriccion']
     success_url = '/empleados/restricciones/'
 
 class RestriccionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = RestriccionEmpleado
+    form_class = RestriccionEmpleadoForm
     template_name = 'empleados/restricciones_edit.html'
-    fields = ['empleado', 'fecha_inicio', 'fecha_fin', 'recomendacion', 'tipo_restriccion']
     success_url = '/empleados/restricciones/'
 
 class RestriccionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
@@ -294,14 +354,14 @@ class SancionListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
 
 class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = SancionEmpleado
+    form_class = SancionEmpleadoForm
     template_name = 'empleados/sanciones_create.html'
-    fields = ['explorador', 'fecha_inicio', 'fecha_fin', 'motivo', 'supervisor']
     success_url = '/empleados/sanciones/'
 
 class SancionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = SancionEmpleado
+    form_class = SancionEmpleadoForm
     template_name = 'empleados/sanciones_edit.html'
-    fields = ['explorador', 'fecha_inicio', 'fecha_fin', 'motivo', 'supervisor']
     success_url = '/empleados/sanciones/'
 
 class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):

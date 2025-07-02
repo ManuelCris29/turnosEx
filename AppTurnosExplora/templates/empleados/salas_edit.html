@@ -1,16 +1,40 @@
 {% extends 'base.html' %}
+{% load widget_tweaks %}
 
 {% block title %}Editar Sala{% endblock %}
 {% block page_title %}Editar Sala{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h2>Editar Sala</h2>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
-        <a href="{% url 'salas_list' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-10 col-lg-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-door-open"></i> Editar Sala</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-group">
+                            <label for="id_nombre"><i class="fas fa-building"></i> <strong>Nombre:</strong></label>
+                            {{ form.nombre|add_class:'form-control' }}
+                        </div>
+                        <div class="form-group">
+                            <label for="id_descripcion"><i class="fas fa-info-circle"></i> <strong>Descripción:</strong></label>
+                            {{ form.descripcion|add_class:'form-control' }}
+                        </div>
+                        <div class="form-group text-center mt-4">
+                            <button type="submit" class="btn btn-primary px-4">
+                                <i class="fas fa-save"></i> Guardar Cambios
+                            </button>
+                            <a href="{% url 'salas_list' %}" class="btn btn-secondary px-4">
+                                <i class="fas fa-arrow-left"></i> Cancelar
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
-{% endblock %} 
+{% endblock %}
