@@ -100,7 +100,7 @@
                     <div class="alert alert-warning mt-3">
                         <strong>Atención:</strong> Tu usuario no tiene un objeto <b>Empleado</b> asociado.<br>
                         {% if is_admin_user %}
-                            Por favor, crea tu propio registro de empleado desde <a href="{% url 'empleado_create' %}">aquí</a>.
+                            Por favor, crea tu propio registro de empleado desde <a href="{% url 'empleado_usuario_create' %}">aquí</a>.
                         {% else %}
                             Contacta a un administrador para que te registre como empleado.
                         {% endif %}

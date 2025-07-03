@@ -1,0 +1,187 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Solicitar Cambio de Turno{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/solicitudes.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper centered-flex">
+    <div class="solicitud-card">
+        <div class="solicitud-header">
+            <h2 class="mb-1">Solicitud de Cambio de Turno</h2>
+            <div class="text-light">Tipo: {{ tipo_solicitud.nombre }}</div>
+        </div>
+        <div class="p-4">
+            {% if error_message %}
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    {{ error_message }}
+                </div>
+            {% endif %}
+
+            <form method="post" id="cambioTurnoForm" class="solicitud-form">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="fecha_solicitud">
+                        <i class="fas fa-calendar mr-1"></i>Fecha del Cambio
+                    </label>
+                    <input type="date" 
+                           class="form-control" 
+                           id="fecha_solicitud" 
+                           name="fecha_solicitud" 
+                           required
+                           min="{{ fecha_minima|date:'Y-m-d' }}"
+                           value="{{ fecha_seleccionada|date:'Y-m-d' }}">
+                    <small class="form-text text-muted">
+                        Selecciona la fecha para la cual deseas cambiar tu turno
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="empleado_receptor">
+                        <i class="fas fa-user mr-1"></i>Compañero para Intercambiar
+                    </label>
+                    <select class="form-control" id="empleado_receptor" name="empleado_receptor" required>
+                        <option value="">Selecciona un compañero...</option>
+                        {% for empleado in empleados_disponibles %}
+                            <option value="{{ empleado.id }}" 
+                                    {% if empleado.id == empleado_seleccionado %}selected{% endif %}>
+                                {{ empleado.nombre }} {{ empleado.apellido }} 
+                                ({{ empleado.get_jornada_display }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text text-muted">
+                        Solo se muestran compañeros disponibles para la fecha seleccionada
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="comentarios">
+                        <i class="fas fa-comment mr-1"></i>Comentarios (Opcional)
+                    </label>
+                    <textarea class="form-control" 
+                              id="comentarios" 
+                              name="comentarios" 
+                              rows="4" 
+                              placeholder="Explica el motivo del cambio de turno...">{{ comentarios }}</textarea>
+                    <small class="form-text text-muted">
+                        Proporciona detalles adicionales sobre tu solicitud
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label for="recomendacion">
+                        <i class="fas fa-lightbulb mr-1"></i>Recomendación (Opcional)
+                    </label>
+                    <textarea class="form-control" 
+                              id="recomendacion" 
+                              name="recomendacion" 
+                              rows="3" 
+                              placeholder="Sugiere una fecha alternativa o cualquier recomendación...">{{ recomendacion }}</textarea>
+                    <small class="form-text text-muted">
+                        Puedes sugerir fechas alternativas o recomendaciones
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <div class="custom-control custom-checkbox">
+                        <input type="checkbox" class="custom-control-input" id="confirmar" required>
+                        <label class="custom-control-label" for="confirmar">
+                            Confirmo que he revisado mi disponibilidad y estoy seguro de solicitar este cambio de turno
+                        </label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-lg btn-block">
+                        <i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const fechaInput = document.getElementById('fecha_solicitud');
+    const empleadoSelect = document.getElementById('empleado_receptor');
+    const form = document.getElementById('cambioTurnoForm');
+
+    // Función para actualizar la lista de empleados disponibles
+    function actualizarEmpleadosDisponibles() {
+        const fecha = fechaInput.value;
+        if (!fecha) return;
+
+        // Mostrar indicador de carga
+        empleadoSelect.innerHTML = '<option value="">Cargando compañeros...</option>';
+        empleadoSelect.disabled = true;
+
+        // Realizar petición AJAX
+        fetch(`{% url 'obtener_empleados_disponibles' %}?fecha=${fecha}`, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            empleadoSelect.innerHTML = '<option value="">Selecciona un compañero...</option>';
+            
+            if (data.empleados && data.empleados.length > 0) {
+                data.empleados.forEach(empleado => {
+                    const option = document.createElement('option');
+                    option.value = empleado.id;
+                    option.textContent = `${empleado.nombre} ${empleado.apellido} (${empleado.jornada})`;
+                    empleadoSelect.appendChild(option);
+                });
+            } else {
+                empleadoSelect.innerHTML = '<option value="">No hay compañeros disponibles para esta fecha</option>';
+            }
+            
+            empleadoSelect.disabled = false;
+        })
+        .catch(error => {
+            console.error('Error al cargar empleados:', error);
+            empleadoSelect.innerHTML = '<option value="">Error al cargar compañeros</option>';
+            empleadoSelect.disabled = false;
+        });
+    }
+
+    // Event listener para cambio de fecha
+    fechaInput.addEventListener('change', actualizarEmpleadosDisponibles);
+
+    // Validación del formulario
+    form.addEventListener('submit', function(e) {
+        const fecha = fechaInput.value;
+        const empleado = empleadoSelect.value;
+        const confirmar = document.getElementById('confirmar').checked;
+
+        if (!fecha) {
+            e.preventDefault();
+            alert('Por favor selecciona una fecha');
+            return;
+        }
+
+        if (!empleado) {
+            e.preventDefault();
+            alert('Por favor selecciona un compañero');
+            return;
+        }
+
+        if (!confirmar) {
+            e.preventDefault();
+            alert('Debes confirmar la solicitud');
+            return;
+        }
+    });
+});
+</script>
+{% endblock %} 

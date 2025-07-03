@@ -1,7 +1,7 @@
 from django.urls import path
 from .views import (
     EmpleadoListView, EmpleadoDetailView, EmpleadoEditView, EmpleadoDeleteView,
-    RestriccionesView, SeccionesView, JornadasView, RolesView,
+    RestriccionesView, SeccionesView, JornadasView,
     RoleListView, RoleCreateView, EmpleadoUsuarioCreateView, AsignarRolesSalasView,
     SalaListView, SalaCreateView, SalaUpdateView, SalaDeleteView,
     JornadaListView, JornadaCreateView, JornadaUpdateView, JornadaDeleteView,
@@ -21,8 +21,8 @@ urlpatterns = [
     path('jornadas/create/', JornadaCreateView.as_view(), name='jornadas_create'),
     path('jornadas/edit/<int:pk>/', JornadaUpdateView.as_view(), name='jornadas_edit'),
     path('jornadas/delete/<int:pk>/', JornadaDeleteView.as_view(), name='jornadas_delete'),
-    path('roles/', RolesView.as_view(), name='roles'),
-    path('roles/list/', RoleListView.as_view(), name='roles_list'),
+    #path('roles/', RolesView.as_view(), name='roles'),
+    path('roles/', RoleListView.as_view(), name='roles_list'),
     path('roles/create/', RoleCreateView.as_view(), name='roles_create'),
     path('roles/edit/<int:pk>/', RoleUpdateView.as_view(), name='roles_edit'),
     path('roles/delete/<int:pk>/', RoleDeleteView.as_view(), name='roles_delete'),

@@ -1,77 +1,78 @@
 {% extends 'base.html' %}
+{% load widget_tweaks %}
 
-{% block title %}Crear Usuario y Empleado{% endblock %}
-{% block page_title %}Crear Usuario y Empleado{% endblock %}
+{% block title %}Nuevo Usuario + Empleado{% endblock %}
+{% block page_title %}Nuevo Usuario + Empleado{% endblock %}
 
 {% block content %}
 <div class="container mt-5">
     <div class="row justify-content-center">
         <div class="col-12 col-md-10 col-lg-8">
             <div class="card shadow">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0"><i class="fas fa-user-plus"></i> Crear Usuario y Empleado</h4>
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0"><i class="fas fa-user-plus"></i> Crear Usuario + Empleado</h4>
                 </div>
                 <div class="card-body">
-                    <form method="post">
+                    <form method="post" id="usuario-empleado-form">
                         {% csrf_token %}
-                        <h5 class="mb-3 text-secondary"><i class="fas fa-user"></i> Datos de Usuario</h5>
-                        <div class="form-row">
-                            <div class="form-group col-lg-4 col-md-6 col-12">
-                                <label for="id_username"><strong>Usuario:</strong></label>
-                                {{ form.username }}
-                            </div>
-                            <div class="form-group col-lg-4 col-md-6 col-12">
-                                <label for="id_password"><strong>Contraseña:</strong></label>
-                                {{ form.password }}
-                            </div>
-                            <div class="form-group col-lg-4 col-md-12 col-12">
-                                <label for="id_email"><strong>Email:</strong></label>
-                                {{ form.email }}
-                            </div>
+                        <div class="alert alert-info">
+                            <strong>Nota:</strong> Puedes asociar un <b>usuario existente</b> o crear uno nuevo. <br>
+                            <span class="text-danger">No llenes ambos bloques: si seleccionas un usuario existente, deja los campos de usuario nuevo vacíos.</span>
                         </div>
-                        <hr>
-                        <h5 class="mb-3 text-secondary"><i class="fas fa-id-card"></i> Datos de Empleado</h5>
-                        <div class="form-row">
-                            <div class="form-group col-lg-6 col-md-6 col-12">
-                                <label for="id_nombre"><strong>Nombre:</strong></label>
-                                {{ form.nombre }}
-                            </div>
-                            <div class="form-group col-lg-6 col-md-6 col-12">
-                                <label for="id_apellido"><strong>Apellido:</strong></label>
-                                {{ form.apellido }}
-                            </div>
+                        <div class="form-group">
+                            <label for="id_usuario_existente"><i class="fas fa-user"></i> <strong>Usuario existente:</strong></label>
+                            {{ form.usuario_existente|add_class:'form-control' }}
                         </div>
+                        <div class="text-center my-2"><span class="badge badge-secondary">O</span></div>
                         <div class="form-row">
-                            <div class="form-group col-lg-6 col-md-6 col-12">
-                                <label for="id_cedula"><strong>Cédula:</strong></label>
-                                {{ form.cedula }}
+                            <div class="form-group col-md-4">
+                                <label for="id_username"><i class="fas fa-user-plus"></i> <strong>Usuario nuevo:</strong></label>
+                                {{ form.username|add_class:'form-control' }}
                             </div>
-                            <div class="form-group col-lg-6 col-md-6 col-12 d-flex align-items-center">
-                                <div class="form-check mt-4">
-                                    {{ form.activo }}
-                                    <label class="form-check-label" for="id_activo"><strong>Activo</strong></label>
-                                </div>
+                            <div class="form-group col-md-4">
+                                <label for="id_password"><i class="fas fa-key"></i> <strong>Contraseña:</strong></label>
+                                {{ form.password|add_class:'form-control' }}
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="id_email"><i class="fas fa-envelope"></i> <strong>Email:</strong></label>
+                                {{ form.email|add_class:'form-control' }}
                             </div>
                         </div>
                         <hr>
                         <div class="form-row">
                             <div class="form-group col-md-6">
-                                <label for="id_roles"><strong>Roles:</strong></label>
-                                {{ form.roles }}
+                                <label for="id_nombre"><i class="fas fa-id-badge"></i> <strong>Nombre:</strong></label>
+                                {{ form.nombre|add_class:'form-control' }}
                             </div>
                             <div class="form-group col-md-6">
-                                <label for="id_salas"><strong>Salas:</strong></label>
-                                {{ form.salas }}
+                                <label for="id_apellido"><i class="fas fa-id-badge"></i> <strong>Apellido:</strong></label>
+                                {{ form.apellido|add_class:'form-control' }}
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group col-md-6">
-                                <label for="id_jornada"><strong>Jornada (AM/PM):</strong></label>
-                                {{ form.jornada }}
+                                <label for="id_cedula"><i class="fas fa-id-card"></i> <strong>Cédula:</strong></label>
+                                {{ form.cedula|add_class:'form-control' }}
                             </div>
+                            <div class="form-group col-md-6 form-check mt-4">
+                                {{ form.activo|add_class:'form-check-input' }}
+                                <label class="form-check-label" for="id_activo"><strong>Activo</strong></label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="id_roles"><i class="fas fa-user-tag"></i> <strong>Roles:</strong></label>
+                            {{ form.roles|add_class:'form-control' }}
+                        </div>
+                        <div class="form-group">
+                            <label for="id_salas"><i class="fas fa-door-open"></i> <strong>Salas:</strong></label>
+                            {{ form.salas|add_class:'form-control' }}
+                        </div>
+                        <div class="form-group">
+                            <label for="id_jornada"><i class="fas fa-clock"></i> <strong>Jornada:</strong></label>
+                            {{ form.jornada|add_class:'form-control' }}
                         </div>
                         <div class="form-group text-center mt-4">
-                            <button type="submit" class="btn btn-primary px-4">
+                            <button type="submit" class="btn btn-success px-4">
                                 <i class="fas fa-save"></i> Guardar
                             </button>
                             <a href="{% url 'empleados' %}" class="btn btn-secondary px-4">
@@ -84,17 +85,26 @@
         </div>
     </div>
 </div>
-
 {% endblock %}
 
 {% block extra_js %}
+<script src="/static/js/usuario_empleado.js"></script>
 <script>
-// Helper para agregar clases a los widgets de los campos
-if (typeof django !== 'undefined' && django.jQuery) {
-    django.jQuery(function($) {
-        $('select').addClass('form-control');
-        $('input[type="text"], input[type="email"], input[type="password"]').addClass('form-control');
-    });
-}
+// Validación visual: no permitir enviar ambos bloques llenos
+const form = document.getElementById('usuario-empleado-form');
+form.addEventListener('submit', function(e) {
+    const usuarioExistente = document.getElementById('id_usuario_existente').value;
+    const username = document.getElementById('id_username').value;
+    const password = document.getElementById('id_password').value;
+    const email = document.getElementById('id_email').value;
+    if (usuarioExistente && (username || password)) {
+        alert('Por favor, selecciona un usuario existente O llena los campos de usuario nuevo, pero no ambos.');
+        e.preventDefault();
+    }
+    if (!usuarioExistente && (!username || !password || !email)) {
+        alert('Si no seleccionas un usuario existente, debes llenar todos los campos de usuario nuevo.');
+        e.preventDefault();
+    }
+});
 </script>
 {% endblock %} 

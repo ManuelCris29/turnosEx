@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+{% load widget_tweaks %}
+
+{% block title %}Editar Día Especial{% endblock %}
+{% block page_title %}Editar Día Especial{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-10 col-lg-8">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-calendar-day"></i> Editar Día Especial</h4>
+                </div>
+                <div class="card-body">
+                    <form method="post">
+                        {% csrf_token %}
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="id_fecha"><i class="fas fa-calendar-alt"></i> <strong>Fecha:</strong></label>
+                                {{ form.fecha|add_class:'form-control' }}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="id_tipo"><i class="fas fa-tag"></i> <strong>Tipo:</strong></label>
+                                {{ form.tipo|add_class:'form-control' }}
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="id_descripcion"><i class="fas fa-align-left"></i> <strong>Descripción:</strong></label>
+                            {{ form.descripcion|add_class:'form-control' }}
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <div class="form-check">
+                                    {{ form.recurrente|add_class:'form-check-input' }}
+                                    <label class="form-check-label" for="id_recurrente"><i class="fas fa-redo"></i> Recurrente</label>
+                                </div>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <div class="form-check">
+                                    {{ form.activo|add_class:'form-check-input' }}
+                                    <label class="form-check-label" for="id_activo"><i class="fas fa-check-circle"></i> Activo</label>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="form-group text-center mt-4">
+                            <button type="submit" class="btn btn-primary px-4">
+                                <i class="fas fa-save"></i> Guardar Cambios
+                            </button>
+                            <a href="{% url 'dias_especiales_list' %}" class="btn btn-secondary px-4">
+                                <i class="fas fa-arrow-left"></i> Cancelar
+                            </a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

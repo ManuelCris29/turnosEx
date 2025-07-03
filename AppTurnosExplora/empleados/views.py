@@ -15,7 +15,7 @@ from django.contrib.auth.forms import SetPasswordForm
 from django.urls import reverse_lazy
 from turnos.models import AsignarJornadaExplorador
 from django.utils import timezone
-from .forms import SancionEmpleadoForm, RestriccionEmpleadoForm
+from .forms import SancionEmpleadoForm, RestriccionEmpleadoForm, JornadaForm, EmpleadoUsuarioForm
 
 # Mixin personalizado para verificar permisos de administrador
 class AdminRequiredMixin:
@@ -75,6 +75,15 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
         return context
     
     def get_queryset(self):
+        user = self.request.user
+
+        if user.is_superuser or user.is_staff:
+            return Empleado.objects.all()
+        
+        if user.is_supervisor:
+            return Empleado.objects.filter(empleadorole_set__role__nombre__icontains='supervisor')
+        
+        
         try:
             empleado = self.request.user.empleado
         except Exception:
@@ -159,8 +168,8 @@ class SeccionesView(LoginRequiredMixin, TemplateView):
 class JornadasView(LoginRequiredMixin, TemplateView):
     template_name = 'empleados/placeholder.html'
 
-class RolesView(LoginRequiredMixin, TemplateView):
-    template_name = 'empleados/placeholder.html'
+#class RolesView(LoginRequiredMixin, TemplateView):
+   # template_name = 'empleados/placeholder.html'
 
 # CRUD de Roles
 class RoleListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
@@ -172,32 +181,20 @@ class RoleCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = Role
     template_name = 'empleados/roles_create.html'
     fields = ['nombre']
-    success_url = '/empleados/roles/'
+    success_url = reverse_lazy('roles_list')
 
 class RoleUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = Role
     template_name = 'empleados/roles_edit.html'
     fields = ['nombre']
-    success_url = '/empleados/roles/'
+    success_url = reverse_lazy('roles_list')
 
 class RoleDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = Role
     template_name = 'empleados/roles_confirm_delete.html'
-    success_url = '/empleados/roles/'
+    success_url = reverse_lazy('roles_list')
 
 # Formulario personalizado para crear usuario, empleado, roles y salas
-class EmpleadoUsuarioForm(forms.Form):
-    username = forms.CharField(label='Usuario', max_length=150, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    password = forms.CharField(label='Contraseña', required=True, widget=forms.PasswordInput(attrs={'class': 'form-control'}))
-    email = forms.EmailField(label='Email', required=True, widget=forms.EmailInput(attrs={'class': 'form-control'}))
-    nombre = forms.CharField(label='Nombre', max_length=50, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    apellido = forms.CharField(label='Apellido', max_length=50, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    cedula = forms.CharField(label='Cédula', max_length=10, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    activo = forms.BooleanField(label='Activo', required=False, initial=True, widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}))
-    roles = forms.ModelMultipleChoiceField(queryset=Role.objects.all(), required=True, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
-    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=True, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
-    jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=True, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
-
 class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
     template_name = 'empleados/create_usuario_empleado.html'
     form_class = EmpleadoUsuarioForm
@@ -211,13 +208,15 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         from datetime import date
         form = self.form_class(request.POST)
         if form.is_valid():
-            # Crear usuario
-            user = User.objects.create_user(
-                username=form.cleaned_data['username'],
-                password=form.cleaned_data['password'],
-                email=form.cleaned_data['email']
-            )
-            # Crear empleado
+            usuario_existente = form.cleaned_data.get('usuario_existente')
+            if usuario_existente:
+                user = usuario_existente
+            else:
+                user = User.objects.create_user(
+                    username=form.cleaned_data['username'],
+                    password=form.cleaned_data['password'],
+                    email=form.cleaned_data['email']
+                )
             empleado = Empleado.objects.create(
                 user=user,
                 nombre=form.cleaned_data['nombre'],
@@ -226,13 +225,10 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
                 email=form.cleaned_data['email'],
                 activo=form.cleaned_data['activo']
             )
-            # Asignar roles
             for rol in form.cleaned_data['roles']:
                 EmpleadoRole.objects.create(empleado=empleado, role=rol)
-            # Asignar salas
             for sala in form.cleaned_data['salas']:
                 CompetenciaEmpleado.objects.create(empleado=empleado, sala=sala)
-            # Asignar jornada
             jornada = form.cleaned_data['jornada']
             AsignarJornadaExplorador.objects.create(
                 explorador=empleado,
@@ -308,14 +304,14 @@ class JornadaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
 
 class JornadaCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = Jornada
+    form_class = JornadaForm
     template_name = 'empleados/jornadas_create.html'
-    fields = ['nombre', 'hora_inicio', 'hora_fin']
     success_url = '/empleados/jornadas/'
 
 class JornadaUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = Jornada
+    form_class = JornadaForm
     template_name = 'empleados/jornadas_edit.html'
-    fields = ['nombre', 'hora_inicio', 'hora_fin']
     success_url = '/empleados/jornadas/'
 
 class JornadaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
