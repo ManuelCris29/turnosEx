@@ -1,0 +1,104 @@
+ASO A PASO PARA GUARDAR TODO BIEN EN GIT (MULTIPLATAFORMA)
+🧩 1. Asegura la configuración de Git para manejar finales de línea
+Ejecuta este comando:
+
+bash
+Copiar
+Editar
+git config --global core.autocrlf true
+Esto garantiza que Git se encargue de convertir los saltos de línea automáticamente:
+
+En Windows: convierte a CRLF cuando editas
+
+En el commit: convierte a LF para mantener compatibilidad multiplataforma
+
+🧹 2. Crea o edita el archivo .gitignore
+Este archivo le dice a Git qué NO debe guardar. Crea un archivo llamado .gitignore en la raíz del proyecto (si no existe) con este contenido básico:
+
+gitignore
+Copiar
+Editar
+# Archivos compilados por Python
+__pycache__/
+*.py[cod]
+
+# Archivos de entorno
+.env
+*.env
+
+# Archivos temporales
+*.log
+*.tmp
+*.bak
+
+# Configuraciones locales de IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+💡 3. Normaliza los finales de línea (para evitar futuros conflictos)
+Este comando actualiza todos los archivos al formato que Git espera (LF) y evita esos warnings de CRLF en el futuro:
+
+bash
+Copiar
+Editar
+git add --renormalize .
+📦 4. Añade todos los archivos que sí quieres guardar
+bash
+Copiar
+Editar
+git add .
+✍️ 5. Realiza un commit con un mensaje claro
+bash
+Copiar
+Editar
+git commit -m "Guardar todo el proyecto con configuración multiplataforma y .gitignore"
+🛜 6. Sube los cambios (si ya tienes un repositorio remoto)
+bash
+Copiar
+Editar
+git push origin main
+(Si usas otra rama, como master o dev, cambia main por el nombre de tu rama)
+
+🧪 7. Verifica
+Puedes comprobar que .gitignore esté funcionando con:
+
+bash
+Copiar
+Editar
+git status
+No deberían aparecer archivos .pyc, carpetas __pycache__, ni configuraciones locales.
+
+🎁 Resultado
+Tendrás:
+
+Archivos limpios con finales de línea uniformes (LF)
+
+Tu código listo para cualquier sistema (Windows, Linux, macOS)
+
+Sin basura de compilación (como .pyc)
+
+Evitas conflictos por herramientas como GitHub, VS Code, PyCharm, etc.
+
+¿Quieres que te genere automáticamente un .gitignore personalizado según tu stack actual (Python + Django + VS Code, por ejemplo)?
+
+
+
+
+
+
+
+
+
+Preguntar a ChatGPT
+
+
+
+Herramientas
+
+
+

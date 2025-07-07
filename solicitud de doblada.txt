@@ -1,0 +1,23 @@
+solicitud de doblada
+
+- se habilita la fecha, sin ella no se habilita los otros campos
+- Una vez habilitada la fecha, debe aparecer en que jornada estoy ese día y los compañeros con jornada contraría a esa
+
+tres casos de mi jornada para ese dia :
+
+en am
+en pm 
+estoy haciendo doblada
+
+- si estoy en am cargan todos los pm de esa jornada, excepto los que tienen doblada
+- si estoy en pm cargan todos los am de esa jornada, excepto los que tiene doblada
+- si estoy en doblada me tiene que aparecer ambas jornadas, excepto los que tienen dobladas ese día
+. si yo estoy doblando y soy am y quiero que alguien haga mi turno debo buscar un pm (alguien que trabaje en pm)
+. si estoy doblando y soy am y quiero que hagan el turno de mi compañero (el compañero tiene que ser am)debo buscar un am
+- Debo elegir la fecha en la que voy a realizar ese pago y buscar al compañero que me va a realizar el pago
+- Debe cargar la jornada que tiene ese compañero ese día  
+- Si esa persona tiene una doblada puede hacer solicitud para pagar después 
+- la persona que quiera hacer una solicitud no le puede aparecer las personas que estén doblando 
+
+receptor
+No pueden llegar solicitudes
