@@ -4,6 +4,30 @@ from turnos.models import Turno
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
+class Notificacion(models.Model):
+    TIPOS_CHOICES = [
+        ('solicitud_cambio', 'Solicitud de Cambio'),
+        ('solicitud_doblada', 'Solicitud de Doblada'),
+        ('solicitud_permiso', 'Solicitud de Permiso'),
+        ('aprobacion', 'Aprobación'),
+        ('rechazo', 'Rechazo'),
+    ]
+    
+    destinatario = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='notificaciones')
+    tipo = models.CharField(max_length=20, choices=TIPOS_CHOICES)
+    titulo = models.CharField(max_length=200)
+    mensaje = models.TextField()
+    leida = models.BooleanField(default=False)
+    fecha_creacion = models.DateTimeField(auto_now_add=True)
+    fecha_lectura = models.DateTimeField(null=True, blank=True)
+    solicitud = models.ForeignKey('SolicitudCambio', on_delete=models.CASCADE, null=True, blank=True)
+    
+    class Meta:
+        ordering = ['-fecha_creacion']
+    
+    def __str__(self):
+        return f"{self.titulo} - {self.destinatario.nombre} {self.destinatario.apellido}"
+
 class TipoSolicitudCambio(models.Model):
     nombre = models.CharField(max_length=50)
     activo = models.BooleanField(default=True) #type:ignore

@@ -21,6 +21,7 @@ class Empleado(models.Model):
     cedula = models.CharField(max_length=10, unique=True)
     email = models.EmailField(max_length=254)
     activo = models.BooleanField(default=True) #type:ignore
+    supervisor = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='empleados_supervisados')
     historial = HistoricalRecords()
 
     

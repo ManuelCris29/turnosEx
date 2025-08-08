@@ -158,3 +158,12 @@ LOGIN_URL = 'login'
 
 # URL a la que se redirige después de un inicio de sesión exitoso
 LOGIN_REDIRECT_URL = 'dashboard'
+
+# Configuración de Email
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'smtp.gmail.com'  # Cambiar según tu proveedor de email
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'  # Tu email real
+EMAIL_HOST_PASSWORD = 'ddke jxbc qpha piuh'  # Reemplazar con la contraseña de aplicación de Gmail (16 caracteres)
+DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'  # Tu email real

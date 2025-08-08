@@ -69,7 +69,16 @@
                         <li class="nav-item">
                             <a href="{% url 'cambios_turno' %}" class="nav-link">
                                 <i class="nav-icon fas fa-bell"></i>
-                                <p>Notificaciones / Solicitudes</p>
+                                <p>
+                                    Notificaciones / Solicitudes
+                                    {% if user.is_authenticated and user.empleado %}
+                                        {% with notificaciones_count=user.empleado.notificaciones.all|length %}
+                                            {% if notificaciones_count > 0 %}
+                                                <span class="badge badge-warning right">{{ notificaciones_count }}</span>
+                                            {% endif %}
+                                        {% endwith %}
+                                    {% endif %}
+                                </p>
                             </a>
                         </li>
                         <li class="nav-item">
@@ -96,17 +105,38 @@
                                 <p>Beneficios Utilizados</p>
                             </a>
                         </li>
-                        <li class="nav-item">
-                            <a href="{% url 'restricciones_list' %}" class="nav-link">
-                                <i class="nav-icon fas fa-ban"></i>
-                                <p>Restricciones</p>
-                            </a>
-                        </li>
-                        
+            
                         <li class="nav-item">
                             <a href="{% url 'permisodetalle_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-clock"></i>
                                 <p>Permisos Detalle</p>
+                            </a>
+                        </li>
+                        
+                        <!-- Ítems visibles para todos -->
+                        <li class="nav-header">CONSULTAS RÁPIDAS</li>
+                        <li class="nav-item">
+                            <a href="{% url 'pdh_visualizar' %}" class="nav-link">
+                                <i class="nav-icon fas fa-dollar-sign"></i>
+                                <p>PDH</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'sanciones_visualizar' %}" class="nav-link">
+                                <i class="nav-icon fas fa-gavel"></i>
+                                <p>Sanciones</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'restricciones_visualizar' %}" class="nav-link">
+                                <i class="nav-icon fas fa-ban"></i>
+                                <p>Restricciones</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a href="{% url 'dias_especiales_visualizar' %}" class="nav-link">
+                                <i class="nav-icon fas fa-star"></i>
+                                <p>Días Especiales</p>
                             </a>
                         </li>
                         
@@ -159,7 +189,14 @@
                                 <p>Sanciones</p>
                             </a>
                         </li>
-
+                        
+                        <li class="nav-item">
+                            <a href="{% url 'restricciones_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-ban"></i>
+                                <p>Restricciones</p>
+                            </a>
+                        </li>
+                        
                         <li class="nav-item">
                             <a href="{% url 'roles_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-user-tag"></i>

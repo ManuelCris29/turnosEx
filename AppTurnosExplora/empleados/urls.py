@@ -8,7 +8,8 @@ from .views import (
     RestriccionListView, RestriccionCreateView, RestriccionUpdateView, RestriccionDeleteView,
     SancionListView, SancionCreateView, SancionUpdateView, SancionDeleteView,
     PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView,
-    ChangePasswordView, RoleUpdateView, RoleDeleteView
+    ChangePasswordView, RoleUpdateView, RoleDeleteView,
+    PDHVisualizarListView, SancionVisualizarListView, RestriccionVisualizarListView
 )
 
 urlpatterns = [
@@ -44,6 +45,9 @@ urlpatterns = [
     path('pdh/create/', PDHCreateView.as_view(), name='pdh_create'),
     path('pdh/edit/<int:pk>/', PDHUpdateView.as_view(), name='pdh_edit'),
     path('pdh/delete/<int:pk>/', PDHDeleteView.as_view(), name='pdh_delete'),
+    path('pdh/visualizar/', PDHVisualizarListView.as_view(), name='pdh_visualizar'),
+    path('sanciones/visualizar/', SancionVisualizarListView.as_view(), name='sanciones_visualizar'),
+    path('restricciones/visualizar/', RestriccionVisualizarListView.as_view(), name='restricciones_visualizar'),
     path('change-password/<int:user_id>/', ChangePasswordView.as_view(), name='change_password'),
     # Aquí irán más URLs conforme se vayan creando las vistas
 ] 

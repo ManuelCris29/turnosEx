@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Calendario de Turnos{% endblock %}
+
+{% block extra_css %}
+<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
+<style>
+    .turnos-col {
+        min-height: 300px;
+        background: #f8f9fa;
+        border-radius: 8px;
+        padding: 1rem;
+    }
+    .turnos-col h5 {
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.5rem;
+        margin-bottom: 1rem;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2 class="mb-4">Calendario de Turnos</h2>
+    <div id="calendar"></div>
+    <div class="row mt-4">
+        <div class="col-12 mb-2">
+            <h4>Turnos para <span id="fecha-seleccionada"></span></h4>
+        </div>
+        <div class="col-md-6 turnos-col">
+            <h5>Exploradores AM</h5>
+            <ul id="lista-am"></ul>
+        </div>
+        <div class="col-md-6 turnos-col">
+            <h5>Exploradores PM</h5>
+            <ul id="lista-pm"></ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<script src="{% static 'js/turnos_calendario.js' %}"></script>
+{% endblock %} 

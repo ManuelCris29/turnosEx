@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}Mis Solicitudes{% endblock %}
+{% block page_title %}Mis Solicitudes{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">
+            <i class="fas fa-list"></i> Mis Solicitudes
+        </h3>
+        <div class="card-tools">
+            <a href="{% url 'solicitudes:cambio_turno_inicio' %}" class="btn btn-primary btn-sm">
+                <i class="fas fa-plus"></i> Nueva Solicitud
+            </a>
+        </div>
+    </div>
+    <div class="card-body">
+        {% if solicitudes %}
+            <div class="table-responsive">
+                <table class="table table-bordered table-striped">
+                    <thead>
+                        <tr>
+                            <th>Fecha Solicitud</th>
+                            <th>Tipo</th>
+                            <th>Compañero</th>
+                            <th>Estado</th>
+                            <th>Comentario</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for solicitud in solicitudes %}
+                        <tr>
+                            <td>{{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</td>
+                            <td>
+                                <span class="badge badge-info">{{ solicitud.tipo_cambio.nombre }}</span>
+                            </td>
+                            <td>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</td>
+                            <td>
+                                {% if solicitud.estado == 'pendiente' %}
+                                    <span class="badge badge-warning">Pendiente</span>
+                                {% elif solicitud.estado == 'aprobada' %}
+                                    <span class="badge badge-success">Aprobada</span>
+                                {% elif solicitud.estado == 'rechazada' %}
+                                    <span class="badge badge-danger">Rechazada</span>
+                                {% else %}
+                                    <span class="badge badge-secondary">{{ solicitud.estado|title }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if solicitud.comentario %}
+                                    <small>{{ solicitud.comentario|truncatechars:50 }}</small>
+                                {% else %}
+                                    <small class="text-muted">Sin comentario</small>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-info btn-sm" onclick="verDetalleSolicitud({{ solicitud.id }})">
+                                    <i class="fas fa-eye"></i> Ver
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-4">
+                <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
+                <h5 class="text-muted">No tienes solicitudes</h5>
+                <p class="text-muted">Aún no has realizado ninguna solicitud de cambio de turno.</p>
+                <a href="{% url 'solicitudes:cambio_turno_inicio' %}" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Crear Primera Solicitud
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal para ver detalles -->
+<div class="modal fade" id="detalleSolicitudModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Detalle de Solicitud</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body" id="detalleSolicitudContent">
+                <!-- Contenido dinámico -->
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function verDetalleSolicitud(solicitudId) {
+    // Aquí puedes implementar la lógica para cargar los detalles
+    // Por ahora solo muestra el modal
+    $('#detalleSolicitudModal').modal('show');
+}
+</script>
+{% endblock %} 

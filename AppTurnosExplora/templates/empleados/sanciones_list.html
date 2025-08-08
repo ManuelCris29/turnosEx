@@ -12,9 +12,11 @@
                     <h4 class="mb-0"><i class="fas fa-gavel"></i> Lista de Sanciones</h4>
                 </div>
                 <div class="card-body">
+                    {% if user.is_staff %}
                     <a href="{% url 'sanciones_create' %}" class="btn btn-success mb-3">
                         <i class="fas fa-plus"></i> Nueva Sanción
                     </a>
+                    {% endif %}
                     <div class="table-responsive">
                         <table class="table table-hover table-striped table-bordered">
                             <thead class="thead-dark">
@@ -38,12 +40,14 @@
                                     <td>{{ sancion.fecha_inicio }}</td>
                                     <td>{{ sancion.fecha_fin }}</td>
                                     <td>
+                                    {% if user.is_staff %}
                                         <a href="{% url 'sanciones_edit' sancion.id %}" class="btn btn-primary btn-sm" title="Editar">
                                             <i class="fas fa-edit"></i>
                                         </a>
                                         <a href="{% url 'sanciones_delete' sancion.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar esta sanción?');">
                                             <i class="fas fa-trash-alt"></i>
                                         </a>
+                                    {% endif %}
                                     </td>
                                 </tr>
                                 {% empty %}

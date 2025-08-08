@@ -2,5 +2,96 @@
 {% block title %}Solicitudes{% endblock %}
 {% block page_title %}Solicitudes{% endblock %}
 {% block content %}
-<div class="card"><div class="card-body">Página en Construcción</div></div>
+<div class="row">
+    <div class="col-lg-12">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title">
+                    <i class="fas fa-exchange-alt"></i> Gestión de Solicitudes
+                </h3>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <!-- Para Empleados -->
+                    <div class="col-md-6">
+                        <div class="info-box">
+                            <span class="info-box-icon bg-info">
+                                <i class="fas fa-user"></i>
+                            </span>
+                            <div class="info-box-content">
+                                <span class="info-box-text">Mis Solicitudes</span>
+                                <span class="info-box-number">Ver mis solicitudes</span>
+                                <div class="progress">
+                                    <div class="progress-bar" style="width: 100%"></div>
+                                </div>
+                                <span class="progress-description">
+                                    <a href="{% url 'solicitudes:mis_solicitudes_list' %}" class="btn btn-info btn-sm">
+                                        <i class="fas fa-list"></i> Ver Mis Solicitudes
+                                    </a>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Para Supervisores -->
+                    <div class="col-md-6">
+                        <div class="info-box">
+                            <span class="info-box-icon bg-warning">
+                                <i class="fas fa-user-tie"></i>
+                            </span>
+                            <div class="info-box-content">
+                                <span class="info-box-text">Solicitudes Pendientes</span>
+                                <span class="info-box-number">Aprobar solicitudes</span>
+                                <div class="progress">
+                                    <div class="progress-bar" style="width: 100%"></div>
+                                </div>
+                                <span class="progress-description">
+                                    <a href="{% url 'solicitudes:solicitudes_pendientes_list' %}" class="btn btn-warning btn-sm">
+                                        <i class="fas fa-clock"></i> Ver Pendientes
+                                    </a>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h4 class="card-title">
+                                    <i class="fas fa-plus"></i> Crear Nueva Solicitud
+                                </h4>
+                            </div>
+                            <div class="card-body">
+                                <p>Selecciona el tipo de solicitud que deseas realizar:</p>
+                                <a href="{% url 'solicitudes:cambio_turno_inicio' %}" class="btn btn-primary btn-lg">
+                                    <i class="fas fa-exchange-alt"></i> Solicitar Cambio de Turno
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row mt-4">
+                    <div class="col-md-12">
+                        <div class="card">
+                            <div class="card-header">
+                                <h4 class="card-title">
+                                    <i class="fas fa-bell"></i> Notificaciones
+                                </h4>
+                            </div>
+                            <div class="card-body">
+                                <p>Revisa tus notificaciones y mensajes del sistema:</p>
+                                <a href="{% url 'solicitudes:notificaciones_list' %}" class="btn btn-success btn-lg">
+                                    <i class="fas fa-bell"></i> Ver Notificaciones
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %} 

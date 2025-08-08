@@ -21,3 +21,6 @@ estoy haciendo doblada
 
 receptor
 No pueden llegar solicitudes
+
+
+https://myaccount.google.com/apppasswords?pli=1&rapt=AEjHL4OfBKCuYvLSyer53Anvioyr63ZRGYlpPzP8BQOfGufNlgLRwsTbfjX50JMVvTx4LxtFvYAXDrXy4o3KUT78qoLYgjgQfK6DVooghcRlfgLGFoniAsw

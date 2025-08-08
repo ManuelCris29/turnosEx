@@ -19,6 +19,7 @@ class AsignarSalaExplorador(models.Model):
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField(null=True, blank=True)
     historial = HistoricalRecords()
+    
 
     def __str__(self):
         return f"{self.explorador.user.username} - {self.sala.nombre}" #type:ignore

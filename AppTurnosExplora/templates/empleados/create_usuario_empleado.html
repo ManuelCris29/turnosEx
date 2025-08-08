@@ -71,6 +71,13 @@
                             <label for="id_jornada"><i class="fas fa-clock"></i> <strong>Jornada:</strong></label>
                             {{ form.jornada|add_class:'form-control' }}
                         </div>
+                        <div class="form-group">
+                            <label for="id_supervisor"><i class="fas fa-user-tie"></i> <strong>Supervisor:</strong></label>
+                            {{ form.supervisor|add_class:'form-control' }}
+                            {% if form.supervisor.help_text %}
+                                <small class="form-text text-muted">{{ form.supervisor.help_text }}</small>
+                            {% endif %}
+                        </div>
                         <div class="form-group text-center mt-4">
                             <button type="submit" class="btn btn-success px-4">
                                 <i class="fas fa-save"></i> Guardar

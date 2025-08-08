@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Días Especiales - Consultas Rápidas{% endblock %}
+{% block page_title %}Días Especiales (Solo Visualización){% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0"><i class="fas fa-calendar-day"></i> Lista de Días Especiales</h4>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-striped table-bordered">
+                            <thead class="thead-dark">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Fecha</th>
+                                    <th>Tipo</th>
+                                    <th>Descripción</th>
+                                    <th>Recurrente</th>
+                                    <th>Activo</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for dia in dias_especiales %}
+                                <tr>
+                                    <td>{{ dia.id }}</td>
+                                    <td>{{ dia.fecha }}</td>
+                                    <td>{{ dia.tipo }}</td>
+                                    <td>{{ dia.descripcion }}</td>
+                                    <td>{% if dia.recurrente %}<span class="badge badge-info">Sí</span>{% else %}<span class="badge badge-secondary">No</span>{% endif %}</td>
+                                    <td>{% if dia.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="6">No hay días especiales registrados.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %} 

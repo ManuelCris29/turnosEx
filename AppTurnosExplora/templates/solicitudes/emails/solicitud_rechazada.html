@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Solicitud Rechazada</title>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background-color: #dc3545; color: white; padding: 20px; text-align: center; border-radius: 5px 5px 0 0; }
+        .content { background-color: #f8f9fa; padding: 20px; border-radius: 0 0 5px 5px; }
+        .info-box { background-color: white; padding: 15px; margin: 15px 0; border-radius: 5px; border-left: 4px solid #dc3545; }
+        .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
+        .badge { background-color: #dc3545; color: white; padding: 5px 10px; border-radius: 15px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>❌ Solicitud Rechazada</h1>
+        </div>
+        
+        <div class="content">
+            <p>Hola <strong>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</strong>,</p>
+            
+            <p>Tu solicitud ha sido <strong>RECHAZADA</strong> por tu supervisor.</p>
+            
+            <div class="info-box">
+                <h3>Detalles de la Solicitud:</h3>
+                <ul>
+                    <li><strong>Tipo de Solicitud:</strong> <span class="badge">{{ solicitud.tipo_cambio.nombre }}</span></li>
+                    <li><strong>Fecha de Solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</li>
+                    <li><strong>Compañero:</strong> {{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</li>
+                    <li><strong>Rechazado por:</strong> {{ rechazador.nombre }} {{ rechazador.apellido }}</li>
+                    <li><strong>Fecha de Rechazo:</strong> {{ solicitud.fecha_aprobacion_supervisor|date:"d/m/Y H:i" }}</li>
+                </ul>
+                
+                {% if solicitud.comentario %}
+                <h4>Tu Comentario:</h4>
+                <p><em>"{{ solicitud.comentario }}"</em></p>
+                {% endif %}
+                
+                {% if comentario_respuesta %}
+                <h4>Comentario del Supervisor:</h4>
+                <p><em>"{{ comentario_respuesta }}"</em></p>
+                {% endif %}
+            </div>
+            
+            <p><strong>Estado:</strong> <span class="badge">RECHAZADA</span></p>
+            
+            <p>Tu solicitud no ha sido aprobada. Si tienes dudas sobre la decisión, puedes contactar directamente a tu supervisor.</p>
+        </div>
+        
+        <div class="footer">
+            <p>Este es un mensaje automático del sistema AppTurnos.</p>
+            <p>Si tienes alguna pregunta, contacta a tu supervisor.</p>
+        </div>
+    </div>
+</body>
+</html> 

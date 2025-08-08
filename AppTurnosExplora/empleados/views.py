@@ -111,9 +111,17 @@ class EmpleadoDetailView(LoginRequiredMixin, DetailView):
 
 class EmpleadoEditForm(forms.ModelForm):
     jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=True, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
+    supervisor = forms.ModelChoiceField(
+        queryset=Empleado.objects.filter(activo=True, empleadorole__role__nombre__icontains='supervisor').distinct(),
+        required=False,
+        label='Supervisor',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+        help_text='Opcional: Asignar un supervisor a este empleado (solo empleados con rol Supervisor)'
+    )
+    
     class Meta:
         model = Empleado
-        fields = ['nombre', 'apellido', 'cedula', 'email', 'activo']
+        fields = ['nombre', 'apellido', 'cedula', 'email', 'activo', 'supervisor']
 
     def __init__(self, *args, **kwargs):
         empleado = kwargs.get('instance')
@@ -130,29 +138,22 @@ class EmpleadoEditView(LoginRequiredMixin, UpdateView):
     success_url = '/empleados/'
 
     def form_valid(self, form):
-        response = super().form_valid(form)
-        from turnos.models import AsignarJornadaExplorador
+        # Guardar el empleado
+        empleado = form.save()
+        
+        # Actualizar la jornada
         jornada = form.cleaned_data['jornada']
-        empleado = self.object
-        # Cierra la asignación anterior si existe
-        asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_fin__isnull=True).order_by('-fecha_inicio').first()
-        if asignacion and asignacion.jornada != jornada:
-            asignacion.fecha_fin = timezone.now().date()
-            asignacion.save()
-            # Crea nueva asignación
-            AsignarJornadaExplorador.objects.create(
-                explorador=empleado,
-                jornada=jornada,
-                fecha_inicio=timezone.now().date()
-            )
-        elif not asignacion:
-            # Si no hay asignación previa, crea una nueva
-            AsignarJornadaExplorador.objects.create(
-                explorador=empleado,
-                jornada=jornada,
-                fecha_inicio=timezone.now().date()
-            )
-        return response
+        # Eliminar asignaciones anteriores
+        AsignarJornadaExplorador.objects.filter(explorador=empleado).delete()
+        # Crear nueva asignación
+        AsignarJornadaExplorador.objects.create(
+            explorador=empleado,
+            jornada=jornada,
+            fecha_inicio=timezone.now().date()
+        )
+        
+        messages.success(self.request, 'Empleado actualizado correctamente.')
+        return super().form_valid(form)
 
 class EmpleadoDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = Empleado
@@ -223,7 +224,8 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
                 apellido=form.cleaned_data['apellido'],
                 cedula=form.cleaned_data['cedula'],
                 email=form.cleaned_data['email'],
-                activo=form.cleaned_data['activo']
+                activo=form.cleaned_data['activo'],
+                supervisor=form.cleaned_data.get('supervisor')  # Agregar supervisor
             )
             for rol in form.cleaned_data['roles']:
                 EmpleadoRole.objects.create(empleado=empleado, role=rol)
@@ -320,7 +322,7 @@ class JornadaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     success_url = '/empleados/jornadas/'
 
 # CRUD de Restricciones
-class RestriccionListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+class RestriccionListView(LoginRequiredMixin, ListView):
     model = RestriccionEmpleado
     template_name = 'empleados/restricciones_list.html'
     context_object_name = 'restricciones'
@@ -343,7 +345,7 @@ class RestriccionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     success_url = '/empleados/restricciones/'
 
 # CRUD de Sanciones
-class SancionListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+class SancionListView(LoginRequiredMixin, ListView):
     model = SancionEmpleado
     template_name = 'empleados/sanciones_list.html'
     context_object_name = 'sanciones'
@@ -366,7 +368,7 @@ class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     success_url = '/empleados/sanciones/'
 
 # CRUD de PDH (Pago de Horas)
-class PDHListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+class PDHListView(LoginRequiredMixin, ListView):
     model = PDH
     template_name = 'empleados/pdh_list.html'
     context_object_name = 'pdhs'
@@ -413,3 +415,19 @@ class ChangePasswordView(LoginRequiredMixin, AdminRequiredMixin, View):
             'target_user': user,
             'empleado': getattr(user, 'empleado', None)
         })
+
+# Vistas solo visualización para Consultas Rápidas
+class PDHVisualizarListView(LoginRequiredMixin, ListView):
+    model = PDH
+    template_name = 'empleados/pdh_visualizar_list.html'
+    context_object_name = 'pdhs'
+
+class SancionVisualizarListView(LoginRequiredMixin, ListView):
+    model = SancionEmpleado
+    template_name = 'empleados/sanciones_visualizar_list.html'
+    context_object_name = 'sanciones'
+
+class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
+    model = RestriccionEmpleado
+    template_name = 'empleados/restricciones_visualizar_list.html'
+    context_object_name = 'restricciones'

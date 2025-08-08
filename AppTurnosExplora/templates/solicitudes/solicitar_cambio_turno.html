@@ -24,20 +24,37 @@
 
             <form method="post" id="cambioTurnoForm" class="solicitud-form">
                 {% csrf_token %}
+                <!-- Elemento oculto con el ID del tipo de solicitud -->
+                <input type="hidden" id="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
+                
                 <div class="form-group">
                     <label for="fecha_solicitud">
                         <i class="fas fa-calendar mr-1"></i>Fecha del Cambio
                     </label>
-                    <input type="date" 
-                           class="form-control" 
-                           id="fecha_solicitud" 
-                           name="fecha_solicitud" 
-                           required
-                           min="{{ fecha_minima|date:'Y-m-d' }}"
+                    <input type="date" class="form-control" id="fecha_solicitud" name="fecha_solicitud" required min="{{ fecha_minima|date:'Y-m-d' }}"
                            value="{{ fecha_seleccionada|date:'Y-m-d' }}">
                     <small class="form-text text-muted">
                         Selecciona la fecha para la cual deseas cambiar tu turno
                     </small>
+                </div>
+
+                <!-- Información del turno y salas del usuario logueado (solicitante) -->
+                <div id="turno_solicitante_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-check mr-1"></i>Tu Turno y Salas para la Fecha Seleccionada
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_solicitante_detalles">
+                                <!-- Aquí se cargará la información del turno del solicitante -->
+                            </div>
+                            <div id="salas_solicitante_detalles" class="mt-2">
+                                <!-- Aquí se cargará la información de las salas del solicitante -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -57,6 +74,25 @@
                     <small class="form-text text-muted">
                         Solo se muestran compañeros disponibles para la fecha seleccionada
                     </small>
+                </div>
+
+                <!-- Información del turno del explorador seleccionado y sus salas (unificado en una sola tarjeta) -->
+                <div id="turno_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-friends mr-1"></i>Turno y Salas del Explorador Seleccionado
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_detalles">
+                                <!-- Aquí se cargará la información del turno -->
+                            </div>
+                            <div id="salas_detalles" class="mt-3">
+                                <!-- Aquí se cargará la información de las salas -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="form-group">
@@ -88,5 +124,8 @@
 
 {% block extra_js %}
 {{ block.super }}
+<script>
+window.solicitanteId = {{ request.user.empleado.id }};
+</script>
 <script src="{% static 'js/solicitar_cambio_turno.js' %}"></script>
 {% endblock %} 
