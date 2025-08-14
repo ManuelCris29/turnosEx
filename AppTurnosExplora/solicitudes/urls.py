@@ -6,7 +6,7 @@ from .views import (
     CambioTurnoInicioView, SolicitarCambioTurnoView, ObtenerEmpleadosDisponiblesView, ObtenerTurnoExploradorView,
     ProcesarSolicitudView, NotificacionesListView, MarcarNotificacionLeidaView,
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
-    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, NotificacionesSolicitudesView,
+    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView
 )
 
@@ -58,7 +58,6 @@ urlpatterns = [
     path('permisos-detalle/edit/<int:pk>/', PermisoDetalleUpdateView.as_view(), name='permisodetalle_edit'),
     path('permisos-detalle/delete/<int:pk>/', PermisoDetalleUpdateView.as_view(), name='permisodetalle_delete'),
     
-    # URL LEGACY (redirigir a la vista principal)
-    path('notificaciones-solicitudes/', SolicitudesView.as_view(), name='notificaciones_solicitudes'),
-    path('dashboard/', SolicitudesView.as_view(), name='dashboard_solicitudes'),
+    # URL LEGACY (redirigir a la vista principal) - ELIMINADA por redundancia
+    # path('dashboard/', SolicitudesView.as_view(), name='dashboard_solicitudes'),
 ] 

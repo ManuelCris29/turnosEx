@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Mis Solicitudes{% endblock %}
 
 {% block extra_css %}
@@ -413,11 +414,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-function verDetalleSolicitud(solicitudId) {
-    // Aquí puedes implementar la lógica para cargar los detalles
-    // Por ahora solo muestra el modal
-    $('#detalleSolicitudModal').modal('show');
-}
-</script>
+<script src="{% static 'js/solicitudes/mis_solicitudes.js' %}"></script>
 {% endblock %} 

@@ -549,3 +549,67 @@ class SolicitudService:
                 return 'Pendiente de ambos'
         else:
             return solicitud.get_estado_display() 
+
+    @staticmethod
+    def cancelar_solicitud_usuario(solicitud_id, empleado):
+        """
+        Cancela una solicitud por parte del usuario solicitante
+        Args:
+            solicitud_id: ID de la solicitud
+            empleado: Empleado que cancela la solicitud
+        Returns:
+            tuple: (success, message)
+        """
+        try:
+            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            
+            # Verificar que el empleado sea el solicitante
+            if solicitud.explorador_solicitante != empleado:
+                return False, 'Solo puedes cancelar tus propias solicitudes'
+            
+            # Verificar que la solicitud esté pendiente
+            if solicitud.estado != 'pendiente':
+                return False, 'Solo se pueden cancelar solicitudes pendientes'
+            
+            # Cancelar la solicitud
+            solicitud.estado = 'cancelada'
+            solicitud.fecha_resolucion = timezone.now()
+            solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
+            solicitud.save()
+            
+            # Crear notificación de cancelación
+            from .notificacion_service import NotificacionService
+            NotificacionService.crear_notificacion_cancelacion(solicitud)
+            
+            return True, 'Solicitud cancelada correctamente'
+            
+        except SolicitudCambio.DoesNotExist:
+            return False, 'Solicitud no encontrada'
+        except Exception as e:
+            return False, f'Error al cancelar la solicitud: {str(e)}' 
+
+    @staticmethod
+    def get_estadisticas_usuario(empleado):
+        """
+        Obtiene estadísticas de solicitudes para un empleado
+        Args:
+            empleado: Empleado para el cual obtener estadísticas
+        Returns:
+            dict: Diccionario con conteos de solicitudes
+        """
+        # Contar solicitudes del usuario (donde es el solicitante)
+        mis_solicitudes_count = SolicitudCambio.objects.filter(
+            explorador_solicitante=empleado
+        ).count()
+        
+        # Contar solicitudes pendientes que el usuario puede aprobar
+        from django.db.models import Q
+        solicitudes_pendientes_count = SolicitudCambio.objects.filter(
+            Q(estado='pendiente', explorador_receptor=empleado) |
+            Q(estado='pendiente', explorador_solicitante__supervisor=empleado)
+        ).distinct().count()
+        
+        return {
+            'mis_solicitudes_count': mis_solicitudes_count,
+            'solicitudes_pendientes_count': solicitudes_pendientes_count
+        } 

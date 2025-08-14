@@ -567,7 +567,7 @@ class NotificacionService:
         # Notificación para el receptor (si aún no ha aprobado)
         if not solicitud.aprobado_receptor:
             titulo_receptor = f"Solicitud Aprobada por Supervisor - {solicitud.tipo_cambio.nombre}"
-            mensaje_receptor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')} ha sido aprobada por el supervisor. Tu aprobación está pendiente."
+            mensaje_receptor = f"La solicitud de {solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido} para el {solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')} ha sido aprobada por el supervisor. Tu aprobación está pendiente."
             
             Notificacion.objects.create(
                 destinatario=solicitud.explorador_receptor,
@@ -876,3 +876,31 @@ class NotificacionService:
             )
         except Exception as e:
             print(f"Error enviando email de cancelación: {e}") 
+
+    @staticmethod
+    def verificar_token_email(solicitud, token, tipo):
+        """
+        Verifica que el token de email sea válido
+        Args:
+            solicitud: Objeto SolicitudCambio
+            token: Token recibido en la URL
+            tipo: 'supervisor' o 'receptor'
+        Returns:
+            bool: True si el token es válido
+        """
+        # Crear token esperado
+        if tipo == 'supervisor':
+            supervisor = solicitud.explorador_solicitante.supervisor
+            if not supervisor:
+                return False
+            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
+        else:  # receptor
+            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
+        
+        expected_token = hmac.new(
+            b'secret_key_change_this',  # Cambiar en producción
+            data.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return hmac.compare_digest(token, expected_token) 

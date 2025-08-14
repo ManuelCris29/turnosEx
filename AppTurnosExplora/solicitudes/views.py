@@ -12,8 +12,6 @@ from .services.solicitud_service import SolicitudService
 from .services.permiso_service import PermisoService
 from .services.notificacion_service import NotificacionService
 from django.utils import timezone
-import hashlib
-import hmac
 
 # Create your views here.
 
@@ -23,39 +21,9 @@ class SolicitudesView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.request.user.is_authenticated and hasattr(self.request.user, 'empleado'):
-            # Contar solicitudes del usuario logueado (donde es el solicitante)
-            mis_solicitudes_count = SolicitudCambio.objects.filter(
-                explorador_solicitante=self.request.user.empleado
-            ).count()
-            
-            # Contar solicitudes pendientes que el usuario puede aprobar
-            # Usar la misma lógica que en SolicitudesPendientesListView para evitar duplicados
-            from django.db.models import Q
-            solicitudes_pendientes_count = SolicitudCambio.objects.filter(
-                Q(estado='pendiente', explorador_receptor=self.request.user.empleado) |
-                Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado)
-            ).distinct().count()
-            
-            # Debug: Imprimir información para entender el conteo
-            print(f"DEBUG CONTADOR - Usuario: {self.request.user.empleado.nombre}")
-            print(f"DEBUG CONTADOR - Total pendientes (con distinct): {solicitudes_pendientes_count}")
-            
-            # Debug detallado: Mostrar las solicitudes específicas
-            solicitudes_combined = SolicitudCambio.objects.filter(
-                Q(estado='pendiente', explorador_receptor=self.request.user.empleado) |
-                Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado)
-            ).distinct()
-            
-            print(f"DEBUG DETALLADO - Solicitudes combinadas:")
-            for s in solicitudes_combined:
-                rol = "AMBOS" if (s.explorador_receptor == self.request.user.empleado and 
-                                s.explorador_solicitante.supervisor == self.request.user.empleado) else \
-                     "RECEPTOR" if s.explorador_receptor == self.request.user.empleado else "SUPERVISOR"
-                print(f"  - ID: {s.id}, Solicitante: {s.explorador_solicitante.nombre}, Receptor: {s.explorador_receptor.nombre}, Rol: {rol}, Fecha: {s.fecha_solicitud}")
-            
-            context['mis_solicitudes_count'] = mis_solicitudes_count
-            context['solicitudes_pendientes_count'] = solicitudes_pendientes_count
-            
+            # Usar el servicio para obtener estadísticas
+            estadisticas = SolicitudService.get_estadisticas_usuario(self.request.user.empleado)
+            context.update(estadisticas)
         return context
 
 # CRUD de TipoSolicitudCambio
@@ -456,98 +424,23 @@ class RechazarSolicitudReceptorView(LoginRequiredMixin, View):
 @method_decorator(csrf_exempt, name='dispatch')
 class CancelarSolicitudView(LoginRequiredMixin, View):
     def post(self, request, solicitud_id):
-        try:
-            # Verificar que el usuario sea el solicitante o tenga permisos
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
-            
-            # Solo el solicitante puede cancelar su propia solicitud
-            if solicitud.explorador_solicitante != request.user.empleado:
-                return JsonResponse({
-                    'success': False, 
-                    'message': 'Solo puedes cancelar tus propias solicitudes'
-                })
-            
-            # Verificar que la solicitud esté pendiente
-            if solicitud.estado != 'pendiente':
-                return JsonResponse({
-                    'success': False, 
-                    'message': 'Solo se pueden cancelar solicitudes pendientes'
-                })
-            
-            # Cancelar la solicitud
-            solicitud.estado = 'cancelada'
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
-            solicitud.save()
-            
-            # Crear notificación de cancelación
-            from .services.notificacion_service import NotificacionService
-            NotificacionService.crear_notificacion_cancelacion(solicitud)
-            
+        if not hasattr(request.user, 'empleado'):
             return JsonResponse({
-                'success': True, 
-                'message': 'Solicitud cancelada correctamente'
+                'success': False,
+                'message': 'Usuario no tiene empleado asociado'
             })
-            
-        except SolicitudCambio.DoesNotExist:
-            return JsonResponse({
-                'success': False, 
-                'message': 'Solicitud no encontrada'
-            })
-        except Exception as e:
-            return JsonResponse({
-                'success': False, 
-                'message': f'Error al cancelar la solicitud: {str(e)}'
-            })
+        
+        success, message = SolicitudService.cancelar_solicitud_usuario(
+            solicitud_id, 
+            request.user.empleado
+        )
+        
+        return JsonResponse({
+            'success': success,
+            'message': message
+        })
 
-class NotificacionesSolicitudesView(LoginRequiredMixin, TemplateView):
-    """
-    Vista inteligente para mostrar notificaciones y solicitudes
-    - Para todos los usuarios: muestra sus notificaciones y solicitudes
-    - Para supervisores: también muestra solicitudes pendientes de aprobación
-    - Para receptores: también muestra solicitudes que deben aprobar
-    """
-    template_name = 'solicitudes/notificaciones_solicitudes.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        if hasattr(self.request.user, 'empleado'):
-            empleado = self.request.user.empleado
-            
-            # Verificar si es supervisor
-            es_supervisor = empleado.empleados_supervisados.exists()
-            context['es_supervisor'] = es_supervisor
-            
-            # Obtener notificaciones no leídas
-            notificaciones_no_leidas = NotificacionService.obtener_notificaciones_no_leidas(empleado)
-            context['notificaciones_no_leidas'] = notificaciones_no_leidas
-            
-            # Obtener mis solicitudes
-            mis_solicitudes = SolicitudService.get_solicitudes_usuario(self.request.user)
-            context['mis_solicitudes'] = mis_solicitudes
-            
-            # Si es supervisor, obtener solicitudes pendientes
-            if es_supervisor:
-                solicitudes_pendientes = SolicitudService.get_solicitudes_por_supervisor(empleado)
-                context['solicitudes_pendientes'] = solicitudes_pendientes
-            
-            # Obtener solicitudes que debe aprobar como receptor
-            solicitudes_por_receptor = SolicitudService.get_solicitudes_por_receptor(empleado)
-            context['solicitudes_por_receptor'] = solicitudes_por_receptor
-            
-            # Agregar información de estado de aprobación para cada solicitud
-            for solicitud in mis_solicitudes:
-                solicitud.estado_aprobacion = SolicitudService.get_estado_aprobacion_solicitud(solicitud)
-            
-            if es_supervisor:
-                for solicitud in solicitudes_pendientes:
-                    solicitud.estado_aprobacion = SolicitudService.get_estado_aprobacion_solicitud(solicitud)
-            
-            for solicitud in solicitudes_por_receptor:
-                solicitud.estado_aprobacion = SolicitudService.get_estado_aprobacion_solicitud(solicitud)
-        
-        return context
+
 
 # Vistas para aprobación por email (sin login requerido)
 class AprobarSolicitudEmailView(View):
@@ -558,8 +451,8 @@ class AprobarSolicitudEmailView(View):
         try:
             solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
             
-            # Verificar token
-            if not self._verificar_token(solicitud, token, 'supervisor'):
+            # Verificar token usando el servicio
+            if not NotificacionService.verificar_token_email(solicitud, token, 'supervisor'):
                 return render(request, 'solicitudes/error_token.html', {
                     'mensaje': 'Token inválido o expirado'
                 })
@@ -593,25 +486,6 @@ class AprobarSolicitudEmailView(View):
             return render(request, 'solicitudes/error_token.html', {
                 'mensaje': f'Error al procesar la solicitud: {str(e)}'
             })
-    
-    def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea válido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producción
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
 
 class RechazarSolicitudEmailView(View):
     """
@@ -621,8 +495,8 @@ class RechazarSolicitudEmailView(View):
         try:
             solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
             
-            # Verificar token
-            if not self._verificar_token(solicitud, token, 'supervisor'):
+            # Verificar token usando el servicio
+            if not NotificacionService.verificar_token_email(solicitud, token, 'supervisor'):
                 return render(request, 'solicitudes/error_token.html', {
                     'mensaje': 'Token inválido o expirado'
                 })
@@ -656,25 +530,6 @@ class RechazarSolicitudEmailView(View):
             return render(request, 'solicitudes/error_token.html', {
                 'mensaje': f'Error al procesar la solicitud: {str(e)}'
             })
-    
-    def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea válido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producción
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
 
 class AprobarSolicitudReceptorEmailView(View):
     """
@@ -684,8 +539,8 @@ class AprobarSolicitudReceptorEmailView(View):
         try:
             solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
             
-            # Verificar token
-            if not self._verificar_token(solicitud, token, 'receptor'):
+            # Verificar token usando el servicio
+            if not NotificacionService.verificar_token_email(solicitud, token, 'receptor'):
                 return render(request, 'solicitudes/error_token.html', {
                     'mensaje': 'Token inválido o expirado'
                 })
@@ -712,25 +567,6 @@ class AprobarSolicitudReceptorEmailView(View):
             return render(request, 'solicitudes/error_token.html', {
                 'mensaje': f'Error al procesar la solicitud: {str(e)}'
             })
-    
-    def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea válido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producción
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
 
 class RechazarSolicitudReceptorEmailView(View):
     """
@@ -740,8 +576,8 @@ class RechazarSolicitudReceptorEmailView(View):
         try:
             solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
             
-            # Verificar token
-            if not self._verificar_token(solicitud, token, 'receptor'):
+            # Verificar token usando el servicio
+            if not NotificacionService.verificar_token_email(solicitud, token, 'receptor'):
                 return render(request, 'solicitudes/error_token.html', {
                     'mensaje': 'Token inválido o expirado'
                 })
@@ -768,22 +604,3 @@ class RechazarSolicitudReceptorEmailView(View):
             return render(request, 'solicitudes/error_token.html', {
                 'mensaje': f'Error al procesar la solicitud: {str(e)}'
             })
-    
-    def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea válido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producción
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
