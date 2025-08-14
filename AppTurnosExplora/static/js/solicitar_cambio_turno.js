@@ -262,7 +262,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     icon: 'success',
                     title: '¡Solicitud enviada!',
                     text: data.message,
-                    confirmButtonText: 'OK'
+                    confirmButtonText: 'OK',
+                    timer: 4000,
+                    timerProgressBar: true,
+                    showConfirmButton: false,
+                    position: 'top-end',
+                    toast: true,
+                    customClass: {
+                        popup: 'swal2-toast'
+                    }
                 }).then((result) => {
                     // Redirigir a la lista de solicitudes o dashboard
                     window.location.href = '/solicitudes/';
@@ -273,7 +281,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     icon: 'error',
                     title: 'Error al enviar solicitud',
                     text: data.error,
-                    confirmButtonText: 'OK'
+                    confirmButtonText: 'Entendido',
+                    timer: 4000,
+                    timerProgressBar: true,
+                    showConfirmButton: false,
+                    position: 'center',
+                    customClass: {
+                        popup: 'swal2-error-popup'
+                    }
                 });
             }
         })
@@ -283,7 +298,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 icon: 'error',
                 title: 'Error de conexión',
                 text: 'No se pudo enviar la solicitud. Inténtalo de nuevo.',
-                confirmButtonText: 'OK'
+                confirmButtonText: 'Reintentar',
+                timer: 5000,
+                timerProgressBar: true,
+                showConfirmButton: true,
+                position: 'center',
+                customClass: {
+                    popup: 'swal2-error-popup'
+                }
             });
         })
         .finally(() => {

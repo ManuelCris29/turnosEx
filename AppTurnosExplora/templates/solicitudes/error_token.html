@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Error - Token Inválido{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <div class="row mb-2">
+            <div class="col-sm-6">
+                <h1 class="m-0">
+                    <i class="fas fa-exclamation-triangle text-warning"></i> Error
+                </h1>
+            </div>
+            <div class="col-sm-6">
+                <ol class="breadcrumb float-sm-right">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Error</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-exclamation-triangle text-warning"></i> Error de Acceso
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center mb-4">
+                            <i class="fas fa-exclamation-triangle text-warning" style="font-size: 4rem;"></i>
+                            <h4 class="text-warning mt-3">No se pudo procesar la solicitud</h4>
+                        </div>
+
+                        <div class="alert alert-warning">
+                            <h5><i class="fas fa-info-circle"></i> Detalles del Error</h5>
+                            <p>{{ mensaje }}</p>
+                        </div>
+
+                        <div class="alert alert-info">
+                            <h5><i class="fas fa-lightbulb"></i> Posibles Causas</h5>
+                            <ul>
+                                <li>El enlace ha expirado</li>
+                                <li>El enlace ha sido usado anteriormente</li>
+                                <li>El enlace es incorrecto o ha sido modificado</li>
+                                <li>La solicitud ya no existe o ha sido procesada</li>
+                            </ul>
+                        </div>
+
+                        <div class="text-center mt-4">
+                            <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                                <i class="fas fa-home"></i> Ir al Dashboard
+                            </a>
+                            <a href="{% url 'solicitudes:notificaciones_solicitudes' %}" class="btn btn-info">
+                                <i class="fas fa-bell"></i> Ver Notificaciones
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %} 

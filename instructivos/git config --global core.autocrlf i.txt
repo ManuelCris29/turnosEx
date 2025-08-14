@@ -1,0 +1,6 @@
+ git config --global core.autocrlf input
+$ git add --renormalize .
+$ git commit -m " Normaliza finales de linea a LF "
+$ git push origin main
+
+

@@ -27,6 +27,10 @@ class Empleado(models.Model):
     
     def __str__(self):
         return f"{self.nombre} {self.apellido} ({self.user.username})"
+    
+    def notificaciones_no_leidas_count(self):
+        """Retorna el número de notificaciones no leídas"""
+        return self.notificaciones.filter(leida=False).count()
 
 class Role(models.Model):
     nombre = models.CharField(max_length=50)

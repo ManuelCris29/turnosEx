@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solicitud Aprobada por Compañero</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 20px;
+            border-radius: 10px 10px 0 0;
+            margin: -30px -30px 30px -30px;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .status {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            font-weight: bold;
+            margin-bottom: 20px;
+        }
+        .info-box {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .info-box h3 {
+            color: #495057;
+            margin-top: 0;
+            border-bottom: 2px solid #28a745;
+            padding-bottom: 10px;
+        }
+        .info-box p {
+            margin: 10px 0;
+        }
+        .highlight {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #dee2e6;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .success-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="success-icon">✅</div>
+            <h1>Solicitud Aprobada por Compañero</h1>
+        </div>
+        
+        <div class="status">
+            Tu solicitud ha sido aprobada por tu compañero
+        </div>
+        
+        <div class="info-box">
+            <h3>Detalles de la Solicitud:</h3>
+            <p><strong>Tipo de Solicitud:</strong> {{ solicitud.tipo_cambio.nombre }}</p>
+            <p><strong>Fecha de Solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d/m/Y" }}</p>
+            <p><strong>Compañero que Aprobó:</strong> {{ receptor.nombre }} {{ receptor.apellido }}</p>
+            <p><strong>Fecha de Aprobación:</strong> {{ solicitud.fecha_aprobacion_receptor|date:"d/m/Y H:i" }}</p>
+            {% if comentario_respuesta %}
+            <p><strong>Comentario del Compañero:</strong> {{ comentario_respuesta }}</p>
+            {% endif %}
+        </div>
+        
+        <div class="info-box">
+            <h3>Estado Actual:</h3>
+            {% if solicitud.aprobado_supervisor %}
+                <p>✅ <strong>APROBADA COMPLETAMENTE</strong></p>
+                <p>Tu solicitud ha sido aprobada tanto por tu supervisor como por tu compañero. El cambio de turno está confirmado.</p>
+            {% else %}
+                <p>⏳ <strong>PENDIENTE DE APROBACIÓN DEL SUPERVISOR</strong></p>
+                <p>Tu solicitud ha sido aprobada por tu compañero. Ahora está pendiente de que tu supervisor también la apruebe.</p>
+            {% endif %}
+        </div>
+        
+        <div class="highlight">
+            <h3>Próximos Pasos:</h3>
+            {% if solicitud.aprobado_supervisor %}
+                <p>🎉 <strong>¡Felicidades!</strong> Tu solicitud está completamente aprobada. El cambio de turno se realizará según lo solicitado.</p>
+            {% else %}
+                <p>Espera a que tu supervisor apruebe la solicitud para completar el proceso.</p>
+            {% endif %}
+        </div>
+        
+        <div class="footer">
+            <p>Este es un mensaje automático del sistema de solicitudes de cambio de turno.</p>
+            <p>Si tienes alguna pregunta, contacta a tu supervisor.</p>
+        </div>
+    </div>
+</body>
+</html> 

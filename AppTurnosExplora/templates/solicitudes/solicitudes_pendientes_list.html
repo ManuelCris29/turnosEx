@@ -1,72 +1,392 @@
 {% extends 'base.html' %}
 {% block title %}Solicitudes Pendientes{% endblock %}
-{% block page_title %}Solicitudes Pendientes{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Variables CSS para consistencia */
+    :root {
+        --primary-color: #007bff;
+        --secondary-color: #6c757d;
+        --success-color: #28a745;
+        --warning-color: #ffc107;
+        --info-color: #17a2b8;
+        --danger-color: #dc3545;
+        --light-color: #f8f9fa;
+        --dark-color: #343a40;
+        --border-radius: 12px;
+        --box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Contenedor principal */
+    .page-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem 0;
+    }
+
+    .page-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+    }
+
+    /* Header de la página */
+    .page-header {
+        text-align: center;
+        margin-bottom: 2rem;
+        color: white;
+    }
+
+    .page-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .page-subtitle {
+        font-size: 1.1rem;
+        opacity: 0.9;
+        font-weight: 300;
+    }
+
+    /* Card principal */
+    .main-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--box-shadow);
+        overflow: hidden;
+        border: none;
+    }
+
+    .card-header-custom {
+        background: linear-gradient(135deg, var(--warning-color), #fd7e14);
+        color: white;
+        padding: 1.5rem 2rem;
+        border-bottom: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .card-header-custom h3 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+
+    /* Tabla mejorada */
+    .table-container {
+        padding: 2rem;
+    }
+
+    .table-custom {
+        border: none;
+        border-radius: var(--border-radius);
+        overflow: hidden;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .table-custom thead th {
+        background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+        border: none;
+        padding: 1rem;
+        font-weight: 600;
+        color: var(--dark-color);
+        text-transform: uppercase;
+        font-size: 0.9rem;
+        letter-spacing: 0.5px;
+    }
+
+    .table-custom tbody tr {
+        transition: var(--transition);
+        border-bottom: 1px solid #f1f3f4;
+    }
+
+    .table-custom tbody tr:hover {
+        background-color: #f8f9fa;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+
+    .table-custom tbody td {
+        padding: 1rem;
+        border: none;
+        vertical-align: middle;
+    }
+
+    /* Badges mejorados */
+    .badge-custom {
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    .badge-pendiente {
+        background: linear-gradient(135deg, var(--warning-color), #fd7e14);
+        color: white;
+    }
+
+    .badge-tipo {
+        background: linear-gradient(135deg, var(--info-color), #20c997);
+        color: white;
+    }
+
+    .badge-receptor {
+        background: linear-gradient(135deg, #17a2b8, #20c997);
+        color: white;
+    }
+
+    .badge-supervisor {
+        background: linear-gradient(135deg, #fd7e14, #ffc107);
+        color: white;
+    }
+
+    /* Botones de acción */
+    .btn-action {
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-weight: 600;
+        font-size: 0.9rem;
+        border: none;
+        transition: var(--transition);
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 0.25rem;
+    }
+
+    .btn-aprobar {
+        background: linear-gradient(135deg, var(--success-color), #20c997);
+        color: white;
+    }
+
+    .btn-rechazar {
+        background: linear-gradient(135deg, var(--danger-color), #e74c3c);
+        color: white;
+    }
+
+    .btn-cancelar {
+        background: linear-gradient(135deg, var(--warning-color), #fd7e14);
+        color: white;
+    }
+
+    .btn-ver {
+        background: linear-gradient(135deg, var(--info-color), #20c997);
+        color: white;
+    }
+
+    .btn-action:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        color: white;
+        text-decoration: none;
+    }
+
+    /* Estado vacío */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--secondary-color);
+    }
+
+    .empty-state i {
+        font-size: 4rem;
+        color: #dee2e6;
+        margin-bottom: 1.5rem;
+    }
+
+    .empty-state h5 {
+        color: var(--secondary-color);
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+
+    .empty-state p {
+        color: #adb5bd;
+        font-size: 1.1rem;
+        margin-bottom: 2rem;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .page-container {
+            padding: 1rem 0;
+        }
+        
+        .page-content {
+            padding: 0 1rem;
+        }
+        
+        .page-title {
+            font-size: 2rem;
+        }
+        
+        .card-header-custom {
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
+        }
+        
+        .table-container {
+            padding: 1rem;
+        }
+        
+        .table-custom thead th,
+        .table-custom tbody td {
+            padding: 0.75rem 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .btn-action {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            margin: 0.1rem;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .page-title {
+            font-size: 1.8rem;
+        }
+        
+        .table-custom {
+            font-size: 0.8rem;
+        }
+        
+        .btn-action {
+            padding: 0.3rem 0.6rem;
+            font-size: 0.75rem;
+        }
+    }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="card">
-    <div class="card-header">
-        <h3 class="card-title">
-            <i class="fas fa-clock"></i> Solicitudes Pendientes de Aprobación
-        </h3>
-    </div>
-    <div class="card-body">
-        {% if solicitudes %}
-            <div class="table-responsive">
-                <table class="table table-bordered table-striped">
-                    <thead>
-                        <tr>
-                            <th>Fecha Solicitud</th>
-                            <th>Empleado</th>
-                            <th>Tipo</th>
-                            <th>Compañero</th>
-                            <th>Comentario</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for solicitud in solicitudes %}
-                        <tr>
-                            <td>{{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</td>
-                            <td>
-                                <strong>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</strong>
-                                <br><small class="text-muted">{{ solicitud.explorador_solicitante.email }}</small>
-                            </td>
-                            <td>
-                                <span class="badge badge-info">{{ solicitud.tipo_cambio.nombre }}</span>
-                            </td>
-                            <td>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</td>
-                            <td>
-                                {% if solicitud.comentario %}
-                                    <small>{{ solicitud.comentario|truncatechars:50 }}</small>
-                                {% else %}
-                                    <small class="text-muted">Sin comentario</small>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <div class="btn-group" role="group">
-                                    <button class="btn btn-success btn-sm" onclick="aprobarSolicitud({{ solicitud.id }})">
-                                        <i class="fas fa-check"></i> Aprobar
-                                    </button>
-                                    <button class="btn btn-danger btn-sm" onclick="rechazarSolicitud({{ solicitud.id }})">
-                                        <i class="fas fa-times"></i> Rechazar
-                                    </button>
-                                    <button class="btn btn-info btn-sm" onclick="verDetalleSolicitud({{ solicitud.id }})">
-                                        <i class="fas fa-eye"></i> Ver
-                                    </button>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+<div class="page-container">
+    <div class="page-content">
+        <!-- Header de la página -->
+        <div class="page-header">
+            <h1 class="page-title">
+                <i class="fas fa-clock"></i>
+                Solicitudes Pendientes
+            </h1>
+            <p class="page-subtitle">
+                Aprueba o rechaza las solicitudes que requieren tu autorización
+            </p>
+        </div>
+
+        <!-- Card principal -->
+        <div class="main-card">
+            <div class="card-header-custom">
+                <h3>
+                    <i class="fas fa-user-tie"></i>
+                    Solicitudes Pendientes de Aprobación
+                </h3>
             </div>
-        {% else %}
-            <div class="text-center py-4">
-                <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
-                <h5 class="text-success">¡Excelente!</h5>
-                <p class="text-muted">No hay solicitudes pendientes de aprobación.</p>
+            
+            <div class="table-container">
+                {% if solicitudes %}
+                    <div class="table-responsive">
+                        <table class="table table-custom">
+                            <thead>
+                                <tr>
+                                    <th>Fecha Solicitud</th>
+                                    <th>Empleado</th>
+                                    <th>Tipo</th>
+                                    <th>Compañero</th>
+                                    <th>Rol</th>
+                                    <th>Comentario</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for solicitud in solicitudes %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ solicitud.fecha_solicitud|date:"d/m/Y" }}</strong>
+                                        <br>
+                                        <small class="text-muted">{{ solicitud.fecha_solicitud|time:"H:i" }}</small>
+                                    </td>
+                                    <td>
+                                        <strong>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</strong>
+                                        <br>
+                                        <small class="text-muted">{{ solicitud.explorador_solicitante.email }}</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge badge-custom badge-tipo">{{ solicitud.tipo_cambio.nombre }}</span>
+                                    </td>
+                                    <td>
+                                        <strong>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</strong>
+                                    </td>
+                                    <td>
+                                        {% if solicitud.mi_rol == 'receptor' %}
+                                            <span class="badge badge-custom badge-receptor">
+                                                <i class="fas fa-user"></i> Receptor
+                                            </span>
+                                        {% elif solicitud.mi_rol == 'supervisor' %}
+                                            <span class="badge badge-custom badge-supervisor">
+                                                <i class="fas fa-user-tie"></i> Supervisor
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if solicitud.comentario %}
+                                            <small>{{ solicitud.comentario|truncatechars:50 }}</small>
+                                        {% else %}
+                                            <small class="text-muted">Sin comentario</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <div class="d-flex flex-wrap gap-1">
+                                            {% if solicitud.mi_rol == 'receptor' %}
+                                                <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudReceptor({{ solicitud.id }})" title="Aprobar como Receptor">
+                                                    <i class="fas fa-check"></i>
+                                                    Aprobar
+                                                </button>
+                                                <button class="btn btn-action btn-rechazar" onclick="rechazarSolicitudReceptor({{ solicitud.id }})" title="Rechazar como Receptor">
+                                                    <i class="fas fa-times"></i>
+                                                    Rechazar
+                                                </button>
+                                            {% elif solicitud.mi_rol == 'supervisor' %}
+                                                <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudSupervisor({{ solicitud.id }})" title="Aprobar como Supervisor">
+                                                    <i class="fas fa-check"></i>
+                                                    Aprobar
+                                                </button>
+                                                <button class="btn btn-action btn-rechazar" onclick="rechazarSolicitudSupervisor({{ solicitud.id }})" title="Rechazar como Supervisor">
+                                                    <i class="fas fa-times"></i>
+                                                    Rechazar
+                                                </button>
+                                            {% endif %}
+                                            <button class="btn btn-action btn-cancelar" onclick="cancelarSolicitud({{ solicitud.id }})" title="Cancelar">
+                                                <i class="fas fa-ban"></i>
+                                                Cancelar
+                                            </button>
+                                            <button class="btn btn-action btn-ver" onclick="verDetalleSolicitud({{ solicitud.id }})" title="Ver detalles">
+                                                <i class="fas fa-eye"></i>
+                                                Ver
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="empty-state">
+                        <i class="fas fa-check-circle"></i>
+                        <h5>¡Excelente!</h5>
+                        <p>No hay solicitudes pendientes de aprobación.</p>
+                    </div>
+                {% endif %}
             </div>
-        {% endif %}
+        </div>
     </div>
 </div>
 
@@ -118,36 +438,132 @@
 <script>
 let solicitudActual = null;
 let accionActual = null;
+let rolActual = null;
 
-function aprobarSolicitud(solicitudId) {
+function aprobarSolicitudReceptor(solicitudId) {
     solicitudActual = solicitudId;
     accionActual = 'aprobar';
-    $('#accionModalTitle').text('Aprobar Solicitud');
+    rolActual = 'receptor';
+    $('#accionModalTitle').text('Aprobar Solicitud como Receptor');
     $('#accionSolicitudModal').modal('show');
 }
 
-function rechazarSolicitud(solicitudId) {
+function rechazarSolicitudReceptor(solicitudId) {
     solicitudActual = solicitudId;
     accionActual = 'rechazar';
-    $('#accionModalTitle').text('Rechazar Solicitud');
+    rolActual = 'receptor';
+    $('#accionModalTitle').text('Rechazar Solicitud como Receptor');
     $('#accionSolicitudModal').modal('show');
+}
+
+function aprobarSolicitudSupervisor(solicitudId) {
+    solicitudActual = solicitudId;
+    accionActual = 'aprobar';
+    rolActual = 'supervisor';
+    $('#accionModalTitle').text('Aprobar Solicitud como Supervisor');
+    $('#accionSolicitudModal').modal('show');
+}
+
+function rechazarSolicitudSupervisor(solicitudId) {
+    solicitudActual = solicitudId;
+    accionActual = 'rechazar';
+    rolActual = 'supervisor';
+    $('#accionModalTitle').text('Rechazar Solicitud como Supervisor');
+    $('#accionSolicitudModal').modal('show');
+}
+
+function cancelarSolicitud(solicitudId) {
+    Swal.fire({
+        title: '¿Cancelar solicitud?',
+        text: 'Esta acción cancelará la solicitud. ¿Estás seguro?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ffc107',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, cancelar',
+        cancelButtonText: 'No, mantener'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            
+            fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Solicitud cancelada!',
+                        text: data.message,
+                        timer: 3000,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message,
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de conexión',
+                    text: 'No se pudo cancelar la solicitud. Inténtalo de nuevo.',
+                    timer: 5000,
+                    timerProgressBar: true,
+                    showConfirmButton: true,
+                    confirmButtonText: 'Reintentar'
+                });
+            });
+        }
+    });
 }
 
 function verDetalleSolicitud(solicitudId) {
-    // Aquí puedes implementar la lógica para cargar los detalles
+    // Implementar lógica para mostrar detalles
     $('#detalleSolicitudModal').modal('show');
 }
 
+// Confirmar acción del modal
 $('#confirmarAccion').click(function() {
     if (!solicitudActual || !accionActual) return;
     
     const comentario = $('#comentario_respuesta').val();
-    const url = accionActual === 'aprobar' 
-        ? `/solicitudes/aprobar-solicitud/${solicitudActual}/`
-        : `/solicitudes/rechazar-solicitud/${solicitudActual}/`;
-    
     const formData = new FormData();
-    formData.append('comentario_respuesta', comentario);
+    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    formData.append('comentario', comentario);
+    
+    let url = '';
+    if (rolActual === 'receptor') {
+        if (accionActual === 'aprobar') {
+            url = `/solicitudes/aprobar-solicitud-receptor/${solicitudActual}/`;
+        } else if (accionActual === 'rechazar') {
+            url = `/solicitudes/rechazar-solicitud-receptor/${solicitudActual}/`;
+        }
+    } else if (rolActual === 'supervisor') {
+        if (accionActual === 'aprobar') {
+            url = `/solicitudes/aprobar-solicitud/${solicitudActual}/`;
+        } else if (accionActual === 'rechazar') {
+            url = `/solicitudes/rechazar-solicitud/${solicitudActual}/`;
+        }
+    }
     
     fetch(url, {
         method: 'POST',
@@ -158,12 +574,19 @@ $('#confirmarAccion').click(function() {
     })
     .then(response => response.json())
     .then(data => {
+        $('#accionSolicitudModal').modal('hide');
+        $('#comentario_respuesta').val('');
+        
         if (data.success) {
             Swal.fire({
                 icon: 'success',
-                title: '¡Éxito!',
+                title: '¡Acción completada!',
                 text: data.message,
-                confirmButtonText: 'OK'
+                timer: 3000,
+                timerProgressBar: true,
+                showConfirmButton: false,
+                position: 'top-end',
+                toast: true
             }).then(() => {
                 location.reload();
             });
@@ -171,23 +594,25 @@ $('#confirmarAccion').click(function() {
             Swal.fire({
                 icon: 'error',
                 title: 'Error',
-                text: data.message || 'Error al procesar la solicitud',
-                confirmButtonText: 'OK'
+                text: data.message,
+                timer: 4000,
+                timerProgressBar: true,
+                showConfirmButton: false
             });
         }
     })
     .catch(error => {
         console.error('Error:', error);
+        $('#accionSolicitudModal').modal('hide');
         Swal.fire({
             icon: 'error',
-            title: 'Error',
-            text: 'Error al procesar la solicitud',
-            confirmButtonText: 'OK'
+            title: 'Error de conexión',
+            text: 'No se pudo completar la acción. Inténtalo de nuevo.',
+            timer: 5000,
+            timerProgressBar: true,
+            showConfirmButton: true,
+            confirmButtonText: 'Reintentar'
         });
-    })
-    .finally(() => {
-        $('#accionSolicitudModal').modal('hide');
-        $('#comentario_respuesta').val('');
     });
 });
 </script>

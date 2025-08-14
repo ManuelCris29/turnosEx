@@ -1,0 +1,1 @@
+para omitir los archivos que no deben estar en giygub es gitignore

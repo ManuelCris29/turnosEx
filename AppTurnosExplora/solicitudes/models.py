@@ -51,11 +51,13 @@ class SolicitudCambio(models.Model):
             ('pendiente', 'Pendiente'),
             ('aprobada', 'Aprobada'),
             ('rechazada', 'Rechazada'),
+            ('cancelada', 'Cancelada'),
             ('pagada', 'Pagada'),
         ],
         default='pendiente'
     )
     fecha_solicitud = models.DateTimeField(auto_now_add=True)
+    fecha_cambio_turno = models.DateField(null=True, blank=True, help_text='Fecha para la cual se solicita el cambio de turno')
     fecha_resolucion = models.DateTimeField(null=True, blank=True)
     comentario = models.TextField(null=True, blank=True)
     aprobado_receptor = models.BooleanField(default=False)
@@ -75,7 +77,7 @@ class SolicitudCambio(models.Model):
     historial = HistoricalRecords()
 
     def __str__(self):
-        return f"{self.tipo_cambio.descripcion} - {self.explorador_solicitante} a {self.explorador_receptor} ({self.fecha_solicitud.date()})"
+        return f"{self.tipo_cambio.nombre} - {self.explorador_solicitante} a {self.explorador_receptor} ({self.fecha_cambio_turno})"
 
 class CambioPermanenteDetalle(models.Model):
     solicitud=models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='cambio_permanente')

@@ -1,0 +1,477 @@
+{% extends 'base.html' %}
+{% block title %}Notificaciones{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Variables CSS para consistencia */
+    :root {
+        --primary-color: #007bff;
+        --secondary-color: #6c757d;
+        --success-color: #28a745;
+        --warning-color: #ffc107;
+        --info-color: #17a2b8;
+        --danger-color: #dc3545;
+        --light-color: #f8f9fa;
+        --dark-color: #343a40;
+        --border-radius: 12px;
+        --box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* Contenedor principal */
+    .page-container {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        padding: 2rem 0;
+    }
+
+    .page-content {
+        max-width: 1400px;
+        margin: 0 auto;
+        padding: 0 1.5rem;
+    }
+
+    /* Header de la página */
+    .page-header {
+        text-align: center;
+        margin-bottom: 2rem;
+        color: white;
+    }
+
+    .page-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+        text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    }
+
+    .page-subtitle {
+        font-size: 1.1rem;
+        opacity: 0.9;
+        font-weight: 300;
+    }
+
+    /* Card principal */
+    .main-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--box-shadow);
+        overflow: hidden;
+        border: none;
+    }
+
+    .card-header-custom {
+        background: linear-gradient(135deg, var(--success-color), #20c997);
+        color: white;
+        padding: 1.5rem 2rem;
+        border-bottom: none;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .card-header-custom h3 {
+        margin: 0;
+        font-size: 1.5rem;
+        font-weight: 600;
+    }
+
+    /* Contenedor de notificaciones */
+    .notificaciones-container {
+        padding: 2rem;
+    }
+
+    /* Items de notificación */
+    .notificacion-item {
+        border-bottom: 1px solid #e9ecef;
+        padding: 1.5rem;
+        transition: var(--transition);
+        position: relative;
+        border-radius: var(--border-radius);
+        margin-bottom: 1rem;
+        background: white;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+    }
+
+    .notificacion-item:hover {
+        background-color: #f8f9fa;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .notificacion-item:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+    }
+
+    .notificacion-item.no-leida {
+        background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+        border-left: 4px solid var(--warning-color);
+    }
+
+    .notificacion-item.no-leida:hover {
+        background: linear-gradient(135deg, #ffeaa7, #fdcb6e);
+    }
+
+    .notificacion-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1rem;
+    }
+
+    .notificacion-titulo {
+        font-size: 1.2rem;
+        font-weight: 600;
+        color: var(--dark-color);
+        margin: 0;
+        flex: 1;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .notificacion-fecha {
+        font-size: 0.9rem;
+        color: var(--secondary-color);
+        background: #e9ecef;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        white-space: nowrap;
+        font-weight: 500;
+    }
+
+    .notificacion-contenido {
+        color: #555;
+        line-height: 1.6;
+        margin-bottom: 1.5rem;
+    }
+
+    .notificacion-acciones {
+        display: flex;
+        gap: 1rem;
+        justify-content: flex-end;
+    }
+
+    .btn-marcar-leida {
+        background: linear-gradient(135deg, var(--success-color), #20c997);
+        border: none;
+        color: white;
+        padding: 0.75rem 1.5rem;
+        border-radius: 25px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        transition: var(--transition);
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-marcar-leida:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(40,167,69,0.3);
+        color: white;
+        text-decoration: none;
+    }
+
+    /* Badges de estado */
+    .badge-estado {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin: 0.25rem;
+    }
+
+    .badge-pendiente {
+        background: linear-gradient(135deg, var(--warning-color), #fd7e14);
+        color: white;
+    }
+
+    .badge-aprobada {
+        background: linear-gradient(135deg, var(--success-color), #20c997);
+        color: white;
+    }
+
+    .badge-rechazada {
+        background: linear-gradient(135deg, var(--danger-color), #e74c3c);
+        color: white;
+    }
+
+    .badge-cancelada {
+        background: linear-gradient(135deg, var(--secondary-color), #6c757d);
+        color: white;
+    }
+
+    /* Estado vacío */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--secondary-color);
+    }
+
+    .empty-state i {
+        font-size: 4rem;
+        color: #dee2e6;
+        margin-bottom: 1.5rem;
+    }
+
+    .empty-state h4 {
+        color: var(--secondary-color);
+        margin-bottom: 1rem;
+        font-weight: 600;
+    }
+
+    .empty-state p {
+        color: #adb5bd;
+        font-size: 1.1rem;
+        margin-bottom: 2rem;
+    }
+
+    /* Responsive design */
+    @media (max-width: 768px) {
+        .page-container {
+            padding: 1rem 0;
+        }
+        
+        .page-content {
+            padding: 0 1rem;
+        }
+        
+        .page-title {
+            font-size: 2rem;
+        }
+        
+        .card-header-custom {
+            flex-direction: column;
+            gap: 1rem;
+            text-align: center;
+        }
+        
+        .notificaciones-container {
+            padding: 1rem;
+        }
+        
+        .notificacion-item {
+            padding: 1rem;
+        }
+        
+        .notificacion-header {
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        
+        .notificacion-fecha {
+            align-self: flex-start;
+        }
+        
+        .notificacion-acciones {
+            justify-content: flex-start;
+        }
+        
+        .btn-marcar-leida {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .page-title {
+            font-size: 1.8rem;
+        }
+        
+        .notificacion-titulo {
+            font-size: 1rem;
+        }
+        
+        .notificacion-contenido {
+            font-size: 0.9rem;
+        }
+        
+        .btn-marcar-leida {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.75rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-container">
+    <div class="page-content">
+        <!-- Header de la página -->
+        <div class="page-header">
+            <h1 class="page-title">
+                <i class="fas fa-bell"></i>
+                Notificaciones
+            </h1>
+            <p class="page-subtitle">
+                Revisa tus notificaciones y mensajes del sistema
+            </p>
+        </div>
+
+        <!-- Card principal -->
+        <div class="main-card">
+            <div class="card-header-custom">
+                <h3>
+                    <i class="fas fa-bell"></i>
+                    Centro de Notificaciones
+                    {% if notificaciones %}
+                        <span class="badge badge-light ml-2">{{ notificaciones|length }}</span>
+                    {% endif %}
+                </h3>
+            </div>
+            
+            <div class="notificaciones-container">
+                {% if notificaciones %}
+                    {% for notificacion in notificaciones %}
+                        <div class="notificacion-item {% if not notificacion.leida %}no-leida{% endif %}" id="notificacion-{{ notificacion.id }}">
+                            <div class="notificacion-header">
+                                <h4 class="notificacion-titulo">
+                                    {% if notificacion.tipo == 'solicitud_cambio' %}
+                                        <i class="fas fa-exchange-alt text-primary"></i>
+                                    {% elif notificacion.tipo == 'solicitud_aprobada' %}
+                                        <i class="fas fa-check-circle text-success"></i>
+                                    {% elif notificacion.tipo == 'solicitud_rechazada' %}
+                                        <i class="fas fa-times-circle text-danger"></i>
+                                    {% elif notificacion.tipo == 'solicitud_cancelada' %}
+                                        <i class="fas fa-ban text-warning"></i>
+                                    {% else %}
+                                        <i class="fas fa-bell text-info"></i>
+                                    {% endif %}
+                                    {{ notificacion.titulo }}
+                                </h4>
+                                <span class="notificacion-fecha">
+                                    <i class="far fa-clock"></i>
+                                    {{ notificacion.fecha_creacion|date:"d/m/Y H:i" }}
+                                </span>
+                            </div>
+                            
+                            <div class="notificacion-contenido">
+                                {{ notificacion.mensaje|linebreaks }}
+                                
+                                {% if notificacion.solicitud %}
+                                    <div class="mt-3">
+                                        <strong>Tipo:</strong> 
+                                        <span class="badge-estado badge-pendiente">
+                                            {{ notificacion.solicitud.tipo_solicitud.nombre }}
+                                        </span>
+                                        
+                                        <strong class="ml-3">Estado:</strong>
+                                        {% if notificacion.solicitud.estado == 'pendiente' %}
+                                            <span class="badge-estado badge-pendiente">Pendiente</span>
+                                        {% elif notificacion.solicitud.estado == 'aprobada' %}
+                                            <span class="badge-estado badge-aprobada">Aprobada</span>
+                                        {% elif notificacion.solicitud.estado == 'rechazada' %}
+                                            <span class="badge-estado badge-rechazada">Rechazada</span>
+                                        {% elif notificacion.solicitud.estado == 'cancelada' %}
+                                            <span class="badge-estado badge-cancelada">Cancelada</span>
+                                        {% endif %}
+                                        
+                                        {% if notificacion.solicitud.fecha_cambio_turno %}
+                                            <br><strong class="mt-2 d-inline-block">Fecha:</strong> 
+                                            {{ notificacion.solicitud.fecha_cambio_turno|date:"d/m/Y" }}
+                                        {% endif %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                            
+                            <div class="notificacion-acciones">
+                                {% if not notificacion.leida %}
+                                    <button class="btn-marcar-leida" onclick="marcarComoLeida({{ notificacion.id }})">
+                                        <i class="fas fa-check"></i> Marcar como leída
+                                    </button>
+                                {% else %}
+                                    <span class="text-muted">
+                                        <i class="fas fa-check-circle"></i> Leída
+                                    </span>
+                                {% endif %}
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <i class="far fa-bell"></i>
+                        <h4>No hay notificaciones</h4>
+                        <p>No tienes notificaciones pendientes en este momento.</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function marcarComoLeida(notificacionId) {
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+    
+    fetch(`/solicitudes/notificaciones/${notificacionId}/marcar-leida/`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Marcar visualmente como leída
+            const notificacionItem = document.getElementById(`notificacion-${notificacionId}`);
+            notificacionItem.classList.remove('no-leida');
+            
+            // Cambiar el botón por "Leída"
+            const boton = notificacionItem.querySelector('.btn-marcar-leida');
+            boton.outerHTML = '<span class="text-muted"><i class="fas fa-check-circle"></i> Leída</span>';
+            
+            // Mostrar notificación de éxito
+            Swal.fire({
+                icon: 'success',
+                title: '¡Marcada como leída!',
+                text: 'La notificación ha sido marcada como leída',
+                timer: 2000,
+                timerProgressBar: true,
+                showConfirmButton: false,
+                position: 'top-end',
+                toast: true
+            });
+            
+            // Actualizar contador en el menú si existe
+            const badge = document.querySelector('.badge-warning.right');
+            if (badge) {
+                const currentCount = parseInt(badge.textContent);
+                if (currentCount > 1) {
+                    badge.textContent = currentCount - 1;
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        } else {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: data.message || 'Error al marcar como leída',
+                timer: 3000,
+                timerProgressBar: true,
+                showConfirmButton: false
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Error al marcar como leída',
+            timer: 3000,
+            timerProgressBar: true,
+            showConfirmButton: false
+        });
+    });
+}
+</script>
+{% endblock %} 

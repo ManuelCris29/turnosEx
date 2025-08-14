@@ -1,0 +1,1032 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Notificaciones y Solicitudes{% endblock %}
+
+{% block extra_css %}
+<style>
+    /* Responsive Design */
+    .dashboard-container {
+        padding: 15px;
+    }
+    
+    .dashboard-card {
+        margin-bottom: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .dashboard-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+    }
+    
+    .dashboard-card .card-body {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    .dashboard-card .table-responsive {
+        flex: 1;
+    }
+    
+    .dashboard-card .timeline {
+        flex: 1;
+        overflow-y: auto;
+    }
+    
+    .card-header {
+        background: linear-gradient(135deg, #007bff, #0056b3);
+        color: white;
+        border-radius: 10px 10px 0 0 !important;
+        padding: 15px 20px;
+    }
+    
+    .card-header h3 {
+        margin: 0;
+        font-size: 1.1rem;
+        font-weight: 600;
+    }
+    
+    .card-body {
+        padding: 20px;
+    }
+    
+    /* Mobile First Approach */
+    @media (max-width: 768px) {
+        .dashboard-container {
+            padding: 10px;
+        }
+        
+        .card-header h3 {
+            font-size: 1rem;
+        }
+        
+        .card-body {
+            padding: 15px;
+        }
+        
+        .timeline-item {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            background: #f8f9fa;
+        }
+        
+        .table-responsive {
+            font-size: 0.9rem;
+        }
+        
+        .btn-sm {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+        }
+    }
+    
+    @media (max-width: 576px) {
+        .dashboard-container {
+            padding: 5px;
+        }
+        
+        .card-body {
+            padding: 10px;
+        }
+        
+        .timeline-item {
+            padding: 8px;
+        }
+        
+        .table-responsive {
+            font-size: 0.8rem;
+        }
+        
+        .btn-sm {
+            padding: 0.2rem 0.4rem;
+            font-size: 0.75rem;
+        }
+    }
+    
+    /* Timeline improvements */
+    .timeline {
+        position: relative;
+        margin: 0;
+        padding: 0;
+    }
+    
+    .timeline-item {
+        background: white;
+        border: 1px solid #e3e6f0;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        padding: 15px;
+        position: relative;
+    }
+    
+    .timeline-item::before {
+        content: '';
+        position: absolute;
+        left: -10px;
+        top: 20px;
+        width: 0;
+        height: 0;
+        border-top: 10px solid transparent;
+        border-bottom: 10px solid transparent;
+        border-right: 10px solid #e3e6f0;
+    }
+    
+    .timeline-header {
+        font-weight: 600;
+        color: #2c3e50;
+        margin-bottom: 8px;
+    }
+    
+    .timeline-body {
+        color: #6c757d;
+        font-size: 0.9rem;
+        line-height: 1.4;
+    }
+    
+    .timeline-footer {
+        margin-top: 10px;
+    }
+    
+    /* Table improvements */
+    .table-responsive {
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .table {
+        margin-bottom: 0;
+    }
+    
+    .table th {
+        background: #f8f9fa;
+        border-bottom: 2px solid #dee2e6;
+        font-weight: 600;
+        color: #495057;
+    }
+    
+    .table td {
+        vertical-align: middle;
+        border-bottom: 1px solid #e9ecef;
+    }
+    
+    /* Badge improvements */
+    .badge {
+        font-size: 0.75rem;
+        padding: 0.35em 0.65em;
+        border-radius: 10px;
+    }
+    
+    /* Button improvements */
+    .btn {
+        border-radius: 6px;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+    
+    .btn:hover {
+        transform: translateY(-1px);
+    }
+    
+    /* Empty state improvements */
+    .empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: #6c757d;
+    }
+    
+    .empty-state i {
+        font-size: 3rem;
+        margin-bottom: 15px;
+        opacity: 0.5;
+    }
+    
+    .empty-state p {
+        font-size: 1rem;
+        margin-bottom: 20px;
+    }
+    
+    @media (max-width: 576px) {
+        .empty-state {
+            padding: 20px 10px;
+        }
+        
+        .empty-state i {
+            font-size: 2rem;
+        }
+        
+        .empty-state p {
+            font-size: 0.9rem;
+        }
+        
+        /* Mobile button improvements */
+        .btn-group-vertical {
+            flex-direction: row !important;
+        }
+        
+        .btn-group-vertical .btn {
+            margin-right: 2px;
+        }
+        
+        .table td {
+            padding: 0.5rem 0.25rem;
+        }
+        
+        .table th {
+            padding: 0.5rem 0.25rem;
+            font-size: 0.8rem;
+        }
+    }
+    
+    /* Tablet/Portátil improvements */
+    @media (min-width: 577px) and (max-width: 991px) {
+        .dashboard-container {
+            padding: 12px;
+        }
+        
+        .card-body {
+            padding: 18px;
+        }
+        
+        .card-header h3 {
+            font-size: 1.05rem;
+        }
+        
+        .btn-group-vertical {
+            flex-direction: row;
+        }
+        
+        .btn-group-vertical .btn {
+            margin-right: 3px;
+            margin-bottom: 0;
+        }
+        
+        .table-responsive {
+            font-size: 0.85rem;
+        }
+        
+        .btn-sm {
+            padding: 0.3rem 0.6rem;
+            font-size: 0.85rem;
+        }
+        
+        .timeline-item {
+            padding: 12px;
+            margin-bottom: 12px;
+        }
+        
+        .timeline-header {
+            font-size: 0.95rem;
+        }
+        
+        .timeline-body {
+            font-size: 0.85rem;
+        }
+        
+        .empty-state {
+            padding: 30px 15px;
+        }
+        
+        .empty-state i {
+            font-size: 2.5rem;
+        }
+        
+        .empty-state p {
+            font-size: 0.95rem;
+        }
+        
+        /* Optimizar columnas para tablet */
+        .col-md-6 {
+            margin-bottom: 15px;
+        }
+        
+        .col-md-12 {
+            margin-bottom: 15px;
+        }
+        
+        /* Mejorar espaciado de tablas */
+        .table td, .table th {
+            padding: 0.6rem 0.4rem;
+        }
+        
+        /* Botones más compactos pero legibles */
+        .btn-group .btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8rem;
+        }
+        
+        /* Badges más pequeños */
+        .badge {
+            font-size: 0.7rem;
+            padding: 0.3em 0.6em;
+        }
+        
+        /* Hacer las cards más altas para aprovechar espacio */
+        .dashboard-card {
+            min-height: 350px;
+        }
+        
+        /* Mejorar timeline para aprovechar altura */
+        .timeline {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        /* Mejorar tablas para aprovechar espacio */
+        .table-responsive {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+    }
+    
+    /* Large screen improvements */
+    @media (min-width: 992px) {
+        .dashboard-container {
+            padding: 20px;
+        }
+        
+        .card-body {
+            padding: 25px;
+        }
+    }
+    
+    /* Breakpoint específico para portátiles medianos */
+    @media (min-width: 768px) and (max-width: 1024px) {
+        .dashboard-container {
+            padding: 15px;
+        }
+        
+        .card-body {
+            padding: 20px;
+        }
+        
+        .card-header h3 {
+            font-size: 1.1rem;
+        }
+        
+        .table-responsive {
+            font-size: 0.9rem;
+        }
+        
+        .btn-sm {
+            padding: 0.35rem 0.7rem;
+            font-size: 0.9rem;
+        }
+        
+        .timeline-item {
+            padding: 15px;
+        }
+        
+        .timeline-header {
+            font-size: 1rem;
+        }
+        
+        .timeline-body {
+            font-size: 0.9rem;
+        }
+        
+        /* Optimizar columnas para mejor aprovechamiento */
+        .col-md-6 {
+            margin-bottom: 20px;
+        }
+        
+        .col-md-12 {
+            margin-bottom: 20px;
+        }
+        
+        /* Mejorar espaciado de tablas */
+        .table td, .table th {
+            padding: 0.7rem 0.5rem;
+        }
+        
+        /* Botones más espaciados */
+        .btn-group .btn {
+            margin-right: 4px;
+            margin-bottom: 4px;
+        }
+        
+        /* Mostrar texto en botones */
+        .d-none.d-md-inline {
+            display: inline !important;
+        }
+        
+        /* Hacer las cards más altas para aprovechar espacio */
+        .dashboard-card {
+            min-height: 400px;
+        }
+        
+        /* Mejorar timeline para aprovechar altura */
+        .timeline {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+        
+        /* Mejorar tablas para aprovechar espacio */
+        .table-responsive {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+{% csrf_token %}
+<div class="dashboard-container">
+    <div class="content-header">
+        <div class="container-fluid">
+            <div class="row mb-3">
+                <div class="col-12">
+                    <h1 class="m-0 text-center text-md-left">
+                        <i class="fas fa-bell"></i> Notificaciones y Solicitudes
+                    </h1>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Panel Notificaciones -->
+            <div class="col-12 col-md-6 col-lg-4 mb-4">
+                <div class="card dashboard-card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-bell"></i> Notificaciones
+                            {% if notificaciones_no_leidas %}
+                                <span class="badge badge-warning">{{ notificaciones_no_leidas|length }}</span>
+                            {% endif %}
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        {% if notificaciones_no_leidas %}
+                            <div class="timeline">
+                                {% for notificacion in notificaciones_no_leidas %}
+                                <div class="timeline-item">
+                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                        <span class="badge badge-danger">{{ notificacion.fecha_creacion|date:"d/m/Y" }}</span>
+                                        <small class="text-muted">
+                                            <i class="fas fa-clock"></i> {{ notificacion.fecha_creacion|time:"H:i" }}
+                                        </small>
+                                    </div>
+                                    <h4 class="timeline-header">
+                                        <i class="fas fa-bell text-warning mr-2"></i>
+                                        {{ notificacion.titulo }}
+                                    </h4>
+                                    <div class="timeline-body">
+                                        {{ notificacion.mensaje|linebreaks }}
+                                    </div>
+                                    <div class="timeline-footer">
+                                        <button class="btn btn-primary btn-sm marcar-leida" 
+                                                data-notificacion-id="{{ notificacion.id }}">
+                                            <i class="fas fa-check"></i> Marcar como leída
+                                        </button>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        {% else %}
+                            <div class="empty-state">
+                                <i class="fas fa-bell-slash"></i>
+                                <p>No tienes notificaciones pendientes</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Mis Solicitudes -->
+            <div class="col-12 col-md-6 col-lg-4 mb-4">
+                <div class="card dashboard-card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-list"></i> Mis Solicitudes
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        {% if mis_solicitudes %}
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Tipo</th>
+                                            <th>Fecha</th>
+                                            <th>Estado</th>
+                                            <th>Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for solicitud in mis_solicitudes %}
+                                        <tr>
+                                            <td>
+                                                <small class="text-muted">{{ solicitud.tipo_cambio.nombre }}</small>
+                                            </td>
+                                            <td>
+                                                <small>{{ solicitud.fecha_solicitud|date:"d/m/Y" }}</small>
+                                            </td>
+                                            <td>
+                                                {% if solicitud.estado == 'pendiente' %}
+                                                    <span class="badge badge-warning">Pendiente</span>
+                                                {% elif solicitud.estado == 'aprobada' %}
+                                                    <span class="badge badge-success">Aprobada</span>
+                                                {% elif solicitud.estado == 'rechazada' %}
+                                                    <span class="badge badge-danger">Rechazada</span>
+                                                {% elif solicitud.estado == 'cancelada' %}
+                                                    <span class="badge badge-secondary">Cancelada</span>
+                                                {% endif %}
+                                            </td>
+                                            <td>
+                                                <button class="btn btn-info btn-sm" 
+                                                        onclick="verDetalleSolicitud({{ solicitud.id }})"
+                                                        title="Ver detalles">
+                                                    <i class="fas fa-eye"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="empty-state">
+                                <i class="fas fa-clipboard-list"></i>
+                                <p>No tienes solicitudes</p>
+                                <a href="{% url 'solicitudes:cambio_turno_inicio' %}" class="btn btn-primary">
+                                    <i class="fas fa-plus"></i> Crear Solicitud
+                                </a>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Panel Solicitudes Pendientes (Solo Supervisores) -->
+            {% if es_supervisor %}
+            <div class="col-12 col-md-12 col-lg-4 mb-4">
+                <div class="card dashboard-card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-user-tie"></i> Solicitudes Pendientes
+                            {% if solicitudes_pendientes %}
+                                <span class="badge badge-warning">{{ solicitudes_pendientes|length }}</span>
+                            {% endif %}
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        {% if solicitudes_pendientes %}
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Solicitante</th>
+                                            <th>Tipo</th>
+                                            <th>Fecha</th>
+                                            <th>Acciones</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for solicitud in solicitudes_pendientes %}
+                                        <tr>
+                                            <td>
+                                                <small>
+                                                    <strong>{{ solicitud.explorador_solicitante.nombre }}</strong><br>
+                                                    {{ solicitud.explorador_solicitante.apellido }}
+                                                </small>
+                                            </td>
+                                            <td>
+                                                <small class="text-muted">{{ solicitud.tipo_cambio.nombre }}</small>
+                                            </td>
+                                            <td>
+                                                <small>{{ solicitud.fecha_solicitud|date:"d/m/Y" }}</small>
+                                            </td>
+                                            <td>
+                                                <div class="btn-group-vertical btn-group-sm" role="group">
+                                                    <button class="btn btn-success btn-sm aprobar-solicitud" 
+                                                            onclick="aprobarSolicitud({{ solicitud.id }})"
+                                                            title="Aprobar">
+                                                        <i class="fas fa-check"></i>
+                                                    </button>
+                                                    <button class="btn btn-danger btn-sm rechazar-solicitud" 
+                                                            onclick="rechazarSolicitud({{ solicitud.id }})"
+                                                            title="Rechazar">
+                                                        <i class="fas fa-times"></i>
+                                                    </button>
+                                                    <button class="btn btn-warning btn-sm cancelar-solicitud" 
+                                                            onclick="cancelarSolicitud({{ solicitud.id }})"
+                                                            title="Cancelar">
+                                                        <i class="fas fa-ban"></i>
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        {% else %}
+                            <div class="empty-state">
+                                <i class="fas fa-check-circle"></i>
+                                <p>No hay solicitudes pendientes</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+            <!-- Panel Solicitudes por Receptor (Solo para empleados que deben aprobar solicitudes) -->
+            {% if solicitudes_por_receptor %}
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            <i class="fas fa-handshake"></i> Solicitudes para Aprobar
+                            <span class="badge badge-warning">{{ solicitudes_por_receptor|length }}</span>
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Solicitante</th>
+                                        <th>Tipo</th>
+                                        <th>Fecha</th>
+                                        <th>Estado</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for solicitud in solicitudes_por_receptor %}
+                                    <tr>
+                                        <td>
+                                            {{ solicitud.explorador_solicitante.nombre }} 
+                                            {{ solicitud.explorador_solicitante.apellido }}
+                                        </td>
+                                        <td>{{ solicitud.tipo_cambio.nombre }}</td>
+                                        <td>{{ solicitud.fecha_solicitud|date:"d/m/Y" }}</td>
+                                        <td>
+                                            <span class="badge badge-info">{{ solicitud.estado_aprobacion }}</span>
+                                        </td>
+                                        <td>
+                                            <button class="btn btn-success btn-sm aprobar-solicitud-receptor" 
+                                                    data-solicitud-id="{{ solicitud.id }}">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                            <button class="btn btn-danger btn-sm rechazar-solicitud-receptor" 
+                                                    data-solicitud-id="{{ solicitud.id }}">
+                                                <i class="fas fa-times"></i>
+                                            </button>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<!-- Modal para comentarios de aprobación/rechazo -->
+<div class="modal fade" id="comentarioModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="comentarioModalTitle">Comentario</h5>
+                <button type="button" class="close" data-dismiss="modal">
+                    <span>&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <textarea class="form-control" id="comentarioRespuesta" rows="3" 
+                          placeholder="Comentario opcional..."></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="confirmarAccion">Confirmar</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // Marcar notificación como leída
+    $('.marcar-leida').click(function() {
+        var notificacionId = $(this).data('notificacion-id');
+        var button = $(this);
+        
+        $.ajax({
+            url: `/solicitudes/notificaciones/${notificacionId}/marcar-leida/`,
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val()
+            },
+            success: function(response) {
+                if (response.success) {
+                    button.closest('.timeline-item').fadeOut();
+                    // Actualizar contador de notificaciones
+                    var count = $('.timeline-item').length - 1;
+                    if (count <= 0) {
+                        location.reload();
+                    }
+                }
+            }
+        });
+    });
+
+    // Aprobar solicitud
+    $('.aprobar-solicitud').click(function() {
+        var solicitudId = $(this).data('solicitud-id');
+        $('#comentarioModalTitle').text('Aprobar Solicitud');
+        $('#confirmarAccion').text('Aprobar').removeClass('btn-danger').addClass('btn-success');
+        $('#confirmarAccion').data('action', 'aprobar').data('solicitud-id', solicitudId);
+        $('#confirmarAccion').data('tipo', 'supervisor');
+        $('#comentarioModal').modal('show');
+    });
+
+    // Rechazar solicitud
+    $('.rechazar-solicitud').click(function() {
+        var solicitudId = $(this).data('solicitud-id');
+        $('#comentarioModalTitle').text('Rechazar Solicitud');
+        $('#confirmarAccion').text('Rechazar').removeClass('btn-success').addClass('btn-danger');
+        $('#confirmarAccion').data('action', 'rechazar').data('solicitud-id', solicitudId);
+        $('#confirmarAccion').data('tipo', 'supervisor');
+        $('#comentarioModal').modal('show');
+    });
+
+    // Aprobar solicitud como receptor
+    $('.aprobar-solicitud-receptor').click(function() {
+        var solicitudId = $(this).data('solicitud-id');
+        $('#comentarioModalTitle').text('Aprobar Solicitud como Compañero');
+        $('#confirmarAccion').text('Aprobar').removeClass('btn-danger').addClass('btn-success');
+        $('#confirmarAccion').data('action', 'aprobar').data('solicitud-id', solicitudId);
+        $('#confirmarAccion').data('tipo', 'receptor');
+        $('#comentarioModal').modal('show');
+    });
+
+    // Rechazar solicitud como receptor
+    $('.rechazar-solicitud-receptor').click(function() {
+        var solicitudId = $(this).data('solicitud-id');
+        $('#comentarioModalTitle').text('Rechazar Solicitud como Compañero');
+        $('#confirmarAccion').text('Rechazar').removeClass('btn-success').addClass('btn-danger');
+        $('#confirmarAccion').data('action', 'rechazar').data('solicitud-id', solicitudId);
+        $('#confirmarAccion').data('tipo', 'receptor');
+        $('#comentarioModal').modal('show');
+    });
+
+    // Confirmar acción (aprobar/rechazar)
+    $('#confirmarAccion').click(function() {
+        var action = $(this).data('action');
+        var solicitudId = $(this).data('solicitud-id');
+        var tipo = $(this).data('tipo');
+        var comentario = $('#comentarioRespuesta').val();
+        
+        var url;
+        if (tipo === 'receptor') {
+            url = action === 'aprobar' 
+                ? `/solicitudes/aprobar-solicitud-receptor/${solicitudId}/`
+                : `/solicitudes/rechazar-solicitud-receptor/${solicitudId}/`;
+        } else {
+            url = action === 'aprobar' 
+                ? `/solicitudes/aprobar-solicitud/${solicitudId}/`
+                : `/solicitudes/rechazar-solicitud/${solicitudId}/`;
+        }
+        
+        $.ajax({
+            url: url,
+            method: 'POST',
+            data: {
+                comentario_respuesta: comentario
+            },
+            headers: {
+                'X-CSRFToken': $('[name=csrfmiddlewaretoken]').val()
+            },
+            success: function(response) {
+                if (response.success) {
+                    $('#comentarioModal').modal('hide');
+                    location.reload();
+                } else {
+                    alert('Error: ' + response.message);
+                }
+            },
+            error: function() {
+                alert('Error al procesar la solicitud');
+            }
+        });
+    });
+});
+
+function verDetalleSolicitud(solicitudId) {
+    // Implementar vista de detalle de solicitud
+    alert('Función de ver detalle en desarrollo');
+}
+
+// Funciones para acciones de solicitudes
+function aprobarSolicitud(solicitudId) {
+    Swal.fire({
+        title: '¿Aprobar solicitud?',
+        text: '¿Estás seguro de que quieres aprobar esta solicitud?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#28a745',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, aprobar',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('comentario_respuesta', '');
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            
+            fetch(`/solicitudes/aprobar-solicitud-receptor/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Aprobada!',
+                        text: data.message,
+                        timer: 3000,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'Error al aprobar la solicitud',
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'Error al aprobar la solicitud',
+                    timer: 4000,
+                    timerProgressBar: true,
+                    showConfirmButton: false
+                });
+            });
+        }
+    });
+}
+
+function rechazarSolicitud(solicitudId) {
+    Swal.fire({
+        title: '¿Rechazar solicitud?',
+        text: '¿Estás seguro de que quieres rechazar esta solicitud?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, rechazar',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('comentario_respuesta', '');
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            
+            fetch(`/solicitudes/rechazar-solicitud-receptor/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Rechazada!',
+                        text: data.message,
+                        timer: 3000,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'Error al rechazar la solicitud',
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'Error al rechazar la solicitud',
+                    timer: 4000,
+                    timerProgressBar: true,
+                    showConfirmButton: false
+                });
+            });
+        }
+    });
+}
+
+function cancelarSolicitud(solicitudId) {
+    Swal.fire({
+        title: '¿Cancelar solicitud?',
+        text: 'Esta acción cancelará la solicitud. ¿Estás seguro?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ffc107',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, cancelar',
+        cancelButtonText: 'No, mantener'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            
+            fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Cancelada!',
+                        text: data.message,
+                        timer: 3000,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'Error al cancelar la solicitud',
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error',
+                    text: 'Error al cancelar la solicitud',
+                    timer: 4000,
+                    timerProgressBar: true,
+                    showConfirmButton: false
+                });
+            });
+        }
+    });
+}
+</script>
+{% endblock %} 

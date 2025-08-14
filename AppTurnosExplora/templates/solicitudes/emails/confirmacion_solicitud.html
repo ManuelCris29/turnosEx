@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Confirmación de Solicitud</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            background-color: #007bff;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            border-radius: 5px 5px 0 0;
+        }
+        .content {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 0 0 5px 5px;
+        }
+        .info-box {
+            background-color: white;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+        .status {
+            display: inline-block;
+            background-color: #ffc107;
+            color: #212529;
+            padding: 5px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #6c757d;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✅ Solicitud Enviada</h1>
+        <p>Tu solicitud de cambio de turno ha sido enviada exitosamente</p>
+    </div>
+    
+    <div class="content">
+        <p>Hola <strong>{{ empleado.nombre }} {{ empleado.apellido }}</strong>,</p>
+        
+        <p>Has enviado una solicitud de cambio de turno que ha sido registrada en el sistema.</p>
+        
+        <div class="info-box">
+            <h3>📋 Detalles de la Solicitud</h3>
+            <p><strong>Receptor:</strong> {{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</p>
+            <p><strong>Tipo de Solicitud:</strong> {{ solicitud.tipo_cambio.nombre }}</p>
+            <p><strong>Fecha del Cambio:</strong> {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</p>
+            <p><strong>Estado:</strong> <span class="status">{{ solicitud.estado|title }}</span></p>
+            {% if solicitud.comentario %}
+            <p><strong>Comentario:</strong> {{ solicitud.comentario }}</p>
+            {% endif %}
+        </div>
+        
+        <div class="info-box">
+            <h3>📧 Próximos Pasos</h3>
+            <ul>
+                <li>Tu solicitud será revisada por el receptor</li>
+                <li>Recibirás una notificación cuando sea aprobada o rechazada</li>
+                <li>Puedes ver el estado de tu solicitud en la sección de notificaciones</li>
+            </ul>
+        </div>
+        
+        <p>Gracias por usar nuestro sistema de gestión de turnos.</p>
+        
+        <p>Saludos,<br>
+        <strong>Equipo de Gestión de Turnos</strong></p>
+    </div>
+    
+    <div class="footer">
+        <p>Este es un email automático, por favor no respondas a este mensaje.</p>
+        <p>Si tienes alguna pregunta, contacta a tu supervisor.</p>
+    </div>
+</body>
+</html> 

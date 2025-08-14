@@ -197,26 +197,73 @@ class SolicitudService:
 
     @staticmethod
     def crear_solicitud_cambio(explorador_solicitante, explorador_receptor, tipo_cambio, 
-                              fecha_cambio, comentario=None, turno_origen=None, turno_destino=None):
+                              comentario=None, turno_origen=None, turno_destino=None, fecha_cambio_turno=None):
         """
         Crea una nueva solicitud de cambio de turno y envía notificaciones
+        Incluye lógica para cancelar solicitudes anteriores de la misma fecha
         """
         from .notificacion_service import NotificacionService
         
-        # Crear la solicitud
+        print(f"DEBUG SOLICITUD: Creando solicitud...")
+        print(f"DEBUG SOLICITUD: Solicitante: {explorador_solicitante.nombre} {explorador_solicitante.apellido}")
+        print(f"DEBUG SOLICITUD: Receptor: {explorador_receptor.nombre} {explorador_receptor.apellido}")
+        print(f"DEBUG SOLICITUD: Tipo: {tipo_cambio.nombre}")
+        print(f"DEBUG SOLICITUD: Fecha cambio: {fecha_cambio_turno}")
+        
+        # 1. Verificar si ya existe una solicitud pendiente para la misma fecha
+        solicitud_anterior = SolicitudCambio.objects.filter(
+            explorador_solicitante=explorador_solicitante,
+            estado='pendiente',
+            fecha_cambio_turno=fecha_cambio_turno
+        ).first()
+        
+        if solicitud_anterior:
+            print(f"DEBUG SOLICITUD: Encontrada solicitud anterior ID: {solicitud_anterior.id}")
+            
+            # 2. Verificar si la solicitud anterior ya fue aprobada por alguien
+            if solicitud_anterior.aprobado_receptor or solicitud_anterior.aprobado_supervisor:
+                print(f"DEBUG SOLICITUD: ❌ Solicitud anterior ya fue aprobada - No se puede cancelar")
+                return None, "No puedes crear una nueva solicitud porque la anterior ya fue aprobada"
+            
+            # 3. Cancelar la solicitud anterior
+            print(f"DEBUG SOLICITUD: Cancelando solicitud anterior ID: {solicitud_anterior.id}")
+            solicitud_anterior.estado = 'cancelada'
+            solicitud_anterior.comentario = f"{solicitud_anterior.comentario or ''}\n\nCancelada automáticamente al crear nueva solicitud"
+            solicitud_anterior.fecha_resolucion = timezone.now()
+            solicitud_anterior.save()
+            
+            # 4. Notificar al receptor anterior sobre la cancelación
+            try:
+                NotificacionService.crear_notificacion_cancelacion(solicitud_anterior)
+                print(f"DEBUG SOLICITUD: Notificación de cancelación enviada para solicitud {solicitud_anterior.id}")
+            except Exception as e:
+                print(f"ERROR SOLICITUD enviando notificación de cancelación: {e}")
+        
+        # 5. Crear la nueva solicitud
         solicitud = SolicitudCambio.objects.create(
             explorador_solicitante=explorador_solicitante,
             explorador_receptor=explorador_receptor,
             tipo_cambio=tipo_cambio,
             comentario=comentario,
             turno_origen=turno_origen,
-            turno_destino=turno_destino
+            turno_destino=turno_destino,
+            fecha_cambio_turno=fecha_cambio_turno
         )
         
-        # Crear notificaciones y enviar emails
-        NotificacionService.crear_notificacion_solicitud(solicitud)
+        print(f"DEBUG SOLICITUD: Nueva solicitud creada con ID: {solicitud.id}")
+        print(f"DEBUG SOLICITUD: Fecha cambio turno guardada: {solicitud.fecha_cambio_turno}")
         
-        return solicitud
+        # 6. Crear notificaciones y enviar emails para la nueva solicitud
+        try:
+            print(f"DEBUG SOLICITUD: Llamando a NotificacionService.crear_notificacion_solicitud")
+            NotificacionService.crear_notificacion_solicitud(solicitud)
+            print(f"DEBUG SOLICITUD: Notificaciones creadas para solicitud {solicitud.id}")
+        except Exception as e:
+            print(f"ERROR SOLICITUD creando notificaciones: {e}")
+            import traceback
+            print(f"ERROR SOLICITUD traceback: {traceback.format_exc()}")
+        
+        return solicitud, "Solicitud creada correctamente"
 
     @staticmethod
     def validar_solicitud_cambio(explorador_solicitante, explorador_receptor, fecha):
@@ -242,14 +289,28 @@ class SolicitudService:
             return False, "El explorador seleccionado no tiene jornada asignada para esa fecha"
         
         # Verificar que no exista una solicitud pendiente entre estos exploradores para esa fecha
+        print(f"DEBUG VALIDACION: Verificando solicitudes existentes...")
+        print(f"DEBUG VALIDACION: Solicitante: {explorador_solicitante.nombre}")
+        print(f"DEBUG VALIDACION: Receptor: {explorador_receptor.nombre}")
+        print(f"DEBUG VALIDACION: Fecha: {fecha}")
+        
+        # SOLUCIÓN: Solo bloquear si existe solicitud pendiente en la MISMA fecha
+        # PERO permitir si es la misma fecha pero diferente receptor (se cancelará la anterior)
         solicitud_existente = SolicitudCambio.objects.filter(
             explorador_solicitante=explorador_solicitante,
             explorador_receptor=explorador_receptor,
-            estado='pendiente'
+            estado='pendiente',
+            fecha_cambio_turno=fecha  # ¡FILTRAR POR FECHA!
         ).first()
         
+        print(f"DEBUG VALIDACION: Solicitud existente encontrada: {solicitud_existente}")
+        
         if solicitud_existente:
-            return False, "Ya existe una solicitud pendiente con este explorador"
+            print(f"DEBUG VALIDACION: ❌ VALIDACIÓN FALLÓ - Ya existe solicitud pendiente con el mismo receptor")
+            print(f"DEBUG VALIDACION: Solicitud existente ID: {solicitud_existente.id}, Fecha: {solicitud_existente.fecha_cambio_turno}")
+            return False, "Ya existe una solicitud pendiente con este explorador para la misma fecha"
+        
+        print(f"DEBUG VALIDACION: ✅ VALIDACIÓN EXITOSA")
         
         return True, "Solicitud válida"
 
@@ -272,6 +333,188 @@ class SolicitudService:
         return SolicitudCambio.objects.filter(estado='pendiente').order_by('-fecha_solicitud')
 
     @staticmethod
+    def aprobar_solicitud_supervisor(solicitud_id, supervisor, comentario_respuesta=None):
+        """
+        Aprueba una solicitud por parte del supervisor
+        """
+        try:
+            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            
+            # Verificar que el aprobador sea el supervisor del solicitante
+            if solicitud.explorador_solicitante.supervisor != supervisor:
+                return False, "No tienes permisos para aprobar esta solicitud"
+            
+            # Verificar que la solicitud esté pendiente
+            if solicitud.estado != 'pendiente':
+                if solicitud.estado == 'cancelada':
+                    return False, "Esta solicitud fue cancelada y ya no puede ser aprobada"
+                elif solicitud.estado == 'aprobada':
+                    return False, "Esta solicitud ya fue aprobada"
+                elif solicitud.estado == 'rechazada':
+                    return False, "Esta solicitud ya fue rechazada"
+                else:
+                    return False, "La solicitud no está pendiente de aprobación"
+            
+            # Marcar como aprobada por supervisor
+            solicitud.aprobado_supervisor = True
+            solicitud.fecha_aprobacion_supervisor = timezone.now()
+            
+            # Si ya fue aprobada por el receptor, cambiar estado a aprobada
+            if solicitud.aprobado_receptor:
+                solicitud.estado = 'aprobada'
+                solicitud.fecha_resolucion = timezone.now()
+            
+            solicitud.save()
+            
+            # Crear notificación de aprobación del supervisor
+            from .notificacion_service import NotificacionService
+            NotificacionService.crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta)
+            
+            return True, "Solicitud aprobada por supervisor correctamente"
+            
+        except SolicitudCambio.DoesNotExist:
+            return False, "Solicitud no encontrada"
+        except Exception as e:
+            return False, f"Error al aprobar la solicitud: {str(e)}"
+
+    @staticmethod
+    def aprobar_solicitud_receptor(solicitud_id, receptor, comentario_respuesta=None):
+        """
+        Aprueba una solicitud por parte del compañero receptor
+        """
+        try:
+            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            
+            # Verificar que el aprobador sea el receptor de la solicitud
+            if solicitud.explorador_receptor != receptor:
+                return False, "No tienes permisos para aprobar esta solicitud"
+            
+            # Verificar que la solicitud esté pendiente
+            if solicitud.estado != 'pendiente':
+                if solicitud.estado == 'cancelada':
+                    return False, "Esta solicitud fue cancelada y ya no puede ser aprobada"
+                elif solicitud.estado == 'aprobada':
+                    return False, "Esta solicitud ya fue aprobada"
+                elif solicitud.estado == 'rechazada':
+                    return False, "Esta solicitud ya fue rechazada"
+                else:
+                    return False, "La solicitud no está pendiente de aprobación"
+            
+            # Marcar como aprobada por receptor
+            solicitud.aprobado_receptor = True
+            solicitud.fecha_aprobacion_receptor = timezone.now()
+            
+            # Si ya fue aprobada por el supervisor, cambiar estado a aprobada
+            if solicitud.aprobado_supervisor:
+                solicitud.estado = 'aprobada'
+                solicitud.fecha_resolucion = timezone.now()
+            
+            solicitud.save()
+            
+            # Crear notificación de aprobación del receptor
+            from .notificacion_service import NotificacionService
+            NotificacionService.crear_notificacion_aprobacion_receptor(solicitud, receptor, comentario_respuesta)
+            
+            return True, "Solicitud aprobada por compañero correctamente"
+            
+        except SolicitudCambio.DoesNotExist:
+            return False, "Solicitud no encontrada"
+        except Exception as e:
+            return False, f"Error al aprobar la solicitud: {str(e)}"
+
+    @staticmethod
+    def rechazar_solicitud_supervisor(solicitud_id, supervisor, comentario_respuesta=None):
+        """
+        Rechaza una solicitud por parte del supervisor
+        """
+        try:
+            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            
+            # Verificar que el rechazador sea el supervisor del solicitante
+            if solicitud.explorador_solicitante.supervisor != supervisor:
+                return False, "No tienes permisos para rechazar esta solicitud"
+            
+            # Verificar que la solicitud esté pendiente
+            if solicitud.estado != 'pendiente':
+                if solicitud.estado == 'cancelada':
+                    return False, "Esta solicitud fue cancelada y ya no puede ser rechazada"
+                elif solicitud.estado == 'aprobada':
+                    return False, "Esta solicitud ya fue aprobada"
+                elif solicitud.estado == 'rechazada':
+                    return False, "Esta solicitud ya fue rechazada"
+                else:
+                    return False, "La solicitud no está pendiente de aprobación"
+            
+            # Rechazar la solicitud
+            solicitud.estado = 'rechazada'
+            solicitud.aprobado_supervisor = False
+            solicitud.fecha_aprobacion_supervisor = timezone.now()
+            solicitud.fecha_resolucion = timezone.now()
+            solicitud.save()
+            
+            # Crear notificación de rechazo
+            from .notificacion_service import NotificacionService
+            NotificacionService.crear_notificacion_rechazo_supervisor(solicitud, supervisor, comentario_respuesta)
+            
+            return True, "Solicitud rechazada por supervisor correctamente"
+            
+        except SolicitudCambio.DoesNotExist:
+            return False, "Solicitud no encontrada"
+        except Exception as e:
+            return False, f"Error al rechazar la solicitud: {str(e)}"
+
+    @staticmethod
+    def rechazar_solicitud_receptor(solicitud_id, receptor, comentario_respuesta=None):
+        """
+        Rechaza una solicitud por parte del compañero receptor
+        """
+        try:
+            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            
+            # Verificar que el rechazador sea el receptor de la solicitud
+            if solicitud.explorador_receptor != receptor:
+                return False, "No tienes permisos para rechazar esta solicitud"
+            
+            # Verificar que la solicitud esté pendiente
+            if solicitud.estado != 'pendiente':
+                if solicitud.estado == 'cancelada':
+                    return False, "Esta solicitud fue cancelada y ya no puede ser rechazada"
+                elif solicitud.estado == 'aprobada':
+                    return False, "Esta solicitud ya fue aprobada"
+                elif solicitud.estado == 'rechazada':
+                    return False, "Esta solicitud ya fue rechazada"
+                else:
+                    return False, "La solicitud no está pendiente de aprobación"
+            
+            # Rechazar la solicitud
+            solicitud.estado = 'rechazada'
+            solicitud.aprobado_receptor = False
+            solicitud.fecha_aprobacion_receptor = timezone.now()
+            solicitud.fecha_resolucion = timezone.now()
+            solicitud.save()
+            
+            # Crear notificación de rechazo
+            from .notificacion_service import NotificacionService
+            NotificacionService.crear_notificacion_rechazo_receptor(solicitud, receptor, comentario_respuesta)
+            
+            return True, "Solicitud rechazada por compañero correctamente"
+            
+        except SolicitudCambio.DoesNotExist:
+            return False, "Solicitud no encontrada"
+        except Exception as e:
+            return False, f"Error al rechazar la solicitud: {str(e)}"
+
+    @staticmethod
+    def get_solicitudes_por_receptor(receptor):
+        """
+        Obtiene las solicitudes pendientes que debe aprobar un receptor
+        """
+        return SolicitudCambio.objects.filter(
+            explorador_receptor=receptor,
+            estado='pendiente'
+        ).order_by('-fecha_solicitud')
+
+    @staticmethod
     def get_solicitudes_por_supervisor(supervisor):
         """
         Obtiene las solicitudes pendientes que debe aprobar un supervisor
@@ -282,61 +525,27 @@ class SolicitudService:
         ).order_by('-fecha_solicitud')
 
     @staticmethod
-    def aprobar_solicitud(solicitud_id, aprobador, comentario_respuesta=None):
+    def get_estado_aprobacion_solicitud(solicitud):
         """
-        Aprueba una solicitud de cambio
+        Obtiene el estado de aprobación de una solicitud
         """
-        try:
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
-            
-            # Verificar que el aprobador sea el supervisor del solicitante
-            if solicitud.explorador_solicitante.supervisor != aprobador:
-                return False, "No tienes permisos para aprobar esta solicitud"
-            
-            # Actualizar estado
-            solicitud.estado = 'aprobada'
-            solicitud.aprobado_supervisor = True
-            solicitud.fecha_aprobacion_supervisor = timezone.now()
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.save()
-            
-            # Crear notificación de aprobación
-            from .notificacion_service import NotificacionService
-            NotificacionService.crear_notificacion_aprobacion(solicitud, aprobador, comentario_respuesta)
-            
-            return True, "Solicitud aprobada correctamente"
-            
-        except SolicitudCambio.DoesNotExist:
-            return False, "Solicitud no encontrada"
-        except Exception as e:
-            return False, f"Error al aprobar la solicitud: {str(e)}"
-
-    @staticmethod
-    def rechazar_solicitud(solicitud_id, rechazador, comentario_respuesta=None):
-        """
-        Rechaza una solicitud de cambio
-        """
-        try:
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
-            
-            # Verificar que el rechazador sea el supervisor del solicitante
-            if solicitud.explorador_solicitante.supervisor != rechazador:
-                return False, "No tienes permisos para rechazar esta solicitud"
-            
-            # Actualizar estado
-            solicitud.estado = 'rechazada'
-            solicitud.aprobado_supervisor = False
-            solicitud.fecha_aprobacion_supervisor = timezone.now()
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.save()
-            
-            # Crear notificación de rechazo
-            from .notificacion_service import NotificacionService
-            NotificacionService.crear_notificacion_rechazo(solicitud, rechazador, comentario_respuesta)
-            
-            return True, "Solicitud rechazada correctamente"
-            
-        except SolicitudCambio.DoesNotExist:
-            return False, "Solicitud no encontrada"
-        except Exception as e:
-            return False, f"Error al rechazar la solicitud: {str(e)}" 
+        if solicitud.estado == 'aprobada':
+            return 'Aprobada por ambos'
+        elif solicitud.estado == 'rechazada':
+            if solicitud.aprobado_supervisor == False:
+                return 'Rechazada por supervisor'
+            elif solicitud.aprobado_receptor == False:
+                return 'Rechazada por compañero'
+            else:
+                return 'Rechazada'
+        elif solicitud.estado == 'pendiente':
+            if solicitud.aprobado_supervisor and solicitud.aprobado_receptor:
+                return 'Pendiente de confirmación final'
+            elif solicitud.aprobado_supervisor:
+                return 'Aprobada por supervisor, pendiente compañero'
+            elif solicitud.aprobado_receptor:
+                return 'Aprobada por compañero, pendiente supervisor'
+            else:
+                return 'Pendiente de ambos'
+        else:
+            return solicitud.get_estado_display() 

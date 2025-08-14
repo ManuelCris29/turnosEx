@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-&5)40h%zs(waj4)4lsz+7m8-(ap@i@6)@+-d0ocd4!#%9kmt_=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', '0.0.0.0', '*']
 
 
 # Application definition
@@ -164,6 +164,9 @@ EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 EMAIL_HOST = 'smtp.gmail.com'  # Cambiar según tu proveedor de email
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'  # Tu email real
+EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'  # Email principal para autenticación
 EMAIL_HOST_PASSWORD = 'ddke jxbc qpha piuh'  # Reemplazar con la contraseña de aplicación de Gmail (16 caracteres)
-DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'  # Tu email real
+DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'  # Email por defecto
+
+# URL del sitio para enlaces en emails
+SITE_URL = 'http://localhost:8000'  # Cambiar en producción

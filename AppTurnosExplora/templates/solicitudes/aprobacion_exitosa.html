@@ -1,0 +1,112 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Solicitud {{ accion|title }}{% endblock %}
+
+{% block content %}
+<div class="content-header">
+    <div class="container-fluid">
+        <div class="row mb-2">
+            <div class="col-sm-6">
+                <h1 class="m-0">
+                    <i class="fas fa-check-circle text-success"></i> Solicitud {{ accion|title }}
+                </h1>
+            </div>
+            <div class="col-sm-6">
+                <ol class="breadcrumb float-sm-right">
+                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
+                    <li class="breadcrumb-item active">Solicitud {{ accion|title }}</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+
+<section class="content">
+    <div class="container-fluid">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h3 class="card-title">
+                            {% if accion == 'aprobada' %}
+                                <i class="fas fa-check-circle text-success"></i> Solicitud Aprobada
+                            {% else %}
+                                <i class="fas fa-times-circle text-danger"></i> Solicitud Rechazada
+                            {% endif %}
+                        </h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center mb-4">
+                            {% if accion == 'aprobada' %}
+                                <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
+                                <h4 class="text-success mt-3">¡Solicitud Aprobada Exitosamente!</h4>
+                            {% else %}
+                                <i class="fas fa-times-circle text-danger" style="font-size: 4rem;"></i>
+                                <h4 class="text-danger mt-3">Solicitud Rechazada</h4>
+                            {% endif %}
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h5><i class="fas fa-user"></i> Detalles de la Solicitud</h5>
+                                <table class="table table-borderless">
+                                    <tr>
+                                        <td><strong>Solicitante:</strong></td>
+                                        <td>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Receptor:</strong></td>
+                                        <td>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Tipo:</strong></td>
+                                        <td>{{ solicitud.tipo_cambio.nombre }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Fecha:</strong></td>
+                                        <td>{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td><strong>Estado:</strong></td>
+                                        <td>
+                                            {% if accion == 'aprobada' %}
+                                                <span class="badge badge-success">Aprobada</span>
+                                            {% else %}
+                                                <span class="badge badge-danger">Rechazada</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
+                            <div class="col-md-6">
+                                <h5><i class="fas fa-info-circle"></i> Información</h5>
+                                <div class="alert alert-info">
+                                    <p><strong>Acción realizada:</strong> {{ accion|title }} como {{ tipo|title }}</p>
+                                    <p><strong>Fecha:</strong> {{ solicitud.fecha_resolucion|date:"d/m/Y H:i" }}</p>
+                                    <p><strong>Comentario:</strong> 
+                                        {% if accion == 'aprobada' %}
+                                            Aprobado por email
+                                        {% else %}
+                                            Rechazado por email
+                                        {% endif %}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="text-center mt-4">
+                            <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                                <i class="fas fa-home"></i> Ir al Dashboard
+                            </a>
+                            <a href="{% url 'solicitudes:notificaciones_solicitudes' %}" class="btn btn-info">
+                                <i class="fas fa-bell"></i> Ver Notificaciones
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+{% endblock %} 

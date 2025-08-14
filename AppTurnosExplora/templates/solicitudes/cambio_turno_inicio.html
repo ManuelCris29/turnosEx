@@ -26,7 +26,7 @@
                                 </span>
                                 <div class="turno-desc">{{ tipo.descripcion|default:"Sin descripción" }}</div>
                             </div>
-                            <a href="{% url 'solicitar_cambio_turno' tipo.id %}" 
+                            <a href="{% url 'solicitudes:solicitar_cambio_turno' tipo.id %}" 
                                class="btn btn-outline-primary turno-boton {% if not tipo.activo %}disabled{% endif %}">
                                 <i class="fas fa-play mr-2"></i>Iniciar
                             </a>

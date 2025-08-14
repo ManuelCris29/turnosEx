@@ -25,7 +25,7 @@
             <form method="post" id="cambioTurnoForm" class="solicitud-form">
                 {% csrf_token %}
                 <!-- Elemento oculto con el ID del tipo de solicitud -->
-                <input type="hidden" id="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
+                <input type="hidden" id="tipo_solicitud_id" name="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
                 
                 <div class="form-group">
                     <label for="fecha_solicitud">
