@@ -1,0 +1,18 @@
+he decidido eliminar la tabla AsignarSalaExplorador y que este sea manejado independiente a mi aplicacion y que la tabla turno donde este el atributo sala este como relacion la competencia de ese explorador. esto con la intencion porque busco que cuando se realiza cualquier tipo de cambio, una vez se seleccione la fecha. el sistema le pregunte al usuario  si la solicitud es para astrofisica o biodiversidad y si sí pues selecciona cual de las dos. esto con el fin de que carguen solo los exploradores que tiene tambien esa competencia y que para esa fecha esten en la jornada contaria a la de el pqara realizar el cambio.
+
+
+am y esa persona este en pm pero que los dos ese dia esten en astrofísica
+am y esa persona este en pm y que yo este en astrofísica y el en salas
+am y esa persona este en pm y que yo este en astrofísica y el este en biodiversidad 
+
+que pasa en el caso que yo no tenga biodiversidad. 
+
+------------------------------------------------------------------------------------------------------------------
+La rotación se hace semanal, diara , trimestra, semestral y como es que la hace 
+
+
+----------------------------------------------------------------------------------------------------
+he decidido eliminar la tabla AsignarSalaExplorador y que este sea manejado independiente a mi aplicacion y que la tabla turno donde este el atributo sala este como relacion la competencia de ese explorador. esto con la intencion porque busco que cuando se realiza cualquier tipo de cambio, una vez se seleccione la fecha. el sistema le pregunte al usuario  si la solicitud es para astrofisica o biodiversidad y si sí pues selecciona cual de las dos. esto con el fin de que carguen solo los exploradores que tiene tambien esa competencia y que para esa fecha esten en la jornada contaria a la de el 
+
+------------------------------------------------------------------------------------------------------------------
+segun como tengo mi app al dar clic en la sesion de Mis Turnos / Mi Calendario mi intencion es que aparezca el horario del explorador logueado. Entonces que me sugieres? con todo esto que hemos estado organizando.  Tambien me gustaria que observes como esta @http://127.0.0.1:8000/turnos/lista/  porque mi intencion es que en mis Turnos/ Mi calendario aparezca la jornada del explorador en la semana con  la sala donde estara (donde fue asignado)... y tambien el calendario como aparece en @http://127.0.0.1:8000/turnos/lista/ tambien lo mismo. Como es una rotación por semana la semana que no se ha programado aparezca la informacion de jornada que tiene predeterminada  
