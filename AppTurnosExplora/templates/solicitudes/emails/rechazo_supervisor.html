@@ -1,137 +1,390 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title>Solicitud Rechazada por Supervisor</title>
     <style>
+        /* Reset y estilos base */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
         body {
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             line-height: 1.6;
-            color: #333;
+            color: #2c3e50;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 0;
+        }
+        
+        /* Contenedor principal */
+        .email-container {
             max-width: 600px;
             margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
+            background-color: #ffffff;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            border-radius: 12px;
+            overflow: hidden;
         }
-        .container {
-            background-color: white;
-            padding: 30px;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
-        }
+        
+        /* Header moderno */
         .header {
-            text-align: center;
-            background: linear-gradient(135deg, #dc3545, #c82333);
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
             color: white;
-            padding: 20px;
-            border-radius: 10px 10px 0 0;
-            margin: -30px -30px 30px -30px;
+            padding: 40px 30px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
         }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.1)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
+            opacity: 0.3;
+        }
+        
         .header h1 {
-            margin: 0;
-            font-size: 24px;
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 1;
         }
-        .status {
-            background-color: #f8d7da;
-            border: 1px solid #f5c6cb;
-            color: #721c24;
-            padding: 15px;
-            border-radius: 5px;
-            text-align: center;
-            font-weight: bold;
-            margin-bottom: 20px;
-        }
-        .info-box {
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
-            border-radius: 5px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-        .info-box h3 {
-            color: #495057;
-            margin-top: 0;
-            border-bottom: 2px solid #dc3545;
-            padding-bottom: 10px;
-        }
-        .info-box p {
-            margin: 10px 0;
-        }
-        .highlight {
-            background-color: #fff3cd;
-            border: 1px solid #ffeaa7;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 30px;
-            padding-top: 20px;
-            border-top: 1px solid #dee2e6;
-            color: #6c757d;
-            font-size: 14px;
-        }
+        
         .reject-icon {
             font-size: 48px;
-            margin-bottom: 10px;
+            margin-bottom: 16px;
+            position: relative;
+            z-index: 1;
         }
-        .important {
-            background-color: #f8d7da;
+        
+        /* Contenido principal */
+        .content {
+            padding: 40px 30px;
+        }
+        
+        /* Banner de estado */
+        .status-banner {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
             border: 1px solid #f5c6cb;
-            padding: 15px;
-            border-radius: 5px;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 32px;
+            font-size: 18px;
+            box-shadow: 0 2px 8px rgba(220, 53, 69, 0.1);
+        }
+        
+        /* Cajas de información */
+        .info-card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-radius: 12px;
+            padding: 24px;
+            margin: 24px 0;
+            border-left: 4px solid #dc3545;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .info-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .info-card h3 {
+            color: #2c3e50;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .details-card h3::before {
+            content: '📋';
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        .status-card h3::before {
+            content: '❌';
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        .explanation-card h3::before {
+            content: '💡';
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        .steps-card h3::before {
+            content: '🎯';
+            margin-right: 8px;
+            font-size: 20px;
+        }
+        
+        .info-list {
+            list-style: none;
+        }
+        
+        .info-list li {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .info-list li:last-child {
+            border-bottom: none;
+        }
+        
+        .info-list strong {
+            color: #34495e;
+            font-weight: 600;
+            min-width: 160px;
+        }
+        
+        .info-list span {
+            color: #5a6c7d;
+            text-align: right;
+        }
+        
+        /* Estado de la solicitud */
+        .status-info {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            border: 1px solid #f5c6cb;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: center;
+        }
+        
+        .status-info p {
+            color: #721c24;
+            font-size: 16px;
+            margin: 8px 0;
+        }
+        
+        .status-info strong {
+            color: #721c24;
+            font-weight: 600;
+        }
+        
+        /* Explicación */
+        .explanation {
+            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+            border: 1px solid #ffeaa7;
+            border-radius: 12px;
+            padding: 20px;
             margin: 20px 0;
         }
+        
+        .explanation p {
+            color: #856404;
+            font-size: 16px;
+            margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+        
+        .explanation p::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: #856404;
+            font-weight: bold;
+        }
+        
+        /* Próximos pasos */
+        .next-steps {
+            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+            border: 1px solid #bee5eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .next-steps p {
+            color: #0c5460;
+            font-size: 16px;
+            margin: 8px 0;
+        }
+        
+        .next-steps strong {
+            color: #0c5460;
+            font-weight: 600;
+        }
+        
+        /* Footer */
+        .footer {
+            background-color: #f8f9fa;
+            padding: 24px 30px;
+            text-align: center;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .footer p {
+            color: #6c757d;
+            font-size: 14px;
+            margin: 4px 0;
+        }
+        
+        /* Responsive */
+        @media only screen and (max-width: 600px) {
+            .email-container {
+                margin: 0;
+                border-radius: 0;
+            }
+            
+            .header {
+                padding: 30px 20px;
+            }
+            
+            .header h1 {
+                font-size: 24px;
+            }
+            
+            .content {
+                padding: 30px 20px;
+            }
+            
+            .info-card {
+                padding: 20px;
+            }
+            
+            .info-list li {
+                flex-direction: column;
+                align-items: flex-start;
+                text-align: left;
+            }
+            
+            .info-list strong {
+                min-width: auto;
+                margin-bottom: 4px;
+            }
+            
+            .info-list span {
+                text-align: left;
+            }
+        }
+        
+        /* Animaciones */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .content > * {
+            animation: fadeInUp 0.6s ease-out forwards;
+        }
+        
+        .content > *:nth-child(1) { animation-delay: 0.1s; }
+        .content > *:nth-child(2) { animation-delay: 0.2s; }
+        .content > *:nth-child(3) { animation-delay: 0.3s; }
+        .content > *:nth-child(4) { animation-delay: 0.4s; }
+        .content > *:nth-child(5) { animation-delay: 0.5s; }
+        .content > *:nth-child(6) { animation-delay: 0.6s; }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="email-container">
+        <!-- Header -->
         <div class="header">
             <div class="reject-icon">❌</div>
             <h1>Solicitud Rechazada por Supervisor</h1>
         </div>
         
-        <div class="status">
-            Tu solicitud ha sido rechazada por tu supervisor
+        <!-- Contenido principal -->
+        <div class="content">
+            <!-- Banner de estado -->
+            <div class="status-banner">
+                Tu solicitud ha sido rechazada por tu supervisor
+            </div>
+            
+            <!-- Detalles de la solicitud -->
+            <div class="info-card details-card">
+                <h3>Detalles de la Solicitud</h3>
+                <ul class="info-list">
+                    <li>
+                        <strong>Tipo de Solicitud:</strong>
+                        <span>{{ solicitud.tipo_cambio.nombre|upper }}</span>
+                    </li>
+                    <li>
+                        <strong>Fecha de Solicitud:</strong>
+                        <span>{{ solicitud.fecha_solicitud|date:"d/m/Y" }}</span>
+                    </li>
+                    <li>
+                        <strong>Supervisor que Rechazó:</strong>
+                        <span>{{ supervisor.nombre|upper }} {{ supervisor.apellido|upper }}</span>
+                    </li>
+                    <li>
+                        <strong>Fecha de Rechazo:</strong>
+                        <span>{{ solicitud.fecha_aprobacion_supervisor|date:"d/m/Y H:i" }}</span>
+                    </li>
+                    {% if comentario_respuesta %}
+                    <li>
+                        <strong>Comentario del Supervisor:</strong>
+                        <span>{{ comentario_respuesta }}</span>
+                    </li>
+                    {% endif %}
+                </ul>
+            </div>
+            
+            <!-- Estado final -->
+            <div class="info-card status-card">
+                <h3>Estado Final</h3>
+                <div class="status-info">
+                    <p>❌ <strong>SOLICITUD RECHAZADA</strong></p>
+                    <p>Tu solicitud de cambio de turno ha sido rechazada por tu supervisor. El cambio de turno NO se realizará.</p>
+                </div>
+            </div>
+            
+            <!-- Explicación -->
+            <div class="info-card explanation-card">
+                <h3>¿Qué significa esto?</h3>
+                <div class="explanation">
+                    <p>Tu solicitud no fue aprobada por tu supervisor</p>
+                    <p>El cambio de turno solicitado NO se realizará</p>
+                    <p>Deberás mantener tu turno original</p>
+                    {% if comentario_respuesta %}
+                    <p>El supervisor ha proporcionado un comentario explicando la razón</p>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <!-- Próximos pasos -->
+            <div class="info-card steps-card">
+                <h3>Próximos Pasos</h3>
+                <div class="next-steps">
+                    <p><strong>Si tienes dudas sobre la decisión, puedes:</strong></p>
+                    <p>1. Contactar a tu supervisor para discutir la situación</p>
+                    <p>2. Revisar si puedes modificar la solicitud</p>
+                    <p>3. Crear una nueva solicitud con diferentes parámetros</p>
+                </div>
+            </div>
         </div>
         
-        <div class="info-box">
-            <h3>Detalles de la Solicitud:</h3>
-            <p><strong>Tipo de Solicitud:</strong> {{ solicitud.tipo_cambio.nombre }}</p>
-            <p><strong>Fecha de Solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d/m/Y" }}</p>
-            <p><strong>Supervisor que Rechazó:</strong> {{ supervisor.nombre }} {{ supervisor.apellido }}</p>
-            <p><strong>Fecha de Rechazo:</strong> {{ solicitud.fecha_aprobacion_supervisor|date:"d/m/Y H:i" }}</p>
-            {% if comentario_respuesta %}
-            <p><strong>Comentario del Supervisor:</strong> {{ comentario_respuesta }}</p>
-            {% endif %}
-        </div>
-        
-        <div class="important">
-            <h3>Estado Final:</h3>
-            <p>❌ <strong>SOLICITUD RECHAZADA</strong></p>
-            <p>Tu solicitud de cambio de turno ha sido rechazada por tu supervisor. El cambio de turno NO se realizará.</p>
-        </div>
-        
-        <div class="highlight">
-            <h3>¿Qué significa esto?</h3>
-            <p>• Tu solicitud no fue aprobada por tu supervisor</p>
-            <p>• El cambio de turno solicitado NO se realizará</p>
-            <p>• Deberás mantener tu turno original</p>
-            {% if comentario_respuesta %}
-            <p>• El supervisor ha proporcionado un comentario explicando la razón</p>
-            {% endif %}
-        </div>
-        
-        <div class="info-box">
-            <h3>Próximos Pasos:</h3>
-            <p>Si tienes dudas sobre la decisión, puedes:</p>
-            <p>1. Contactar a tu supervisor para discutir la situación</p>
-            <p>2. Revisar si puedes modificar la solicitud</p>
-            <p>3. Crear una nueva solicitud con diferentes parámetros</p>
-        </div>
-        
+        <!-- Footer -->
         <div class="footer">
             <p>Este es un mensaje automático del sistema de solicitudes de cambio de turno.</p>
             <p>Si tienes alguna pregunta, contacta a tu supervisor.</p>

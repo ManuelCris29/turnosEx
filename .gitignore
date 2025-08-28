@@ -1,0 +1,36 @@
+# Ignorar caches de Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Ignorar entornos virtuales
+.env
+.venv/
+env/
+venv/
+
+# Ignorar archivos temporales de editor/IDE
+*.log
+*.sqlite3
+*.db
+*.pot
+*.pyc
+*.pyo
+*.pyd
+*.swp
+*.swo
+*~
+
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Coverage / testing
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
