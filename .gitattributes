@@ -1,0 +1,16 @@
+# Normalizar saltos de línea
+* text=auto
+
+# Python siempre en LF (estándar)
+*.py text eol=lf
+
+# HTML y plantillas en LF
+*.html text eol=lf
+*.css text eol=lf
+*.js text eol=lf
+
+# Archivos de configuración en LF
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
