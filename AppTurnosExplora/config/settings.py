@@ -160,13 +160,18 @@ LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 
 # Configuración de Email
+# Configuración de email para PRODUCCIÓN
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.gmail.com'  # Cambiar según tu proveedor de email
+EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'  # Email principal para autenticación
-EMAIL_HOST_PASSWORD = 'ddke jxbc qpha piuh'  # Reemplazar con la contraseña de aplicación de Gmail (16 caracteres)
-DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'  # Email por defecto
+EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'
+EMAIL_HOST_PASSWORD = 'xivv prpf jbzx utzn'  # REEMPLAZAR CON LA NUEVA CONTRASEÑA DE APLICACIÓN
+DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'
+
+# Para desarrollo: usar backend de consola (comentado)
+# EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # URL del sitio para enlaces en emails
-SITE_URL = 'http://localhost:8000'  # Cambiar en producción
+SITE_URL = 'http://127.0.0.1:8000'  # Para desarrollo local
+# SITE_URL = 'https://tu-dominio.com'  # Para producción

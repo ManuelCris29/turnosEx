@@ -854,7 +854,7 @@ function aprobarSolicitud(solicitudId) {
             formData.append('comentario_respuesta', '');
             formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
             
-            fetch(`/solicitudes/aprobar-solicitud-receptor/${solicitudId}/`, {
+            fetch(`/solicitudes/aprobar-solicitud/${solicitudId}/`, {
                 method: 'POST',
                 body: formData,
                 headers: {
@@ -918,7 +918,7 @@ function rechazarSolicitud(solicitudId) {
             formData.append('comentario_respuesta', '');
             formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
             
-            fetch(`/solicitudes/rechazar-solicitud-receptor/${solicitudId}/`, {
+            fetch(`/solicitudes/rechazar-solicitud/${solicitudId}/`, {
                 method: 'POST',
                 body: formData,
                 headers: {

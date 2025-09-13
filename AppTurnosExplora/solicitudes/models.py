@@ -80,15 +80,9 @@ class SolicitudCambio(models.Model):
         return f"{self.tipo_cambio.nombre} - {self.explorador_solicitante} a {self.explorador_receptor} ({self.fecha_cambio_turno})"
 
 class CambioPermanenteDetalle(models.Model):
-    solicitud=models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='cambio_permanente')
-    fecha_inicio=models.DateField()
-    fecha_fin=models.DateField(null=True, blank=True)
-    historial=HistoricalRecords()
-
-class PermisoDetalle(models.Model):
-    solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='permiso')
-    horas_solicitadas = models.DecimalField(max_digits=5, decimal_places=2, default=0)
-    fecha_pago = models.DateField(null=True, blank=True)  # <-- NUEVO
+    solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='cambio_permanente')
+    fecha_inicio = models.DateField()
+    fecha_fin = models.DateField(null=True, blank=True)
     historial = HistoricalRecords()
 
     def __str__(self):

@@ -320,7 +320,20 @@
                     </li>
                     <li>
                         <strong>Fecha del Cambio:</strong>
-                        <span>{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</span>
+                        <span>
+                            {% if solicitud.tipo_cambio.nombre == "CT PERMANENTE" and solicitud.cambio_permanente %}
+                                {{ solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" }}
+                                {% if solicitud.cambio_permanente.fecha_fin %}
+                                    - {{ solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" }}
+                                {% else %}
+                                    - (sin fecha fin)
+                                {% endif %}
+                            {% elif solicitud.fecha_cambio_turno %}
+                                {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}
+                            {% else %}
+                                No aplica
+                            {% endif %}
+                        </span>
                     </li>
                     <li>
                         <strong>Estado:</strong>

@@ -333,6 +333,13 @@
                                             <span class="badge badge-custom badge-supervisor">
                                                 <i class="fas fa-user-tie"></i> Supervisor
                                             </span>
+                                        {% elif solicitud.mi_rol == 'ambos' %}
+                                            <span class="badge badge-custom badge-receptor">
+                                                <i class="fas fa-user"></i> Receptor
+                                            </span>
+                                            <span class="badge badge-custom badge-supervisor">
+                                                <i class="fas fa-user-tie"></i> Supervisor
+                                            </span>
                                         {% endif %}
                                     </td>
                                     <td>
@@ -344,7 +351,7 @@
                                     </td>
                                     <td>
                                         <div class="d-flex flex-wrap gap-1">
-                                            {% if solicitud.mi_rol == 'receptor' %}
+                                            {% if solicitud.mi_rol == 'receptor' and not solicitud.aprobado_receptor %}
                                                 <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudReceptor({{ solicitud.id }})" title="Aprobar como Receptor">
                                                     <i class="fas fa-check"></i>
                                                     Aprobar
@@ -353,7 +360,7 @@
                                                     <i class="fas fa-times"></i>
                                                     Rechazar
                                                 </button>
-                                            {% elif solicitud.mi_rol == 'supervisor' %}
+                                            {% elif solicitud.mi_rol == 'supervisor' and not solicitud.aprobado_supervisor %}
                                                 <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudSupervisor({{ solicitud.id }})" title="Aprobar como Supervisor">
                                                     <i class="fas fa-check"></i>
                                                     Aprobar
@@ -362,6 +369,42 @@
                                                     <i class="fas fa-times"></i>
                                                     Rechazar
                                                 </button>
+                                            {% elif solicitud.mi_rol == 'ambos' %}
+                                                <div>
+                                                    {% if not solicitud.aprobado_receptor %}
+                                                        <small class="text-muted d-block">Como Receptor</small>
+                                                        <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudReceptor({{ solicitud.id }})" title="Aprobar como Receptor">
+                                                            <i class="fas fa-check"></i>
+                                                            Aprobar
+                                                        </button>
+                                                        <button class="btn btn-action btn-rechazar" onclick="rechazarSolicitudReceptor({{ solicitud.id }})" title="Rechazar como Receptor">
+                                                            <i class="fas fa-times"></i>
+                                                            Rechazar
+                                                        </button>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="mt-2">
+                                                    {% if not solicitud.aprobado_supervisor %}
+                                                        <small class="text-muted d-block">Como Supervisor</small>
+                                                        <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudSupervisor({{ solicitud.id }})" title="Aprobar como Supervisor">
+                                                            <i class="fas fa-check"></i>
+                                                            Aprobar
+                                                        </button>
+                                                        <button class="btn btn-action btn-rechazar" onclick="rechazarSolicitudSupervisor({{ solicitud.id }})" title="Rechazar como Supervisor">
+                                                            <i class="fas fa-times"></i>
+                                                            Rechazar
+                                                        </button>
+                                                    {% endif %}
+                                                </div>
+                                                {% if not solicitud.aprobado_receptor and not solicitud.aprobado_supervisor %}
+                                                <div class="mt-2">
+                                                    <small class="text-muted d-block">Acción combinada</small>
+                                                    <button class="btn btn-action btn-aprobar" onclick="aprobarSolicitudAmbos({{ solicitud.id }})" title="Aprobar ambos (receptor y supervisor)">
+                                                        <i class="fas fa-check-double"></i>
+                                                        Aprobar ambos
+                                                    </button>
+                                                </div>
+                                                {% endif %}
                                             {% endif %}
                                             <button class="btn btn-action btn-cancelar" onclick="cancelarSolicitud({{ solicitud.id }})" title="Cancelar">
                                                 <i class="fas fa-ban"></i>
@@ -470,6 +513,66 @@ function rechazarSolicitudSupervisor(solicitudId) {
     rolActual = 'supervisor';
     $('#accionModalTitle').text('Rechazar Solicitud como Supervisor');
     $('#accionSolicitudModal').modal('show');
+}
+
+function aprobarSolicitudAmbos(solicitudId) {
+    Swal.fire({
+        title: '¿Aprobar como Receptor y Supervisor?',
+        text: 'Se registrarán ambas aprobaciones y la solicitud quedará aprobada.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#28a745',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, aprobar ambos',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+            fetch(`/solicitudes/aprobar-solicitud-ambos/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Aprobado!',
+                        text: data.message,
+                        timer: 2500,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'No se pudo aprobar en ambos roles',
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de conexión',
+                    text: 'No se pudo completar la acción. Inténtalo de nuevo.'
+                });
+            });
+        }
+    });
 }
 
 function cancelarSolicitud(solicitudId) {

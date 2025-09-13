@@ -284,8 +284,8 @@
     <div class="email-container">
         <!-- Header -->
         <div class="header">
-            <h1>🔔 Nueva Solicitud de Cambio de Turno</h1>
-            <p>Requiere tu aprobación como supervisor</p>
+            <h1>👨‍💼 SUPERVISOR - Nueva Solicitud de Cambio de Turno</h1>
+            <p>Requiere tu aprobación como supervisor del sistema</p>
         </div>
         
         <!-- Contenido principal -->
@@ -295,7 +295,7 @@
             </div>
             
             <div class="description">
-                Se ha recibido una nueva solicitud de cambio de turno que requiere tu aprobación como supervisor del sistema.
+                <strong>SUPERVISOR {{ supervisor.nombre|upper }} {{ supervisor.apellido|upper }}</strong>, se ha recibido una nueva solicitud de cambio de turno que requiere tu aprobación como supervisor del sistema.
             </div>
             
             <!-- Detalles de la solicitud -->
@@ -318,6 +318,23 @@
                         <strong>Fecha de Solicitud:</strong>
                         <span>{{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</span>
                     </li>
+                    <li>
+                        <strong>Fecha del Cambio:</strong>
+                        <span>
+                            {% if solicitud.tipo_cambio.nombre == "CT PERMANENTE" and solicitud.cambio_permanente %}
+                                {{ solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" }}
+                                {% if solicitud.cambio_permanente.fecha_fin %}
+                                    - {{ solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" }}
+                                {% else %}
+                                    - (sin fecha fin)
+                                {% endif %}
+                            {% elif solicitud.fecha_cambio_turno %}
+                                {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}
+                            {% else %}
+                                No aplica
+                            {% endif %}
+                        </span>
+                    </li>
                     {% if solicitud.comentario %}
                     <li>
                         <strong>Comentario:</strong>
@@ -330,7 +347,7 @@
             <!-- Botones de acción -->
             <div class="action-buttons">
                 <p style="margin-bottom: 20px; color: #5a6c7d; font-size: 15px;">
-                    Puedes aprobar o rechazar esta solicitud directamente desde este email:
+                    <strong>SUPERVISOR {{ supervisor.nombre|upper }} {{ supervisor.apellido|upper }}</strong>, puedes aprobar o rechazar esta solicitud directamente desde este email:
                 </p>
                 
                 <a href="{{ enlaces.supervisor.aprobar }}" class="btn btn-approve">

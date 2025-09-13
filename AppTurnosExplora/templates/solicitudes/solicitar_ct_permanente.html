@@ -1,0 +1,576 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Solicitar Cambio de Turno Permanente{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/solicitudes.css' %}">
+<style>
+    .permanente-info {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    .permanente-info h5 {
+        margin: 0;
+        font-weight: 600;
+    }
+    .permanente-info p {
+        margin: 5px 0 0 0;
+        opacity: 0.9;
+    }
+    .date-range-container {
+        display: flex;
+        gap: 15px;
+        align-items: end;
+    }
+    .date-range-container .form-group {
+        flex: 1;
+    }
+    .date-range-container .form-group:last-child {
+        flex: 0.8;
+    }
+    .warning-box {
+        background-color: #fff3cd;
+        border: 1px solid #ffeaa7;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+    }
+    .warning-box .fas {
+        color: #856404;
+        margin-right: 8px;
+    }
+    .warning-box p {
+        margin: 0;
+        color: #856404;
+        font-size: 14px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-wrapper centered-flex">
+    <div class="solicitud-card">
+        <div class="solicitud-header">
+            <h2 class="mb-1">Solicitud de Cambio de Turno Permanente</h2>
+            <div class="text-light">Tipo: {{ tipo_solicitud.nombre }}</div>
+        </div>
+        <div class="p-4">
+            {% if error_message %}
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    {{ error_message }}
+                </div>
+            {% endif %}
+
+            <!-- Información sobre CT Permanente -->
+            <div class="permanente-info">
+                <h5><i class="fas fa-info-circle mr-2"></i>¿Qué es un Cambio de Turno Permanente?</h5>
+                <p>Un cambio permanente te permite intercambiar tu jornada laboral con un compañero por un período específico. Al finalizar, ambos volverán automáticamente a sus jornadas originales.</p>
+            </div>
+
+            <!-- Advertencias importantes -->
+            <div class="warning-box">
+                <p><i class="fas fa-exclamation-triangle"></i><strong>Importante:</strong> Solo puedes cambiar con empleados que tengan jornada contraria a la tuya (AM ↔ PM).</p>
+            </div>
+
+            <form method="post" id="ctPermanenteForm" class="solicitud-form">
+                {% csrf_token %}
+                <!-- Elemento oculto con el ID del tipo de solicitud -->
+                <input type="hidden" id="tipo_solicitud_id" name="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
+                
+                <!-- Rango de fechas para el cambio permanente -->
+                <div class="date-range-container">
+                    <div class="form-group">
+                        <label for="fecha_inicio">
+                            <i class="fas fa-calendar-plus mr-1"></i>Fecha de Inicio
+                        </label>
+                        <input type="date" class="form-control" id="fecha_inicio" name="fecha_inicio" required 
+                               min="{{ fecha_minima|date:'Y-m-d' }}" value="{{ fecha_inicio|date:'Y-m-d' }}">
+                        <small class="form-text text-muted">
+                            Fecha desde la cual comenzará el cambio permanente
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="fecha_fin">
+                            <i class="fas fa-calendar-minus mr-1"></i>Fecha de Fin (Opcional)
+                        </label>
+                        <input type="date" class="form-control" id="fecha_fin" name="fecha_fin" 
+                               value="{{ fecha_fin|date:'Y-m-d' }}">
+                        <small class="form-text text-muted">
+                            Si no se especifica, durará hasta fin de año
+                        </small>
+                    </div>
+                </div>
+
+                <!-- Información del turno actual del usuario -->
+                <div id="turno_actual_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-check mr-1"></i>Tu Jornada Actual
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="jornada_actual_detalles">
+                                <!-- Aquí se cargará la información de la jornada actual -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selección de compañero -->
+                <div class="form-group">
+                    <label for="empleado_receptor">
+                        <i class="fas fa-user mr-1"></i>Compañero para Intercambio Permanente
+                    </label>
+                    <select class="form-control" id="empleado_receptor" name="empleado_receptor" required>
+                        <option value="">Selecciona un compañero con jornada contraria...</option>
+                        {% for empleado in empleados_disponibles %}
+                            <option value="{{ empleado.id }}" 
+                                    {% if empleado.id == empleado_seleccionado %}selected{% endif %}>
+                                {{ empleado.nombre }} {{ empleado.apellido }} 
+                                ({{ empleado.get_jornada_display }})
+                            </option>
+                        {% endfor %}
+                    </select>
+                    <small class="form-text text-muted">
+                        Solo se muestran compañeros con jornada contraria a la tuya
+                    </small>
+                </div>
+
+                <!-- Información del turno del compañero seleccionado -->
+                <div id="turno_companero_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-friends mr-1"></i>Jornada del Compañero Seleccionado
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="jornada_companero_detalles">
+                                <!-- Aquí se cargará la información de la jornada del compañero -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Resumen del intercambio -->
+                <div id="resumen_intercambio" class="form-group" style="display: none;">
+                    <div class="card border-primary">
+                        <div class="card-header bg-primary text-white">
+                            <h6 class="mb-0">
+                                <i class="fas fa-exchange-alt mr-1"></i>Resumen del Intercambio Permanente
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="resumen_detalles">
+                                <!-- Aquí se mostrará el resumen del intercambio -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Comentarios -->
+                <div class="form-group">
+                    <label for="comentarios">
+                        <i class="fas fa-comment mr-1"></i>Comentarios (Opcional)
+                    </label>
+                    <textarea class="form-control" 
+                              id="comentarios" 
+                              name="comentarios" 
+                              rows="4" 
+                              placeholder="Explica el motivo del cambio permanente de turno...">{{ comentarios }}</textarea>
+                    <small class="form-text text-muted">
+                        Proporciona detalles adicionales sobre tu solicitud de cambio permanente
+                    </small>
+                </div>
+
+                <!-- Botón de envío -->
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-lg btn-block">
+                        <i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud de Cambio Permanente
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+window.solicitanteId = {{ request.user.empleado.id }};
+window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
+
+// Función para cargar información cuando cambia la fecha de inicio
+document.getElementById('fecha_inicio').addEventListener('change', function() {
+    const fechaInicio = this.value;
+    if (fechaInicio) {
+        cargarJornadaActual(fechaInicio);
+        cargarEmpleadosDisponibles(fechaInicio);
+    }
+});
+
+// Cargar datos automáticamente al cargar la página si hay fecha de inicio
+document.addEventListener('DOMContentLoaded', function() {
+    const fechaInicio = document.getElementById('fecha_inicio').value;
+    if (fechaInicio) {
+        console.log('Cargando datos automáticamente para fecha:', fechaInicio);
+        cargarJornadaActual(fechaInicio);
+        cargarEmpleadosDisponibles(fechaInicio);
+    }
+});
+
+// Función para cargar empleados disponibles
+function cargarEmpleadosDisponibles(fecha) {
+    const tipoSolicitudId = document.getElementById('tipo_solicitud_id').value;
+    
+    console.log('Cargando empleados para fecha:', fecha, 'tipo:', tipoSolicitudId);
+    
+    fetch(`/solicitudes/obtener-empleados-disponibles/?fecha=${fecha}&tipo_solicitud_id=${tipoSolicitudId}`)
+        .then(response => {
+            console.log('Respuesta recibida:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Datos recibidos:', data);
+            const select = document.getElementById('empleado_receptor');
+            select.innerHTML = '<option value="">Selecciona un compañero con jornada contraria...</option>';
+            
+            if (data.empleados && data.empleados.length > 0) {
+                data.empleados.forEach(empleado => {
+                    const option = document.createElement('option');
+                    option.value = empleado.id;
+                    option.textContent = `${empleado.nombre} ${empleado.apellido} (${empleado.jornada})`;
+                    select.appendChild(option);
+                });
+                console.log('Empleados cargados:', data.empleados.length);
+            } else {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No hay compañeros disponibles con jornada contraria';
+                select.appendChild(option);
+                console.log('No hay empleados disponibles');
+            }
+        })
+        .catch(error => {
+            console.error('Error cargando empleados:', error);
+            const select = document.getElementById('empleado_receptor');
+            select.innerHTML = '<option value="">Error cargando empleados</option>';
+        });
+}
+
+// Función para cargar jornada actual
+function cargarJornadaActual(fecha) {
+    console.log('Cargando jornada actual para fecha:', fecha, 'empleado:', window.solicitanteId);
+    
+    fetch(`/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fecha}`)
+        .then(response => {
+            console.log('Respuesta jornada actual:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Datos jornada actual:', data);
+            const container = document.getElementById('jornada_actual_detalles');
+            const infoDiv = document.getElementById('turno_actual_info');
+            
+            if (data.turno && data.tiene_turno) {
+                const turno = data.turno;
+                
+                // Construir horario desde hora_inicio y hora_fin
+                let horario = 'No definido';
+                if (turno.hora_inicio && turno.hora_fin) {
+                    horario = `${turno.hora_inicio} - ${turno.hora_fin}`;
+                }
+                
+                // Construir salas desde salas_competencia
+                let salasHtml = '';
+                if (turno.salas_competencia && turno.salas_competencia.length > 0) {
+                    const nombresSalas = turno.salas_competencia.map(sala => sala.nombre);
+                    salasHtml = `
+                        <div class="col-12 mt-2">
+                            <div class="badge badge-success p-2">
+                                <strong>Salas:</strong> ${nombresSalas.join(', ')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                container.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="badge badge-info p-2">
+                                <strong>Jornada:</strong> ${turno.jornada || 'No asignada'}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="badge badge-secondary p-2">
+                                <strong>Horario:</strong> ${horario}
+                            </div>
+                        </div>
+                        ${salasHtml}
+                    </div>
+                `;
+                infoDiv.style.display = 'block';
+            } else {
+                container.innerHTML = '<p class="text-muted">No tienes jornada asignada para esta fecha</p>';
+                infoDiv.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            console.error('Error cargando jornada actual:', error);
+            const container = document.getElementById('jornada_actual_detalles');
+            const infoDiv = document.getElementById('turno_actual_info');
+            container.innerHTML = '<p class="text-danger">Error cargando información de jornada</p>';
+            infoDiv.style.display = 'block';
+        });
+}
+
+// Función para cargar información del compañero seleccionado
+document.getElementById('empleado_receptor').addEventListener('change', function() {
+    const empleadoId = this.value;
+    const fechaInicio = document.getElementById('fecha_inicio').value;
+    
+    if (empleadoId && fechaInicio) {
+        cargarJornadaCompanero(empleadoId, fechaInicio);
+        mostrarResumenIntercambio();
+    } else {
+        document.getElementById('turno_companero_info').style.display = 'none';
+        document.getElementById('resumen_intercambio').style.display = 'none';
+    }
+});
+
+function cargarJornadaCompanero(empleadoId, fecha) {
+    console.log('Cargando jornada del compañero:', empleadoId, 'fecha:', fecha);
+    
+    fetch(`/solicitudes/obtener-turno-explorador/?explorador_id=${empleadoId}&fecha=${fecha}`)
+        .then(response => {
+            console.log('Respuesta jornada compañero:', response.status);
+            return response.json();
+        })
+        .then(data => {
+            console.log('Datos jornada compañero:', data);
+            const container = document.getElementById('jornada_companero_detalles');
+            const infoDiv = document.getElementById('turno_companero_info');
+            
+            if (data.turno && data.tiene_turno) {
+                const turno = data.turno;
+                
+                // Construir horario desde hora_inicio y hora_fin
+                let horario = 'No definido';
+                if (turno.hora_inicio && turno.hora_fin) {
+                    horario = `${turno.hora_inicio} - ${turno.hora_fin}`;
+                }
+                
+                // Construir salas desde salas_competencia
+                let salasHtml = '';
+                if (turno.salas_competencia && turno.salas_competencia.length > 0) {
+                    const nombresSalas = turno.salas_competencia.map(sala => sala.nombre);
+                    salasHtml = `
+                        <div class="col-12 mt-2">
+                            <div class="badge badge-success p-2">
+                                <strong>Salas:</strong> ${nombresSalas.join(', ')}
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                container.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="badge badge-warning p-2">
+                                <strong>Jornada:</strong> ${turno.jornada || 'No asignada'}
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="badge badge-secondary p-2">
+                                <strong>Horario:</strong> ${horario}
+                            </div>
+                        </div>
+                        ${salasHtml}
+                    </div>
+                `;
+                infoDiv.style.display = 'block';
+            } else {
+                container.innerHTML = '<p class="text-muted">El compañero no tiene jornada asignada para esta fecha</p>';
+                infoDiv.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            console.error('Error cargando jornada del compañero:', error);
+            const container = document.getElementById('jornada_companero_detalles');
+            const infoDiv = document.getElementById('turno_companero_info');
+            container.innerHTML = '<p class="text-danger">Error cargando información del compañero</p>';
+            infoDiv.style.display = 'block';
+        });
+}
+
+function mostrarResumenIntercambio() {
+    const fechaInicio = document.getElementById('fecha_inicio').value;
+    const fechaFin = document.getElementById('fecha_fin').value;
+    const empleadoSelect = document.getElementById('empleado_receptor');
+    const empleadoNombre = empleadoSelect.options[empleadoSelect.selectedIndex].text;
+    
+    if (fechaInicio && empleadoSelect.value) {
+        const container = document.getElementById('resumen_detalles');
+        const infoDiv = document.getElementById('resumen_intercambio');
+        
+        let fechaFinText = fechaFin ? ` hasta ${fechaFin}` : ' hasta fin de año';
+        
+        container.innerHTML = `
+            <div class="alert alert-info">
+                <h6><i class="fas fa-info-circle mr-2"></i>Resumen del Cambio Permanente:</h6>
+                <ul class="mb-0">
+                    <li><strong>Período:</strong> Desde ${fechaInicio}${fechaFinText}</li>
+                    <li><strong>Compañero:</strong> ${empleadoNombre}</li>
+                    <li><strong>Tipo:</strong> Intercambio permanente de jornadas</li>
+                    <li><strong>Retorno automático:</strong> Al finalizar el período, ambos volverán a sus jornadas originales</li>
+                </ul>
+            </div>
+        `;
+        infoDiv.style.display = 'block';
+    }
+}
+
+// Función para enviar la solicitud por AJAX
+function enviarSolicitudCTPermanente() {
+    const form = document.getElementById('ctPermanenteForm');
+    const formData = new FormData(form);
+    
+    // Mostrar indicador de carga
+    const submitButton = form.querySelector('button[type="submit"]');
+    const originalText = submitButton.innerHTML;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
+    submitButton.disabled = true;
+
+    fetch('/solicitudes/procesar-solicitud/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Mostrar mensaje de éxito
+            Swal.fire({
+                icon: 'success',
+                title: '¡Solicitud enviada!',
+                text: data.message,
+                confirmButtonText: 'OK',
+                timer: 4000,
+                timerProgressBar: true,
+                showConfirmButton: false,
+                position: 'top-end',
+                toast: true,
+                customClass: {
+                    popup: 'swal2-toast'
+                }
+            }).then((result) => {
+                // Redirigir a la lista de solicitudes o dashboard
+                window.location.href = '/solicitudes/';
+            });
+        } else {
+            // Mostrar error
+            Swal.fire({
+                icon: 'error',
+                title: 'Error al enviar solicitud',
+                text: data.error,
+                confirmButtonText: 'Entendido',
+                timer: 4000,
+                timerProgressBar: true,
+                showConfirmButton: false,
+                position: 'center',
+                customClass: {
+                    popup: 'swal2-error-popup'
+                }
+            });
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error de conexión',
+            text: 'No se pudo enviar la solicitud. Inténtalo de nuevo.',
+            confirmButtonText: 'Reintentar',
+            timer: 5000,
+            timerProgressBar: true,
+            showConfirmButton: true,
+            position: 'center',
+            customClass: {
+                popup: 'swal2-error-popup'
+            }
+        });
+    })
+    .finally(() => {
+        // Restaurar botón
+        submitButton.innerHTML = originalText;
+        submitButton.disabled = false;
+    });
+}
+
+// Validación del formulario y envío por AJAX
+document.getElementById('ctPermanenteForm').addEventListener('submit', function(e) {
+    e.preventDefault(); // Prevenir envío tradicional del formulario
+    
+    const fechaInicio = document.getElementById('fecha_inicio').value;
+    const fechaFin = document.getElementById('fecha_fin').value;
+    const empleadoReceptor = document.getElementById('empleado_receptor').value;
+    
+    // Validaciones
+    if (!fechaInicio) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Campo requerido',
+            text: 'Por favor selecciona una fecha de inicio',
+            confirmButtonText: 'Entendido'
+        });
+        return;
+    }
+    
+    if (!empleadoReceptor) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Campo requerido',
+            text: 'Por favor selecciona un compañero para el intercambio',
+            confirmButtonText: 'Entendido'
+        });
+        return;
+    }
+    
+    if (fechaFin && fechaFin <= fechaInicio) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Fecha inválida',
+            text: 'La fecha de fin debe ser posterior a la fecha de inicio',
+            confirmButtonText: 'Entendido'
+        });
+        return;
+    }
+    
+    // Mostrar confirmación
+    Swal.fire({
+        title: '¿Confirmar solicitud?',
+        text: '¿Estás seguro de que deseas enviar esta solicitud de cambio permanente?',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#3085d6',
+        cancelButtonColor: '#d33',
+        confirmButtonText: 'Sí, enviar',
+        cancelButtonText: 'Cancelar'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            enviarSolicitudCTPermanente();
+        }
+    });
+});
+</script>
+{% endblock %}

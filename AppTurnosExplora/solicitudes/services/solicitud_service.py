@@ -1,9 +1,14 @@
 from django.db.models import Q
+# type: ignore
 from empleados.models import Empleado, CompetenciaEmpleado
 from turnos.models import Turno, AsignarJornadaExplorador, AsignarSalaExplorador
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from datetime import datetime
 from django.utils import timezone
+import logging
+
+# Logger estructurado para este módulo
+logger = logging.getLogger(__name__)
 
 
 class SolicitudService:
@@ -20,7 +25,12 @@ class SolicitudService:
             return SolicitudService.get_empleados_jornada_contraria(fecha, usuario_actual)
         
         # Lógica original: todos los empleados activos
-        empleados = Empleado.objects.filter(activo=True)
+        # Optimización: solo los campos necesarios y relaciones frecuentes
+        empleados = (
+            Empleado.objects
+            .filter(activo=True)
+            .select_related('supervisor')
+        )
         
         # Excluir al usuario actual si se proporciona
         if usuario_actual and hasattr(usuario_actual, 'empleado'):
@@ -34,21 +44,29 @@ class SolicitudService:
         Obtiene los empleados que están en la jornada contraria al usuario actual
         para una fecha específica
         """
-        print(f"DEBUG: get_empleados_jornada_contraria - fecha={fecha}, usuario={usuario_actual}")
+        logger.debug("get_empleados_jornada_contraria", extra={
+            'fecha': fecha,
+            'usuario_id': getattr(getattr(usuario_actual, 'empleado', None), 'id', None)
+        })
         
-        if not usuario_actual or not hasattr(usuario_actual, 'empleado'):
-            print("DEBUG: No hay usuario actual o no tiene empleado asociado")
+        # Verificar si es un objeto Empleado o User
+        if isinstance(usuario_actual, Empleado):
+            empleado_actual = usuario_actual
+        elif hasattr(usuario_actual, 'empleado'):
+            empleado_actual = usuario_actual.empleado
+        else:
+            logger.debug("No hay usuario actual o no tiene empleado asociado")
             return Empleado.objects.none()
         
         # Obtener la jornada del usuario actual para esa fecha
         jornada_usuario = SolicitudService.get_jornada_explorador_fecha(
-            usuario_actual.empleado.id, fecha
+            empleado_actual.id, fecha
         )
         
-        print(f"DEBUG: jornada_usuario={jornada_usuario}")
+        logger.debug("jornada_usuario", extra={'jornada': getattr(jornada_usuario, 'nombre', None)})
         
         if not jornada_usuario:
-            print("DEBUG: Usuario no tiene jornada asignada")
+            logger.debug("Usuario no tiene jornada asignada")
             return Empleado.objects.none()
         
         # Determinar la jornada contraria
@@ -62,21 +80,25 @@ class SolicitudService:
             print(f"DEBUG: Jornada no reconocida: {jornada_usuario.nombre}")
             return Empleado.objects.none()
         
-        print(f"DEBUG: jornada_contraria={jornada_contraria}")
+        logger.debug("jornada_contraria", extra={'jornada_contraria': jornada_contraria})
         
         # Buscar empleados que tengan la jornada contraria asignada
         empleados_contrarios = []
-        empleados_activos = Empleado.objects.filter(activo=True).exclude(id=usuario_actual.empleado.id)
+        empleados_activos = (
+            Empleado.objects
+            .filter(activo=True)
+            .exclude(id=empleado_actual.id)
+            .select_related('supervisor')
+        )
         
-        print(f"DEBUG: empleados_activos count={len(empleados_activos)}")
+        logger.debug("empleados_activos_count", extra={'count': empleados_activos.count()})
         
         for empleado in empleados_activos:
             jornada_empleado = SolicitudService.get_jornada_explorador_fecha(empleado.id, fecha)
-            print(f"DEBUG: empleado={empleado.nombre}, jornada={jornada_empleado.nombre if jornada_empleado else 'None'}")
             if jornada_empleado and jornada_empleado.nombre == jornada_contraria:
                 empleados_contrarios.append(empleado)
         
-        print(f"DEBUG: empleados_contrarios count={len(empleados_contrarios)}")
+        logger.debug("empleados_contrarios_count", extra={'count': len(empleados_contrarios)})
         return empleados_contrarios
 
     @staticmethod
@@ -101,9 +123,11 @@ class SolicitudService:
             # 2. Si no hay turno específico, usar la jornada fija del explorador
             jornada_fija = AsignarJornadaExplorador.objects.filter(
                 explorador=explorador,
-                fecha_inicio__lte=fecha_obj,
-                fecha_fin__isnull=True  # Sin fecha fin = vigente
-            ).first()
+                fecha_inicio__lte=fecha_obj
+            ).filter(
+                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_obj)
+            ).order_by('-fecha_inicio').first()
+            
             
             return jornada_fija.jornada if jornada_fija else None
             
@@ -119,7 +143,7 @@ class SolicitudService:
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             explorador = Empleado.objects.get(id=explorador_id)
             # 1. Buscar turno específico para esa fecha
-            turno = Turno.objects.filter(
+            turno = Turno.objects.select_related('jornada', 'sala').filter(
                 explorador_id=explorador_id,
                 fecha=fecha_obj
             ).first()
@@ -135,7 +159,7 @@ class SolicitudService:
                     'tipo_sala': 'turno'
                 }
             # 2. Si no hay turno, buscar jornada predeterminada
-            asignacion_jornada = AsignarJornadaExplorador.objects.filter(
+            asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
                 explorador=explorador,
                 fecha_inicio__lte=fecha_obj
             ).filter(
@@ -143,7 +167,7 @@ class SolicitudService:
             ).order_by('-fecha_inicio').first()
             jornada = asignacion_jornada.jornada if asignacion_jornada else None
             # 3. Buscar sala asignada especial para ese día
-            asignacion_sala = AsignarSalaExplorador.objects.filter(
+            asignacion_sala = AsignarSalaExplorador.objects.select_related('sala').filter(
                 explorador=explorador,
                 fecha_inicio__lte=fecha_obj
             ).filter(
@@ -203,12 +227,13 @@ class SolicitudService:
         Incluye lógica para cancelar solicitudes anteriores de la misma fecha
         """
         from .notificacion_service import NotificacionService
-        
-        print(f"DEBUG SOLICITUD: Creando solicitud...")
-        print(f"DEBUG SOLICITUD: Solicitante: {explorador_solicitante.nombre} {explorador_solicitante.apellido}")
-        print(f"DEBUG SOLICITUD: Receptor: {explorador_receptor.nombre} {explorador_receptor.apellido}")
-        print(f"DEBUG SOLICITUD: Tipo: {tipo_cambio.nombre}")
-        print(f"DEBUG SOLICITUD: Fecha cambio: {fecha_cambio_turno}")
+
+        logger.info("Creando solicitud de cambio", extra={
+            'solicitante_id': explorador_solicitante.id,
+            'receptor_id': explorador_receptor.id,
+            'tipo_cambio': tipo_cambio.nombre,
+            'fecha_cambio_turno': str(fecha_cambio_turno)
+        })
         
         # 1. Verificar si ya existe una solicitud pendiente para la misma fecha
         solicitud_anterior = SolicitudCambio.objects.filter(
@@ -218,15 +243,15 @@ class SolicitudService:
         ).first()
         
         if solicitud_anterior:
-            print(f"DEBUG SOLICITUD: Encontrada solicitud anterior ID: {solicitud_anterior.id}")
+            logger.info("Solicitud anterior encontrada", extra={'solicitud_id': solicitud_anterior.id})
             
             # 2. Verificar si la solicitud anterior ya fue aprobada por alguien
             if solicitud_anterior.aprobado_receptor or solicitud_anterior.aprobado_supervisor:
-                print(f"DEBUG SOLICITUD: ❌ Solicitud anterior ya fue aprobada - No se puede cancelar")
+                logger.warning("Solicitud anterior ya fue aprobada - no cancelar", extra={'solicitud_id': solicitud_anterior.id})
                 return None, "No puedes crear una nueva solicitud porque la anterior ya fue aprobada"
             
             # 3. Cancelar la solicitud anterior
-            print(f"DEBUG SOLICITUD: Cancelando solicitud anterior ID: {solicitud_anterior.id}")
+            logger.info("Cancelando solicitud anterior", extra={'solicitud_id': solicitud_anterior.id})
             solicitud_anterior.estado = 'cancelada'
             solicitud_anterior.comentario = f"{solicitud_anterior.comentario or ''}\n\nCancelada automáticamente al crear nueva solicitud"
             solicitud_anterior.fecha_resolucion = timezone.now()
@@ -235,9 +260,9 @@ class SolicitudService:
             # 4. Notificar al receptor anterior sobre la cancelación
             try:
                 NotificacionService.crear_notificacion_cancelacion(solicitud_anterior)
-                print(f"DEBUG SOLICITUD: Notificación de cancelación enviada para solicitud {solicitud_anterior.id}")
+                logger.info("Notificación de cancelación enviada", extra={'solicitud_id': solicitud_anterior.id})
             except Exception as e:
-                print(f"ERROR SOLICITUD enviando notificación de cancelación: {e}")
+                logger.exception("Error enviando notificación de cancelación")
         
         # 5. Crear la nueva solicitud
         solicitud = SolicitudCambio.objects.create(
@@ -250,18 +275,14 @@ class SolicitudService:
             fecha_cambio_turno=fecha_cambio_turno
         )
         
-        print(f"DEBUG SOLICITUD: Nueva solicitud creada con ID: {solicitud.id}")
-        print(f"DEBUG SOLICITUD: Fecha cambio turno guardada: {solicitud.fecha_cambio_turno}")
+        logger.info("Nueva solicitud creada", extra={'solicitud_id': solicitud.id})
         
         # 6. Crear notificaciones y enviar emails para la nueva solicitud
         try:
-            print(f"DEBUG SOLICITUD: Llamando a NotificacionService.crear_notificacion_solicitud")
+            logger.debug("Creando notificaciones para solicitud", extra={'solicitud_id': solicitud.id})
             NotificacionService.crear_notificacion_solicitud(solicitud)
-            print(f"DEBUG SOLICITUD: Notificaciones creadas para solicitud {solicitud.id}")
-        except Exception as e:
-            print(f"ERROR SOLICITUD creando notificaciones: {e}")
-            import traceback
-            print(f"ERROR SOLICITUD traceback: {traceback.format_exc()}")
+        except Exception:
+            logger.exception("Error creando notificaciones")
         
         return solicitud, "Solicitud creada correctamente"
 
@@ -270,49 +291,27 @@ class SolicitudService:
         """
         Valida si una solicitud de cambio es válida
         """
-        # Verificar que ambos exploradores estén activos
-        if not explorador_solicitante.activo or not explorador_receptor.activo:
-            return False, "Uno o ambos exploradores no están activos"
-        
-        # Verificar que no sea la misma persona
-        if explorador_solicitante.id == explorador_receptor.id:
-            return False, "No puedes solicitar cambio contigo mismo"
-        
-        # Verificar que ambos tengan jornadas asignadas en esa fecha
-        jornada_solicitante = SolicitudService.get_jornada_explorador_fecha(explorador_solicitante.id, fecha)
-        jornada_receptor = SolicitudService.get_jornada_explorador_fecha(explorador_receptor.id, fecha)
-        
-        if not jornada_solicitante:
-            return False, "No tienes jornada asignada para esa fecha"
-        
-        if not jornada_receptor:
-            return False, "El explorador seleccionado no tiene jornada asignada para esa fecha"
-        
-        # Verificar que no exista una solicitud pendiente entre estos exploradores para esa fecha
-        print(f"DEBUG VALIDACION: Verificando solicitudes existentes...")
-        print(f"DEBUG VALIDACION: Solicitante: {explorador_solicitante.nombre}")
-        print(f"DEBUG VALIDACION: Receptor: {explorador_receptor.nombre}")
-        print(f"DEBUG VALIDACION: Fecha: {fecha}")
-        
-        # SOLUCIÓN: Solo bloquear si existe solicitud pendiente en la MISMA fecha
-        # PERO permitir si es la misma fecha pero diferente receptor (se cancelará la anterior)
-        solicitud_existente = SolicitudCambio.objects.filter(
-            explorador_solicitante=explorador_solicitante,
-            explorador_receptor=explorador_receptor,
-            estado='pendiente',
-            fecha_cambio_turno=fecha  # ¡FILTRAR POR FECHA!
-        ).first()
-        
-        print(f"DEBUG VALIDACION: Solicitud existente encontrada: {solicitud_existente}")
-        
-        if solicitud_existente:
-            print(f"DEBUG VALIDACION: ❌ VALIDACIÓN FALLÓ - Ya existe solicitud pendiente con el mismo receptor")
-            print(f"DEBUG VALIDACION: Solicitud existente ID: {solicitud_existente.id}, Fecha: {solicitud_existente.fecha_cambio_turno}")
-            return False, "Ya existe una solicitud pendiente con este explorador para la misma fecha"
-        
-        print(f"DEBUG VALIDACION: ✅ VALIDACIÓN EXITOSA")
-        
-        return True, "Solicitud válida"
+        try:
+            # Importar aquí para evitar circular import
+            from .solicitud_validator import SolicitudValidator
+            
+            # Validaciones centralizadas (lanzan ValidationError si no cumplen)
+            SolicitudValidator.validar_empleado_activo(explorador_solicitante)
+            SolicitudValidator.validar_empleado_activo(explorador_receptor)
+            SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
+            SolicitudValidator.validar_jornada_en_fecha(explorador_solicitante, fecha)
+            SolicitudValidator.validar_jornada_en_fecha(explorador_receptor, fecha)
+            logger.debug("Validando solicitud existente", extra={
+                'solicitante_id': explorador_solicitante.id,
+                'receptor_id': explorador_receptor.id,
+                'fecha': fecha
+            })
+            SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
+            logger.debug("Validación exitosa")
+            return True, "Solicitud válida"
+        except Exception as e:
+            # Devolver mensaje amigable de validación
+            return False, str(e)
 
     @staticmethod
     def get_solicitudes_usuario(usuario):
@@ -320,9 +319,12 @@ class SolicitudService:
         Obtiene las solicitudes de un usuario específico
         """
         if hasattr(usuario, 'empleado'):
-            return SolicitudCambio.objects.filter(
-                explorador_solicitante=usuario.empleado
-            ).order_by('-fecha_solicitud')
+            return (
+                SolicitudCambio.objects
+                .filter(explorador_solicitante=usuario.empleado)
+                .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio')
+                .order_by('-fecha_solicitud')
+            )
         return SolicitudCambio.objects.none()
 
     @staticmethod
@@ -330,7 +332,12 @@ class SolicitudService:
         """
         Obtiene todas las solicitudes pendientes
         """
-        return SolicitudCambio.objects.filter(estado='pendiente').order_by('-fecha_solicitud')
+        return (
+            SolicitudCambio.objects
+            .filter(estado='pendiente')
+            .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio')
+            .order_by('-fecha_solicitud')
+        )
 
     @staticmethod
     def aprobar_solicitud_supervisor(solicitud_id, supervisor, comentario_respuesta=None):
@@ -338,9 +345,14 @@ class SolicitudService:
         Aprueba una solicitud por parte del supervisor
         """
         try:
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            solicitud = (
+                SolicitudCambio.objects
+                .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
+                .get(id=solicitud_id)
+            )
             
             # Verificar que el aprobador sea el supervisor del solicitante
+            # Permitir auto-supervisión para desarrollo
             if solicitud.explorador_solicitante.supervisor != supervisor:
                 return False, "No tienes permisos para aprobar esta solicitud"
             
@@ -363,6 +375,12 @@ class SolicitudService:
             if solicitud.aprobado_receptor:
                 solicitud.estado = 'aprobada'
                 solicitud.fecha_resolucion = timezone.now()
+                
+                # Aplicar los cambios usando el Factory
+                from .solicitud_factory import SolicitudFactory
+                success, message = SolicitudFactory.aplicar_cambios(solicitud)
+                if not success:
+                    logger.error(f"Error aplicando cambios: {message}")
             
             solicitud.save()
             
@@ -375,6 +393,7 @@ class SolicitudService:
         except SolicitudCambio.DoesNotExist:
             return False, "Solicitud no encontrada"
         except Exception as e:
+            logger.exception("Error al aprobar solicitud supervisor")
             return False, f"Error al aprobar la solicitud: {str(e)}"
 
     @staticmethod
@@ -383,7 +402,11 @@ class SolicitudService:
         Aprueba una solicitud por parte del compañero receptor
         """
         try:
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            solicitud = (
+                SolicitudCambio.objects
+                .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
+                .get(id=solicitud_id)
+            )
             
             # Verificar que el aprobador sea el receptor de la solicitud
             if solicitud.explorador_receptor != receptor:
@@ -408,6 +431,12 @@ class SolicitudService:
             if solicitud.aprobado_supervisor:
                 solicitud.estado = 'aprobada'
                 solicitud.fecha_resolucion = timezone.now()
+                
+                # Aplicar los cambios usando el Factory
+                from .solicitud_factory import SolicitudFactory
+                success, message = SolicitudFactory.aplicar_cambios(solicitud)
+                if not success:
+                    logger.error(f"Error aplicando cambios: {message}")
             
             solicitud.save()
             
@@ -420,6 +449,7 @@ class SolicitudService:
         except SolicitudCambio.DoesNotExist:
             return False, "Solicitud no encontrada"
         except Exception as e:
+            logger.exception("Error al aprobar solicitud receptor")
             return False, f"Error al aprobar la solicitud: {str(e)}"
 
     @staticmethod
@@ -428,7 +458,11 @@ class SolicitudService:
         Rechaza una solicitud por parte del supervisor
         """
         try:
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            solicitud = (
+                SolicitudCambio.objects
+                .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
+                .get(id=solicitud_id)
+            )
             
             # Verificar que el rechazador sea el supervisor del solicitante
             if solicitud.explorador_solicitante.supervisor != supervisor:
@@ -461,6 +495,7 @@ class SolicitudService:
         except SolicitudCambio.DoesNotExist:
             return False, "Solicitud no encontrada"
         except Exception as e:
+            logger.exception("Error al rechazar solicitud supervisor")
             return False, f"Error al rechazar la solicitud: {str(e)}"
 
     @staticmethod
@@ -469,7 +504,11 @@ class SolicitudService:
         Rechaza una solicitud por parte del compañero receptor
         """
         try:
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            solicitud = (
+                SolicitudCambio.objects
+                .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
+                .get(id=solicitud_id)
+            )
             
             # Verificar que el rechazador sea el receptor de la solicitud
             if solicitud.explorador_receptor != receptor:
@@ -502,6 +541,7 @@ class SolicitudService:
         except SolicitudCambio.DoesNotExist:
             return False, "Solicitud no encontrada"
         except Exception as e:
+            logger.exception("Error al rechazar solicitud receptor")
             return False, f"Error al rechazar la solicitud: {str(e)}"
 
     @staticmethod
@@ -509,20 +549,32 @@ class SolicitudService:
         """
         Obtiene las solicitudes pendientes que debe aprobar un receptor
         """
-        return SolicitudCambio.objects.filter(
-            explorador_receptor=receptor,
-            estado='pendiente'
-        ).order_by('-fecha_solicitud')
+        return (
+            SolicitudCambio.objects
+            .filter(
+                explorador_receptor=receptor,
+                estado='pendiente',
+                aprobado_receptor=False,  # Ocultar si el receptor ya aprobó
+            )
+            .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio')
+            .order_by('-fecha_solicitud')
+        )
 
     @staticmethod
     def get_solicitudes_por_supervisor(supervisor):
         """
         Obtiene las solicitudes pendientes que debe aprobar un supervisor
         """
-        return SolicitudCambio.objects.filter(
-            explorador_solicitante__supervisor=supervisor,
-            estado='pendiente'
-        ).order_by('-fecha_solicitud')
+        return (
+            SolicitudCambio.objects
+            .filter(
+                explorador_solicitante__supervisor=supervisor,
+                estado='pendiente',
+                aprobado_supervisor=False,  # Ocultar si el supervisor ya aprobó
+            )
+            .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio')
+            .order_by('-fecha_solicitud')
+        )
 
     @staticmethod
     def get_estado_aprobacion_solicitud(solicitud):

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solicitud de Cambio de Turno Permanente - Supervisión</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .email-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+        }
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 16px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .solicitud-info {
+            background: #f8f9fa;
+            border-left: 4px solid #dc3545;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 0 8px 8px 0;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 8px 0;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            font-weight: 600;
+            color: #495057;
+        }
+        .info-value {
+            color: #212529;
+        }
+        .permanente-badge {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        .status-pendiente {
+            background: #ffc107;
+            color: #212529;
+        }
+        .status-aprobado-receptor {
+            background: #28a745;
+            color: white;
+        }
+        .actions {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            margin: 0 10px;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 600;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            color: white;
+        }
+        .btn-secondary {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            color: white;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .warning-box .fas {
+            color: #856404;
+            margin-right: 8px;
+        }
+        .warning-box p {
+            margin: 0;
+            color: #856404;
+            font-size: 14px;
+        }
+        .impact-box {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        .impact-box .fas {
+            color: #0066cc;
+            margin-right: 8px;
+        }
+        .impact-box p {
+            margin: 0;
+            color: #0066cc;
+            font-size: 14px;
+        }
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        .footer a {
+            color: #dc3545;
+            text-decoration: none;
+        }
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+            .content {
+                padding: 20px;
+            }
+            .header {
+                padding: 20px;
+            }
+            .header h1 {
+                font-size: 20px;
+            }
+            .btn {
+                display: block;
+                margin: 10px 0;
+                width: 100%;
+            }
+            .info-row {
+                flex-direction: column;
+            }
+            .info-label {
+                margin-bottom: 5px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="email-container">
+        <div class="header">
+            <h1>👨‍💼 Solicitud de Cambio de Turno Permanente</h1>
+            <p>Requiere tu aprobación como supervisor</p>
+        </div>
+        
+        <div class="content">
+            <p>Estimado/a Supervisor/a,</p>
+            
+            <p>Se ha recibido una solicitud de <strong>cambio de turno permanente</strong> que requiere tu aprobación.</p>
+            
+            <div class="solicitud-info">
+                <h3 style="margin-top: 0; color: #dc3545;">
+                    <i class="fas fa-info-circle"></i> Detalles de la Solicitud
+                </h3>
+                
+                <div class="info-row">
+                    <span class="info-label">Tipo de Solicitud:</span>
+                    <span class="info-value">
+                        <span class="permanente-badge">Cambio Permanente</span>
+                    </span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Estado Actual:</span>
+                    <span class="info-value">
+                        {% if solicitud.aprobado_receptor %}
+                            <span class="status-badge status-aprobado-receptor">Aprobado por Receptor</span>
+                        {% else %}
+                            <span class="status-badge status-pendiente">Pendiente Aprobación Receptor</span>
+                        {% endif %}
+                    </span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Fecha de Inicio:</span>
+                    <span class="info-value"><strong>{{ solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" }}</strong></span>
+                </div>
+                
+                {% if solicitud.cambio_permanente.fecha_fin %}
+                <div class="info-row">
+                    <span class="info-label">Fecha de Fin:</span>
+                    <span class="info-value"><strong>{{ solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" }}</strong></span>
+                </div>
+                {% else %}
+                <div class="info-row">
+                    <span class="info-label">Duración:</span>
+                    <span class="info-value"><strong>Hasta fin de año</strong></span>
+                </div>
+                {% endif %}
+                
+                <div class="info-row">
+                    <span class="info-label">Solicitante:</span>
+                    <span class="info-value">{{ solicitante.nombre }} {{ solicitante.apellido }}</span>
+                </div>
+                
+                <div class="info-row">
+                    <span class="info-label">Receptor:</span>
+                    <span class="info-value">{{ receptor.nombre }} {{ receptor.apellido }}</span>
+                </div>
+                
+                {% if solicitud.comentario %}
+                <div class="info-row">
+                    <span class="info-label">Comentarios:</span>
+                    <span class="info-value">{{ solicitud.comentario }}</span>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="impact-box">
+                <p><i class="fas fa-chart-line"></i><strong>Impacto del Cambio:</strong> Este cambio permanente afectará las jornadas laborales de ambos empleados durante el período especificado. Al finalizar, ambos volverán automáticamente a sus jornadas originales.</p>
+            </div>
+            
+            <div class="warning-box">
+                <p><i class="fas fa-exclamation-triangle"></i><strong>Importante:</strong> Como supervisor, debes evaluar el impacto operacional de este cambio permanente en la organización y asegurarte de que no afecte negativamente las operaciones.</p>
+            </div>
+            
+            {% if solicitud.aprobado_receptor %}
+            <div class="actions">
+                <a href="{{ aprobar_url }}" class="btn btn-primary">
+                    <i class="fas fa-check"></i> Aprobar Solicitud
+                </a>
+                <a href="{{ rechazar_url }}" class="btn btn-secondary">
+                    <i class="fas fa-times"></i> Rechazar Solicitud
+                </a>
+            </div>
+            {% else %}
+            <div class="actions">
+                <p style="color: #6c757d; font-style: italic;">
+                    <i class="fas fa-clock"></i> Esta solicitud está pendiente de aprobación por parte del empleado receptor.
+                </p>
+            </div>
+            {% endif %}
+            
+            <p style="margin-top: 30px; font-size: 14px; color: #6c757d;">
+                <strong>Nota:</strong> Esta solicitud solo puede ser procesada una vez que el empleado receptor haya dado su aprobación.
+            </p>
+        </div>
+        
+        <div class="footer">
+            <p>Este es un mensaje automático del sistema de gestión de turnos.</p>
+            <p>Por favor, revisa cuidadosamente esta solicitud antes de tomar una decisión.</p>
+        </div>
+    </div>
+</body>
+</html>
+

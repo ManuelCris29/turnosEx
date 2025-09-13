@@ -1,14 +1,18 @@
+<!-- COMENTADO TEMPORALMENTE - PermisoDetalle no existe
 {% extends 'base.html' %}
-{% block title %}Editar Permiso Detalle{% endblock %}
+
+{% block title %}Editar Permiso Detalle - AppTurnos{% endblock %}
 {% block page_title %}Editar Permiso Detalle{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
     <h2>Editar Permiso Detalle</h2>
     <form method="post">
         {% csrf_token %}
         {{ form.as_p }}
-        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
+        <button type="submit" class="btn btn-primary">Actualizar</button>
         <a href="{% url 'solicitudes:permisodetalle_list' %}" class="btn btn-secondary">Cancelar</a>
     </form>
 </div>
-{% endblock %} 
+{% endblock %}
+-->

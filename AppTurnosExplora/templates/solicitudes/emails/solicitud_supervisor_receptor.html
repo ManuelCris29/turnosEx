@@ -19,18 +19,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🔄 Solicitud de Cambio de Turno</h1>
+            <h1>👨‍💼 SUPERVISOR + 🤝 COMPAÑERO - Solicitud de Cambio de Turno</h1>
             <h3>Rol Doble - Supervisor + Receptor</h3>
         </div>
         
         <div class="content">
-            <p>Hola <strong>{{ supervisor_receptor.nombre }} {{ supervisor_receptor.apellido }}</strong>,</p>
+            <p>Hola <strong>SUPERVISOR {{ supervisor_receptor.nombre|upper }} {{ supervisor_receptor.apellido|upper }}</strong>,</p>
             
             <div class="alert">
-                <strong>⚠️ Importante:</strong> Has recibido una solicitud de cambio de turno donde eres tanto el supervisor como el receptor.
+                <strong>⚠️ Importante:</strong> Has recibido una solicitud de cambio de turno donde eres tanto el <strong>SUPERVISOR</strong> como el <strong>COMPAÑERO RECEPTOR</strong>.
             </div>
             
-            <p>Como eres tanto el supervisor de <strong>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</strong> como el receptor de esta solicitud, necesitas aprobar en ambos roles.</p>
+            <p>Como eres tanto el <strong>SUPERVISOR</strong> de <strong>{{ solicitud.explorador_solicitante.nombre|upper }} {{ solicitud.explorador_solicitante.apellido|upper }}</strong> como el <strong>COMPAÑERO RECEPTOR</strong> de esta solicitud, necesitas aprobar en ambos roles.</p>
             
             <div class="details">
                 <h3>📋 Detalles de la Solicitud:</h3>
@@ -39,7 +39,20 @@
                     <li><strong>Receptor:</strong> {{ supervisor_receptor.nombre }} {{ supervisor_receptor.apellido }} (Tú)</li>
                     <li><strong>Tipo de Solicitud:</strong> {{ solicitud.tipo_cambio.nombre }}</li>
                     <li><strong>Fecha de Solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</li>
-                    <li><strong>Fecha de Cambio:</strong> {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</li>
+                    <li><strong>Fecha de Cambio:</strong> 
+                        {% if solicitud.tipo_cambio.nombre == "CT PERMANENTE" and solicitud.cambio_permanente %}
+                            {{ solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" }}
+                            {% if solicitud.cambio_permanente.fecha_fin %}
+                                - {{ solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" }}
+                            {% else %}
+                                - (sin fecha fin)
+                            {% endif %}
+                        {% elif solicitud.fecha_cambio_turno %}
+                            {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}
+                        {% else %}
+                            No aplica
+                        {% endif %}
+                    </li>
                     {% if solicitud.comentario %}
                     <li><strong>Comentario:</strong> {{ solicitud.comentario }}</li>
                     {% endif %}
@@ -47,7 +60,7 @@
             </div>
             
             <div class="role-section">
-                <div class="role-title">👔 Como SUPERVISOR:</div>
+                <div class="role-title">👨‍💼 Como SUPERVISOR {{ supervisor_receptor.nombre|upper }} {{ supervisor_receptor.apellido|upper }}:</div>
                 <p>Debes aprobar/rechazar la solicitud desde tu rol de supervisor.</p>
                 <div style="text-align: center; margin: 15px 0;">
                     <a href="{{ enlaces.supervisor.aprobar }}" style="display: inline-block; padding: 12px 24px; background-color: #28a745; color: white; text-decoration: none; border-radius: 5px; margin: 0 5px;">
@@ -60,7 +73,7 @@
             </div>
             
             <div class="role-section">
-                <div class="role-title">🤝 Como RECEPTOR:</div>
+                <div class="role-title">🤝 Como COMPAÑERO RECEPTOR {{ supervisor_receptor.nombre|upper }} {{ supervisor_receptor.apellido|upper }}:</div>
                 <p>También debes aprobar/rechazar la solicitud desde tu rol de receptor.</p>
                 <div style="text-align: center; margin: 15px 0;">
                     <a href="{{ enlaces.receptor.aprobar }}" style="display: inline-block; padding: 12px 24px; background-color: #28a745; color: white; text-decoration: none; border-radius: 5px; margin: 0 5px;">

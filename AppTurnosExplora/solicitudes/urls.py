@@ -2,11 +2,11 @@ from django.urls import path
 from .views import (
     SolicitudesView, TipoSolicitudCambioListView, TipoSolicitudCambioCreateView,
     TipoSolicitudCambioUpdateView, TipoSolicitudCambioDeleteView,
-    PermisoDetalleListView, PermisoDetalleCreateView, PermisoDetalleUpdateView, PermisoDetalleDeleteView,
+    # PermisoDetalleListView, PermisoDetalleCreateView, PermisoDetalleUpdateView, PermisoDetalleDeleteView,  # COMENTADO TEMPORALMENTE
     CambioTurnoInicioView, SolicitarCambioTurnoView, ObtenerEmpleadosDisponiblesView, ObtenerTurnoExploradorView,
     ProcesarSolicitudView, NotificacionesListView, MarcarNotificacionLeidaView,
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
-    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, NotificacionesSolicitudesView,
+    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, NotificacionesSolicitudesView, AprobarSolicitudAmbosView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView
 )
 
@@ -33,6 +33,7 @@ urlpatterns = [
     path('rechazar-solicitud/<int:solicitud_id>/', RechazarSolicitudView.as_view(), name='rechazar_solicitud'),
     path('aprobar-solicitud-receptor/<int:solicitud_id>/', AprobarSolicitudReceptorView.as_view(), name='aprobar_solicitud_receptor'),
     path('rechazar-solicitud-receptor/<int:solicitud_id>/', RechazarSolicitudReceptorView.as_view(), name='rechazar_solicitud_receptor'),
+    path('aprobar-solicitud-ambos/<int:solicitud_id>/', AprobarSolicitudAmbosView.as_view(), name='aprobar_solicitud_ambos'),
     path('cancelar-solicitud/<int:solicitud_id>/', CancelarSolicitudView.as_view(), name='cancelar_solicitud'),
     
     # CAMBIO DE TURNO
@@ -53,10 +54,10 @@ urlpatterns = [
     path('tipos-solicitud/create/', TipoSolicitudCambioCreateView.as_view(), name='tiposolicitudcambio_create'),
     path('tipos-solicitud/edit/<int:pk>/', TipoSolicitudCambioUpdateView.as_view(), name='tiposolicitudcambio_edit'),
     path('tipos-solicitud/delete/<int:pk>/', TipoSolicitudCambioDeleteView.as_view(), name='tiposolicitudcambio_delete'),
-    path('permisos-detalle/', PermisoDetalleListView.as_view(), name='permisodetalle_list'),
-    path('permisos-detalle/create/', PermisoDetalleCreateView.as_view(), name='permisodetalle_create'),
-    path('permisos-detalle/edit/<int:pk>/', PermisoDetalleUpdateView.as_view(), name='permisodetalle_edit'),
-    path('permisos-detalle/delete/<int:pk>/', PermisoDetalleUpdateView.as_view(), name='permisodetalle_delete'),
+    # path('permisos-detalle/', PermisoDetalleListView.as_view(), name='permisodetalle_list'),  # COMENTADO TEMPORALMENTE
+    # path('permisos-detalle/create/', PermisoDetalleCreateView.as_view(), name='permisodetalle_create'),  # COMENTADO TEMPORALMENTE
+    # path('permisos-detalle/edit/<int:pk>/', PermisoDetalleUpdateView.as_view(), name='permisodetalle_edit'),  # COMENTADO TEMPORALMENTE
+    # path('permisos-detalle/delete/<int:pk>/', PermisoDetalleUpdateView.as_view(), name='permisodetalle_delete'),  # COMENTADO TEMPORALMENTE
     
     # URL LEGACY (redirigir a la vista principal)
     path('notificaciones-solicitudes/', SolicitudesView.as_view(), name='notificaciones_solicitudes'),
