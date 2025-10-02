@@ -17,11 +17,10 @@ class TurnoService:
                 jornada = turno.jornada
                 tipo = 'cambio'
             else:
+                # Las jornadas son indefinidas por defecto (sin fecha_fin)
                 asignacion = AsignarJornadaExplorador.objects.filter(
                     explorador=explorador,
                     fecha_inicio__lte=fecha_obj
-                ).filter(
-                    models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gte=fecha_obj)
                 ).order_by('-fecha_inicio').first()
                 jornada = asignacion.jornada if asignacion else None
                 tipo = 'oficial' if jornada else None

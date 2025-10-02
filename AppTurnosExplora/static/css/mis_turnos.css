@@ -1,0 +1,707 @@
+/* Variables CSS para consistencia */
+:root {
+    --primary-color: #2563eb;
+    --primary-dark: #1d4ed8;
+    --secondary-color: #059669;
+    --accent-color: #f59e0b;
+    --success-color: #10b981;
+    --warning-color: #f59e0b;
+    --danger-color: #ef4444;
+    --info-color: #06b6d4;
+    --light-color: #f8fafc;
+    --dark-color: #1e293b;
+    --border-color: #e2e8f0;
+    --text-primary: #1e293b;
+    --text-secondary: #64748b;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --border-radius: 12px;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    
+    /* Colores específicos para cambios de turno */
+    --cambio-color: #e74c3c;
+    --cambio-bg: #fdf2f2;
+    --cambio-border: #fecaca;
+}
+
+/* SOLUCIÓN BASADA EN /solicitudes/ que funciona perfectamente */
+.dashboard-container {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 2rem 0;
+}
+
+.dashboard-content {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+}
+
+/* Las tarjetas semanales se adaptan al contenedor */
+.week-cards-container {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin-bottom: 2rem;
+    padding: 0 0.5rem;
+    box-sizing: border-box;
+    /* Asegurar que no se desborde */
+    overflow-x: auto;
+}
+
+.week-cards {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    /* Asegurar que las 7 columnas quepan */
+    min-width: 0;
+}
+
+/* Header de la semana */
+.week-header {
+    background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+    border-radius: var(--border-radius);
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    overflow: hidden;
+}
+
+.week-header::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 200px;
+    height: 200px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 50%;
+    transform: translate(50%, -50%);
+}
+
+.week-header h2 {
+    color: white;
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.week-header .date-range {
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 1.1rem;
+    margin-top: 0.5rem;
+    font-weight: 500;
+}
+
+/* Contenedor de tarjetas de días */
+.week-cards-container {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 2rem;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    padding: 0 1rem;
+    box-sizing: border-box;
+}
+
+/* Tarjetas de días de la semana */
+.week-cards {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.75rem;
+    justify-items: center;
+    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+}
+
+.day-card {
+    background: white;
+    border-radius: var(--border-radius);
+    padding: 0.75rem 0.4rem;
+    box-shadow: var(--shadow-md);
+    transition: var(--transition);
+    border: 2px solid transparent;
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    min-width: 0; /* Permite que se comprima */
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    /* Asegurar que no se desborde */
+    max-width: 100%;
+}
+
+.day-card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary-color);
+}
+
+.day-card.weekend {
+    background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+
+.day-card.weekend .day-name {
+    color: var(--text-secondary);
+}
+
+.day-header {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.day-name {
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.day-date {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.shift-badge {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border-radius: 25px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-align: center;
+    margin-bottom: 0.75rem;
+    width: 100%;
+    transition: var(--transition);
+}
+
+.shift-badge.am {
+    background: linear-gradient(135deg, var(--info-color) 0%, #0891b2 100%);
+    color: white;
+    box-shadow: 0 2px 4px rgba(6, 182, 212, 0.3);
+}
+
+.shift-badge.pm {
+    background: linear-gradient(135deg, var(--warning-color) 0%, #d97706 100%);
+    color: white;
+    box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);
+}
+
+.shift-badge.descanso {
+    background: linear-gradient(135deg, var(--text-secondary) 0%, #475569 100%);
+    color: white;
+    box-shadow: 0 2px 4px rgba(100, 116, 139, 0.3);
+}
+
+.shift-info {
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 0.375rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    width: 100%;
+}
+
+.status-badge.predeterminado {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.status-badge.asignado {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success-color);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+/* Calendario */
+.calendar-section {
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+}
+
+.calendar-header {
+    background: linear-gradient(135deg, var(--secondary-color) 0%, #047857 100%);
+    padding: 1.5rem 2rem;
+    color: white;
+}
+
+.calendar-header h3 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Personalización de FullCalendar */
+.fc {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+.fc .fc-toolbar {
+    padding: 1rem 2rem;
+    background: var(--light-color);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.fc .fc-toolbar-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.fc .fc-button {
+    background: var(--primary-color);
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1rem;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.fc .fc-button:hover {
+    background: var(--primary-dark);
+    transform: translateY(-1px);
+}
+
+.fc .fc-button:focus {
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.fc .fc-daygrid-day {
+    transition: var(--transition);
+}
+
+.fc .fc-daygrid-day:hover {
+    background-color: rgba(37, 99, 235, 0.05);
+}
+
+/* Información de jornada en días del calendario */
+.jornada-info {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: center;
+    margin-top: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    transition: var(--transition);
+}
+
+.jornada-am {
+    background: rgba(6, 182, 212, 0.1);
+    color: var(--info-color);
+    border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
+.jornada-pm {
+    background: rgba(245, 158, 11, 0.1);
+    color: var(--warning-color);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.jornada-descanso {
+    background: rgba(100, 116, 139, 0.1);
+    color: var(--text-secondary);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+}
+
+/* Indicador de cambio de turno */
+.cambio-turno {
+    font-size: 0.7rem;
+    margin-top: 0.2rem;
+    text-align: center;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Detalles del día */
+.day-details {
+    padding: 2rem;
+    background: var(--light-color);
+}
+
+.details-header {
+    margin-bottom: 1.5rem;
+}
+
+.details-header h4 {
+    color: var(--text-primary);
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+
+.detail-card {
+    background: white;
+    border-radius: var(--border-radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow-md);
+    border-left: 4px solid var(--primary-color);
+    transition: var(--transition);
+}
+
+.detail-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+}
+
+.detail-card h5 {
+    color: var(--text-primary);
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.detail-content {
+    padding: 1rem;
+    border-radius: 8px;
+    font-weight: 500;
+}
+
+.detail-content.jornada {
+    background: rgba(37, 99, 235, 0.1);
+    border: 1px solid rgba(37, 99, 235, 0.2);
+    color: var(--primary-color);
+}
+
+.detail-content.sala {
+    background: rgba(16, 185, 129, 0.1);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    color: var(--success-color);
+}
+
+.detail-content.por-asignar {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    color: var(--warning-color);
+}
+
+/* Recuadro de detalles mejorado */
+.detail-card-enhanced {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+    margin-bottom: 1rem;
+    border: 1px solid #e2e8f0;
+}
+
+.detail-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.detail-header h5 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.detail-body {
+    padding: 1.5rem;
+}
+
+.detail-item {
+    display: flex;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-size: 0.95rem;
+}
+
+.detail-item i {
+    width: 20px;
+    margin-right: 0.5rem;
+    color: #667eea;
+}
+
+.detail-item strong {
+    margin-right: 0.5rem;
+    color: #374151;
+}
+
+.jornada-value {
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.jornada-value.am {
+    background: rgba(6, 182, 212, 0.1);
+    color: #0891b2;
+}
+
+.jornada-value.pm {
+    background: rgba(245, 158, 11, 0.1);
+    color: #d97706;
+}
+
+.jornada-value.descanso {
+    background: rgba(100, 116, 139, 0.1);
+    color: #64748b;
+}
+
+.sala-value {
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.cambio-badge {
+    background: rgba(34, 197, 94, 0.1);
+    color: #059669;
+    padding: 0.5rem;
+    border-radius: 6px;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-align: center;
+}
+
+.cambio-badge i {
+    margin-right: 0.25rem;
+}
+
+.no-data-message {
+    text-align: center;
+    color: #6b7280;
+    font-style: italic;
+    padding: 1rem;
+}
+
+.no-data-message i {
+    margin-right: 0.5rem;
+    color: #9ca3af;
+}
+
+.badge {
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.badge-success {
+    background: rgba(34, 197, 94, 0.1);
+    color: #059669;
+}
+
+.badge-info {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+}
+
+/* Responsive: Pantallas medianas */
+@media (max-width: 1024px) {
+    .dashboard-content {
+        padding: 0 1rem;
+    }
+    
+    .week-cards-container {
+        padding: 0 0.25rem;
+    }
+    
+    .week-cards {
+        gap: 0.4rem;
+    }
+    
+    .day-card {
+        padding: 0.6rem 0.3rem;
+    }
+}
+
+/* Responsive: Pantallas pequeñas */
+@media (max-width: 768px) {
+    .dashboard-content {
+        padding: 0 0.75rem;
+    }
+
+    .week-header {
+        padding: 1rem;
+    }
+
+    .week-header h2 {
+        font-size: 1.1rem;
+    }
+
+    .week-cards-container {
+        padding: 0 0.1rem;
+    }
+
+    .week-cards {
+        gap: 0.3rem;
+    }
+
+    .day-card {
+        padding: 0.5rem 0.2rem;
+    }
+
+    .day-name {
+        font-size: 0.75rem;
+    }
+
+    .day-date {
+        font-size: 1rem;
+    }
+
+    .shift-badge {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.75rem;
+    }
+
+    .calendar-header {
+        padding: 1rem 1.5rem;
+    }
+
+    .day-details {
+        padding: 1.5rem;
+    }
+
+    .details-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+}
+
+/* Responsive: Pantallas muy pequeñas */
+@media (max-width: 480px) {
+    .dashboard-content {
+        padding: 0 0.5rem;
+    }
+
+    .week-cards-container {
+        overflow-x: auto;
+        padding: 0 0.25rem;
+    }
+
+    .week-cards {
+        grid-template-columns: repeat(7, minmax(80px, 1fr));
+        gap: 0.3rem;
+        min-width: 560px; /* 7 * 80px */
+    }
+
+    .day-card {
+        padding: 0.5rem 0.25rem;
+    }
+
+    .shift-badge {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.7rem;
+    }
+
+    .fc .fc-toolbar {
+        padding: 0.75rem 1rem;
+    }
+
+    .fc .fc-toolbar-title {
+        font-size: 1rem;
+    }
+}
+
+/* Animaciones */
+.fade-in {
+    animation: fadeIn 0.6s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.slide-in {
+    animation: slideIn 0.5s ease-out;
+}
+
+@keyframes slideIn {
+    from { transform: translateX(-20px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* Estilos para días con cambios de turno */
+.dia-con-cambio {
+    background-color: var(--cambio-bg) !important;
+    border: 2px solid var(--cambio-border) !important;
+    position: relative;
+}
+
+.dia-con-cambio:hover {
+    background-color: #fce7e7 !important;
+    border-color: var(--cambio-color) !important;
+}
+
+.cambio-turno-icon {
+    position: absolute !important;
+    top: 2px !important;
+    right: 2px !important;
+    font-size: 10px !important;
+    color: var(--cambio-color) !important;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* Mejorar visibilidad del ícono en días con cambios */
+.dia-con-cambio .fc-daygrid-day-number {
+    color: var(--cambio-color) !important;
+    font-weight: 600 !important;
+}
+
+/* Asegurar que el ícono sea visible en diferentes temas */
+.fc-theme-standard .dia-con-cambio {
+    background-color: var(--cambio-bg) !important;
+    border-color: var(--cambio-border) !important;
+}
+
+/* Animación sutil para días con cambios */
+.dia-con-cambio {
+    animation: pulse-cambio 2s infinite;
+}
+
+@keyframes pulse-cambio {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1); }
+}

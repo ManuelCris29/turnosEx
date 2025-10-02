@@ -155,17 +155,17 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 return False, "No se encontró el detalle del cambio permanente"
             
             # Obtener las jornadas actuales de ambos empleados
+            
+            # Las jornadas son indefinidas por defecto (sin fecha_fin)
             jornada_solicitante = AsignarJornadaExplorador.objects.filter(
                 explorador=solicitud.explorador_solicitante,
-                fecha_inicio__lte=detalle.fecha_inicio,
-                fecha_fin__gte=detalle.fecha_inicio
-            ).first()
+                fecha_inicio__lte=detalle.fecha_inicio
+            ).order_by('-fecha_inicio').first()
             
             jornada_receptor = AsignarJornadaExplorador.objects.filter(
                 explorador=solicitud.explorador_receptor,
-                fecha_inicio__lte=detalle.fecha_inicio,
-                fecha_fin__gte=detalle.fecha_inicio
-            ).first()
+                fecha_inicio__lte=detalle.fecha_inicio
+            ).order_by('-fecha_inicio').first()
             
             if not jornada_solicitante or not jornada_receptor:
                 return False, "No se encontraron las jornadas de los empleados"
@@ -188,14 +188,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 # Si no hay fecha fin, usar fin de año
                 fecha_fin_cambio = date(detalle.fecha_inicio.year, 12, 31)
             
-            # 1. Finalizar las jornadas actuales antes de la fecha de inicio
-            if jornada_solicitante.fecha_fin >= detalle.fecha_inicio:
-                jornada_solicitante.fecha_fin = detalle.fecha_inicio - timedelta(days=1)
-                jornada_solicitante.save()
-            
-            if jornada_receptor.fecha_fin >= detalle.fecha_inicio:
-                jornada_receptor.fecha_fin = detalle.fecha_inicio - timedelta(days=1)
-                jornada_receptor.save()
+            # 1. Las jornadas son indefinidas por defecto, no necesitan finalización
+            # Las jornadas se mantienen activas hasta que se cree una nueva asignación
             
             # 2. Crear registros en Turno para el período de cambio permanente
             from turnos.models import Turno
@@ -208,20 +202,33 @@ class CTPermanenteStrategy(SolicitudStrategy):
             
             # Obtener las salas de cada empleado
             from turnos.models import AsignarSalaExplorador
+            # Las salas son indefinidas por defecto (sin fecha_fin)
             sala_solicitante = AsignarSalaExplorador.objects.filter(
                 explorador=solicitud.explorador_solicitante,
-                fecha_inicio__lte=detalle.fecha_inicio,
-                fecha_fin__gte=detalle.fecha_inicio
-            ).first()
+                fecha_inicio__lte=detalle.fecha_inicio
+            ).order_by('-fecha_inicio').first()
             
             sala_receptor = AsignarSalaExplorador.objects.filter(
                 explorador=solicitud.explorador_receptor,
-                fecha_inicio__lte=detalle.fecha_inicio,
-                fecha_fin__gte=detalle.fecha_inicio
-            ).first()
+                fecha_inicio__lte=detalle.fecha_inicio
+            ).order_by('-fecha_inicio').first()
             
-            if not sala_solicitante or not sala_receptor:
-                return False, "No se encontraron las salas de los empleados"
+            # Si no se encuentran salas asignadas, usar la primera sala disponible
+            if not sala_solicitante:
+                from turnos.models import Sala
+                sala_default = Sala.objects.first()
+                if not sala_default:
+                    return False, "No se encontraron salas disponibles en el sistema"
+                sala_solicitante = type('obj', (object,), {'sala': sala_default})()
+                print(f"Usando sala por defecto para {solicitud.explorador_solicitante.nombre}: {sala_default.nombre}")
+            
+            if not sala_receptor:
+                from turnos.models import Sala
+                sala_default = Sala.objects.first()
+                if not sala_default:
+                    return False, "No se encontraron salas disponibles en el sistema"
+                sala_receptor = type('obj', (object,), {'sala': sala_default})()
+                print(f"Usando sala por defecto para {solicitud.explorador_receptor.nombre}: {sala_default.nombre}")
             
             while fecha_actual <= fecha_fin_cambio:
                 # Verificar si es día válido (no domingo, no festivo, no mantenimiento)

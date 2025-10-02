@@ -89,7 +89,12 @@ Evitas conflictos por herramientas como GitHub, VS Code, PyCharm, etc.
 
 
 
+Ejecuta:
 
+git rm --cached "AppTurnosExplora/empleados/migrations/0002_empleado_supervisor_historicalempleado_supervisor.py"
+
+
+Esto quita del stage la referencia al archivo que ya no existe, sin borrar nada en disco (porque ya no está).
 
 
 

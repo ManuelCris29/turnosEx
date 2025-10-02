@@ -7,7 +7,7 @@ class AsignarJornadaExplorador(models.Model):
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
     jornada = models.ForeignKey(Jornada, on_delete=models.CASCADE)
     fecha_inicio = models.DateField()
-    fecha_fin = models.DateField(null=True, blank=True)
+    # fecha_fin removido - las jornadas son indefinidas por defecto
     historial = HistoricalRecords()
 
     def __str__(self):

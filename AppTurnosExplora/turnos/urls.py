@@ -1,7 +1,7 @@
-from django.urls import path
+from django.urls import path, include
 from .views import (
     MisTurnosView, CambiosTurnoView, ConsolidadoHorasView, DiasEspecialesView,
-    TurnosCalendarioView, TurnosPorDiaView, TurnosPorMesView, MisTurnosPorMesView,
+    TurnosCalendarioView,
     TurnoCreateView, TurnoUpdateView, TurnoDeleteView,
     DiaEspecialListView, DiaEspecialCreateView, DiaEspecialUpdateView, DiaEspecialDeleteView,
     DiaEspecialVisualizarListView
@@ -22,7 +22,5 @@ urlpatterns = [
     path('editar/<int:pk>/', TurnoUpdateView.as_view(), name='turnos_edit'),
     path('eliminar/<int:pk>/', TurnoDeleteView.as_view(), name='turnos_delete'),
     path('calendario/', TurnosCalendarioView.as_view(), name='turnos_calendario'),
-    path('api/turnos-por-dia/', TurnosPorDiaView.as_view(), name='api_turnos_por_dia'),
-    path('api/turnos-por-mes/', TurnosPorMesView.as_view(), name='turnos_por_mes_api'),
-    path('api/mis-turnos-por-mes/', MisTurnosPorMesView.as_view(), name='mis_turnos_por_mes_api'),
+    path('api/', include('turnos.api.urls')),
 ] 

@@ -121,11 +121,10 @@ class SolicitudService:
                 return turno_especifico.jornada  # Jornada del cambio
             
             # 2. Si no hay turno específico, usar la jornada fija del explorador
+            # Las jornadas son indefinidas por defecto (sin fecha_fin)
             jornada_fija = AsignarJornadaExplorador.objects.filter(
                 explorador=explorador,
                 fecha_inicio__lte=fecha_obj
-            ).filter(
-                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_obj)
             ).order_by('-fecha_inicio').first()
             
             
@@ -159,14 +158,14 @@ class SolicitudService:
                     'tipo_sala': 'turno'
                 }
             # 2. Si no hay turno, buscar jornada predeterminada
+            # Las jornadas son indefinidas por defecto (sin fecha_fin)
             asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
                 explorador=explorador,
                 fecha_inicio__lte=fecha_obj
-            ).filter(
-                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_obj)
             ).order_by('-fecha_inicio').first()
             jornada = asignacion_jornada.jornada if asignacion_jornada else None
             # 3. Buscar sala asignada especial para ese día
+            # AsignarSalaExplorador sí tiene fecha_fin
             asignacion_sala = AsignarSalaExplorador.objects.select_related('sala').filter(
                 explorador=explorador,
                 fecha_inicio__lte=fecha_obj

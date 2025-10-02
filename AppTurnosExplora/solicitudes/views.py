@@ -161,7 +161,8 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         
         # Si no hay jornadas para mañana, usar una fecha futura
         from turnos.models import AsignarJornadaExplorador
-        if not AsignarJornadaExplorador.objects.filter(fecha_inicio__lte=fecha_por_defecto, fecha_fin__gte=fecha_por_defecto).exists():
+        # Las jornadas son indefinidas por defecto (sin fecha_fin)
+        if not AsignarJornadaExplorador.objects.filter(fecha_inicio__lte=fecha_por_defecto).exists():
             fecha_por_defecto = timezone.datetime(2025, 8, 25).date()
         
         context = {
