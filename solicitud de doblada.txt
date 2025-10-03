@@ -37,4 +37,6 @@ python manage.py runserver 0.0.0.0:8000
 
 preguntas
 
-cuando realizo cambios de turnos permanentes se omiten los fines de semana o se cambian también
+- cuando realizo cambios de turnos permanentes se omiten los fines de semana o se cambian también
+- yo tengo varas grupos de salas. que es salas , biodiversidad , astrofísica. se necesita una programación para determinar en que grupo me corresponde trabajar esta semana, o este semestre o estos días. Asi cada uno también tiene por dia su sala asignada. 
+- si deben cambiar sala pero fijate en empleados/exploradores  cada explorador tiene una  o mas salas. la idea es que cuando se realicen los cambio 

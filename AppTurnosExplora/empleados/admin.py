@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado
+from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado, AsignacionSalaPeriodo
 
 @admin.register(Empleado)
 class EmpleadoAdmin(admin.ModelAdmin):
@@ -36,6 +36,13 @@ class EmpleadoRoleAdmin(admin.ModelAdmin):
 @admin.register(CompetenciaEmpleado)
 class CompetenciaEmpleadoAdmin(admin.ModelAdmin):
     list_display = ['empleado', 'sala']
+
+@admin.register(AsignacionSalaPeriodo)
+class AsignacionSalaPeriodoAdmin(admin.ModelAdmin):
+    list_display = ['empleado', 'sala', 'fecha_inicio', 'fecha_fin', 'activo', 'creado_por']
+    list_filter = ['activo', 'sala', 'fecha_inicio']
+    search_fields = ['empleado__nombre', 'empleado__apellido', 'sala__nombre']
+    date_hierarchy = 'fecha_inicio'
 
 @admin.register(Jornada)
 class JornadaAdmin(admin.ModelAdmin):
