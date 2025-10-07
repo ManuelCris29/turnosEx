@@ -95,23 +95,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="/static/js/usuario_empleado.js"></script>
-<script>
-// Validación visual: no permitir enviar ambos bloques llenos
-const form = document.getElementById('usuario-empleado-form');
-form.addEventListener('submit', function(e) {
-    const usuarioExistente = document.getElementById('id_usuario_existente').value;
-    const username = document.getElementById('id_username').value;
-    const password = document.getElementById('id_password').value;
-    const email = document.getElementById('id_email').value;
-    if (usuarioExistente && (username || password)) {
-        alert('Por favor, selecciona un usuario existente O llena los campos de usuario nuevo, pero no ambos.');
-        e.preventDefault();
-    }
-    if (!usuarioExistente && (!username || !password || !email)) {
-        alert('Si no seleccionas un usuario existente, debes llenar todos los campos de usuario nuevo.');
-        e.preventDefault();
-    }
-});
-</script>
-{% endblock %} 
+<script src="{% static 'js/empleados/create_usuario_empleado.js' %}"></script>
+{% endblock %}

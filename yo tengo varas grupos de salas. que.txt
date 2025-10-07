@@ -1,3 +1,0 @@
-yo tengo varas grupos de salas. que es salas , biodiversidad , astrofísica. se necesita una programación para determinar en que grupo me corresponde trabajar esta semana, o este semestre o estos días. Asi cada uno también tiene por dái su sala asignada. 
-
-También esta la opción de no asignar sala, si no que solo se vean los cambios de turnos. Entonces en ese caso. Debe exitir la lista de todos los días para que independientemente se asigne la sala 

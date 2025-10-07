@@ -4,6 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}AppTurnos{% endblock %}</title>
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="shortcut icon" type="image/x-icon" href="/static/img/favicon.ico">
 
     <!-- Google Font: Source Sans Pro -->
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
@@ -13,98 +17,8 @@
     <link rel="stylesheet" href="/static/css/adminlte.min.css">
     <!-- SweetAlert2 -->
     <link rel="stylesheet" href="/static/plugins/sweetalert2/sweetalert2.min.css">
-    <!-- Custom SweetAlert Styles -->
-    <style>
-        .swal2-popup {
-            font-size: 0.9rem !important;
-            border-radius: 15px !important;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
-        }
-        
-        .swal2-title {
-            font-size: 1.5rem !important;
-            font-weight: 600 !important;
-            color: #2c3e50 !important;
-        }
-        
-        .swal2-content {
-            font-size: 1rem !important;
-            color: #34495e !important;
-        }
-        
-        .swal2-confirm {
-            background: linear-gradient(135deg, #007bff, #0056b3) !important;
-            border-radius: 25px !important;
-            padding: 12px 30px !important;
-            font-weight: 500 !important;
-            box-shadow: 0 4px 15px rgba(0,123,255,0.3) !important;
-            transition: all 0.3s ease !important;
-        }
-        
-        .swal2-confirm:hover {
-            transform: translateY(-2px) !important;
-            box-shadow: 0 6px 20px rgba(0,123,255,0.4) !important;
-        }
-        
-        .swal2-icon {
-            margin: 1.5rem auto 1rem !important;
-        }
-        
-        .swal2-icon.swal2-success {
-            border-color: #28a745 !important;
-        }
-        
-        .swal2-icon.swal2-error {
-            border-color: #dc3545 !important;
-        }
-        
-        .swal2-icon.swal2-warning {
-            border-color: #ffc107 !important;
-        }
-        
-        .swal2-icon.swal2-info {
-            border-color: #17a2b8 !important;
-        }
-        
-        /* Toast notification styles */
-        .swal2-toast {
-            background: linear-gradient(135deg, #28a745, #20c997) !important;
-            color: white !important;
-            border-radius: 10px !important;
-            box-shadow: 0 8px 25px rgba(40,167,69,0.3) !important;
-            padding: 1rem !important;
-            min-width: 300px !important;
-        }
-        
-        .swal2-toast .swal2-title {
-            color: white !important;
-            font-size: 1.2rem !important;
-        }
-        
-        .swal2-toast .swal2-content {
-            color: rgba(255,255,255,0.9) !important;
-            font-size: 0.9rem !important;
-        }
-        
-        /* Error popup styles */
-        .swal2-error-popup {
-            background: linear-gradient(135deg, #fff5f5, #fff) !important;
-            border: 2px solid #dc3545 !important;
-        }
-        
-        .swal2-error-popup .swal2-title {
-            color: #dc3545 !important;
-        }
-        
-        .swal2-error-popup .swal2-content {
-            color: #6c757d !important;
-        }
-        
-        /* Timer progress bar */
-        .swal2-timer-progress-bar {
-            background: linear-gradient(90deg, #007bff, #28a745) !important;
-        }
-    </style>
+    <!-- Custom SweetAlert Styles moved to static CSS -->
+    <link rel="stylesheet" href="/static/css/base_custom.css">
     {% block extra_css %}{% endblock %}
     
 </head>
@@ -139,8 +53,8 @@
         <aside class="main-sidebar sidebar-dark-primary elevation-4">
             <!-- Brand Logo -->
             <a href="/" class="brand-link">
-                <img src="/static/img/AdminLTELogo.png" alt="AppTurnos Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
-                <span class="brand-text font-weight-light">AppTurnos</span>
+                <img src="/static/img/parque-explora-logo.svg" alt="AppTurnos Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
+                <span class="brand-text font-weight-light">SWALP</span>
             </a>
 
             <!-- Sidebar -->

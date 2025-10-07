@@ -1,0 +1,93 @@
+/* Estilos personalizados para SweetAlert2 y ajustes globales */
+
+.swal2-popup {
+    font-size: 0.9rem !important;
+    border-radius: 15px !important;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3) !important;
+}
+
+.swal2-title {
+    font-size: 1.5rem !important;
+    font-weight: 600 !important;
+    color: #2c3e50 !important;
+}
+
+.swal2-content {
+    font-size: 1rem !important;
+    color: #34495e !important;
+}
+
+.swal2-confirm {
+    background: linear-gradient(135deg, #007bff, #0056b3) !important;
+    border-radius: 25px !important;
+    padding: 12px 30px !important;
+    font-weight: 500 !important;
+    box-shadow: 0 4px 15px rgba(0,123,255,0.3) !important;
+    transition: all 0.3s ease !important;
+}
+
+.swal2-confirm:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(0,123,255,0.4) !important;
+}
+
+.swal2-icon {
+    margin: 1.5rem auto 1rem !important;
+}
+
+.swal2-icon.swal2-success {
+    border-color: #28a745 !important;
+}
+
+.swal2-icon.swal2-error {
+    border-color: #dc3545 !important;
+}
+
+.swal2-icon.swal2-warning {
+    border-color: #ffc107 !important;
+}
+
+.swal2-icon.swal2-info {
+    border-color: #17a2b8 !important;
+}
+
+/* Toast notification styles */
+.swal2-toast {
+    background: linear-gradient(135deg, #28a745, #20c997) !important;
+    color: white !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 25px rgba(40,167,69,0.3) !important;
+    padding: 1rem !important;
+    min-width: 300px !important;
+}
+
+.swal2-toast .swal2-title {
+    color: white !important;
+    font-size: 1.2rem !important;
+}
+
+.swal2-toast .swal2-content {
+    color: rgba(255,255,255,0.9) !important;
+    font-size: 0.9rem !important;
+}
+
+/* Error popup styles */
+.swal2-error-popup {
+    background: linear-gradient(135deg, #fff5f5, #fff) !important;
+    border: 2px solid #dc3545 !important;
+}
+
+.swal2-error-popup .swal2-title {
+    color: #dc3545 !important;
+}
+
+.swal2-error-popup .swal2-content {
+    color: #6c757d !important;
+}
+
+/* Timer progress bar */
+.swal2-timer-progress-bar {
+    background: linear-gradient(90deg, #007bff, #28a745) !important;
+}
+
+
