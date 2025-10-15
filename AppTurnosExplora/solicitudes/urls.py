@@ -6,7 +6,7 @@ from .views import (
     CambioTurnoInicioView, SolicitarCambioTurnoView, ObtenerEmpleadosDisponiblesView, ObtenerTurnoExploradorView,
     ProcesarSolicitudView, NotificacionesListView, MarcarNotificacionLeidaView,
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
-    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, NotificacionesSolicitudesView, AprobarSolicitudAmbosView,
+    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, AprobarSolicitudAmbosView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView
 )
 

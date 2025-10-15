@@ -5,6 +5,7 @@ from turnos.models import Turno, AsignarJornadaExplorador, AsignarSalaExplorador
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from datetime import datetime
 from django.utils import timezone
+from django.core.cache import cache
 import logging
 
 # Logger estructurado para este módulo
@@ -159,10 +160,15 @@ class SolicitudService:
                 }
             # 2. Si no hay turno, buscar jornada predeterminada
             # Las jornadas son indefinidas por defecto (sin fecha_fin)
-            asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
-                explorador=explorador,
-                fecha_inicio__lte=fecha_obj
-            ).order_by('-fecha_inicio').first()
+            # Cache para jornada predeterminada (1 hora)
+            cache_key = f"jornada_pred_{explorador.id}_{fecha_obj}"
+            asignacion_jornada = cache.get(cache_key)
+            if asignacion_jornada is None:
+                asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
+                    explorador=explorador,
+                    fecha_inicio__lte=fecha_obj
+                ).order_by('-fecha_inicio').first()
+                cache.set(cache_key, asignacion_jornada, 3600)  # 1 hora
             jornada = asignacion_jornada.jornada if asignacion_jornada else None
             # 3. Buscar sala asignada especial para ese día
             # AsignarSalaExplorador sí tiene fecha_fin
@@ -275,6 +281,13 @@ class SolicitudService:
         )
         
         logger.info("Nueva solicitud creada", extra={'solicitud_id': solicitud.id})
+        
+        # Invalidar cache de contadores
+        cache.delete_many([
+            f"solicitudes_count_mis_{explorador_solicitante.id}",
+            f"solicitudes_count_pend_{explorador_solicitante.id}",
+            f"solicitudes_count_pend_{explorador_receptor.id}",
+        ])
         
         # 6. Crear notificaciones y enviar emails para la nueva solicitud
         try:
