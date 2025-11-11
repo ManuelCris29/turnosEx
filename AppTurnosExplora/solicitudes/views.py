@@ -269,6 +269,90 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             logger.exception('Error en ObtenerTurnoExploradorView')
             return json_error('Error al procesar la solicitud', status=500, code='internal_error')
 
+
+class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
+    """
+    FASE 2.5: Endpoint para verificar si el usuario ya tiene un cambio aprobado para una fecha.
+    Devuelve información sobre la solicitud que creó el turno si existe.
+    """
+    def get(self, request):
+        fecha = request.GET.get('fecha')
+        
+        if not fecha:
+            return json_error('Falta el parámetro fecha', status=400, code='missing_fecha')
+        
+        if not hasattr(request.user, 'empleado'):
+            return json_error('Usuario no tiene empleado asociado', status=400, code='no_empleado')
+        
+        try:
+            from datetime import datetime
+            from django.db.models import Q
+            from turnos.models import Turno
+            
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            empleado = request.user.empleado
+            
+            # Buscar si existe un Turno para este empleado y fecha
+            turno = Turno.objects.filter(
+                explorador=empleado,
+                fecha=fecha_obj
+            ).first()
+            
+            if not turno:
+                return json_ok({
+                    'tiene_cambio_aprobado': False,
+                    'mensaje': None,
+                    'informacion_cambio': None
+                })
+            
+            # Si existe turno, buscar la solicitud que lo creó
+            solicitud = SolicitudCambio.objects.filter(
+                Q(turno_origen=turno) | Q(turno_destino=turno),
+                estado='aprobada'
+            ).order_by('-fecha_resolucion').select_related(
+                'explorador_solicitante',
+                'explorador_receptor'
+            ).first()
+            
+            if solicitud:
+                # Determinar si el empleado es el solicitante o receptor
+                es_solicitante = solicitud.explorador_solicitante.id == empleado.id
+                companero = solicitud.explorador_receptor if es_solicitante else solicitud.explorador_solicitante
+                
+                informacion_cambio = {
+                    'solicitud_id': solicitud.id,
+                    'jornada_actual': turno.jornada.nombre if turno.jornada else 'N/A',
+                    'companero_nombre': f"{companero.nombre} {companero.apellido}",
+                    'fecha_aprobacion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else 'N/A',
+                    'es_solicitante': es_solicitante
+                }
+                
+                mensaje = (
+                    f"Ya tienes un cambio aprobado para esta fecha. "
+                    f"Tu jornada actual es {turno.jornada.nombre} (intercambio con {companero.nombre} {companero.apellido}). "
+                    f"Este nuevo cambio lo reemplazará."
+                )
+                
+                return json_ok({
+                    'tiene_cambio_aprobado': True,
+                    'mensaje': mensaje,
+                    'informacion_cambio': informacion_cambio
+                })
+            else:
+                # Hay turno pero no se encontró la solicitud (caso raro)
+                return json_ok({
+                    'tiene_cambio_aprobado': True,
+                    'mensaje': f"Ya tienes un turno asignado para esta fecha (jornada: {turno.jornada.nombre if turno.jornada else 'N/A'}). Este nuevo cambio lo reemplazará.",
+                    'informacion_cambio': {
+                        'jornada_actual': turno.jornada.nombre if turno.jornada else 'N/A',
+                        'solicitud_id': None
+                    }
+                })
+                
+        except Exception as e:
+            logger.exception('Error en ObtenerCambioAprobadoView')
+            return json_error('Error al verificar cambio aprobado', status=500, code='internal_error')
+
 @method_decorator(csrf_exempt, name='dispatch')
 class ProcesarSolicitudView(LoginRequiredMixin, View):
     def post(self, request):
@@ -604,19 +688,28 @@ class AprobarSolicitudAmbosView(LoginRequiredMixin, View):
             if solicitud.estado != 'pendiente':
                 return json_error('La solicitud no está pendiente', status=400, code='invalid_state')
 
+            # Recargar la solicitud para obtener el estado actualizado
+            solicitud.refresh_from_db()
+            
             # Aprobar primero como receptor si falta
             if not solicitud.aprobado_receptor:
-                SolicitudService.aprobar_solicitud_receptor(solicitud_id, empleado, 'Aprobado como receptor (acción combinada)')
+                success, message = SolicitudService.aprobar_solicitud_receptor(solicitud_id, empleado, 'Aprobado como receptor (acción combinada)')
+                if not success:
+                    return json_error(message, status=400, code='approval_error')
+                # Recargar después de aprobar como receptor
+                solicitud.refresh_from_db()
 
             # Aprobar como supervisor si falta
             if not solicitud.aprobado_supervisor:
-                SolicitudService.aprobar_solicitud_supervisor(solicitud_id, empleado, 'Aprobado como supervisor (acción combinada)')
+                success, message = SolicitudService.aprobar_solicitud_supervisor(solicitud_id, empleado, 'Aprobado como supervisor (acción combinada)')
+                if not success:
+                    return json_error(message, status=400, code='approval_error')
+                # Recargar después de aprobar como supervisor
+                solicitud.refresh_from_db()
 
-            # Aplicar los cambios usando el Factory (ya que ambos roles están aprobados)
-            from .services.solicitud_factory import SolicitudFactory
-            success, message = SolicitudFactory.aplicar_cambios(solicitud)
-            if not success:
-                logger.error(f"Error aplicando cambios en ambos roles: {message}")
+            # NOTA: No necesitamos llamar a aplicar_cambios aquí porque
+            # aprobar_solicitud_receptor y aprobar_solicitud_supervisor ya lo hacen
+            # cuando detectan que ambos roles están aprobados
 
             return json_ok({'message': 'Solicitud aprobada en ambos roles correctamente'})
         except Exception:

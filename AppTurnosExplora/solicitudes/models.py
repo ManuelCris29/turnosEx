@@ -76,6 +76,17 @@ class SolicitudCambio(models.Model):
     )
     historial = HistoricalRecords()
 
+    class Meta:
+        # FASE 1.10: Índices críticos para rendimiento con 100+ solicitudes/día
+        indexes = [
+            # Búsqueda por receptor y fecha (más común - para First-Come, First-Served)
+            models.Index(
+                fields=['explorador_receptor', 'fecha_cambio_turno', 'estado'],
+                name='sol_receptor_fecha_estado_idx'  # Máximo 30 caracteres
+            ),
+        ]
+        ordering = ['-fecha_solicitud']
+
     def __str__(self):
         return f"{self.tipo_cambio.nombre} - {self.explorador_solicitante} a {self.explorador_receptor} ({self.fecha_cambio_turno})"
 

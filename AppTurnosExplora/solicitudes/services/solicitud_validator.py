@@ -34,6 +34,21 @@ class SolicitudValidator:
 
     @staticmethod
     def validar_duplicada_misma_fecha(solicitante: Empleado, receptor: Empleado, fecha):
+        """
+        Valida que no exista una solicitud pendiente del mismo par (solicitante-receptor-fecha).
+        
+        FASE 1.13: Esta validación permite que múltiples solicitantes envíen solicitudes
+        al mismo receptor para la misma fecha (First-Come, First-Served).
+        Solo previene que el mismo solicitante envíe múltiples solicitudes al mismo receptor.
+        
+        Ejemplos permitidos:
+        - A→X, fecha 15/12 → ✅ Permite
+        - B→X, fecha 15/12 → ✅ Permite (diferente solicitante)
+        - C→X, fecha 15/12 → ✅ Permite (diferente solicitante)
+        
+        Ejemplos rechazados:
+        - A→X, fecha 15/12 (segunda vez) → ❌ Rechaza (mismo par)
+        """
         from solicitudes.models import SolicitudCambio
         existe = SolicitudCambio.objects.filter(
             explorador_solicitante=solicitante,
@@ -42,7 +57,7 @@ class SolicitudValidator:
             fecha_cambio_turno=fecha
         ).exists()
         if existe:
-            raise ValidationError('Ya existe una solicitud pendiente con este explorador para la misma fecha')
+            raise ValidationError('Ya existe una solicitud pendiente tuya con este explorador para la misma fecha')
 
     # ===== VALIDACIONES ESPECÍFICAS PARA CT PERMANENTE =====
     

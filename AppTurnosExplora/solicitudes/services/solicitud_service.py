@@ -93,8 +93,56 @@ class SolicitudService:
         
         logger.debug("empleados_activos_count", extra={'count': empleados_activos.count()})
         
+        # FASE 1.2: OPTIMIZACIÓN - Pre-cargar Turnos de la fecha en una sola consulta
+        fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        ids_empleados_activos = list(empleados_activos.values_list('id', flat=True))
+        
+        # Consulta batch: traer todos los Turnos de la fecha para los empleados activos
+        turnos_fecha = Turno.objects.filter(
+            fecha=fecha_obj,
+            explorador_id__in=ids_empleados_activos
+        ).select_related('jornada', 'explorador')
+        
+        # Crear diccionario para acceso rápido: {explorador_id: turno}
+        turnos_por_explorador = {
+            turno.explorador_id: turno
+            for turno in turnos_fecha
+        }
+        
+        logger.debug("turnos_precargados_count", extra={'count': len(turnos_por_explorador)})
+        
+        # FASE 1.3: OPTIMIZACIÓN - Pre-cargar Asignaciones de Jornada en una sola consulta
+        # Traer todas las asignaciones relevantes (fecha_inicio <= fecha_obj)
+        asignaciones_fecha = AsignarJornadaExplorador.objects.filter(
+            explorador_id__in=ids_empleados_activos,
+            fecha_inicio__lte=fecha_obj
+        ).select_related('jornada', 'explorador').order_by('explorador', '-fecha_inicio')
+        
+        # Agrupar por explorador y tomar la más reciente (primera de cada grupo por orden DESC)
+        asignaciones_por_explorador = {}
+        for asignacion in asignaciones_fecha:
+            # Solo guardar la primera (más reciente) para cada explorador
+            if asignacion.explorador_id not in asignaciones_por_explorador:
+                asignaciones_por_explorador[asignacion.explorador_id] = asignacion
+        
+        logger.debug("asignaciones_precargadas_count", extra={'count': len(asignaciones_por_explorador)})
+        
+        # FASE 1.4: OPTIMIZACIÓN - Procesar en memoria usando datos pre-cargados
+        # Iterar sobre empleados y buscar jornada en diccionarios (sin consultas DB)
         for empleado in empleados_activos:
-            jornada_empleado = SolicitudService.get_jornada_explorador_fecha(empleado.id, fecha)
+            jornada_empleado = None
+            
+            # 1. Buscar primero en Turnos (cambios aprobados tienen prioridad)
+            turno = turnos_por_explorador.get(empleado.id)
+            if turno:
+                jornada_empleado = turno.jornada
+            else:
+                # 2. Si no hay turno, buscar en asignaciones fijas
+                asignacion = asignaciones_por_explorador.get(empleado.id)
+                if asignacion:
+                    jornada_empleado = asignacion.jornada
+            
+            # 3. Comparar jornada con jornada contraria
             if jornada_empleado and jornada_empleado.nombre == jornada_contraria:
                 empleados_contrarios.append(empleado)
         
@@ -372,16 +420,33 @@ class SolicitudService:
             
             # Si ya fue aprobada por el receptor, cambiar estado a aprobada
             if solicitud.aprobado_receptor:
+                logger.info(
+                    "Aprobando solicitud completamente - ID: %d, Tipo: %s, Receptor: %d, Solicitante: %d",
+                    solicitud.id,
+                    solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A',
+                    solicitud.explorador_receptor.id,
+                    solicitud.explorador_solicitante.id
+                )
+                
                 solicitud.estado = 'aprobada'
                 solicitud.fecha_resolucion = timezone.now()
                 
+                # IMPORTANTE: Guardar primero para que aplicar_cambios pueda recargar el estado correcto
+                solicitud.save()
+                logger.info("Solicitud guardada con estado 'aprobada' - ID: %d", solicitud.id)
+                
                 # Aplicar los cambios usando el Factory
                 from .solicitud_factory import SolicitudFactory
+                logger.info("Llamando a aplicar_cambios para solicitud ID: %d", solicitud.id)
                 success, message = SolicitudFactory.aplicar_cambios(solicitud)
                 if not success:
-                    logger.error(f"Error aplicando cambios: {message}")
-            
-            solicitud.save()
+                    logger.error("ERROR aplicando cambios para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+                    return False, f"Error aplicando cambios: {message}"
+                else:
+                    logger.info("Cambios aplicados exitosamente para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+            else:
+                # Si no está completamente aprobada, solo guardar
+                solicitud.save()
             
             # Crear notificación de aprobación del supervisor
             from .notificacion_service import NotificacionService
@@ -428,16 +493,33 @@ class SolicitudService:
             
             # Si ya fue aprobada por el supervisor, cambiar estado a aprobada
             if solicitud.aprobado_supervisor:
+                logger.info(
+                    "Aprobando solicitud completamente - ID: %d, Tipo: %s, Receptor: %d, Solicitante: %d",
+                    solicitud.id,
+                    solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A',
+                    solicitud.explorador_receptor.id,
+                    solicitud.explorador_solicitante.id
+                )
+                
                 solicitud.estado = 'aprobada'
                 solicitud.fecha_resolucion = timezone.now()
                 
+                # IMPORTANTE: Guardar primero para que aplicar_cambios pueda recargar el estado correcto
+                solicitud.save()
+                logger.info("Solicitud guardada con estado 'aprobada' - ID: %d", solicitud.id)
+                
                 # Aplicar los cambios usando el Factory
                 from .solicitud_factory import SolicitudFactory
+                logger.info("Llamando a aplicar_cambios para solicitud ID: %d", solicitud.id)
                 success, message = SolicitudFactory.aplicar_cambios(solicitud)
                 if not success:
-                    logger.error(f"Error aplicando cambios: {message}")
-            
-            solicitud.save()
+                    logger.error("ERROR aplicando cambios para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+                    return False, f"Error aplicando cambios: {message}"
+                else:
+                    logger.info("Cambios aplicados exitosamente para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+            else:
+                # Si no está completamente aprobada, solo guardar
+                solicitud.save()
             
             # Crear notificación de aprobación del receptor
             from .notificacion_service import NotificacionService
@@ -599,4 +681,41 @@ class SolicitudService:
             else:
                 return 'Pendiente de ambos'
         else:
-            return solicitud.get_estado_display() 
+            return solicitud.get_estado_display()
+    
+    @staticmethod
+    def contar_cambios_explorador_fecha(explorador_id: int, fecha) -> int:
+        """
+        FASE 2.3: Cuenta el número de solicitudes aprobadas donde el explorador participa
+        (como solicitante o receptor) para una fecha específica.
+        
+        Este método se usa para validar el límite de cambios por explorador/fecha.
+        
+        Args:
+            explorador_id: ID del explorador
+            fecha: Fecha del cambio (puede ser string 'YYYY-MM-DD' o date object)
+            
+        Returns:
+            Número de solicitudes aprobadas donde el explorador participa en esa fecha
+        """
+        # Convertir fecha a objeto date si es string
+        if isinstance(fecha, str):
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        else:
+            fecha_obj = fecha
+        
+        # Contar solicitudes aprobadas donde el explorador es solicitante o receptor
+        count = SolicitudCambio.objects.filter(
+            Q(explorador_solicitante_id=explorador_id) | Q(explorador_receptor_id=explorador_id),
+            fecha_cambio_turno=fecha_obj,
+            estado='aprobada'
+        ).count()
+        
+        logger.debug(
+            "contar_cambios_explorador_fecha - Explorador ID: %d, Fecha: %s, Cambios aprobados: %d",
+            explorador_id,
+            fecha_obj,
+            count
+        )
+        
+        return count 

@@ -1,6 +1,7 @@
 from django.shortcuts import render
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from django.db.models import Q
 from empleados.views import AdminRequiredMixin
 from .models import Turno, DiaEspecial, AsignarSalaExplorador, AsignarJornadaExplorador
 from datetime import timedelta
@@ -83,12 +84,20 @@ class MisTurnosView(LoginRequiredMixin, TemplateView):
                 
                 if turno:
                     # Hay turno asignado (puede ser cambio aprobado)
+                    jornada_turno = turno.jornada.nombre
+                    jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
+                    es_cambio = turno.tipo_cambio is not None
+                    coincide_con_predeterminada = jornada_turno == jornada_predeterminada
+                    
                     turnos_mes_dict[fecha] = {
                         'turno': turno,
-                        'jornada': turno.jornada.nombre,
+                        'jornada': jornada_turno,
                         'sala': turno.sala.nombre,
                         'tipo': 'asignado',
-                        'es_cambio': turno.tipo_cambio is not None
+                        'es_cambio': es_cambio,
+                        'jornada_predeterminada': jornada_predeterminada,
+                        'coincide_con_predeterminada': coincide_con_predeterminada,
+                        'turno_id': turno.id
                     }
                 else:
                     # No hay turno asignado, usar jornada predeterminada
@@ -104,7 +113,10 @@ class MisTurnosView(LoginRequiredMixin, TemplateView):
                         'jornada': jornada_nombre,
                         'sala': sala_nombre,
                         'tipo': 'predeterminado',
-                        'es_cambio': False
+                        'es_cambio': False,
+                        'jornada_predeterminada': jornada_nombre,
+                        'coincide_con_predeterminada': True,
+                        'turno_id': None
                     }
             
             # Crear estructura de datos para la semana actual (resumen semanal)
@@ -122,17 +134,64 @@ class MisTurnosView(LoginRequiredMixin, TemplateView):
                         'jornada': jornada_nombre,
                         'sala': 'Por asignar',
                         'tipo': 'predeterminado',
-                        'es_cambio': False
+                        'es_cambio': False,
+                        'jornada_predeterminada': jornada_nombre,
+                        'coincide_con_predeterminada': True,
+                        'turno_id': None
                     }
+            
+            # Obtener información de solicitudes para turnos con cambios (optimizado)
+            # Solo obtener la solicitud MÁS RECIENTE para cada turno
+            from solicitudes.models import SolicitudCambio
+            turnos_con_cambio = [info['turno'] for info in turnos_mes_dict.values() 
+                                if info.get('turno') and info.get('es_cambio')]
+            solicitudes_info = {}
+            if turnos_con_cambio:
+                turno_ids = [t.id for t in turnos_con_cambio]
+                # Obtener todas las solicitudes que afectaron estos turnos
+                solicitudes = SolicitudCambio.objects.filter(
+                    Q(turno_origen_id__in=turno_ids) | Q(turno_destino_id__in=turno_ids),
+                    estado='aprobada'
+                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')
+                
+                # Procesar solicitudes en orden descendente (más reciente primero)
+                # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)
+                for solicitud in solicitudes:
+                    # Para turno_origen (solicitante)
+                    if solicitud.turno_origen_id and solicitud.turno_origen_id in turno_ids:
+                        if solicitud.turno_origen_id not in solicitudes_info:
+                            solicitudes_info[solicitud.turno_origen_id] = {
+                                'solicitud_id': solicitud.id,
+                                'companero_nombre': solicitud.explorador_receptor.nombre,
+                                'rol': 'solicitante',
+                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                            }
+                    
+                    # Para turno_destino (receptor)
+                    if solicitud.turno_destino_id and solicitud.turno_destino_id in turno_ids:
+                        if solicitud.turno_destino_id not in solicitudes_info:
+                            solicitudes_info[solicitud.turno_destino_id] = {
+                                'solicitud_id': solicitud.id,
+                                'companero_nombre': solicitud.explorador_solicitante.nombre,
+                                'rol': 'receptor',
+                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                            }
             
             # Convertir fechas a strings para JSON (solo mes actual)
             turnos_mes_json = {}
             for fecha, info in turnos_mes_dict.items():
+                turno_id = info.get('turno_id')
+                solicitud_info = solicitudes_info.get(turno_id) if turno_id else None
+                
                 turnos_mes_json[fecha.strftime('%Y-%m-%d')] = {
                     'jornada': info['jornada'],
                     'sala': info['sala'],
                     'tipo': info['tipo'],
-                    'es_cambio': info['es_cambio']
+                    'es_cambio': info['es_cambio'],
+                    'jornada_predeterminada': info.get('jornada_predeterminada', info['jornada']),
+                    'coincide_con_predeterminada': info.get('coincide_con_predeterminada', True),
+                    'turno_id': turno_id,
+                    'solicitud_info': solicitud_info
                 }
             
             # Convertir a string JSON válido

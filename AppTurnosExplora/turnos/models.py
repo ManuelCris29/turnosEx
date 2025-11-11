@@ -10,6 +10,14 @@ class AsignarJornadaExplorador(models.Model):
     # fecha_fin removido - las jornadas son indefinidas por defecto
     historial = HistoricalRecords()
 
+    class Meta:
+        # FASE 1.11: Índice para búsquedas por explorador y fecha_inicio
+        # CRÍTICO para rendimiento al obtener jornadas predeterminadas
+        indexes = [
+            models.Index(fields=['explorador', 'fecha_inicio'], name='jornada_explorador_fecha_idx'),
+        ]
+        ordering = ['explorador', '-fecha_inicio']
+
     def __str__(self):
         return f"{self.explorador.user.username} - {self.jornada.nombre}" #type:ignore
 
@@ -31,6 +39,14 @@ class Turno(models.Model):
     sala= models.ForeignKey(Sala, on_delete=models.CASCADE)
     tipo_cambio= models.CharField(max_length=50, null=True, blank=True)
     historial= HistoricalRecords()
+
+    class Meta:
+        # FASE 1.9: Índice compuesto para búsquedas rápidas por explorador y fecha
+        # CRÍTICO para rendimiento con 100+ solicitudes/día
+        indexes = [
+            models.Index(fields=['explorador', 'fecha'], name='turno_explorador_fecha_idx'),
+        ]
+        ordering = ['fecha', 'explorador']
 
     def __str__(self):
         return f"{self.explorador.user.username} - {self.fecha}" #type:ignore

@@ -123,14 +123,38 @@ class SolicitudFactory:
         Returns:
             Tuple of (success, message)
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(
+            "SolicitudFactory.aplicar_cambios - Solicitud ID: %d, Tipo: %s",
+            solicitud.id,
+            solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A'
+        )
+        
         strategy = cls.get_strategy(solicitud.tipo_cambio)
         if not strategy:
-            return False, f"No se encontró estrategia para el tipo: {solicitud.tipo_cambio.nombre}"
+            error_msg = f"No se encontró estrategia para el tipo: {solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A'}"
+            logger.error("SolicitudFactory.aplicar_cambios - %s", error_msg)
+            return False, error_msg
+        
+        logger.info(
+            "SolicitudFactory.aplicar_cambios - Estrategia encontrada: %s",
+            strategy.__class__.__name__
+        )
         
         try:
-            return strategy.aplicar_cambios(solicitud)
+            result = strategy.aplicar_cambios(solicitud)
+            logger.info(
+                "SolicitudFactory.aplicar_cambios - Resultado: success=%s, message=%s",
+                result[0],
+                result[1]
+            )
+            return result
         except Exception as e:
-            return False, f"Error aplicando cambios: {str(e)}"
+            error_msg = f"Error aplicando cambios: {str(e)}"
+            logger.exception("SolicitudFactory.aplicar_cambios - Excepción: %s", error_msg)
+            return False, error_msg
     
     @classmethod
     def get_empleados_disponibles(cls, tipo_solicitud: TipoSolicitudCambio, 

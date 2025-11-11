@@ -85,10 +85,18 @@
                                         {% endif %}
                                     </td>
                                     <td>
-                                        <button class="btn btn-action btn-ver" onclick="verDetalleSolicitud({{ solicitud.id }})">
-                                            <i class="fas fa-eye"></i>
-                                            Ver
-                                        </button>
+                                        <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                            {% if solicitud.estado == 'pendiente' %}
+                                            <button class="btn btn-action btn-cancelar" onclick="cancelarSolicitud({{ solicitud.id }})" title="Cancelar mi solicitud">
+                                                <i class="fas fa-ban"></i>
+                                                Cancelar
+                                            </button>
+                                            {% endif %}
+                                            <button class="btn btn-action btn-ver" onclick="verDetalleSolicitud({{ solicitud.id }})">
+                                                <i class="fas fa-eye"></i>
+                                                Ver
+                                            </button>
+                                        </div>
                                     </td>
                                 </tr>
                                 {% endfor %}
@@ -130,11 +138,76 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 function verDetalleSolicitud(solicitudId) {
     // Aquí puedes implementar la lógica para cargar los detalles
     // Por ahora solo muestra el modal
     $('#detalleSolicitudModal').modal('show');
+}
+
+function cancelarSolicitud(solicitudId) {
+    Swal.fire({
+        title: '¿Cancelar solicitud?',
+        text: 'Esta acción cancelará tu solicitud. ¿Estás seguro?',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ffc107',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, cancelar',
+        cancelButtonText: 'No, mantener'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            
+            fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Solicitud cancelada!',
+                        text: data.message,
+                        timer: 3000,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => {
+                        location.reload();
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'Error al cancelar la solicitud',
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false
+                    });
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de conexión',
+                    text: 'No se pudo cancelar la solicitud. Inténtalo de nuevo.',
+                    timer: 5000,
+                    timerProgressBar: true,
+                    showConfirmButton: true,
+                    confirmButtonText: 'Reintentar'
+                });
+            });
+        }
+    });
 }
 </script>
 {% endblock %} 

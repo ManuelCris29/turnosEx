@@ -39,10 +39,6 @@
                     {{ info.jornada }}
                 </div>
                 
-                <div class="shift-info">
-                    {{ info.sala }}
-                </div>
-                
                 <div class="status-badge {% if info.tipo == 'asignado' %}asignado{% else %}predeterminado{% endif %}">
                     {{ info.tipo|title }}
                 </div>
@@ -76,13 +72,6 @@
                             Mi Jornada
                         </h5>
                         <div id="mi-jornada"></div>
-                    </div>
-                    <div class="detail-card">
-                        <h5>
-                            <i class="fas fa-building"></i>
-                            Mi Sala
-                        </h5>
-                        <div id="mi-sala"></div>
                     </div>
                 </div>
             </div>

@@ -66,7 +66,7 @@ class NotificacionService:
                     html_message=html_message,
                     fail_silently=False,
                 )
-                print(f"✅ Email enviado a consola (desarrollo) desde {from_email} a {recipient_list}")
+                print(f"[OK] Email enviado a consola (desarrollo) desde {from_email} a {recipient_list}")
                 return True
             else:
                 # Para producción: usar credenciales configuradas
@@ -78,12 +78,12 @@ class NotificacionService:
                     html_message=html_message,
                     fail_silently=False,
                 )
-                print(f"✅ Email enviado exitosamente desde {settings.DEFAULT_FROM_EMAIL} a {recipient_list}")
+                print(f"[OK] Email enviado exitosamente desde {settings.DEFAULT_FROM_EMAIL} a {recipient_list}")
                 return True
                 
         except Exception as e:
-            print(f"❌ Error enviando email: {e}")
-            print(f"❌ Detalles del error: {str(e)}")
+            print(f"[ERROR] Error enviando email: {e}")
+            print(f"[ERROR] Detalles del error: {str(e)}")
             return False
     
     @staticmethod
@@ -174,22 +174,22 @@ class NotificacionService:
             try:
                 supervisor_email_sent = NotificacionService._enviar_email_supervisor(solicitud)
                 if supervisor_email_sent:
-                    print(f"✅ Email al supervisor enviado exitosamente")
+                    print(f"[OK] Email al supervisor enviado exitosamente")
                 else:
-                    print(f"❌ Error enviando email al supervisor")
+                    print(f"[ERROR] Error enviando email al supervisor")
             except Exception as e:
-                print(f"❌ ERROR enviando email al supervisor: {e}")
+                print(f"[ERROR] ERROR enviando email al supervisor: {e}")
             
             # Enviar email al receptor
             receptor_email_sent = False
             try:
                 receptor_email_sent = NotificacionService._enviar_email_receptor(solicitud)
                 if receptor_email_sent:
-                    print(f"✅ Email al receptor enviado exitosamente")
+                    print(f"[OK] Email al receptor enviado exitosamente")
                 else:
-                    print(f"❌ Error enviando email al receptor")
+                    print(f"[ERROR] Error enviando email al receptor")
             except Exception as e:
-                print(f"❌ ERROR enviando email al receptor: {e}")
+                print(f"[ERROR] ERROR enviando email al receptor: {e}")
         
         # Notificación para el solicitante (siempre se crea)
         print(f"DEBUG: Creando notificación para solicitante: {solicitud.explorador_solicitante.nombre}")
@@ -377,7 +377,7 @@ class NotificacionService:
                 html_message=html_message,
             )
         except Exception as e:
-            print(f"❌ Error enviando email al supervisor: {e}")
+            print(f"[ERROR] Error enviando email al supervisor: {e}")
             return False
     
     @staticmethod
@@ -409,7 +409,7 @@ class NotificacionService:
                 html_message=html_message,
             )
         except Exception as e:
-            print(f"❌ Error enviando email al receptor: {e}")
+            print(f"[ERROR] Error enviando email al receptor: {e}")
             return False
     
     @staticmethod
@@ -644,7 +644,7 @@ class NotificacionService:
                 enviado = NotificacionService._enviar_email_supervisor(solicitud)
                 print(f"DEBUG EMAIL -> Resultado envío a supervisor: {enviado}")
             except Exception as e:
-                print(f"❌ Error enviando email al supervisor tras aprobación del receptor: {e}")
+                print(f"[ERROR] Error enviando email al supervisor tras aprobacion del receptor: {e}")
 
         # Enviar email de aprobación al solicitante
         NotificacionService._enviar_email_aprobacion_receptor(solicitud, receptor, comentario_respuesta)
@@ -717,6 +717,53 @@ class NotificacionService:
         
         # Enviar email de rechazo
         NotificacionService._enviar_email_rechazo_receptor(solicitud, receptor, comentario_respuesta) 
+
+    @staticmethod
+    def crear_notificacion_rechazo_automatico(solicitud):
+        """
+        FASE 1.15: Crea notificación cuando una solicitud es rechazada automáticamente
+        por el sistema debido a First-Come, First-Served (otra solicitud fue aprobada primero).
+        
+        Args:
+            solicitud: SolicitudCambio instance que fue rechazada automáticamente
+        """
+        # Notificación para el solicitante
+        titulo = f"Solicitud Rechazada Automáticamente - {solicitud.tipo_cambio.nombre}"
+        fecha_str = NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')
+        mensaje = (
+            f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {fecha_str} "
+            f"ha sido rechazada automáticamente porque otra solicitud para el mismo receptor "
+            f"y fecha fue aprobada primero (First-Come, First-Served)."
+        )
+        
+        Notificacion.objects.create(
+            destinatario=solicitud.explorador_solicitante,
+            tipo='rechazo',
+            titulo=titulo,
+            mensaje=mensaje,
+            solicitud=solicitud
+        )
+        
+        # Notificación para el supervisor
+        if solicitud.explorador_solicitante.supervisor:
+            titulo_supervisor = f"Solicitud Rechazada Automáticamente - {solicitud.tipo_cambio.nombre}"
+            mensaje_supervisor = (
+                f"La solicitud de {solicitud.explorador_solicitante.nombre} "
+                f"{solicitud.explorador_solicitante.apellido} para el {fecha_str} "
+                f"ha sido rechazada automáticamente porque otra solicitud para el mismo receptor "
+                f"y fecha fue aprobada primero."
+            )
+            
+            Notificacion.objects.create(
+                destinatario=solicitud.explorador_solicitante.supervisor,
+                tipo='rechazo',
+                titulo=titulo_supervisor,
+                mensaje=mensaje_supervisor,
+                solicitud=solicitud
+            )
+        
+        # Nota: No enviamos email para rechazos automáticos para evitar spam
+        # Las notificaciones en la aplicación son suficientes
 
     @staticmethod
     def _enviar_email_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta=None):

@@ -10,10 +10,10 @@ function cargarDatos(anio, mes) {
         .then(response => response.json())
         .then(data => {
             turnosMes = data;
-            console.log(turnosMes);
+            console.log('Datos cargados:', turnosMes);
 
             // Refrescar detalles si ya hay una fecha seleccionada
-            if (fechaSeleccionada && turnosMes[fechaSeleccionada]) {
+            if (fechaSeleccionada) {
                 mostrarDetallesDia(fechaSeleccionada);
             }
 
@@ -70,11 +70,13 @@ function aplicarEstilosCambios() {
 
 // Muestra los detalles del día seleccionado en los contenedores del template
 function mostrarDetallesDia(fechaStr) {
+    console.log('Mostrando detalles para:', fechaStr);
+    console.log('Turnos disponibles:', turnosMes);
+    
     const info = turnosMes[fechaStr];
 
     const fechaSpan = document.getElementById('fecha-seleccionada');
     const jornadaDiv = document.getElementById('mi-jornada');
-    const salaDiv = document.getElementById('mi-sala');
 
     if (fechaSpan) {
         const [y, m, d] = fechaStr.split('-');
@@ -82,13 +84,73 @@ function mostrarDetallesDia(fechaStr) {
         fechaSpan.textContent = `${parseInt(d)} de ${meses[parseInt(m)-1]} de ${y}`;
     }
 
-    if (jornadaDiv && salaDiv) {
-        if (info) {
-            jornadaDiv.innerHTML = `<span class="jornada-value ${info.jornada.toLowerCase()}">${info.jornada}</span>`;
-            salaDiv.innerHTML = info.sala ? `<span class="sala-value">${info.sala}</span>` : `<span class="detail-content por-asignar">Por asignar</span>`;
+    if (jornadaDiv) {
+        if (info && info.jornada) {
+            const jornadaLower = info.jornada.toLowerCase();
+            // Asegurar que el nombre de la clase coincida (am, pm, descanso)
+            let claseJornada = jornadaLower;
+            if (jornadaLower === 'descanso' || jornadaLower.includes('descanso')) {
+                claseJornada = 'descanso';
+            }
+            
+            // Construir HTML para la jornada
+            let jornadaHTML = `<span class="jornada-value ${claseJornada}">${info.jornada}</span>`;
+            
+            // Si hay un cambio, mostrar información adicional
+            if (info.es_cambio) {
+                const jornadaPredeterminada = info.jornada_predeterminada || 'N/A';
+                const coincidePredeterminada = info.coincide_con_predeterminada !== undefined ? info.coincide_con_predeterminada : false;
+                
+                if (coincidePredeterminada) {
+                    // Cambio que coincide con la predeterminada
+                    let mensajeInfo = 'Este turno fue modificado por un cambio aprobado, pero la jornada actual coincide con tu jornada predeterminada.';
+                    if (info.solicitud_info && info.solicitud_info.companero_nombre) {
+                        const companero = info.solicitud_info.companero_nombre;
+                        const fecha = info.solicitud_info.fecha_resolucion || 'N/A';
+                        mensajeInfo += ` Cambio realizado con ${companero} (aprobado el ${fecha}).`;
+                    }
+                    jornadaHTML += `<div class="info-cambio-predeterminada" style="margin-top: 8px; padding: 8px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px; font-size: 0.85rem; color: #856404;">
+                        <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
+                        <strong>Nota:</strong> ${mensajeInfo}
+                    </div>`;
+                } else {
+                    // Cambio que difiere de la predeterminada
+                    let mensajeInfo = `Jornada modificada por cambio de turno. Jornada predeterminada: ${jornadaPredeterminada}.`;
+                    if (info.solicitud_info && info.solicitud_info.companero_nombre) {
+                        const companero = info.solicitud_info.companero_nombre;
+                        const fecha = info.solicitud_info.fecha_resolucion || 'N/A';
+                        mensajeInfo += ` Cambio realizado con ${companero} (aprobado el ${fecha}).`;
+                    }
+                    jornadaHTML += `<div class="info-cambio-diferente" style="margin-top: 8px; padding: 8px; background-color: #d1ecf1; border-left: 3px solid #17a2b8; border-radius: 4px; font-size: 0.85rem; color: #0c5460;">
+                        <i class="fas fa-exchange-alt" style="margin-right: 4px;"></i>
+                        <strong>Cambio de turno:</strong> ${mensajeInfo}
+                    </div>`;
+                }
+            }
+            
+            jornadaDiv.innerHTML = jornadaHTML;
+            console.log('Jornada mostrada:', info.jornada, 'Clase:', claseJornada, 'Es cambio:', info.es_cambio, 'Coincide:', info.coincide_con_predeterminada);
         } else {
-            jornadaDiv.innerHTML = `<span class="detail-content por-asignar">Sin datos</span>`;
-            salaDiv.innerHTML = `<span class="detail-content por-asignar">Por asignar</span>`;
+            // Si no hay datos aún, mostrar "Cargando..." temporalmente
+            jornadaDiv.innerHTML = `<span class="detail-content por-asignar">Cargando...</span>`;
+            console.log('No hay información disponible para esta fecha aún. Datos disponibles:', Object.keys(turnosMes));
+            
+            // Intentar cargar datos si no están disponibles
+            const fechaObj = new Date(fechaStr + 'T00:00:00'); // Asegurar zona horaria
+            const anio = fechaObj.getFullYear();
+            const mes = fechaObj.getMonth() + 1;
+            
+            // Solo cargar si los datos no están cargados para este mes
+            const fechaStrInMes = Object.keys(turnosMes).find(f => {
+                const fObj = new Date(f + 'T00:00:00');
+                return fObj.getFullYear() === anio && (fObj.getMonth() + 1) === mes;
+            });
+            if (!fechaStrInMes) {
+                console.log('Cargando datos para el mes:', mes, anio);
+                cargarDatos(anio, mes);
+            } else {
+                console.log('Datos del mes ya están cargados, pero no hay información para esta fecha específica');
+            }
         }
     }
 }
@@ -141,7 +203,29 @@ document.addEventListener('DOMContentLoaded', function() {
         dateClick: function(info) {
             // Cuando hace click en un día, mostrar detalles
             fechaSeleccionada = info.dateStr;
+            console.log('Fecha clickeada:', info.dateStr);
             mostrarDetallesDia(info.dateStr);
+            
+            // Si los datos no están cargados, cargarlos
+            const fechaObj = new Date(info.dateStr);
+            const anio = fechaObj.getFullYear();
+            const mes = fechaObj.getMonth() + 1;
+            
+            // Verificar si ya tenemos datos para este mes
+            const tieneDatosMes = Object.keys(turnosMes).some(f => {
+                const fObj = new Date(f);
+                return fObj.getFullYear() === anio && (fObj.getMonth() + 1) === mes;
+            });
+            
+            if (!tieneDatosMes) {
+                console.log('Cargando datos del mes:', mes, anio);
+                cargarDatos(anio, mes);
+            } else {
+                // Forzar actualización de detalles después de un pequeño delay
+                setTimeout(() => {
+                    mostrarDetallesDia(info.dateStr);
+                }, 100);
+            }
         },
 
     });

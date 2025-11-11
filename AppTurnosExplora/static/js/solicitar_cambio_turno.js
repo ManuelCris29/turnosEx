@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const turnoSolicitanteInfo = document.getElementById('turno_solicitante_info');
     const turnoSolicitanteDetalles = document.getElementById('turno_solicitante_detalles');
     const salasSolicitanteDetalles = document.getElementById('salas_solicitante_detalles');
+    const advertenciaCambioAprobado = document.getElementById('advertencia_cambio_aprobado');
+    const mensajeAdvertencia = document.getElementById('mensaje_advertencia');
+    const detallesCambioAprobado = document.getElementById('detalles_cambio_aprobado');
 
     // Función para actualizar la lista de empleados disponibles
     function actualizarEmpleadosDisponibles() {
@@ -323,8 +326,83 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Al cargar la página, si hay fecha seleccionada, cargar info del solicitante
+    // FASE 2.5: Función para verificar si ya existe un cambio aprobado
+    function verificarCambioAprobado() {
+        const fecha = fechaInput.value;
+        if (!fecha) {
+            // Ocultar advertencia si no hay fecha
+            if (advertenciaCambioAprobado) {
+                advertenciaCambioAprobado.style.display = 'none';
+            }
+            return;
+        }
+
+        fetch(`/solicitudes/obtener-cambio-aprobado/?fecha=${fecha}`, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data && data.data.tiene_cambio_aprobado) {
+                // Mostrar advertencia
+                if (advertenciaCambioAprobado) {
+                    advertenciaCambioAprobado.style.display = 'block';
+                }
+                
+                // Mostrar mensaje
+                if (mensajeAdvertencia) {
+                    mensajeAdvertencia.textContent = data.data.mensaje;
+                }
+                
+                // Mostrar detalles del cambio
+                if (detallesCambioAprobado && data.data.informacion_cambio) {
+                    const info = data.data.informacion_cambio;
+                    let detallesHTML = '<hr class="my-2">';
+                    detallesHTML += '<div class="small">';
+                    detallesHTML += '<strong>Información del cambio actual:</strong><br>';
+                    detallesHTML += `<i class="fas fa-clock mr-1"></i>Jornada actual: <strong>${info.jornada_actual}</strong><br>`;
+                    if (info.companero_nombre) {
+                        detallesHTML += `<i class="fas fa-user-friends mr-1"></i>Compañero: <strong>${info.companero_nombre}</strong><br>`;
+                    }
+                    if (info.fecha_aprobacion && info.fecha_aprobacion !== 'N/A') {
+                        detallesHTML += `<i class="fas fa-calendar-check mr-1"></i>Aprobado el: <strong>${info.fecha_aprobacion}</strong>`;
+                    }
+                    if (info.solicitud_id) {
+                        detallesHTML += `<br><i class="fas fa-hashtag mr-1"></i>Solicitud ID: <strong>#${info.solicitud_id}</strong>`;
+                    }
+                    detallesHTML += '</div>';
+                    detallesCambioAprobado.innerHTML = detallesHTML;
+                }
+            } else {
+                // Ocultar advertencia si no hay cambio aprobado
+                if (advertenciaCambioAprobado) {
+                    advertenciaCambioAprobado.style.display = 'none';
+                }
+            }
+        })
+        .catch(error => {
+            console.error('Error al verificar cambio aprobado:', error);
+            // En caso de error, ocultar advertencia
+            if (advertenciaCambioAprobado) {
+                advertenciaCambioAprobado.style.display = 'none';
+            }
+        });
+    }
+
+    // Event listener para el campo de fecha - FASE 2.5
+    if (fechaInput) {
+        fechaInput.addEventListener('change', function() {
+            verificarCambioAprobado();
+            actualizarEmpleadosDisponibles();
+            cargarInformacionSolicitante();
+        });
+    }
+
+    // Al cargar la página, si hay fecha seleccionada, cargar info del solicitante y verificar cambio aprobado
     if (fechaInput && fechaInput.value) {
         cargarInformacionSolicitante();
+        verificarCambioAprobado();
     }
 }); 

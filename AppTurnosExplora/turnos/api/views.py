@@ -1,7 +1,8 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
-from turnos.models import Turno, AsignarJornadaExplorador
+from django.db.models import Q
+from turnos.models import Turno, AsignarJornadaExplorador, AsignarSalaExplorador
 from turnos.services.turno_service import TurnoService
 from datetime import datetime, timedelta
 
@@ -93,6 +94,14 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     return "Descanso"
                 return j_base
             
+            # Obtener asignaciones de sala activas para el mes
+            asignaciones_activas = AsignarSalaExplorador.objects.filter(
+                explorador=empleado,
+                fecha_inicio__lte=fecha_fin
+            ).filter(
+                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio)
+            ).first()
+            
             # Crear estructura de datos para el mes
             turnos_mes_dict = {}
             dias_mes = (fecha_fin - fecha_inicio).days + 1
@@ -101,22 +110,82 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 turno = turnos_por_fecha.get(fecha)
                 
                 if turno:
+                    # Hay turno asignado (puede ser cambio aprobado)
+                    jornada_turno = turno.jornada.nombre
+                    jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
+                    es_cambio = turno.tipo_cambio is not None
+                    coincide_con_predeterminada = jornada_turno == jornada_predeterminada
+                    
                     turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                        'jornada': turno.jornada.nombre,
+                        'jornada': jornada_turno,
                         'sala': (turno.sala.nombre if turno.sala else 'Por asignar'),
                         'tipo': 'asignado',
-                        'es_cambio': turno.tipo_cambio is not None
+                        'es_cambio': es_cambio,
+                        'jornada_predeterminada': jornada_predeterminada,
+                        'coincide_con_predeterminada': coincide_con_predeterminada,
+                        'turno_id': turno.id
                     }
                 else:
-                    # Usar jornada predeterminada con regla de descanso
+                    # No hay turno asignado, usar jornada predeterminada
                     jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+                    
+                    # Intentar obtener sala de asignación activa
+                    sala_nombre = 'Por asignar'
+                    if asignaciones_activas:
+                        sala_nombre = asignaciones_activas.sala.nombre
                     
                     turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                         'jornada': jornada_nombre,
-                        'sala': 'Por asignar',
+                        'sala': sala_nombre,
                         'tipo': 'predeterminado',
-                        'es_cambio': False
+                        'es_cambio': False,
+                        'jornada_predeterminada': jornada_nombre,
+                        'coincide_con_predeterminada': True,
+                        'turno_id': None
                     }
+            
+            # Obtener información de solicitudes para turnos con cambios (optimizado)
+            from solicitudes.models import SolicitudCambio
+            turno_ids_con_cambio = [t.id for t in turnos_por_fecha.values() if t.tipo_cambio is not None]
+            solicitudes_info = {}
+            
+            if turno_ids_con_cambio:
+                # Obtener todas las solicitudes que afectaron estos turnos
+                solicitudes = SolicitudCambio.objects.filter(
+                    Q(turno_origen_id__in=turno_ids_con_cambio) | Q(turno_destino_id__in=turno_ids_con_cambio),
+                    estado='aprobada'
+                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')
+                
+                # Procesar solicitudes en orden descendente (más reciente primero)
+                # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)
+                for solicitud in solicitudes:
+                    # Para turno_origen (solicitante)
+                    if solicitud.turno_origen_id and solicitud.turno_origen_id in turno_ids_con_cambio:
+                        if solicitud.turno_origen_id not in solicitudes_info:
+                            solicitudes_info[solicitud.turno_origen_id] = {
+                                'solicitud_id': solicitud.id,
+                                'companero_nombre': solicitud.explorador_receptor.nombre,
+                                'rol': 'solicitante',
+                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                            }
+                    
+                    # Para turno_destino (receptor)
+                    if solicitud.turno_destino_id and solicitud.turno_destino_id in turno_ids_con_cambio:
+                        if solicitud.turno_destino_id not in solicitudes_info:
+                            solicitudes_info[solicitud.turno_destino_id] = {
+                                'solicitud_id': solicitud.id,
+                                'companero_nombre': solicitud.explorador_solicitante.nombre,
+                                'rol': 'receptor',
+                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                            }
+            
+            # Agregar información de solicitudes a los turnos
+            for fecha_str, info in turnos_mes_dict.items():
+                turno_id = info.get('turno_id')
+                if turno_id and turno_id in solicitudes_info:
+                    info['solicitud_info'] = solicitudes_info[turno_id]
+                else:
+                    info['solicitud_info'] = None
             
             return JsonResponse(turnos_mes_dict)
             

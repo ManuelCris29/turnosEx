@@ -4,7 +4,7 @@ from .views import (
     TipoSolicitudCambioUpdateView, TipoSolicitudCambioDeleteView,
     # PermisoDetalleListView, PermisoDetalleCreateView, PermisoDetalleUpdateView, PermisoDetalleDeleteView,  # COMENTADO TEMPORALMENTE
     CambioTurnoInicioView, SolicitarCambioTurnoView, ObtenerEmpleadosDisponiblesView, ObtenerTurnoExploradorView,
-    ProcesarSolicitudView, NotificacionesListView, MarcarNotificacionLeidaView,
+    ObtenerCambioAprobadoView, ProcesarSolicitudView, NotificacionesListView, MarcarNotificacionLeidaView,
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
     AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, NotificacionesSolicitudesView, AprobarSolicitudAmbosView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView
@@ -41,6 +41,7 @@ urlpatterns = [
     path('cambio-turno/solicitar/<int:tipo_id>/', SolicitarCambioTurnoView.as_view(), name='solicitar_cambio_turno'),
     path('obtener-empleados-disponibles/', ObtenerEmpleadosDisponiblesView.as_view(), name='obtener_empleados_disponibles'),
     path('obtener-turno-explorador/', ObtenerTurnoExploradorView.as_view(), name='obtener_turno_explorador'),
+    path('obtener-cambio-aprobado/', ObtenerCambioAprobadoView.as_view(), name='obtener_cambio_aprobado'),
     path('procesar-solicitud/', ProcesarSolicitudView.as_view(), name='procesar_solicitud'),
     
     # APROBACIÓN POR EMAIL

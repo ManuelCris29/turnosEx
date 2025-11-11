@@ -165,29 +165,109 @@
 }
 
 /* Botones de acción */
-.btn-action {
-    padding: 0.5rem 1rem;
-    border-radius: 20px;
-    font-weight: 600;
-    font-size: 0.9rem;
-    border: none;
-    transition: var(--transition);
+.btn-action,
+.btn.btn-action,
+button.btn-action {
+    padding: 0.5rem 1rem !important;
+    border-radius: 20px !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    border: none !important;
+    transition: var(--transition) !important;
+    text-decoration: none !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    margin-right: 0.5rem !important;
+    margin-bottom: 0.25rem !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15) !important;
+}
+
+.btn-action.btn-cancelar,
+.btn.btn-action.btn-cancelar,
+button.btn-action.btn-cancelar {
+    background: linear-gradient(135deg, var(--danger-color), #e74c3c) !important;
+    color: white !important;
+    border: none !important;
+    padding: 0.5rem 1rem !important;
+    border-radius: 20px !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    margin-right: 0.5rem !important;
+    margin-bottom: 0.25rem !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 8px rgba(220,53,69,0.3) !important;
+}
+
+.btn-action.btn-cancelar:hover,
+.btn.btn-action.btn-cancelar:hover,
+button.btn-action.btn-cancelar:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 15px rgba(220,53,69,0.4) !important;
+    color: white !important;
     text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
+    background: linear-gradient(135deg, #dc3545, #e74c3c) !important;
 }
 
-.btn-ver {
-    background: linear-gradient(135deg, var(--info-color), #20c997);
-    color: white;
+.btn-action.btn-cancelar:focus,
+.btn.btn-action.btn-cancelar:focus,
+button.btn-action.btn-cancelar:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(220,53,69,0.25) !important;
+    color: white !important;
 }
 
-.btn-ver:hover {
+.btn-action.btn-cancelar i,
+.btn.btn-action.btn-cancelar i,
+button.btn-action.btn-cancelar i {
+    color: white !important;
+}
+
+.btn-action.btn-ver,
+.btn.btn-action.btn-ver,
+button.btn-action.btn-ver {
+    background: linear-gradient(135deg, var(--info-color), #20c997) !important;
+    color: white !important;
+    border: none !important;
+    padding: 0.5rem 1rem !important;
+    border-radius: 20px !important;
+    font-weight: 600 !important;
+    font-size: 0.9rem !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 0.5rem !important;
+    margin-right: 0.5rem !important;
+    margin-bottom: 0.25rem !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 8px rgba(23,162,184,0.3) !important;
+}
+
+.btn-action.btn-ver:hover,
+.btn.btn-action.btn-ver:hover,
+button.btn-action.btn-ver:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 15px rgba(23,162,184,0.3);
-    color: white;
+    box-shadow: 0 4px 15px rgba(23,162,184,0.4) !important;
+    color: white !important;
     text-decoration: none;
+    background: linear-gradient(135deg, #17a2b8, #20c997) !important;
+}
+
+.btn-action.btn-ver:focus,
+.btn.btn-action.btn-ver:focus,
+button.btn-action.btn-ver:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(23,162,184,0.25) !important;
+    color: white !important;
+}
+
+.btn-action.btn-ver i,
+.btn.btn-action.btn-ver i,
+button.btn-action.btn-ver i {
+    color: white !important;
 }
 
 /* Estado vacío */

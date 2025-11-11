@@ -39,6 +39,22 @@
                     </small>
                 </div>
 
+                <!-- FASE 2.5: Advertencia cuando ya existe cambio aprobado -->
+                <div id="advertencia_cambio_aprobado" class="form-group" style="display: none;">
+                    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                        <h5 class="alert-heading">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>Cambio Aprobado Existente
+                        </h5>
+                        <p id="mensaje_advertencia" class="mb-2"></p>
+                        <div id="detalles_cambio_aprobado" class="mt-2">
+                            <!-- Aquí se mostrarán los detalles del cambio actual -->
+                        </div>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Información del turno y salas del usuario logueado (solicitante) -->
                 <div id="turno_solicitante_info" class="form-group" style="display: none;">
                     <div class="card">
