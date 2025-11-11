@@ -17,6 +17,7 @@ from django.utils import timezone
 import hashlib
 import hmac
 import logging
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -42,24 +43,34 @@ class SolicitudesView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.request.user.is_authenticated and hasattr(self.request.user, 'empleado'):
-            # Contar solicitudes del usuario logueado (donde es el solicitante)
-            mis_solicitudes_count = SolicitudCambio.objects.filter(
-                explorador_solicitante=self.request.user.empleado
-            ).count()
+            empleado = self.request.user.empleado
             
-            # Contar solicitudes pendientes que el usuario puede aprobar
-            # Solo receptor y supervisor (NO solicitante)
-            from django.db.models import Q
-            solicitudes_pendientes_count = SolicitudCambio.objects.filter(
-                Q(estado='pendiente', explorador_receptor=self.request.user.empleado, aprobado_receptor=False) |
-                Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado, aprobado_supervisor=False)
-            ).distinct().count()
+            # Cache para contadores (5 minutos)
+            cache_key_mis = f"solicitudes_count_mis_{empleado.id}"
+            cache_key_pend = f"solicitudes_count_pend_{empleado.id}"
+            
+            mis_solicitudes_count = cache.get(cache_key_mis)
+            if mis_solicitudes_count is None:
+                mis_solicitudes_count = SolicitudCambio.objects.filter(
+                    explorador_solicitante=empleado
+                ).count()
+                cache.set(cache_key_mis, mis_solicitudes_count, 300)  # 5 minutos
+            
+            solicitudes_pendientes_count = cache.get(cache_key_pend)
+            if solicitudes_pendientes_count is None:
+                from django.db.models import Q
+                solicitudes_pendientes_count = SolicitudCambio.objects.filter(
+                    Q(estado='pendiente', explorador_receptor=empleado, aprobado_receptor=False) |
+                    Q(estado='pendiente', explorador_solicitante__supervisor=empleado, aprobado_supervisor=False)
+                ).distinct().count()
+                cache.set(cache_key_pend, solicitudes_pendientes_count, 300)  # 5 minutos
             
             # Debug: Imprimir información para entender el conteo
             print(f"DEBUG CONTADOR - Usuario: {self.request.user.empleado.nombre}")
             print(f"DEBUG CONTADOR - Total pendientes (con distinct): {solicitudes_pendientes_count}")
             
             # Debug detallado: Mostrar las solicitudes específicas
+            from django.db.models import Q
             solicitudes_combined = SolicitudCambio.objects.filter(
                 Q(estado='pendiente', explorador_receptor=self.request.user.empleado, aprobado_receptor=False) |
                 Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado, aprobado_supervisor=False)
@@ -214,12 +225,18 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         if not hasattr(request.user, 'empleado'):
             return json_ok({'empleados': []})
         
-        # Obtener empleados según el tipo de solicitud usando el Factory
-        empleados_disponibles = SolicitudFactory.get_empleados_disponibles(
-            tipo_solicitud, 
+        # Cache para empleados disponibles (30 minutos)
+        # INCLUIR usuario actual en cache key para evitar contaminación cruzada
+        cache_key = f"empleados_disp_{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
+        empleados_disponibles = cache.get(cache_key)
+        if empleados_disponibles is None:
+            # Obtener empleados según el tipo de solicitud usando el Factory
+            empleados_disponibles = SolicitudFactory.get_empleados_disponibles(
+                tipo_solicitud, 
             fecha, 
-            request.user.empleado
+                request.user.empleado
         )
+            cache.set(cache_key, empleados_disponibles, 1800)  # 30 minutos
         
         logger.debug("Empleados disponibles obtenidos", extra={
             'count': len(empleados_disponibles),
@@ -716,54 +733,6 @@ class AprobarSolicitudAmbosView(LoginRequiredMixin, View):
             logger.exception('Error en AprobarSolicitudAmbosView')
             return json_error('Error al aprobar en ambos roles', status=500, code='internal_error')
 
-class NotificacionesSolicitudesView(LoginRequiredMixin, TemplateView):
-    """
-    Vista inteligente para mostrar notificaciones y solicitudes
-    - Para todos los usuarios: muestra sus notificaciones y solicitudes
-    - Para supervisores: también muestra solicitudes pendientes de aprobación
-    - Para receptores: también muestra solicitudes que deben aprobar
-    """
-    template_name = 'solicitudes/notificaciones_solicitudes.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        if hasattr(self.request.user, 'empleado'):
-            empleado = self.request.user.empleado
-            
-            # Verificar si es supervisor
-            es_supervisor = empleado.empleados_supervisados.exists()
-            context['es_supervisor'] = es_supervisor
-            
-            # Obtener notificaciones no leídas
-            notificaciones_no_leidas = NotificacionService.obtener_notificaciones_no_leidas(empleado)
-            context['notificaciones_no_leidas'] = notificaciones_no_leidas
-            
-            # Obtener mis solicitudes
-            mis_solicitudes = SolicitudService.get_solicitudes_usuario(self.request.user)
-            context['mis_solicitudes'] = mis_solicitudes
-            
-            # Si es supervisor, obtener solicitudes pendientes
-            if es_supervisor:
-                solicitudes_pendientes = SolicitudService.get_solicitudes_por_supervisor(empleado)
-                context['solicitudes_pendientes'] = solicitudes_pendientes
-            
-            # Obtener solicitudes que debe aprobar como receptor
-            solicitudes_por_receptor = SolicitudService.get_solicitudes_por_receptor(empleado)
-            context['solicitudes_por_receptor'] = solicitudes_por_receptor
-            
-            # Agregar información de estado de aprobación para cada solicitud
-            for solicitud in mis_solicitudes:
-                solicitud.estado_aprobacion = SolicitudService.get_estado_aprobacion_solicitud(solicitud)
-            
-            if es_supervisor:
-                for solicitud in solicitudes_pendientes:
-                    solicitud.estado_aprobacion = SolicitudService.get_estado_aprobacion_solicitud(solicitud)
-            
-            for solicitud in solicitudes_por_receptor:
-                solicitud.estado_aprobacion = SolicitudService.get_estado_aprobacion_solicitud(solicitud)
-        
-        return context
 
 # Vistas para aprobación por email (sin login requerido)
 class AprobarSolicitudEmailView(View):
@@ -1003,3 +972,5 @@ class RechazarSolicitudReceptorEmailView(View):
         ).hexdigest()
         
         return hmac.compare_digest(token, expected_token)
+
+

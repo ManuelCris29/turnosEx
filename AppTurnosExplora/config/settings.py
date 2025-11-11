@@ -166,7 +166,7 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'
-EMAIL_HOST_PASSWORD = 'xivv prpf jbzx utzn'  # REEMPLAZAR CON LA NUEVA CONTRASEÑA DE APLICACIÓN
+EMAIL_HOST_PASSWORD = 'mwqk pfqn xtxj ljsc'  # REEMPLAZAR CON LA NUEVA CONTRASEÑA DE APLICACIÓN
 DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'
 
 # Para desarrollo: usar backend de consola (comentado)
@@ -175,3 +175,16 @@ DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'
 # URL del sitio para enlaces en emails
 SITE_URL = 'http://127.0.0.1:8000'  # Para desarrollo local
 # SITE_URL = 'https://tu-dominio.com'  # Para producción
+
+# Cache configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+        'TIMEOUT': 300,  # 5 minutos por defecto
+        'OPTIONS': {
+            'MAX_ENTRIES': 1000,
+            'CULL_FREQUENCY': 3,
+        }
+    }
+}
