@@ -21,6 +21,7 @@
                                 <tr>
                                     <th>ID</th>
                                     <th>Nombre</th>
+                                    <th>Código Estrategia</th>
                                     <th>Activo</th>
                                     <th>Acciones</th>
                                 </tr>
@@ -29,7 +30,14 @@
                                 {% for tipo in tipos_solicitud %}
                                 <tr>
                                     <td>{{ tipo.id }}</td>
-                                    <td>{{ tipo.nombre }}</td>
+                                    <td><strong>{{ tipo.nombre }}</strong></td>
+                                    <td>
+                                        {% if tipo.codigo_estrategia %}
+                                            <span class="badge badge-info">{{ tipo.codigo_estrategia }}</span>
+                                        {% else %}
+                                            <span class="text-muted" style="font-size: 0.85em;">-</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{% if tipo.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
                                     <td>
                                         <a href="{% url 'solicitudes:tiposolicitudcambio_edit' tipo.id %}" class="btn btn-primary btn-sm" title="Editar">
@@ -42,7 +50,7 @@
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="4">No hay tipos de solicitud registrados.</td>
+                                    <td colspan="5">No hay tipos de solicitud registrados.</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

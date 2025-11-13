@@ -2,6 +2,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
 from django.db.models import Q
+from django.core.cache import cache
 from turnos.models import Turno, AsignarJornadaExplorador, AsignarSalaExplorador
 from turnos.services.turno_service import TurnoService
 from datetime import datetime, timedelta
@@ -37,7 +38,9 @@ class TurnosPorMesView(LoginRequiredMixin, View):
 
 
 class MisTurnosPorMesView(LoginRequiredMixin, View):
-    """Vista para obtener jornadas de un mes específico (cálculo dinámico)"""
+    """Vista para obtener jornadas de un mes específico (cálculo dinámico)
+    FASE 3.5: Optimizada con caché para mejorar rendimiento
+    """
     
     def get(self, request):
         if not hasattr(request.user, 'empleado'):
@@ -49,6 +52,14 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
         
         if not mes or not anio:
             return JsonResponse({'error': 'Debe enviar mes y anio'}, status=400)
+        
+        # FASE 3.5: Generar clave de caché única para este empleado y mes
+        cache_key = f'turnos_mes_{empleado.id}_{anio}_{mes}'
+        
+        # FASE 3.5: Intentar obtener datos del caché
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return JsonResponse(cached_data)
         # Validación y normalización de mes/año
         try:
             mes_int = int(mes)
@@ -76,13 +87,15 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             )
             turnos_por_fecha = {t.fecha: t for t in turnos_mes}
             
-            # Obtener jornada predeterminada (un único registro vigente por explorador)
-            try:
-                jornada_predeterminada = AsignarJornadaExplorador.objects.select_related('jornada').get(
-                    explorador=empleado
-                )
-            except AsignarJornadaExplorador.DoesNotExist:
-                jornada_predeterminada = None
+            # FASE 3.2: Obtener jornada predeterminada (usar first() en lugar de get() para evitar errores)
+            # Obtener la jornada más reciente por fecha_inicio
+            jornada_predeterminada = (
+                AsignarJornadaExplorador.objects
+                .filter(explorador=empleado)
+                .select_related('jornada')
+                .order_by('-fecha_inicio')
+                .first()
+            )
             jornada_base = (jornada_predeterminada.jornada.nombre if jornada_predeterminada else None)
 
             def calcular_jornada_dia(j_base, fecha):
@@ -144,17 +157,19 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         'turno_id': None
                     }
             
-            # Obtener información de solicitudes para turnos con cambios (optimizado)
+            # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
+            # Limitar a las solicitudes más recientes para mejorar rendimiento
             from solicitudes.models import SolicitudCambio
             turno_ids_con_cambio = [t.id for t in turnos_por_fecha.values() if t.tipo_cambio is not None]
             solicitudes_info = {}
             
             if turno_ids_con_cambio:
+                # FASE 3.3: Limitar a las 50 solicitudes más recientes para evitar consultas lentas
                 # Obtener todas las solicitudes que afectaron estos turnos
                 solicitudes = SolicitudCambio.objects.filter(
                     Q(turno_origen_id__in=turno_ids_con_cambio) | Q(turno_destino_id__in=turno_ids_con_cambio),
                     estado='aprobada'
-                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')
+                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')[:50]
                 
                 # Procesar solicitudes en orden descendente (más reciente primero)
                 # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)
@@ -186,6 +201,10 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     info['solicitud_info'] = solicitudes_info[turno_id]
                 else:
                     info['solicitud_info'] = None
+            
+            # FASE 3.5: Guardar en caché por 1 hora (3600 segundos)
+            # Los datos de turnos no cambian frecuentemente, así que 1 hora es seguro
+            cache.set(cache_key, turnos_mes_dict, 3600)
             
             return JsonResponse(turnos_mes_dict)
             

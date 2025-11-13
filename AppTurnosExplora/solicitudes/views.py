@@ -106,13 +106,13 @@ class TipoSolicitudCambioListView(LoginRequiredMixin, AdminRequiredMixin, ListVi
 class TipoSolicitudCambioCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = TipoSolicitudCambio
     template_name = 'solicitudes/tiposolicitudcambio_create.html'
-    fields = ['nombre', 'activo', 'genera_deuda']
+    fields = ['nombre', 'codigo_estrategia', 'activo', 'genera_deuda']
     success_url = '/solicitudes/tipos-solicitud/'
 
 class TipoSolicitudCambioUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = TipoSolicitudCambio
     template_name = 'solicitudes/tiposolicitudcambio_edit.html'
-    fields = ['nombre', 'activo', 'genera_deuda']
+    fields = ['nombre', 'codigo_estrategia', 'activo', 'genera_deuda']
     success_url = '/solicitudes/tipos-solicitud/'
 
 class TipoSolicitudCambioDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
@@ -440,14 +440,9 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                 'fecha_fin': datos_solicitud.get('fecha_fin')
             })
             
-            # Register strategies if not already registered
-            from .services.strategies import CambioTurnoStrategy, DobladaStrategy, CTPermanenteStrategy, DFDSStrategy
-            SolicitudFactory.register_strategy("Cambio Turno", CambioTurnoStrategy)
-            SolicitudFactory.register_strategy("DOBLADA", DobladaStrategy)
-            SolicitudFactory.register_strategy("CT PERMANENTE", CTPermanenteStrategy)
-            SolicitudFactory.register_strategy("D FDS", DFDSStrategy)
-            
             # Validar la solicitud usando el Factory
+            # Nota: Las estrategias se registran automáticamente en solicitud_factory.py
+            # No es necesario registrarlas manualmente aquí
             es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
             
             if not es_valida:

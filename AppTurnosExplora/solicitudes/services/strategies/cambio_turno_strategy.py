@@ -368,6 +368,23 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 solicitud.turno_destino = turno_receptor    # Turno resultante del receptor
                 solicitud.save()
                 
+                # FASE 3.5: Invalidar caché de turnos para ambos exploradores
+                from django.core.cache import cache
+                if fecha_cambio:
+                    anio = fecha_cambio.year
+                    mes = fecha_cambio.month
+                    # Invalidar caché para el solicitante
+                    cache_key_solicitante = f'turnos_mes_{solicitud.explorador_solicitante.id}_{anio}_{mes}'
+                    cache.delete(cache_key_solicitante)
+                    # Invalidar caché para el receptor
+                    cache_key_receptor = f'turnos_mes_{solicitud.explorador_receptor.id}_{anio}_{mes}'
+                    cache.delete(cache_key_receptor)
+                    logger.info(
+                        "FASE 3.5: Caché invalidado para solicitante (key: %s) y receptor (key: %s)",
+                        cache_key_solicitante,
+                        cache_key_receptor
+                    )
+                
                 # FASE 1.14: FIRST-COME, FIRST-SERVED - Rechazar automáticamente otras solicitudes pendientes
                 # Buscar otras solicitudes pendientes para el mismo receptor y fecha
                 

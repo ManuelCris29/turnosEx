@@ -18,6 +18,20 @@
                         <div class="form-group">
                             <label for="id_nombre"><i class="fas fa-id-badge"></i> <strong>Nombre:</strong></label>
                             {{ form.nombre|add_class:'form-control' }}
+                            {% if form.nombre.errors %}
+                                <div class="text-danger">{{ form.nombre.errors }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="form-group">
+                            <label for="id_codigo_estrategia"><i class="fas fa-code"></i> <strong>Código de Estrategia:</strong></label>
+                            {{ form.codigo_estrategia|add_class:'form-control' }}
+                            <small class="form-text text-muted">
+                                Código para mapear a la estrategia. Si está vacío, se usa el nombre normalizado. 
+                                Ejemplos: "CT", "DOBLADA", "CT PERMANENTE"
+                            </small>
+                            {% if form.codigo_estrategia.errors %}
+                                <div class="text-danger">{{ form.codigo_estrategia.errors }}</div>
+                            {% endif %}
                         </div>
                         <div class="form-group">
                             <div class="form-check">

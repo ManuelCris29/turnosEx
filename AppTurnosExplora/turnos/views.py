@@ -56,13 +56,15 @@ class MisTurnosView(LoginRequiredMixin, TemplateView):
                 fecha_fin__gte=fecha_actual
             ).first()
             
-            # Obtener jornada predeterminada vigente (una por explorador)
-            try:
-                jornada_predeterminada = AsignarJornadaExplorador.objects.select_related('jornada').get(
-                    explorador=empleado
-                )
-            except AsignarJornadaExplorador.DoesNotExist:
-                jornada_predeterminada = None
+            # FASE 3.2: Obtener jornada predeterminada vigente (usar first() en lugar de get())
+            # Obtener la jornada más reciente por fecha_inicio
+            jornada_predeterminada = (
+                AsignarJornadaExplorador.objects
+                .filter(explorador=empleado)
+                .select_related('jornada')
+                .order_by('-fecha_inicio')
+                .first()
+            )
             jornada_base = (
                 jornada_predeterminada.jornada.nombre if jornada_predeterminada else None
             )
@@ -148,11 +150,12 @@ class MisTurnosView(LoginRequiredMixin, TemplateView):
             solicitudes_info = {}
             if turnos_con_cambio:
                 turno_ids = [t.id for t in turnos_con_cambio]
+                # FASE 3.3: Limitar a las 50 solicitudes más recientes para evitar consultas lentas
                 # Obtener todas las solicitudes que afectaron estos turnos
                 solicitudes = SolicitudCambio.objects.filter(
                     Q(turno_origen_id__in=turno_ids) | Q(turno_destino_id__in=turno_ids),
                     estado='aprobada'
-                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')
+                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')[:50]
                 
                 # Procesar solicitudes en orden descendente (más reciente primero)
                 # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)

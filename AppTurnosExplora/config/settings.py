@@ -176,15 +176,36 @@ DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'
 SITE_URL = 'http://127.0.0.1:8000'  # Para desarrollo local
 # SITE_URL = 'https://tu-dominio.com'  # Para producción
 
-# Cache configuration
+# FASE 3.4: Cache configuration
+# Configuración mejorada de caché
+# En desarrollo: usar LocMemCache (memoria local)
+# En producción: usar Redis (descomentar y configurar)
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
         'LOCATION': 'unique-snowflake',
-        'TIMEOUT': 300,  # 5 minutos por defecto
+        'TIMEOUT': 3600,  # 1 hora por defecto (aumentado para mejor rendimiento)
         'OPTIONS': {
-            'MAX_ENTRIES': 1000,
+            'MAX_ENTRIES': 10000,  # Aumentado para soportar más usuarios
             'CULL_FREQUENCY': 3,
         }
     }
 }
+
+# FASE 3.4: Configuración para Redis (descomentar en producción)
+# Requiere: pip install django-redis
+# CACHES = {
+#     'default': {
+#         'BACKEND': 'django_redis.cache.RedisCache',
+#         'LOCATION': 'redis://127.0.0.1:6379/1',
+#         'OPTIONS': {
+#             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+#             'SOCKET_CONNECT_TIMEOUT': 5,
+#             'SOCKET_TIMEOUT': 5,
+#             'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+#             'IGNORE_EXCEPTIONS': True,
+#         },
+#         'KEY_PREFIX': 'appturnos',
+#         'TIMEOUT': 3600,  # 1 hora
+#     }
+# }

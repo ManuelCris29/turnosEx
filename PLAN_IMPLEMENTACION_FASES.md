@@ -414,34 +414,133 @@
 
 ---
 
-## 📋 FASE 3: OPTIMIZACIÓN AVANZADA (Opcional)
+## 📋 FASE 3: OPTIMIZACIÓN AVANZADA ✅
 
-### ⚡ FASE 3.1: Cache - Evaluar Necesidad
-**Objetivo:** Determinar si realmente necesitamos cache
+### ⚡ FASE 3.1: Índices Adicionales en SolicitudCambio ✅
+**Objetivo:** Optimizar consultas por turno_origen, turno_destino y fecha_resolucion
 
 **Pasos:**
-1. ✅ Medir tiempo de respuesta actual (después de optimizaciones)
-2. ✅ Si <500ms → NO implementar cache
-3. ✅ Si >500ms → Considerar cache
-4. ✅ Medir carga de BD
-5. ✅ Decidir si implementar cache
+1. ✅ Agregar índice `sol_turno_origen_estado_idx` en SolicitudCambio
+2. ✅ Agregar índice `sol_turno_destino_estado_idx` en SolicitudCambio
+3. ✅ Agregar índice `sol_fecha_resol_estado_idx` en SolicitudCambio
+4. ✅ Crear y aplicar migraciones
 
-**Criterio de éxito:** Decisión informada sobre cache
+**Código modificado:**
+- `AppTurnosExplora/solicitudes/models.py` - Índices agregados (líneas 88-102)
+
+**Criterio de éxito:** Índices creados, consultas optimizadas
 
 ---
 
-### ⚡ FASE 3.2: Cache - Implementar (Si es necesario)
-**Objetivo:** Agregar cache con invalidación
+### ⚡ FASE 3.2: Optimización de Consulta AsignarJornadaExplorador ✅
+**Objetivo:** Evitar errores cuando hay múltiples registros y obtener siempre el más reciente
 
 **Pasos:**
-1. ✅ Configurar cache en settings.py
-2. ✅ Crear método `get_empleados_disponibles_cached(fecha, usuario)`
-3. ✅ Cachear resultado con key: `compañeros_{fecha}_{usuario_id}`
-4. ✅ TTL: 5 minutos
-5. ✅ Invalidar cache al aprobar/rechazar/cancelar solicitudes
-6. ✅ Probar que funciona
+1. ✅ Cambiar `.get()` por `.first()` con `order_by('-fecha_inicio')`
+2. ✅ Agregar `select_related('jornada')` para optimizar
+3. ✅ Aplicar en `turnos/api/views.py` y `turnos/views.py`
 
-**Criterio de éxito:** Cache funciona, se invalida correctamente
+**Código modificado:**
+- `AppTurnosExplora/turnos/api/views.py` (líneas 90-96)
+- `AppTurnosExplora/turnos/views.py` (líneas 59-65)
+
+**Criterio de éxito:** Consultas más robustas y eficientes
+
+---
+
+### ⚡ FASE 3.3: Limitar Consulta de SolicitudCambio ✅
+**Objetivo:** Evitar consultas lentas con miles de registros
+
+**Pasos:**
+1. ✅ Limitar consulta a 50 solicitudes más recientes
+2. ✅ Aplicar en `turnos/api/views.py` y `turnos/views.py`
+
+**Código modificado:**
+- `AppTurnosExplora/turnos/api/views.py` (línea 167)
+- `AppTurnosExplora/turnos/views.py` (línea 153)
+
+**Criterio de éxito:** Consultas más rápidas, solo datos relevantes
+
+---
+
+### ⚡ FASE 3.4: Configuración de Caché Mejorada ✅
+**Objetivo:** Mejorar rendimiento con más usuarios simultáneos
+
+**Pasos:**
+1. ✅ Aumentar `TIMEOUT` de 300s a 3600s (1 hora)
+2. ✅ Aumentar `MAX_ENTRIES` de 1000 a 10000
+3. ✅ Agregar configuración comentada para Redis (producción)
+
+**Código modificado:**
+- `AppTurnosExplora/config/settings.py` (líneas 179-195)
+
+**Criterio de éxito:** Configuración de caché optimizada
+
+---
+
+### ⚡ FASE 3.5: Implementación de Caché en MisTurnosPorMesView ✅
+**Objetivo:** Reducir tiempo de carga de 5s a <1s
+
+**Pasos:**
+1. ✅ Implementar caché en `MisTurnosPorMesView`
+2. ✅ Clave única: `turnos_mes_{empleado_id}_{anio}_{mes}`
+3. ✅ TTL: 1 hora (3600 segundos)
+4. ✅ Invalidar caché al crear/modificar turnos
+
+**Código modificado:**
+- `AppTurnosExplora/turnos/api/views.py` - Caché implementado (líneas 56-205)
+- `AppTurnosExplora/solicitudes/services/strategies/cambio_turno_strategy.py` - Invalidación de caché (líneas 371-386)
+
+**Criterio de éxito:** Caché funciona, se invalida correctamente
+
+---
+
+### ⚡ FASE 3.6: Modelo TurnoArchivo ✅
+**Objetivo:** Crear modelo para almacenar turnos antiguos
+
+**Pasos:**
+1. ✅ Crear modelo `TurnoArchivo` con misma estructura que `Turno`
+2. ✅ Agregar campo `fecha_archivado` y `turno_original_id`
+3. ✅ Agregar índices optimizados
+4. ✅ Crear y aplicar migraciones
+
+**Código modificado:**
+- `AppTurnosExplora/turnos/models.py` - Modelo `TurnoArchivo` creado (líneas 69-92)
+
+**Criterio de éxito:** Modelo creado, migraciones aplicadas
+
+---
+
+### ⚡ FASE 3.7: Comando para Archivar Turnos ✅
+**Objetivo:** Archivar turnos antiguos automáticamente
+
+**Pasos:**
+1. ✅ Crear comando `archivar_turnos_antiguos`
+2. ✅ Archivar en lotes de 100 para mejor rendimiento
+3. ✅ Mantener trazabilidad con `turno_original_id`
+4. ✅ Limpiar caché automáticamente después de archivar
+5. ✅ Agregar opción `--dry-run` para simular
+
+**Código creado:**
+- `AppTurnosExplora/turnos/management/commands/archivar_turnos_antiguos.py`
+
+**Criterio de éxito:** Comando funciona correctamente
+
+---
+
+### ⚡ FASE 3.8: Comando para Archivar Solicitudes ✅
+**Objetivo:** Preparar comando para archivar solicitudes antiguas
+
+**Pasos:**
+1. ✅ Crear comando `archivar_solicitudes_antiguas`
+2. ⏳ Nota: Actualmente solo informa. Para implementar completamente, se necesita:
+   - Agregar campo `archivada` al modelo `SolicitudCambio`, O
+   - Crear modelo `SolicitudCambioArchivo` similar a `TurnoArchivo`
+
+**Código creado:**
+- `AppTurnosExplora/solicitudes/management/commands/archivar_solicitudes_antiguas.py`
+
+**Criterio de éxito:** Comando base creado (implementación completa pendiente)
 
 ---
 

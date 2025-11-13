@@ -63,6 +63,33 @@ class DiaEspecial(models.Model):
     
     def __str__(self):
         return f"{self.fecha}" #type:ignore
+
+
+# FASE 3.6: Modelos de archivo para datos antiguos
+class TurnoArchivo(models.Model):
+    """Modelo para almacenar turnos antiguos (más de 1 año)
+    Mantiene la misma estructura que Turno para facilitar consultas históricas
+    """
+    explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
+    fecha = models.DateField()
+    jornada = models.ForeignKey(Jornada, on_delete=models.CASCADE)
+    sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
+    tipo_cambio = models.CharField(max_length=50, null=True, blank=True)
+    fecha_archivado = models.DateTimeField(auto_now_add=True)
+    # Mantener referencia al ID original para trazabilidad
+    turno_original_id = models.IntegerField(null=True, blank=True, help_text='ID del turno original antes de archivar')
+    
+    class Meta:
+        indexes = [
+            models.Index(fields=['explorador', 'fecha'], name='turno_arch_exp_fecha_idx'),  # 30 chars
+            models.Index(fields=['fecha'], name='turno_arch_fecha_idx'),  # 20 chars
+        ]
+        ordering = ['fecha', 'explorador']
+        verbose_name = 'Turno Archivado'
+        verbose_name_plural = 'Turnos Archivados'
+    
+    def __str__(self):
+        return f"{self.explorador.user.username} - {self.fecha} (Archivado)"
     
 
 

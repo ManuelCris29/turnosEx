@@ -30,6 +30,12 @@ class Notificacion(models.Model):
 
 class TipoSolicitudCambio(models.Model):
     nombre = models.CharField(max_length=50)
+    codigo_estrategia = models.CharField(
+        max_length=50, 
+        null=True, 
+        blank=True,
+        help_text='Código para mapear a la estrategia. Si está vacío, se usa el nombre normalizado. Ejemplos: "CT", "DOBLADA", "CT PERMANENTE"'
+    )
     activo = models.BooleanField(default=True) #type:ignore
     genera_deuda = models.BooleanField(default=False, help_text='¿Este tipo de solicitud genera deuda de horas?')
     historial = HistoricalRecords()
@@ -78,11 +84,27 @@ class SolicitudCambio(models.Model):
 
     class Meta:
         # FASE 1.10: Índices críticos para rendimiento con 100+ solicitudes/día
+        # FASE 3.1: Agregar índices adicionales para optimizar consultas de turnos
         indexes = [
             # Búsqueda por receptor y fecha (más común - para First-Come, First-Served)
             models.Index(
                 fields=['explorador_receptor', 'fecha_cambio_turno', 'estado'],
                 name='sol_receptor_fecha_estado_idx'  # Máximo 30 caracteres
+            ),
+            # FASE 3.1: Índice para búsqueda por turno_origen (usado en MisTurnosPorMesView)
+            models.Index(
+                fields=['turno_origen', 'estado'],
+                name='sol_turno_origen_estado_idx'
+            ),
+            # FASE 3.1: Índice para búsqueda por turno_destino (usado en MisTurnosPorMesView)
+            models.Index(
+                fields=['turno_destino', 'estado'],
+                name='sol_turno_destino_estado_idx'
+            ),
+            # FASE 3.1: Índice para búsqueda por fecha_resolucion (para ordenar por más reciente)
+            models.Index(
+                fields=['-fecha_resolucion', 'estado'],
+                name='sol_fecha_resol_estado_idx'
             ),
         ]
         ordering = ['-fecha_solicitud']
