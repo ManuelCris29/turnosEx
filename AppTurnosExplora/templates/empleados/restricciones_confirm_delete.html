@@ -5,19 +5,27 @@
 <div class="container mt-5">
     <div class="row justify-content-center">
         <div class="col-12 col-md-8 col-lg-6">
-            <div class="card shadow">
+            <div class="card shadow border-0">
                 <div class="card-header bg-danger text-white">
-                    <h4 class="mb-0"><i class="fas fa-trash-alt"></i> Eliminar Restricción</h4>
+                    <h4 class="mb-0"><i class="fas fa-trash-alt mr-2"></i>Eliminar restricción</h4>
                 </div>
-                <div class="card-body text-center">
-                    <p class="lead">¿Estás seguro de que deseas eliminar la restricción de <strong>{{ object.empleado }}</strong>?</p>
-                    <form method="post">
+                <div class="card-body">
+                    <p class="lead text-center">¿Estás seguro de eliminar la restricción registrada para <strong>{{ object.empleado }}</strong>? Esta acción no se puede deshacer.</p>
+                    <div class="alert alert-warning">
+                        <h6 class="text-uppercase small mb-2">Resumen</h6>
+                        <ul class="list-unstyled mb-0">
+                            <li><i class="fas fa-tag mr-2 text-warning"></i><strong>Tipo:</strong> {{ object.tipo_restriccion|default:'Sin tipo' }}</li>
+                            <li><i class="far fa-calendar-plus mr-2 text-success"></i><strong>Inicio:</strong> {{ object.fecha_inicio|date:'d M Y' }}</li>
+                            <li><i class="far fa-calendar-minus mr-2 text-danger"></i><strong>Fin:</strong> {{ object.fecha_fin|default:'Sin definir' }}</li>
+                        </ul>
+                    </div>
+                    <form method="post" class="text-center mt-4">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-danger px-4">
-                            <i class="fas fa-trash-alt"></i> Eliminar
+                        <button type="submit" class="btn btn-danger px-4 mr-2">
+                            <i class="fas fa-trash-alt mr-1"></i> Eliminar
                         </button>
                         <a href="{% url 'restricciones_list' %}" class="btn btn-secondary px-4">
-                            <i class="fas fa-arrow-left"></i> Cancelar
+                            <i class="fas fa-arrow-left mr-1"></i> Cancelar
                         </a>
                     </form>
                 </div>

@@ -1,6 +1,50 @@
 {% extends 'base.html' %}
+{% load static %}
+
 {% block title %}Beneficios{% endblock %}
-{% block page_title %}Beneficios Utilizados{% endblock %}
+
+
+{% block extra_css %}
+<style>
+    .beneficios-iframe-container {
+        position: relative;
+        width: 100%;
+        min-height: 600px;
+    }
+    .beneficios-iframe-container iframe {
+        width: 100%;
+        height: 800px;
+        border: none;
+        min-height: 600px;
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="card"><div class="card-body">Página en Construcción</div></div>
-{% endblock %} 
+<div class="card">
+    <div class="card-body p-0">
+        {% if empleado %}
+            <div class="beneficios-iframe-container">
+                <iframe 
+                    id="beneficiosIframe"
+                    src="{{ google_script_url }}" 
+                    width="100%" 
+                    height="800px" 
+                    frameborder="0"
+                    allowfullscreen
+                    title="Formulario de Beneficios Explora"
+                    style="border: none; min-height: 600px;">
+                </iframe>
+            </div>
+        {% else %}
+            <div class="alert alert-warning">
+                <i class="fas fa-exclamation-triangle mr-2"></i>
+                No se pudo obtener la información del empleado. Por favor, contacta al administrador.
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{% endblock %}

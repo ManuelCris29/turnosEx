@@ -1,10 +1,15 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.db.models import Q
-from empleados.views import AdminRequiredMixin
+from django.contrib import messages
+from django.urls import reverse
+from core.mixins import AdminRequiredMixin
 from .models import Turno, DiaEspecial, AsignarSalaExplorador, AsignarJornadaExplorador
-from datetime import timedelta
+from .forms import TemporadasAnualForm, DiasEspecialesAnualForm
+from .services.temporada_service import TemporadaService
+from .services.dia_especial_service import DiaEspecialService
+from datetime import timedelta, date
 from django.utils import timezone
 import json
 
@@ -17,200 +22,21 @@ class MisTurnosView(LoginRequiredMixin, TemplateView):
         context = super().get_context_data(**kwargs)
         
         if hasattr(self.request.user, 'empleado'):
+            from .services.turno_context_service import TurnoContextService
             empleado = self.request.user.empleado
-            fecha_actual = timezone.now().date()
-            
-            # Obtener fecha actual y calcular solo el mes actual (optimizado)
-            from datetime import timedelta
-            fecha_actual = timezone.now().date()
-            
-            # Calcular solo el mes actual para optimizar rendimiento
-            inicio_mes = fecha_actual.replace(day=1)
-            if fecha_actual.month == 12:
-                fin_mes = fecha_actual.replace(year=fecha_actual.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                fin_mes = fecha_actual.replace(month=fecha_actual.month + 1, day=1) - timedelta(days=1)
-            
-            # Calcular inicio y fin de la semana actual para el resumen semanal
-            inicio_semana = fecha_actual - timedelta(days=fecha_actual.weekday())
-            fin_semana = inicio_semana + timedelta(days=6)
-            
-            # Obtener turnos asignados solo para el mes actual (optimizado, evitando N+1)
-            turnos_mes = (
-                Turno.objects
-                .filter(
-                    explorador=empleado,
-                    fecha__gte=inicio_mes,
-                    fecha__lte=fin_mes
-                )
-                .select_related('jornada', 'sala')
-                .order_by('fecha')
-            )
-            turnos_por_fecha = {t.fecha: t for t in turnos_mes}
-            
-            # Obtener asignaciones de sala activas
-            from .models import AsignarSalaExplorador
-            asignaciones_activas = AsignarSalaExplorador.objects.filter(
-                explorador=empleado,
-                fecha_inicio__lte=fecha_actual,
-                fecha_fin__gte=fecha_actual
-            ).first()
-            
-            # FASE 3.2: Obtener jornada predeterminada vigente (usar first() en lugar de get())
-            # Obtener la jornada más reciente por fecha_inicio
-            jornada_predeterminada = (
-                AsignarJornadaExplorador.objects
-                .filter(explorador=empleado)
-                .select_related('jornada')
-                .order_by('-fecha_inicio')
-                .first()
-            )
-            jornada_base = (
-                jornada_predeterminada.jornada.nombre if jornada_predeterminada else None
-            )
-
-            def calcular_jornada_dia(j_base, fecha):
-                if not j_base:
-                    return "PM"
-                if j_base == "AM" and fecha.weekday() == 5:  # Sábado
-                    return "Descanso"
-                if j_base == "PM" and fecha.weekday() == 6:  # Domingo
-                    return "Descanso"
-                return j_base
-            
-            # Crear estructura de datos solo para el mes actual (optimizado)
-            turnos_mes_dict = {}
-            for i in range((fin_mes - inicio_mes).days + 1):
-                fecha = inicio_mes + timedelta(days=i)
-                turno = turnos_por_fecha.get(fecha)
-                
-                if turno:
-                    # Hay turno asignado (puede ser cambio aprobado)
-                    jornada_turno = turno.jornada.nombre
-                    jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
-                    es_cambio = turno.tipo_cambio is not None
-                    coincide_con_predeterminada = jornada_turno == jornada_predeterminada
-                    
-                    turnos_mes_dict[fecha] = {
-                        'turno': turno,
-                        'jornada': jornada_turno,
-                        'sala': turno.sala.nombre,
-                        'tipo': 'asignado',
-                        'es_cambio': es_cambio,
-                        'jornada_predeterminada': jornada_predeterminada,
-                        'coincide_con_predeterminada': coincide_con_predeterminada,
-                        'turno_id': turno.id
-                    }
-                else:
-                    # No hay turno asignado, usar jornada predeterminada
-                    jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
-                    
-                    # Intentar obtener sala de asignación activa
-                    sala_nombre = 'Por asignar'
-                    if asignaciones_activas:
-                        sala_nombre = asignaciones_activas.sala.nombre
-                    
-                    turnos_mes_dict[fecha] = {
-                        'turno': None,
-                        'jornada': jornada_nombre,
-                        'sala': sala_nombre,
-                        'tipo': 'predeterminado',
-                        'es_cambio': False,
-                        'jornada_predeterminada': jornada_nombre,
-                        'coincide_con_predeterminada': True,
-                        'turno_id': None
-                    }
-            
-            # Crear estructura de datos para la semana actual (resumen semanal)
-            semana_turnos = {}
-            for i in range(7):
-                fecha = inicio_semana + timedelta(days=i)
-                if fecha in turnos_mes_dict:
-                    semana_turnos[fecha] = turnos_mes_dict[fecha]
-                else:
-                    # Si la fecha no está en el mes actual, usar regla predeterminada
-                    jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
-                    
-                    semana_turnos[fecha] = {
-                        'turno': None,
-                        'jornada': jornada_nombre,
-                        'sala': 'Por asignar',
-                        'tipo': 'predeterminado',
-                        'es_cambio': False,
-                        'jornada_predeterminada': jornada_nombre,
-                        'coincide_con_predeterminada': True,
-                        'turno_id': None
-                    }
-            
-            # Obtener información de solicitudes para turnos con cambios (optimizado)
-            # Solo obtener la solicitud MÁS RECIENTE para cada turno
-            from solicitudes.models import SolicitudCambio
-            turnos_con_cambio = [info['turno'] for info in turnos_mes_dict.values() 
-                                if info.get('turno') and info.get('es_cambio')]
-            solicitudes_info = {}
-            if turnos_con_cambio:
-                turno_ids = [t.id for t in turnos_con_cambio]
-                # FASE 3.3: Limitar a las 50 solicitudes más recientes para evitar consultas lentas
-                # Obtener todas las solicitudes que afectaron estos turnos
-                solicitudes = SolicitudCambio.objects.filter(
-                    Q(turno_origen_id__in=turno_ids) | Q(turno_destino_id__in=turno_ids),
-                    estado='aprobada'
-                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')[:50]
-                
-                # Procesar solicitudes en orden descendente (más reciente primero)
-                # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)
-                for solicitud in solicitudes:
-                    # Para turno_origen (solicitante)
-                    if solicitud.turno_origen_id and solicitud.turno_origen_id in turno_ids:
-                        if solicitud.turno_origen_id not in solicitudes_info:
-                            solicitudes_info[solicitud.turno_origen_id] = {
-                                'solicitud_id': solicitud.id,
-                                'companero_nombre': solicitud.explorador_receptor.nombre,
-                                'rol': 'solicitante',
-                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
-                            }
-                    
-                    # Para turno_destino (receptor)
-                    if solicitud.turno_destino_id and solicitud.turno_destino_id in turno_ids:
-                        if solicitud.turno_destino_id not in solicitudes_info:
-                            solicitudes_info[solicitud.turno_destino_id] = {
-                                'solicitud_id': solicitud.id,
-                                'companero_nombre': solicitud.explorador_solicitante.nombre,
-                                'rol': 'receptor',
-                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
-                            }
-            
-            # Convertir fechas a strings para JSON (solo mes actual)
-            turnos_mes_json = {}
-            for fecha, info in turnos_mes_dict.items():
-                turno_id = info.get('turno_id')
-                solicitud_info = solicitudes_info.get(turno_id) if turno_id else None
-                
-                turnos_mes_json[fecha.strftime('%Y-%m-%d')] = {
-                    'jornada': info['jornada'],
-                    'sala': info['sala'],
-                    'tipo': info['tipo'],
-                    'es_cambio': info['es_cambio'],
-                    'jornada_predeterminada': info.get('jornada_predeterminada', info['jornada']),
-                    'coincide_con_predeterminada': info.get('coincide_con_predeterminada', True),
-                    'turno_id': turno_id,
-                    'solicitud_info': solicitud_info
-                }
-            
-            # Convertir a string JSON válido
-            turnos_mes_json_str = json.dumps(turnos_mes_json)
+            context_data = TurnoContextService.get_context_data_for_mis_turnos_view(empleado)
             
             context.update({
                 'empleado': empleado,
                 'semana_actual': {
-                    'inicio': inicio_semana,
-                    'fin': fin_semana
+                    'inicio': context_data['inicio_semana'],
+                    'fin': context_data['fin_semana']
                 },
-                'semana_turnos': semana_turnos,
-                'turnos_mes': turnos_mes,
-                'turnos_mes_json_str': turnos_mes_json_str,
-                'asignaciones_activas': asignaciones_activas,
-                'fecha_actual': fecha_actual
+                'semana_turnos': context_data['turnos_semana'],
+                'turnos_mes': list(context_data['turnos_mes'].values()),
+                'turnos_mes_json_str': context_data['turnos_mes_json_str'],
+                'asignaciones_activas': context_data['asignaciones_activas'],
+                'fecha_actual': context_data['fecha_actual']
             })
         
         return context
@@ -279,3 +105,280 @@ class DiaEspecialVisualizarListView(LoginRequiredMixin, ListView):
     model = DiaEspecial
     template_name = 'turnos/diasespeciales_visualizar_list.html'
     context_object_name = 'dias_especiales'
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        tipo = self.request.GET.get('tipo')
+        anio = self.request.GET.get('anio')
+        
+        if tipo:
+            if tipo == 'temporada':
+                queryset = queryset.filter(es_temporada=True)
+            elif tipo == 'festivo':
+                queryset = queryset.filter(tipo='festivo', es_temporada=False)
+            elif tipo == 'mantenimiento':
+                queryset = queryset.filter(tipo='mantenimiento', es_temporada=False)
+        
+        if anio:
+            try:
+                anio_int = int(anio)
+                queryset = queryset.filter(año_planificacion=anio_int)
+            except ValueError:
+                pass
+        
+        return queryset.order_by('fecha')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['tipo_filtro'] = self.request.GET.get('tipo', '')
+        context['anio_filtro'] = self.request.GET.get('anio', '')
+        context['anios_disponibles'] = TemporadaService.obtener_anios_con_temporadas()
+        return context
+
+
+class DiaEspecialTemporadasAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
+    """
+    Vista para gestionar temporadas anuales.
+    Permite seleccionar días de temporada por mes para un año específico.
+    """
+    template_name = 'turnos/diasespeciales_temporadas_anual.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Obtener año del request o usar año siguiente por defecto
+        anio_seleccionado = self.request.GET.get('anio')
+        if anio_seleccionado:
+            try:
+                anio_seleccionado = int(anio_seleccionado)
+            except ValueError:
+                anio_seleccionado = None
+        
+        if not anio_seleccionado:
+            anio_seleccionado = date.today().year + 1
+        
+        # Obtener días de temporada existentes para el año seleccionado
+        dias_por_mes = TemporadaService.obtener_dias_temporada_por_mes(anio_seleccionado)
+        tiene_temporadas = TemporadaService.tiene_temporadas_anio(anio_seleccionado)
+        
+        # Obtener años con temporadas configuradas
+        anios_con_temporadas = TemporadaService.obtener_anios_con_temporadas()
+        
+        # Generar lista de años disponibles para el selector
+        # Incluir desde el año actual hasta 10 años en el futuro (rango amplio para planificación)
+        anio_actual = date.today().year
+        anios_disponibles = list(range(anio_actual, anio_actual + 11))  # Año actual + 10 años más
+        
+        # Agregar años que ya tienen temporadas pero que no están en el rango
+        for anio_temp in anios_con_temporadas:
+            if anio_temp not in anios_disponibles and anio_temp >= 2000:
+                anios_disponibles.append(anio_temp)
+        
+        # Ordenar años disponibles
+        anios_disponibles = sorted(set(anios_disponibles))
+        
+        # Preparar datos para el template
+        meses_nombres = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ]
+        
+        meses_data = []
+        for mes in range(1, 13):
+            dias_mes = dias_por_mes.get(mes, [])
+            meses_data.append({
+                'numero': mes,
+                'nombre': meses_nombres[mes - 1],
+                'dias_seleccionados': dias_mes,
+                'total_dias': len(dias_mes)
+            })
+        
+        context.update({
+            'anio_seleccionado': anio_seleccionado,
+            'anio_actual': anio_actual,
+            'tiene_temporadas': tiene_temporadas,
+            'dias_por_mes': json.dumps(dias_por_mes),  # Serializar a JSON para JavaScript
+            'meses_data': meses_data,
+            'anios_con_temporadas': anios_con_temporadas,  # Para referencia
+            'anios_disponibles': anios_disponibles,  # Lista completa de años para el selector
+            'form': TemporadasAnualForm(initial={'anio': anio_seleccionado})
+        })
+        
+        return context
+    
+    def post(self, request, *args, **kwargs):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Debug: Log de lo que viene en el POST
+        logger.info(f"POST data recibido: {request.POST}")
+        logger.info(f"dias_seleccionados recibido: {request.POST.get('dias_seleccionados', 'NO HAY')}")
+        logger.info(f"anio recibido: {request.POST.get('anio', 'NO HAY')}")
+        
+        form = TemporadasAnualForm(request.POST)
+        
+        if form.is_valid():
+            anio = form.cleaned_data['anio']
+            dias_seleccionados = form.cleaned_data.get('dias_seleccionados', {})
+            
+            logger.info(f"Formulario válido. Año: {anio}, Días seleccionados: {dias_seleccionados}")
+            
+            # Guardar temporadas
+            exito, mensaje = TemporadaService.guardar_temporadas_anual(
+                anio=anio,
+                dias_seleccionados=dias_seleccionados,
+                usuario=request.user
+            )
+            
+            logger.info(f"Resultado guardar temporadas: éxito={exito}, mensaje={mensaje}")
+            
+            if exito:
+                messages.success(request, mensaje)
+                return redirect(f"{reverse('dias_especiales_temporadas_anual')}?anio={anio}")
+            else:
+                messages.error(request, mensaje)
+        else:
+            logger.error(f"Formulario inválido. Errores: {form.errors}")
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field}: {error}')
+        
+        # Si hay errores, volver a mostrar el formulario
+        context = self.get_context_data()
+        context['form'] = form
+        return render(request, self.template_name, context)
+
+
+class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
+    """
+    Vista para gestionar días especiales anuales (festivos y mantenimiento).
+    Permite seleccionar días por mes para un año específico.
+    """
+    template_name = 'turnos/diasespeciales_festivos_mantenimiento_anual.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Obtener tipo del request o usar 'festivo' por defecto
+        tipo_seleccionado = self.request.GET.get('tipo', 'festivo')
+        if tipo_seleccionado not in ['festivo', 'mantenimiento']:
+            tipo_seleccionado = 'festivo'
+        
+        # Obtener año del request o usar año siguiente por defecto
+        anio_seleccionado = self.request.GET.get('anio')
+        if anio_seleccionado:
+            try:
+                anio_seleccionado = int(anio_seleccionado)
+            except ValueError:
+                anio_seleccionado = None
+        
+        if not anio_seleccionado:
+            anio_seleccionado = date.today().year + 1
+        
+        # Obtener días existentes para el tipo y año seleccionados
+        dias_por_mes = DiaEspecialService.obtener_dias_por_tipo_por_mes(tipo_seleccionado, anio_seleccionado)
+        tiene_dias = DiaEspecialService.tiene_dias_tipo_anio(tipo_seleccionado, anio_seleccionado)
+        
+        # Si es mantenimiento y no hay días guardados, calcular automáticamente
+        if tipo_seleccionado == 'mantenimiento' and not tiene_dias:
+            dias_por_mes = DiaEspecialService.calcular_dias_mantenimiento_automatico(anio_seleccionado)
+        
+        # Obtener festivos y temporadas para mostrar en el calendario (para todos los tipos)
+        festivos_por_mes = DiaEspecialService.obtener_dias_por_tipo_por_mes('festivo', anio_seleccionado)
+        temporadas_por_mes = TemporadaService.obtener_dias_temporada_por_mes(anio_seleccionado)
+        
+        # Obtener años con días del tipo configurados
+        anios_con_tipo = DiaEspecialService.obtener_anios_con_tipo(tipo_seleccionado)
+        
+        # Generar lista de años disponibles para el selector
+        # Incluir desde el año actual hasta 10 años en el futuro
+        anio_actual = date.today().year
+        anios_disponibles = list(range(anio_actual, anio_actual + 11))  # Año actual + 10 años más
+        
+        # Agregar años que ya tienen días del tipo pero que no están en el rango
+        for anio_temp in anios_con_tipo:
+            if anio_temp is not None and anio_temp not in anios_disponibles and anio_temp >= 2000:
+                anios_disponibles.append(anio_temp)
+        
+        # Ordenar años disponibles
+        anios_disponibles = sorted(set(anios_disponibles))
+        
+        # Preparar datos para el template
+        meses_nombres = [
+            'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+        ]
+        
+        meses_data = []
+        for mes in range(1, 13):
+            dias_mes = dias_por_mes.get(mes, [])
+            meses_data.append({
+                'numero': mes,
+                'nombre': meses_nombres[mes - 1],
+                'dias_seleccionados': dias_mes,
+                'total_dias': len(dias_mes)
+            })
+        
+        context.update({
+            'tipo_seleccionado': tipo_seleccionado,
+            'anio_seleccionado': anio_seleccionado,
+            'anio_actual': anio_actual,
+            'tiene_dias': tiene_dias,
+            'dias_por_mes': json.dumps(dias_por_mes),  # Serializar a JSON para JavaScript
+            'festivos_por_mes': json.dumps(festivos_por_mes),  # Festivos para mostrar en el calendario
+            'temporadas_por_mes': json.dumps(temporadas_por_mes),  # Temporadas para mostrar en el calendario
+            'meses_data': meses_data,
+            'anios_con_tipo': anios_con_tipo,  # Para referencia
+            'anios_disponibles': anios_disponibles,  # Lista completa de años para el selector
+            'form': DiasEspecialesAnualForm(initial={
+                'tipo': tipo_seleccionado,
+                'anio': anio_seleccionado
+            })
+        })
+        
+        return context
+    
+    def post(self, request, *args, **kwargs):
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # Debug: Log de lo que viene en el POST
+        logger.info(f"POST data recibido: {request.POST}")
+        logger.info(f"dias_seleccionados recibido: {request.POST.get('dias_seleccionados', 'NO HAY')}")
+        logger.info(f"tipo recibido: {request.POST.get('tipo', 'NO HAY')}")
+        logger.info(f"anio recibido: {request.POST.get('anio', 'NO HAY')}")
+        
+        form = DiasEspecialesAnualForm(request.POST)
+        
+        if form.is_valid():
+            tipo = form.cleaned_data['tipo']
+            anio = form.cleaned_data['anio']
+            dias_seleccionados = form.cleaned_data.get('dias_seleccionados', {})
+            
+            logger.info(f"Formulario válido. Tipo: {tipo}, Año: {anio}, Días seleccionados: {dias_seleccionados}")
+            
+            # Guardar días especiales
+            exito, mensaje = DiaEspecialService.guardar_dias_especiales_anual(
+                tipo=tipo,
+                anio=anio,
+                dias_seleccionados=dias_seleccionados,
+                usuario=request.user
+            )
+            
+            logger.info(f"Resultado guardar días especiales: éxito={exito}, mensaje={mensaje}")
+            
+            if exito:
+                messages.success(request, mensaje)
+                return redirect(f"{reverse('dias_especiales_festivos_mantenimiento_anual')}?tipo={tipo}&anio={anio}")
+            else:
+                messages.error(request, mensaje)
+        else:
+            logger.error(f"Formulario inválido. Errores: {form.errors}")
+            for field, errors in form.errors.items():
+                for error in errors:
+                    messages.error(request, f'{field}: {error}')
+        
+        # Si hay errores, volver a mostrar el formulario
+        context = self.get_context_data()
+        context['form'] = form
+        return render(request, self.template_name, context)

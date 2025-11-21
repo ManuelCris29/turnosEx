@@ -3,26 +3,91 @@
 {% block title %}Editar Restricción{% endblock %}
 {% block page_title %}Editar Restricción{% endblock %}
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12 col-md-8 col-lg-6">
-            <div class="card shadow">
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-7 mb-4">
+            <div class="card shadow-lg border-0 h-100">
                 <div class="card-header bg-warning text-dark">
-                    <h4 class="mb-0"><i class="fas fa-ban"></i> Editar Restricción</h4>
+                    <h4 class="mb-0"><i class="fas fa-ban mr-2"></i>Editar restricción</h4>
+                    <small class="text-muted">Actualiza los datos para mantener el historial vigente.</small>
                 </div>
                 <div class="card-body">
-                    <form method="post">
+                    <form method="post" novalidate>
                         {% csrf_token %}
-                        {{ form.as_p }}
-                        <div class="form-group text-center mt-4">
-                            <button type="submit" class="btn btn-primary px-4">
-                                <i class="fas fa-save"></i> Guardar Cambios
-                            </button>
-                            <a href="{% url 'restricciones_list' %}" class="btn btn-secondary px-4">
-                                <i class="fas fa-arrow-left"></i> Cancelar
+                        
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                        
+                        <div class="form-group">
+                            <label for="{{ form.empleado.id_for_label }}"><i class="fas fa-user mr-1"></i> Explorador</label>
+                            {{ form.empleado|add_class:"form-control" }}
+                            {% for error in form.empleado.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="{{ form.fecha_inicio.id_for_label }}"><i class="far fa-calendar-plus mr-1"></i> Fecha de inicio</label>
+                                {{ form.fecha_inicio|add_class:"form-control" }}
+                                {% for error in form.fecha_inicio.errors %}
+                                    <div class="invalid-feedback d-block">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="{{ form.fecha_fin.id_for_label }}"><i class="far fa-calendar-minus mr-1"></i> Fecha fin</label>
+                                {{ form.fecha_fin|add_class:"form-control" }}
+                                <small class="form-text text-muted">Déjalo vacío si la restricción sigue vigente.</small>
+                                {% for error in form.fecha_fin.errors %}
+                                    <div class="invalid-feedback d-block">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.tipo_restriccion.id_for_label }}"><i class="fas fa-exclamation-triangle mr-1"></i> Tipo de restricción</label>
+                            {{ form.tipo_restriccion|add_class:"form-control" }}
+                            {% for error in form.tipo_restriccion.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.recomendacion.id_for_label }}"><i class="fas fa-comment-medical mr-1"></i> Recomendación</label>
+                            {{ form.recomendacion|add_class:"form-control" }}
+                            <small class="form-text text-muted">Describe la indicación clínica o administrativa.</small>
+                            {% for error in form.recomendacion.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{% url 'restricciones_list' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left mr-1"></i> Cancelar
                             </a>
+                            <button type="submit" class="btn btn-primary px-4">
+                                <i class="fas fa-save mr-1"></i> Guardar cambios
+                            </button>
                         </div>
                     </form>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm border-0 h-100">
+                <div class="card-body">
+                    <h5 class="mb-3"><i class="fas fa-info-circle text-primary mr-2"></i>Resumen actual</h5>
+                    <ul class="list-unstyled text-muted small mb-0">
+                        <li class="mb-2"><i class="fas fa-user mr-2 text-primary"></i>{{ object.empleado.nombre }} {{ object.empleado.apellido }}</li>
+                        <li class="mb-2"><i class="far fa-calendar-plus mr-2 text-success"></i>Inicio: {{ object.fecha_inicio|date:'d M Y' }}</li>
+                        <li class="mb-2"><i class="far fa-calendar-minus mr-2 text-danger"></i>Fin: {{ object.fecha_fin|default:'Sin definir' }}</li>
+                        <li><i class="fas fa-tag mr-2 text-warning"></i>Tipo: {{ object.tipo_restriccion|default:'Sin tipo' }}</li>
+                    </ul>
                 </div>
             </div>
         </div>

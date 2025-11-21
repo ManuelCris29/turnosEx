@@ -2,50 +2,130 @@
 {% load widget_tweaks %}
 
 {% block title %}Editar Sanción{% endblock %}
-{% block page_title %}Editar Sanción{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-card {border-radius:0.75rem;box-shadow:0 4px 20px rgba(0,0,0,.08);}
+    .form-header {background:linear-gradient(135deg,#dc3545 0%,#c82333 100%);color:#fff;border-radius:0.75rem 0.75rem 0 0;padding:1.5rem;}
+    .form-body {padding:2rem;}
+    .form-group label {font-weight:600;color:#495057;margin-bottom:0.5rem;}
+    .form-control:focus {border-color:#dc3545;box-shadow:0 0 0 0.2rem rgba(220,53,69,.25);}
+    .btn-danger {background:linear-gradient(135deg,#dc3545 0%,#c82333 100%);border:none;transition:all 0.3s ease;}
+    .btn-danger:hover {transform:translateY(-2px);box-shadow:0 8px 20px rgba(220,53,69,.3);}
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
+<div class="container mt-4 mb-5">
     <div class="row justify-content-center">
-        <div class="col-12 col-md-10 col-lg-8">
-            <div class="card shadow">
-                <div class="card-header bg-danger text-white">
-                    <h4 class="mb-0"><i class="fas fa-gavel"></i> Editar Sanción</h4>
+        <div class="col-12 col-lg-10 col-xl-8">
+            <div class="card form-card border-0">
+                <div class="form-header">
+                    <div class="d-flex align-items-center">
+                        <div class="icon-circle bg-white text-danger d-flex align-items-center justify-content-center mr-3" style="width:48px;height:48px;border-radius:50%;">
+                            <i class="fas fa-edit"></i>
+                        </div>
+                        <div>
+                            <h4 class="mb-0">Editar Sanción</h4>
+                            <small class="opacity-75">Modifica los datos de la sanción</small>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <form method="post">
+                <div class="form-body">
+                    <form method="post" novalidate>
                         {% csrf_token %}
-                        <div class="form-row">
-                            <div class="form-group col-md-6">
-                                <label for="id_explorador"><i class="fas fa-user"></i> <strong>Explorador:</strong></label>
+                        
+                        {% if form.non_field_errors %}
+                            <div class="alert alert-danger" role="alert">
+                                {% for error in form.non_field_errors %}
+                                    <i class="fas fa-exclamation-circle mr-2"></i>{{ error }}
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label for="{{ form.explorador.id_for_label }}">
+                                    <i class="fas fa-user text-danger mr-2"></i>Explorador <span class="text-danger">*</span>
+                                </label>
                                 {{ form.explorador|add_class:'form-control' }}
+                                {% if form.explorador.errors %}
+                                    <div class="text-danger small mt-1">
+                                        {% for error in form.explorador.errors %}
+                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </div>
-                            <div class="form-group col-md-6">
-                                <label for="id_supervisor"><i class="fas fa-user-tie"></i> <strong>Supervisor:</strong></label>
+                            
+                            <div class="col-md-6 mb-4">
+                                <label for="{{ form.supervisor.id_for_label }}">
+                                    <i class="fas fa-user-tie text-danger mr-2"></i>Supervisor <span class="text-danger">*</span>
+                                </label>
                                 {{ form.supervisor|add_class:'form-control' }}
+                                {% if form.supervisor.errors %}
+                                    <div class="text-danger small mt-1">
+                                        {% for error in form.supervisor.errors %}
+                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </div>
                         </div>
-                        <div class="form-row">
-                            <div class="form-group col-md-6">
-                                <label for="id_fecha_inicio"><i class="fas fa-calendar-alt"></i> <strong>Fecha Inicio:</strong></label>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label for="{{ form.fecha_inicio.id_for_label }}">
+                                    <i class="fas fa-calendar-alt text-danger mr-2"></i>Fecha Inicio <span class="text-danger">*</span>
+                                </label>
                                 {{ form.fecha_inicio|add_class:'form-control' }}
+                                {% if form.fecha_inicio.errors %}
+                                    <div class="text-danger small mt-1">
+                                        {% for error in form.fecha_inicio.errors %}
+                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </div>
-                            <div class="form-group col-md-6">
-                                <label for="id_fecha_fin"><i class="fas fa-calendar-alt"></i> <strong>Fecha Fin:</strong></label>
+                            
+                            <div class="col-md-6 mb-4">
+                                <label for="{{ form.fecha_fin.id_for_label }}">
+                                    <i class="fas fa-calendar-check text-danger mr-2"></i>Fecha Fin
+                                </label>
                                 {{ form.fecha_fin|add_class:'form-control' }}
+                                <small class="form-text text-muted">Opcional. Deja vacío si la sanción no tiene fecha de finalización.</small>
+                                {% if form.fecha_fin.errors %}
+                                    <div class="text-danger small mt-1">
+                                        {% for error in form.fecha_fin.errors %}
+                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label for="id_motivo"><i class="fas fa-align-left"></i> <strong>Motivo:</strong></label>
-                            {{ form.motivo|add_class:'form-control' }}
+                        
+                        <div class="mb-4">
+                            <label for="{{ form.motivo.id_for_label }}">
+                                <i class="fas fa-align-left text-danger mr-2"></i>Motivo <span class="text-danger">*</span>
+                            </label>
+                            {{ form.motivo|add_class:'form-control'|attr:'rows:4' }}
+                            <small class="form-text text-muted">Describe el motivo de la sanción de manera clara y detallada.</small>
+                            {% if form.motivo.errors %}
+                                <div class="text-danger small mt-1">
+                                    {% for error in form.motivo.errors %}
+                                        <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
+                                    {% endfor %}
+                                </div>
+                            {% endif %}
                         </div>
-                        <div class="form-group text-center mt-4">
-                            <button type="submit" class="btn btn-danger px-4">
-                                <i class="fas fa-save"></i> Guardar Cambios
-                            </button>
-                            <a href="{% url 'sanciones_list' %}" class="btn btn-secondary px-4">
-                                <i class="fas fa-arrow-left"></i> Cancelar
+                        
+                        <div class="d-flex justify-content-between align-items-center pt-3 border-top">
+                            <a href="{% url 'sanciones_list' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left mr-2"></i>Cancelar
                             </a>
+                            <button type="submit" class="btn btn-danger px-4">
+                                <i class="fas fa-save mr-2"></i>Guardar Cambios
+                            </button>
                         </div>
                     </form>
                 </div>
@@ -53,4 +133,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

@@ -1,0 +1,869 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Gestión de Festivos y Mantenimiento Anuales - AppTurnos{% endblock %}
+
+{% block extra_css %}
+<style>
+    .calendario-mes {
+        border: 1px solid #dee2e6;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 20px;
+        background: #fff;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: visible;
+    }
+    
+    .calendario-mes h5 {
+        color: #495057;
+        margin-bottom: 15px;
+        font-weight: 600;
+        font-size: 1.1rem;
+    }
+    
+    .calendario-grid {
+        display: grid;
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+        gap: 4px;
+        margin-bottom: 10px;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: visible;
+    }
+    
+    .calendario-dia-header {
+        text-align: center;
+        font-weight: 600;
+        color: #6c757d;
+        padding: 6px 4px;
+        font-size: 0.75rem;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .calendario-dia {
+        aspect-ratio: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: all 0.2s;
+        font-size: 0.8rem;
+        background: #fff;
+        min-height: 32px;
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+        word-wrap: break-word;
+    }
+    
+    .calendario-dia:hover {
+        background: #e9ecef;
+        transform: scale(1.05);
+    }
+    
+    .calendario-dia.vacio {
+        background: #f8f9fa;
+        cursor: default;
+        border: none;
+    }
+    
+    .calendario-dia.seleccionado {
+        background: #007bff;
+        color: #fff;
+        border-color: #0056b3;
+        font-weight: 600;
+    }
+    
+    .calendario-dia.seleccionado:hover {
+        background: #0056b3;
+    }
+    
+    .calendario-dia.festivo {
+        background: #dc3545;
+        color: #fff;
+        border-color: #c82333;
+        font-weight: 600;
+    }
+    
+    .calendario-dia.festivo:hover {
+        background: #c82333;
+    }
+    
+    .calendario-dia.temporada {
+        background: #ff9800;
+        color: #fff;
+        border-color: #e68900;
+        font-weight: 600;
+    }
+    
+    .calendario-dia.temporada:hover {
+        background: #e68900;
+    }
+    
+    /* Cuando un día es seleccionado Y festivo/temporada, mantener el color de selección pero con borde especial */
+    .calendario-dia.seleccionado.festivo {
+        background: #007bff;
+        border-color: #dc3545;
+        border-width: 2px;
+    }
+    
+    .calendario-dia.seleccionado.temporada {
+        background: #007bff;
+        border-color: #ff9800;
+        border-width: 2px;
+    }
+    
+    .resumen-mes {
+        margin-top: 10px;
+        padding: 8px;
+        background: #f8f9fa;
+        border-radius: 4px;
+        font-size: 0.8rem;
+        color: #6c757d;
+        word-break: break-word;
+    }
+    
+    .resumen-mes strong {
+        color: #007bff;
+    }
+    
+    .alert-info {
+        border-left: 4px solid #17a2b8;
+    }
+    
+    .selector-anio, .selector-tipo {
+        max-width: 100%;
+    }
+    
+    /* Responsive: Tablets (≥ 576px) */
+    @media (min-width: 576px) {
+        .calendario-mes {
+            padding: 18px;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 1.2rem;
+        }
+        
+        .calendario-grid {
+            gap: 5px;
+        }
+        
+        .calendario-dia-header {
+            padding: 8px 4px;
+            font-size: 0.8rem;
+        }
+        
+        .calendario-dia {
+            font-size: 0.85rem;
+            min-height: 36px;
+        }
+        
+        .resumen-mes {
+            font-size: 0.85rem;
+        }
+        
+        .selector-anio, .selector-tipo {
+            max-width: 250px;
+        }
+    }
+    
+    /* Responsive: Nest Hub y dispositivos con altura limitada (MÁS ESPECÍFICO - DEBE IR PRIMERO) */
+    @media (min-width: 1024px) and (max-height: 700px) {
+        .calendario-mes {
+            padding: 10px !important;
+            margin-bottom: 12px !important;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 0.95rem !important;
+            margin-bottom: 10px !important;
+        }
+        
+        .calendario-grid {
+            gap: 3px !important;
+            margin-bottom: 8px !important;
+        }
+        
+        .calendario-dia-header {
+            padding: 5px 3px !important;
+            font-size: 0.7rem !important;
+        }
+        
+        .calendario-dia {
+            font-size: 0.75rem !important;
+            min-height: 28px !important;
+        }
+        
+        .resumen-mes {
+            padding: 6px !important;
+            font-size: 0.75rem !important;
+        }
+    }
+    
+    /* Responsive: Tablets pequeñas (iPad Mini, 768px - 991px) */
+    @media (min-width: 768px) and (max-width: 991.98px) {
+        .calendario-mes {
+            padding: 12px !important;
+            margin-bottom: 15px !important;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 1rem !important;
+            margin-bottom: 12px !important;
+        }
+        
+        .calendario-grid {
+            gap: 4px !important;
+            margin-bottom: 10px !important;
+        }
+        
+        .calendario-dia-header {
+            padding: 6px 4px !important;
+            font-size: 0.75rem !important;
+        }
+        
+        .calendario-dia {
+            font-size: 0.8rem !important;
+            min-height: 32px !important;
+        }
+        
+        .resumen-mes {
+            padding: 8px !important;
+            font-size: 0.8rem !important;
+        }
+        
+        .selector-anio, .selector-tipo {
+            max-width: 100% !important;
+        }
+    }
+    
+    /* Responsive: Tablets grandes (iPad Pro, 992px - 1199px) */
+    @media (min-width: 992px) and (max-width: 1199.98px) {
+        .calendario-mes {
+            padding: 14px !important;
+            margin-bottom: 18px !important;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 1.1rem !important;
+            margin-bottom: 14px !important;
+        }
+        
+        .calendario-grid {
+            gap: 5px !important;
+            margin-bottom: 11px !important;
+        }
+        
+        .calendario-dia-header {
+            padding: 7px 4px !important;
+            font-size: 0.8rem !important;
+        }
+        
+        .calendario-dia {
+            font-size: 0.85rem !important;
+            min-height: 36px !important;
+        }
+        
+        .resumen-mes {
+            padding: 9px !important;
+            font-size: 0.82rem !important;
+        }
+        
+        .selector-anio, .selector-tipo {
+            max-width: 280px !important;
+        }
+    }
+    
+    /* Responsive: Portátiles Full HD (1920x1080) - Optimización específica (ANTES de reglas generales) */
+    @media (min-width: 1200px) and (max-width: 1920px) {
+        .container-fluid {
+            max-width: 1600px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: 15px !important;
+            padding-right: 15px !important;
+        }
+        
+        .calendario-mes {
+            padding: 18px !important;
+            overflow: visible !important;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 1.2rem !important;
+            margin-bottom: 16px !important;
+        }
+        
+        .calendario-grid {
+            gap: 6px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            overflow: visible !important;
+            grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+        }
+        
+        .calendario-dia {
+            min-height: 42px !important;
+            font-size: 0.88rem !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+        
+        .calendario-dia-header {
+            font-size: 0.83rem !important;
+            padding: 7px 4px !important;
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+    }
+    
+    /* Responsive: Desktop estándar (≥ 768px) - Fallback para compatibilidad (DESPUÉS de específicos) */
+    @media (min-width: 768px) and (min-height: 701px) {
+        .calendario-mes {
+            padding: 20px;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 1.25rem;
+            margin-bottom: 18px;
+        }
+        
+        .calendario-grid {
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        
+        .calendario-dia-header {
+            padding: 8px;
+            font-size: 0.85rem;
+        }
+        
+        .calendario-dia {
+            font-size: 0.9rem;
+            min-height: 40px;
+        }
+        
+        .resumen-mes {
+            padding: 10px;
+            font-size: 0.85rem;
+        }
+        
+        .selector-anio, .selector-tipo {
+            max-width: 300px;
+        }
+    }
+    
+    /* Responsive: Large Desktop (≥ 1200px) - Portátiles Full HD y superiores */
+    @media (min-width: 1200px) and (min-height: 701px) {
+        .calendario-grid {
+            gap: 8px;
+        }
+        
+        .calendario-dia {
+            min-height: 44px;
+        }
+    }
+    
+    /* Responsive: Mobile adjustments */
+    @media (max-width: 575.98px) {
+        .calendario-mes {
+            padding: 12px;
+            margin-bottom: 15px;
+        }
+        
+        .calendario-mes h5 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            flex-direction: column;
+            align-items: flex-start !important;
+        }
+        
+        .calendario-mes h5 .badge {
+            margin-top: 8px;
+            align-self: flex-start;
+        }
+        
+        .calendario-grid {
+            gap: 3px;
+        }
+        
+        .calendario-dia-header {
+            padding: 5px 2px;
+            font-size: 0.7rem;
+        }
+        
+        .calendario-dia {
+            font-size: 0.75rem;
+            min-height: 28px;
+        }
+        
+        .resumen-mes {
+            padding: 6px;
+            font-size: 0.75rem;
+        }
+        
+        .input-group-append .btn {
+            padding: 0.375rem 0.75rem;
+        }
+    }
+    
+    /* Touch-friendly adjustments for mobile */
+    @media (max-width: 767.98px) {
+        .calendario-dia {
+            min-height: 32px;
+        }
+        
+        .calendario-dia:active {
+            transform: scale(0.95);
+        }
+        
+        .btn {
+            padding: 0.5rem 1rem;
+            font-size: 0.9rem;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4" style="overflow-x: hidden; max-width: 100%; box-sizing: border-box;">
+    <div class="row" style="margin-left: 0; margin-right: 0; max-width: 100%; box-sizing: border-box;">
+        <div class="col-12" style="padding-left: 15px; padding-right: 15px; max-width: 100%; box-sizing: border-box;">
+            <div class="card shadow">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">
+                        <i class="fas fa-calendar-alt"></i> Configurar Festivos y Mantenimiento por Año
+                    </h4>
+                </div>
+                <div class="card-body">
+                    {% if tiene_dias %}
+                    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <strong>Advertencia:</strong> Este año ya tiene {{ tipo_seleccionado }}s configurados. 
+                        Al guardar se reemplazarán los {{ tipo_seleccionado }}s existentes.
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    {% endif %}
+                    
+                    {% if form.errors %}
+                    <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                        <h5><i class="fas fa-exclamation-triangle"></i> Errores en el formulario:</h5>
+                        <ul class="mb-0">
+                            {% for field, errors in form.errors.items %}
+                                {% for error in errors %}
+                                    <li><strong>{{ field }}:</strong> {{ error }}</li>
+                                {% endfor %}
+                            {% endfor %}
+                        </ul>
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    {% endif %}
+                    
+                    <form method="post" id="form-dias-especiales">
+                        {% csrf_token %}
+                        <div class="row mb-4">
+                            <div class="col-12 col-md-3 mb-3 mb-md-0">
+                                <label for="id_tipo" class="form-label">
+                                    <strong><i class="fas fa-tag"></i> Tipo:</strong>
+                                </label>
+                                <select name="tipo" id="id_tipo" class="form-control selector-tipo" required>
+                                    <option value="festivo" {% if tipo_seleccionado == 'festivo' %}selected{% endif %}>Festivo</option>
+                                    <option value="mantenimiento" {% if tipo_seleccionado == 'mantenimiento' %}selected{% endif %}>Mantenimiento</option>
+                                </select>
+                                <small class="form-text text-muted">
+                                    Seleccione el tipo de día especial
+                                </small>
+                            </div>
+                            <div class="col-12 col-md-3 mb-3 mb-md-0">
+                                <label for="id_anio" class="form-label">
+                                    <strong><i class="fas fa-calendar"></i> Seleccionar Año:</strong>
+                                </label>
+                                <div class="input-group">
+                                    <select name="anio" id="id_anio" class="form-control selector-anio" required>
+                                        {% for anio in anios_disponibles %}
+                                        <option value="{{ anio }}" {% if anio == anio_seleccionado %}selected{% endif %}>
+                                            {{ anio }}
+                                            {% if anio in anios_con_tipo %}
+                                                (con {{ tipo_seleccionado }}s)
+                                            {% endif %}
+                                        </option>
+                                        {% endfor %}
+                                        {% if anio_seleccionado not in anios_disponibles %}
+                                        <option value="{{ anio_seleccionado }}" selected>{{ anio_seleccionado }}</option>
+                                        {% endif %}
+                                    </select>
+                                    <div class="input-group-append">
+                                        <button type="button" class="btn btn-outline-secondary" id="btn-anio-personalizado" title="Ingresar año personalizado">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <small class="form-text text-muted">
+                                    Seleccione el año (rango: {{ anio_actual }} - {{ anio_actual|add:10 }})
+                                </small>
+                                <input type="number" 
+                                       id="anio-personalizado-input" 
+                                       class="form-control mt-2" 
+                                       placeholder="O ingrese un año personalizado (2000-2100)" 
+                                       min="2000" 
+                                       max="2100" 
+                                       style="display: none;">
+                            </div>
+                            <div class="col-12 col-md-6 text-center text-md-right mt-3 mt-md-4">
+                                <button type="button" class="btn btn-info mb-2 mb-md-0 mr-md-2" id="btn-cargar-anio">
+                                    <i class="fas fa-sync"></i> Cargar Año
+                                </button>
+                                {% if tipo_seleccionado == 'mantenimiento' %}
+                                <button type="button" class="btn btn-warning mb-2 mb-md-0 mr-md-2" id="btn-regenerar-mantenimiento">
+                                    <i class="fas fa-magic"></i> Regenerar Automáticamente
+                                </button>
+                                {% endif %}
+                                <button type="submit" class="btn btn-success" id="btn-guardar">
+                                    <i class="fas fa-save"></i> Guardar
+                                </button>
+                            </div>
+                        </div>
+                        
+                        {% if tipo_seleccionado == 'mantenimiento' %}
+                        <div class="alert alert-info mb-4" id="panel-festivos">
+                            <h5 class="alert-heading">
+                                <i class="fas fa-info-circle"></i> Días Festivos del Año {{ anio_seleccionado }}
+                            </h5>
+                            <p class="mb-2">
+                                <small>Los días de mantenimiento se calculan automáticamente como el primer día hábil de cada semana, evitando festivos y temporadas.</small>
+                            </p>
+                            <div id="festivos-lista" class="mt-2">
+                                <span class="badge badge-secondary mr-1 mb-1" id="festivos-badges"></span>
+                            </div>
+                        </div>
+                        {% endif %}
+                        
+                        <input type="hidden" name="dias_seleccionados" id="id_dias_seleccionados" value="">
+                        
+                        <div class="row" id="calendarios-meses" style="margin-left: -7.5px; margin-right: -7.5px;">
+                            {% for mes_data in meses_data %}
+                            <div class="col-12 col-md-6 col-lg-4 mb-4" style="padding-left: 7.5px; padding-right: 7.5px; overflow: visible;">
+                                <div class="calendario-mes" data-mes="{{ mes_data.numero }}" style="overflow: visible;">
+                                    <h5 class="d-flex justify-content-between align-items-center">
+                                        <span>
+                                            <i class="fas fa-calendar-week"></i> {{ mes_data.nombre }}
+                                        </span>
+                                        <span class="badge badge-primary" id="badge-{{ mes_data.numero }}">
+                                            {{ mes_data.total_dias }} día{{ mes_data.total_dias|pluralize }}
+                                        </span>
+                                    </h5>
+                                    <div class="calendario-grid" id="calendario-{{ mes_data.numero }}"></div>
+                                    <div class="resumen-mes" id="resumen-{{ mes_data.numero }}">
+                                        <strong>Días seleccionados:</strong> <span id="dias-texto-{{ mes_data.numero }}">Ninguno</span>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/turnos/calendario_festivos_mantenimiento.js' %}"></script>
+<script>
+    // Inicializar calendarios al cargar la página
+    document.addEventListener('DOMContentLoaded', function() {
+        const tipoSeleccionado = '{{ tipo_seleccionado }}';
+        const anioSeleccionado = parseInt('{{ anio_seleccionado }}');
+        let diasPorMes = {{ dias_por_mes|safe }};
+        let festivosPorMes = {{ festivos_por_mes|safe }};
+        let temporadasPorMes = {{ temporadas_por_mes|safe }};
+        
+        // Establecer festivos y temporadas para el renderizado del calendario
+        if (typeof establecerFestivosYTemporadas === 'function') {
+            establecerFestivosYTemporadas(festivosPorMes, temporadasPorMes);
+        }
+        
+        // Mostrar festivos si es mantenimiento
+        if (tipoSeleccionado === 'mantenimiento' && festivosPorMes) {
+            mostrarFestivos(festivosPorMes, anioSeleccionado);
+        }
+        
+        // Inicializar calendario usando la función robusta del JS externo
+        if (typeof inicializarCalendarioConDatos === 'function') {
+            inicializarCalendarioConDatos(diasPorMes, anioSeleccionado);
+        } else {
+            // Fallback por si el JS externo no ha cargado o es versión vieja
+            console.warn("inicializarCalendarioConDatos no encontrado, usando lógica manual");
+            if (diasPorMes) {
+                Object.keys(diasPorMes).forEach(key => {
+                    diasSeleccionadosPorMes[parseInt(key)] = diasPorMes[key].map(d => parseInt(d));
+                });
+            }
+            for (let mes = 1; mes <= 12; mes++) {
+                renderizarCalendarioMes(mes, anioSeleccionado, diasSeleccionadosPorMes[mes] || []);
+            }
+            actualizarDiasSeleccionados();
+        }
+        
+        // Si no hay datos precargados, intentar cargar desde API como respaldo
+        const hayDatos = diasPorMes && Object.keys(diasPorMes).length > 0;
+        if (!hayDatos) {
+            console.log("No hay datos precargados, consultando API...");
+            cargarDiasExistentes(tipoSeleccionado, anioSeleccionado);
+        }
+
+        // Event listener para cambiar de tipo
+        document.getElementById('id_tipo').addEventListener('change', function() {
+            const nuevoTipo = this.value;
+            const anio = document.getElementById('id_anio').value;
+            window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + nuevoTipo + '&anio=' + anio;
+        });
+        
+        // Event listener para cambiar de año
+        document.getElementById('id_anio').addEventListener('change', function() {
+            const nuevoAnio = this.value;
+            const tipo = document.getElementById('id_tipo').value;
+            window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + tipo + '&anio=' + nuevoAnio;
+        });
+        
+        // Event listener para botón cargar año
+        document.getElementById('btn-cargar-anio').addEventListener('click', function() {
+            const tipo = document.getElementById('id_tipo').value;
+            const anio = parseInt(document.getElementById('id_anio').value);
+            
+            // Limpiar días seleccionados antes de cargar
+            diasSeleccionadosPorMes = {};
+            
+            // Recargar festivos y temporadas para el nuevo año
+            recargarFestivosYTemporadas(anio);
+            
+            // Cargar días existentes desde el servidor
+            cargarDiasExistentes(tipo, anio);
+        });
+        
+        // Event listener para año personalizado
+        const btnAnioPersonalizado = document.getElementById('btn-anio-personalizado');
+        const inputAnioPersonalizado = document.getElementById('anio-personalizado-input');
+        
+        if (btnAnioPersonalizado && inputAnioPersonalizado) {
+            btnAnioPersonalizado.addEventListener('click', function() {
+                if (inputAnioPersonalizado.style.display === 'none') {
+                    inputAnioPersonalizado.style.display = 'block';
+                    inputAnioPersonalizado.focus();
+                } else {
+                    inputAnioPersonalizado.style.display = 'none';
+                }
+            });
+            
+            inputAnioPersonalizado.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    const anio = parseInt(this.value);
+                    if (anio >= 2000 && anio <= 2100) {
+                        const tipo = document.getElementById('id_tipo').value;
+                        window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + tipo + '&anio=' + anio;
+                    } else {
+                        alert('Por favor, ingrese un año entre 2000 y 2100');
+                    }
+                }
+            });
+            
+            inputAnioPersonalizado.addEventListener('blur', function() {
+                const anio = parseInt(this.value);
+                if (anio >= 2000 && anio <= 2100) {
+                    const tipo = document.getElementById('id_tipo').value;
+                    window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + tipo + '&anio=' + anio;
+                } else if (this.value) {
+                    alert('Por favor, ingrese un año entre 2000 y 2100');
+                    this.value = '';
+                }
+            });
+        }
+        
+        // Event listener para submit del formulario
+        document.getElementById('form-dias-especiales').addEventListener('submit', function(e) {
+            const diasSeleccionados = obtenerDiasSeleccionados();
+            const totalDias = Object.values(diasSeleccionados).reduce((sum, dias) => sum + dias.length, 0);
+            const tipo = document.getElementById('id_tipo').value;
+            const tipoTexto = tipo === 'festivo' ? 'festivo' : 'de mantenimiento';
+            
+            console.log('Días seleccionados antes de enviar:', diasSeleccionados);
+            console.log('Total días:', totalDias);
+            console.log('Tipo:', tipo);
+            
+            if (totalDias === 0) {
+                e.preventDefault();
+                alert('Por favor, seleccione al menos un día ' + tipoTexto + '.');
+                return false;
+            }
+            
+            // Confirmar si hay días existentes
+            {% if tiene_dias %}
+            if (!confirm('¿Está seguro de reemplazar los {{ tipo_seleccionado }}s existentes de este año?')) {
+                e.preventDefault();
+                return false;
+            }
+            {% endif %}
+            
+            // Guardar días seleccionados en el campo hidden
+            const diasJSON = JSON.stringify(diasSeleccionados);
+            document.getElementById('id_dias_seleccionados').value = diasJSON;
+            
+            console.log('Valor guardado en campo hidden:', document.getElementById('id_dias_seleccionados').value);
+            console.log('Año seleccionado:', document.getElementById('id_anio').value);
+            console.log('Tipo seleccionado:', document.getElementById('id_tipo').value);
+        });
+        
+        // Event listener para botón regenerar mantenimiento (solo si es tipo mantenimiento)
+        const btnRegenerarMantenimiento = document.getElementById('btn-regenerar-mantenimiento');
+        if (btnRegenerarMantenimiento) {
+            btnRegenerarMantenimiento.addEventListener('click', function() {
+                const anio = parseInt(document.getElementById('id_anio').value);
+                regenerarMantenimientoAutomatico(anio);
+            });
+        }
+    });
+    
+    /**
+     * Muestra los festivos en el panel de información.
+     * @param {Object} festivosPorMes - Objeto con mes como clave y array de días como valor
+     * @param {number} anio - Año
+     */
+    function mostrarFestivos(festivosPorMes, anio) {
+        const contenedor = document.getElementById('festivos-badges');
+        if (!contenedor) return;
+        
+        const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        let html = '';
+        
+        if (festivosPorMes && Object.keys(festivosPorMes).length > 0) {
+            Object.keys(festivosPorMes).forEach(mesKey => {
+                const mes = parseInt(mesKey);
+                const dias = festivosPorMes[mesKey];
+                if (dias && dias.length > 0) {
+                    dias.forEach(dia => {
+                        html += `<span class="badge badge-secondary mr-1 mb-1">${mesesNombres[mes - 1]} ${dia}</span>`;
+                    });
+                }
+            });
+        } else {
+            html = '<span class="text-muted">No hay festivos configurados para este año.</span>';
+        }
+        
+        contenedor.innerHTML = html;
+    }
+    
+    /**
+     * Recarga festivos y temporadas desde el servidor para un año específico.
+     * @param {number} anio - Año a cargar
+     */
+    function recargarFestivosYTemporadas(anio) {
+        // Cargar festivos
+        fetch(`/turnos/api/dias-especiales-por-tipo/?tipo=festivo&anio=${anio}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.por_mes) {
+                    festivosPorMes = {};
+                    for (const mes in data.por_mes) {
+                        festivosPorMes[parseInt(mes)] = data.por_mes[mes];
+                    }
+                    if (typeof establecerFestivosYTemporadas === 'function') {
+                        establecerFestivosYTemporadas(festivosPorMes, temporadasPorMes);
+                    }
+                }
+            })
+            .catch(error => console.error('Error al cargar festivos:', error));
+        
+        // Cargar temporadas
+        fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.por_mes) {
+                    temporadasPorMes = {};
+                    for (const mes in data.por_mes) {
+                        temporadasPorMes[parseInt(mes)] = data.por_mes[mes];
+                    }
+                    if (typeof establecerFestivosYTemporadas === 'function') {
+                        establecerFestivosYTemporadas(festivosPorMes, temporadasPorMes);
+                    }
+                }
+            })
+            .catch(error => console.error('Error al cargar temporadas:', error));
+    }
+    
+    /**
+     * Regenera automáticamente los días de mantenimiento usando el cálculo del servidor.
+     * @param {number} anio - Año para calcular
+     */
+    function regenerarMantenimientoAutomatico(anio) {
+        if (!confirm('¿Está seguro de regenerar automáticamente los días de mantenimiento? Esto reemplazará cualquier selección manual actual.')) {
+            return;
+        }
+        
+        const btnRegenerar = document.getElementById('btn-regenerar-mantenimiento');
+        if (btnRegenerar) {
+            btnRegenerar.disabled = true;
+            btnRegenerar.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculando...';
+        }
+        
+        fetch(`/turnos/api/calcular-mantenimiento-automatico/?anio=${anio}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.por_mes) {
+                    // Limpiar selección actual
+                    diasSeleccionadosPorMes = {};
+                    
+                    // Recargar festivos y temporadas para asegurar que se muestren correctamente
+                    recargarFestivosYTemporadas(anio);
+                    
+                    // Procesar días calculados
+                    Object.keys(data.por_mes).forEach(mesKey => {
+                        const mes = parseInt(mesKey);
+                        diasSeleccionadosPorMes[mes] = data.por_mes[mesKey].map(d => parseInt(d));
+                        renderizarCalendarioMes(mes, anio, data.por_mes[mesKey]);
+                    });
+                    
+                    actualizarDiasSeleccionados();
+                    
+                    alert(`Se calcularon automáticamente ${data.total} días de mantenimiento para el año ${anio}.`);
+                } else {
+                    alert('No se pudieron calcular los días de mantenimiento automáticamente.');
+                }
+            })
+            .catch(error => {
+                console.error('Error al regenerar mantenimiento:', error);
+                alert('Error al calcular los días de mantenimiento automáticamente. Por favor, intente nuevamente.');
+            })
+            .finally(() => {
+                if (btnRegenerar) {
+                    btnRegenerar.disabled = false;
+                    btnRegenerar.innerHTML = '<i class="fas fa-magic"></i> Regenerar Automáticamente';
+                }
+            });
+    }
+</script>
+{% endblock %}
+

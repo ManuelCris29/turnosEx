@@ -11,6 +11,7 @@ from typing import Dict, Any, Tuple, Optional
 from django.core.exceptions import ValidationError
 from solicitudes.models import SolicitudCambio
 from empleados.models import Empleado
+from core.services import get_empleado_disponibilidad_service, get_turno_service
 
 
 class SolicitudStrategy(ABC):
@@ -82,9 +83,8 @@ class SolicitudStrategy(ABC):
         Returns:
             List of available empleados
         """
-        # Default implementation - can be overridden
-        from ..solicitud_service import SolicitudService
-        return SolicitudService.get_empleados_disponibles(fecha, usuario_actual)
+        service = get_empleado_disponibilidad_service()
+        return service.get_empleados_disponibles(fecha, usuario_actual)
     
     def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
         """
@@ -98,9 +98,8 @@ class SolicitudStrategy(ABC):
         Returns:
             Dictionary with turn information
         """
-        # Default implementation - can be overridden
-        from ..solicitud_service import SolicitudService
-        return SolicitudService.get_turno_explorador(explorador_id, fecha)
+        turno_service = get_turno_service()
+        return turno_service.get_turno_explorador(explorador_id, fecha)
     
     def __str__(self):
         return f"{self.__class__.__name__}({self.tipo_solicitud})"

@@ -166,7 +166,7 @@ EMAIL_HOST = 'smtp.gmail.com'
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'manuel.moreno@parqueexplora.org'
-EMAIL_HOST_PASSWORD = 'mwqk pfqn xtxj ljsc'  # REEMPLAZAR CON LA NUEVA CONTRASEÑA DE APLICACIÓN
+EMAIL_HOST_PASSWORD = 'rxdb vtzv rakd altd'  # REEMPLAZAR CON LA NUEVA CONTRASEÑA DE APLICACIÓN
 DEFAULT_FROM_EMAIL = 'manuel.moreno@parqueexplora.org'
 
 # Para desarrollo: usar backend de consola (comentado)

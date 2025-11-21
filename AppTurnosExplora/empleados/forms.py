@@ -48,8 +48,15 @@ class RestriccionEmpleadoForm(forms.ModelForm):
         fields = ['empleado', 'fecha_inicio', 'fecha_fin', 'recomendacion', 'tipo_restriccion']
         widgets = {
             'empleado': forms.Select(attrs={'class': 'form-control'}),
-            'recomendacion': forms.TextInput(attrs={'class': 'form-control'}),
-            'tipo_restriccion': forms.TextInput(attrs={'class': 'form-control'}),
+            'recomendacion': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 3,
+                'placeholder': 'Describe la recomendación médica o administrativa'
+            }),
+            'tipo_restriccion': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Ej: Restricción de peso, postura, turnos, etc.'
+            }),
         } 
 
 class JornadaForm(forms.ModelForm):

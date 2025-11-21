@@ -1,0 +1,5 @@
+"""
+Tests de integración globales
+"""
+
+

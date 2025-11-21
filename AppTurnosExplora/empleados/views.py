@@ -3,6 +3,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, DetailView, UpdateView, TemplateView
 from django.views.generic.edit import CreateView, DeleteView
 from django.core.exceptions import PermissionDenied
+from django.db.models import Count, Q
 from .services.empleado_service import EmpleadoService
 from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado, AsignacionSalaPeriodo
 from permisos.models import PDH
@@ -17,28 +18,8 @@ from turnos.models import AsignarJornadaExplorador
 from django.utils import timezone
 from .forms import SancionEmpleadoForm, RestriccionEmpleadoForm, JornadaForm, EmpleadoUsuarioForm
 
-# Mixin personalizado para verificar permisos de administrador
-class AdminRequiredMixin:
-    def dispatch(self, request, *args, **kwargs):
-        # Verificar si el usuario es staff o tiene rol de Supervisor
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-        
-        # Si es staff, permitir acceso
-        if request.user.is_staff:
-            return super().dispatch(request, *args, **kwargs)
-        
-        # Verificar si tiene rol de Supervisor
-        try:
-            empleado = request.user.empleado
-            tiene_rol_supervisor = empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists()
-            if tiene_rol_supervisor:
-                return super().dispatch(request, *args, **kwargs)
-        except:
-            pass
-        
-        # Si no cumple ninguna condición, denegar acceso
-        raise PermissionDenied("No tienes permisos de administrador.")
+# Importar mixin común desde core
+from core.mixins import AdminRequiredMixin
 
 # Create your views here.
 
@@ -327,6 +308,52 @@ class RestriccionListView(LoginRequiredMixin, ListView):
     template_name = 'empleados/restricciones_list.html'
     context_object_name = 'restricciones'
 
+    def _base_queryset(self):
+        qs = (
+            RestriccionEmpleado.objects
+            .select_related('empleado')
+            .order_by('-fecha_inicio', '-id')
+        )
+        user = self.request.user
+        if user.is_staff:
+            return qs
+        empleado = getattr(user, 'empleado', None)
+        if not empleado:
+            return qs.none()
+        return qs.filter(empleado=empleado)
+
+    def get_queryset(self):
+        return self._base_queryset()
+
+    def get_context_data(self, **kwargs):
+        from django.db.models import Q
+        context = super().get_context_data(**kwargs)
+        queryset = self._base_queryset()
+        user = self.request.user
+        hoy = timezone.now().date()
+        
+        # Calcular totales usando el queryset base
+        # Activa: fecha_fin es NULL o fecha_fin >= hoy
+        # Finalizada: fecha_fin < hoy
+        total_restricciones = queryset.count()
+        total_activos = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
+        total_finalizados = queryset.filter(fecha_fin__lt=hoy).count()
+        
+        context.update({
+            'es_supervisor': user.is_staff,
+            'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
+            'total_restricciones': total_restricciones,
+            'total_activos': total_activos,
+            'total_finalizados': total_finalizados,
+            'totales_por_tipo': queryset.values('tipo_restriccion').annotate(total=Count('id')).order_by('-total'),
+            'hoy': hoy
+        })
+        
+        if not user.is_staff and not getattr(user, 'empleado', None):
+            messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver restricciones.')
+        
+        return context
+
 class RestriccionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = RestriccionEmpleado
     form_class = RestriccionEmpleadoForm
@@ -349,6 +376,51 @@ class SancionListView(LoginRequiredMixin, ListView):
     model = SancionEmpleado
     template_name = 'empleados/sanciones_list.html'
     context_object_name = 'sanciones'
+
+    def _base_queryset(self):
+        qs = (
+            SancionEmpleado.objects
+            .select_related('explorador', 'supervisor')
+            .order_by('-fecha_inicio', '-id')
+        )
+        user = self.request.user
+        if user.is_staff:
+            return qs
+        empleado = getattr(user, 'empleado', None)
+        if not empleado:
+            return qs.none()
+        return qs.filter(explorador=empleado)
+
+    def get_queryset(self):
+        return self._base_queryset()
+
+    def get_context_data(self, **kwargs):
+        from django.db.models import Q
+        context = super().get_context_data(**kwargs)
+        queryset = self._base_queryset()
+        user = self.request.user
+        hoy = timezone.now().date()
+        
+        # Calcular totales usando el queryset base
+        # Activa: fecha_fin es NULL o fecha_fin >= hoy
+        # Finalizada: fecha_fin < hoy
+        total_sanciones = queryset.count()
+        total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
+        total_finalizadas = queryset.filter(fecha_fin__lt=hoy).count()
+        
+        context.update({
+            'es_supervisor': user.is_staff,
+            'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
+            'total_sanciones': total_sanciones,
+            'total_activas': total_activas,
+            'total_finalizadas': total_finalizadas,
+            'hoy': hoy
+        })
+        
+        if not user.is_staff and not getattr(user, 'empleado', None):
+            messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
+        
+        return context
 
 class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = SancionEmpleado
@@ -427,10 +499,102 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
     template_name = 'empleados/sanciones_visualizar_list.html'
     context_object_name = 'sanciones'
 
+    def _base_queryset(self):
+        qs = (
+            SancionEmpleado.objects
+            .select_related('explorador', 'supervisor')
+            .order_by('-fecha_inicio', '-id')
+        )
+        user = self.request.user
+        if user.is_staff:
+            return qs
+        empleado = getattr(user, 'empleado', None)
+        if not empleado:
+            return qs.none()
+        return qs.filter(explorador=empleado)
+
+    def get_queryset(self):
+        return self._base_queryset()
+    
+    def get_context_data(self, **kwargs):
+        from django.db.models import Q
+        from django.utils import timezone
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        hoy = timezone.now().date()
+        
+        # Obtener queryset base (ya filtrado por explorador si es necesario)
+        queryset = self._base_queryset()
+        
+        # Calcular totales usando el queryset filtrado
+        # Activa: fecha_fin es NULL o fecha_fin >= hoy
+        # Finalizada: fecha_fin < hoy
+        total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
+        total_finalizadas = queryset.filter(fecha_fin__lt=hoy).count()
+        
+        context.update({
+            'es_supervisor': user.is_staff,
+            'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
+            'hoy': hoy,
+            'total_activas': total_activas,
+            'total_finalizadas': total_finalizadas
+        })
+        
+        if not user.is_staff and not getattr(user, 'empleado', None):
+            messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
+        
+        return context
+
 class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
     model = RestriccionEmpleado
     template_name = 'empleados/restricciones_visualizar_list.html'
     context_object_name = 'restricciones'
+
+    def _base_queryset(self):
+        qs = (
+            RestriccionEmpleado.objects
+            .select_related('empleado')
+            .order_by('-fecha_inicio', '-id')
+        )
+        user = self.request.user
+        if user.is_staff:
+            return qs
+        empleado = getattr(user, 'empleado', None)
+        if not empleado:
+            return qs.none()
+        return qs.filter(empleado=empleado)
+
+    def get_queryset(self):
+        return self._base_queryset()
+    
+    def get_context_data(self, **kwargs):
+        from django.db.models import Q
+        from django.utils import timezone
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        hoy = timezone.now().date()
+        
+        # Obtener queryset base (ya filtrado por empleado si es necesario)
+        queryset = self._base_queryset()
+        
+        # Calcular totales usando el queryset filtrado
+        # Activa: fecha_fin es NULL o fecha_fin >= hoy
+        # Finalizada: fecha_fin < hoy
+        total_activos = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
+        total_finalizados = queryset.filter(fecha_fin__lt=hoy).count()
+        
+        context.update({
+            'es_supervisor': user.is_staff,
+            'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
+            'hoy': hoy,
+            'total_activos': total_activos,
+            'total_finalizados': total_finalizados
+        })
+        
+        if not user.is_staff and not getattr(user, 'empleado', None):
+            messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver restricciones.')
+        
+        return context
 
 class AsignacionSalaPeriodoView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
     template_name = 'empleados/asignacion_sala_periodo.html'

@@ -4,7 +4,7 @@ from .views import (
     TurnosCalendarioView,
     TurnoCreateView, TurnoUpdateView, TurnoDeleteView,
     DiaEspecialListView, DiaEspecialCreateView, DiaEspecialUpdateView, DiaEspecialDeleteView,
-    DiaEspecialVisualizarListView
+    DiaEspecialVisualizarListView, DiaEspecialTemporadasAnualView, DiaEspecialFestivosMantenimientoAnualView
 )
 
 urlpatterns = [
@@ -13,6 +13,8 @@ urlpatterns = [
     path('consolidado-horas/', ConsolidadoHorasView.as_view(), name='consolidado_horas'),
     path('dias-especiales/', DiasEspecialesView.as_view(), name='dias_especiales'),
     path('dias-especiales/visualizar/', DiaEspecialVisualizarListView.as_view(), name='dias_especiales_visualizar'),
+    path('dias-especiales/temporadas-anual/', DiaEspecialTemporadasAnualView.as_view(), name='dias_especiales_temporadas_anual'),
+    path('dias-especiales/festivos-mantenimiento-anual/', DiaEspecialFestivosMantenimientoAnualView.as_view(), name='dias_especiales_festivos_mantenimiento_anual'),
     path('dias-especiales-admin/', DiaEspecialListView.as_view(), name='dias_especiales_list'),
     path('dias-especiales-admin/create/', DiaEspecialCreateView.as_view(), name='dias_especiales_create'),
     path('dias-especiales-admin/edit/<int:pk>/', DiaEspecialUpdateView.as_view(), name='dias_especiales_edit'),

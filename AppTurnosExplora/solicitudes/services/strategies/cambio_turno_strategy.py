@@ -8,9 +8,10 @@ migrating the current SolicitudService functionality to the new architecture.
 import logging
 from typing import Dict, Any, Tuple, Optional
 from django.db.models import Q
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
+from solicitudes.models import SolicitudCambio
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
+from core.services import get_empleado_disponibilidad_service, get_turno_service
 
 logger = logging.getLogger(__name__)
 
@@ -50,13 +51,49 @@ class CambioTurnoStrategy(SolicitudStrategy):
             if not all([explorador_solicitante, explorador_receptor, fecha]):
                 return False, "Faltan datos requeridos para la validación"
             
-            # Use centralized validator
+            # Validaciones básicas
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
             SolicitudValidator.validar_empleado_activo(explorador_receptor)
             SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
-            SolicitudValidator.validar_jornada_en_fecha(explorador_solicitante, fecha)
-            SolicitudValidator.validar_jornada_en_fecha(explorador_receptor, fecha)
+            
+            # OPTIMIZACIÓN: Obtener jornadas una sola vez y reutilizarlas
+            from turnos.services.jornada_service import JornadaService
+            jornada_solicitante = JornadaService.get_jornada_explorador_fecha(explorador_solicitante.id, fecha)
+            jornada_receptor = JornadaService.get_jornada_explorador_fecha(explorador_receptor.id, fecha)
+            
+            # Validar que ambos tengan jornada (validación centralizada)
+            if not jornada_solicitante:
+                return False, 'El solicitante no tiene jornada asignada para esa fecha'
+            if not jornada_receptor:
+                return False, 'El receptor no tiene jornada asignada para esa fecha'
+            
             SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
+            
+            # Validaciones específicas de Cambio Turno (CT)
+            # 1. Validar jornada contraria (AM ↔ PM) - Reutilizando jornadas ya obtenidas
+            SolicitudValidator.validar_jornada_contraria(
+                explorador_solicitante, 
+                explorador_receptor, 
+                fecha,
+                jornada_solicitante=jornada_solicitante,
+                jornada_receptor=jornada_receptor
+            )
+            
+            # 2. Validar que no sea día de mantenimiento
+            SolicitudValidator.validar_no_dia_mantenimiento(fecha)
+            
+            # 3. Validar que no sea domingo (no se puede cambiar domingo por día de semana)
+            SolicitudValidator.validar_no_domingo_por_semana(fecha, es_cambio_permanente=False)
+            
+            # 4. Validar que el solicitante no tenga doblada activa para esa fecha
+            SolicitudValidator.validar_no_doblada_activa(explorador_solicitante, fecha)
+            
+            # 5. Validar que el receptor no tenga doblada activa para esa fecha
+            SolicitudValidator.validar_no_doblada_activa(explorador_receptor, fecha)
+            
+            # NOTA: Para festivos, el sistema ya filtra correctamente en get_empleados_jornada_contraria
+            # para mostrar solo exploradores que tienen jornada en esa fecha (incluyendo festivos).
+            # La validación de existencia de jornada se realiza centralizadamente en las líneas 64-67.
             
             return True, "Solicitud válida"
             
@@ -153,7 +190,8 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 LIMITE_CAMBIOS_POR_FECHA = 3
                 
                 # Verificar límite para el solicitante
-                cambios_solicitante = SolicitudService.contar_cambios_explorador_fecha(
+                from .solicitud_consulta_service import SolicitudConsultaService
+                cambios_solicitante = SolicitudConsultaService.contar_cambios_explorador_fecha(
                     solicitud.explorador_solicitante.id,
                     fecha_cambio
                 )
@@ -174,7 +212,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     return False, error_msg
                 
                 # Verificar límite para el receptor
-                cambios_receptor = SolicitudService.contar_cambios_explorador_fecha(
+                cambios_receptor = SolicitudConsultaService.contar_cambios_explorador_fecha(
                     solicitud.explorador_receptor.id,
                     fecha_cambio
                 )
@@ -202,11 +240,11 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 )
                 
                 # 1. Obtener jornadas actuales de ambos empleados para esa fecha
-                jornada_solicitante = SolicitudService.get_jornada_explorador_fecha(
+                jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
                     solicitud.explorador_solicitante.id, 
                     fecha_cambio.strftime('%Y-%m-%d')
                 )
-                jornada_receptor = SolicitudService.get_jornada_explorador_fecha(
+                jornada_receptor = JornadaService.get_jornada_explorador_fecha(
                     solicitud.explorador_receptor.id, 
                     fecha_cambio.strftime('%Y-%m-%d')
                 )
@@ -215,8 +253,9 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     return False, "No se pudieron obtener las jornadas de los empleados"
                 
                 # 2. Obtener salas de ambos empleados
-                salas_solicitante = SolicitudService.get_salas_explorador(solicitud.explorador_solicitante.id)
-                salas_receptor = SolicitudService.get_salas_explorador(solicitud.explorador_receptor.id)
+                turno_service = get_turno_service()
+                salas_solicitante = turno_service.get_salas_explorador(solicitud.explorador_solicitante.id)
+                salas_receptor = turno_service.get_salas_explorador(solicitud.explorador_receptor.id)
                 
                 if not salas_solicitante.exists() or not salas_receptor.exists():
                     return False, "No se pudieron obtener las salas de los empleados"
@@ -483,11 +522,8 @@ class CambioTurnoStrategy(SolicitudStrategy):
             List of available empleados
         """
         try:
-            # Import here to avoid circular imports
-            from ..solicitud_service import SolicitudService
-            
-            # For cambio turno, filter by opposite jornada
-            return SolicitudService.get_empleados_disponibles(
+            servicio = get_empleado_disponibilidad_service()
+            return servicio.get_empleados_disponibles(
                 fecha, 
                 usuario_actual, 
                 solo_jornada_contraria=True
@@ -508,10 +544,8 @@ class CambioTurnoStrategy(SolicitudStrategy):
             Dictionary with turn information
         """
         try:
-            # Import here to avoid circular imports
-            from ..solicitud_service import SolicitudService
-            
-            return SolicitudService.get_turno_explorador(explorador_id, fecha)
+            turno_service = get_turno_service()
+            return turno_service.get_turno_explorador(explorador_id, fecha)
             
         except Exception:
             return {}

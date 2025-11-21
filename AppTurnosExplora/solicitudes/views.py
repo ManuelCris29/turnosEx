@@ -6,7 +6,8 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.urls import reverse_lazy
-from empleados.views import AdminRequiredMixin
+from core.mixins import AdminRequiredMixin
+from core.services import get_turno_service
 from empleados.models import Empleado
 from .models import TipoSolicitudCambio, Notificacion, SolicitudCambio
 from .services.solicitud_service import SolicitudService
@@ -21,19 +22,8 @@ from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
-def json_ok(payload=None, status=200):
-    data = {'success': True}
-    if isinstance(payload, dict):
-        data.update(payload)
-    return JsonResponse(data, status=status)
-
-def json_error(message, *, status=400, code=None, extra=None):
-    data = {'success': False, 'error': str(message)}
-    if code:
-        data['code'] = code
-    if isinstance(extra, dict):
-        data['extra'] = extra
-    return JsonResponse(data, status=status)
+# Importar helpers JSON comunes desde core
+from core.utils.json_responses import json_ok, json_error
 
 # Create your views here.
 
@@ -43,58 +33,11 @@ class SolicitudesView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         if self.request.user.is_authenticated and hasattr(self.request.user, 'empleado'):
-            empleado = self.request.user.empleado
-            
-            # Cache para contadores (5 minutos)
-            cache_key_mis = f"solicitudes_count_mis_{empleado.id}"
-            cache_key_pend = f"solicitudes_count_pend_{empleado.id}"
-            
-            mis_solicitudes_count = cache.get(cache_key_mis)
-            if mis_solicitudes_count is None:
-                mis_solicitudes_count = SolicitudCambio.objects.filter(
-                    explorador_solicitante=empleado
-                ).count()
-                cache.set(cache_key_mis, mis_solicitudes_count, 300)  # 5 minutos
-            
-            solicitudes_pendientes_count = cache.get(cache_key_pend)
-            if solicitudes_pendientes_count is None:
-                from django.db.models import Q
-                solicitudes_pendientes_count = SolicitudCambio.objects.filter(
-                    Q(estado='pendiente', explorador_receptor=empleado, aprobado_receptor=False) |
-                    Q(estado='pendiente', explorador_solicitante__supervisor=empleado, aprobado_supervisor=False)
-                ).distinct().count()
-                cache.set(cache_key_pend, solicitudes_pendientes_count, 300)  # 5 minutos
-            
-            # Debug: Imprimir información para entender el conteo
-            print(f"DEBUG CONTADOR - Usuario: {self.request.user.empleado.nombre}")
-            print(f"DEBUG CONTADOR - Total pendientes (con distinct): {solicitudes_pendientes_count}")
-            
-            # Debug detallado: Mostrar las solicitudes específicas
-            from django.db.models import Q
-            solicitudes_combined = SolicitudCambio.objects.filter(
-                Q(estado='pendiente', explorador_receptor=self.request.user.empleado, aprobado_receptor=False) |
-                Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado, aprobado_supervisor=False)
-            ).distinct()
-            
-            print(f"DEBUG DETALLADO - Solicitudes combinadas:")
-            for s in solicitudes_combined:
-                es_receptor = s.explorador_receptor == self.request.user.empleado and not s.aprobado_receptor
-                es_supervisor = s.explorador_solicitante.supervisor == self.request.user.empleado and not s.aprobado_supervisor
-                
-                if es_receptor and es_supervisor:
-                    rol = "AMBOS"
-                elif es_receptor:
-                    rol = "RECEPTOR"
-                elif es_supervisor:
-                    rol = "SUPERVISOR"
-                else:
-                    rol = "DESCONOCIDO"
-                    
-                print(f"  - ID: {s.id}, Solicitante: {s.explorador_solicitante.nombre}, Receptor: {s.explorador_receptor.nombre}, Rol: {rol}, Fecha: {s.fecha_solicitud}")
-            
-            context['mis_solicitudes_count'] = mis_solicitudes_count
-            context['solicitudes_pendientes_count'] = solicitudes_pendientes_count
-            
+            from .services.solicitud_context_service import SolicitudContextService
+            context_data = SolicitudContextService.get_context_data_for_solicitudes_view(
+                self.request.user.empleado
+            )
+            context.update(context_data)
         return context
 
 # CRUD de TipoSolicitudCambio
@@ -152,7 +95,8 @@ class CambioTurnoInicioView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['tipos_solicitud'] = SolicitudService.get_tipos_solicitud_activos()
+        from .services.solicitud_consulta_service import SolicitudConsultaService
+        context['tipos_solicitud'] = SolicitudConsultaService.get_tipos_solicitud_activos()
         return context
     
 class SolicitarCambioTurnoView(LoginRequiredMixin, View):
@@ -225,18 +169,27 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         if not hasattr(request.user, 'empleado'):
             return json_ok({'empleados': []})
         
-        # Cache para empleados disponibles (30 minutos)
+        # Cache para empleados disponibles usando CacheService
         # INCLUIR usuario actual en cache key para evitar contaminación cruzada
+        from core.services.cache_service import CacheService
+        
         cache_key = f"empleados_disp_{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
-        empleados_disponibles = cache.get(cache_key)
-        if empleados_disponibles is None:
+        
+        def obtener_empleados():
             # Obtener empleados según el tipo de solicitud usando el Factory
-            empleados_disponibles = SolicitudFactory.get_empleados_disponibles(
+            return SolicitudFactory.get_empleados_disponibles(
                 tipo_solicitud, 
-            fecha, 
+                fecha, 
                 request.user.empleado
+            )
+        
+        from core.services.cache_service import CACHE_TTL_MEDIUM
+        
+        empleados_disponibles = CacheService.get_or_set(
+            cache_key,
+            obtener_empleados,
+            ttl=CACHE_TTL_MEDIUM
         )
-            cache.set(cache_key, empleados_disponibles, 1800)  # 30 minutos
         
         logger.debug("Empleados disponibles obtenidos", extra={
             'count': len(empleados_disponibles),
@@ -279,7 +232,8 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 turno_dict = SolicitudFactory.get_turno_explorador(tipo_solicitud, explorador_id, fecha)
             else:
                 # Fallback al servicio original si no hay tipo
-                turno_dict = SolicitudService.get_turno_explorador(explorador_id, fecha)
+                turno_service = get_turno_service()
+                turno_dict = turno_service.get_turno_explorador(explorador_id, fecha)
             
             return json_ok({'turno': turno_dict, 'tiene_turno': turno_dict is not None})
         except Exception as e:
@@ -423,11 +377,20 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                 fecha_inicio = request.POST.get('fecha_inicio')
                 fecha_fin = request.POST.get('fecha_fin')
                 
+                # Capturar días seleccionados (JSON string)
+                import json
+                dias_seleccionados_json = request.POST.get('dias_seleccionados', '{}')
+                try:
+                    dias_seleccionados = json.loads(dias_seleccionados_json) if dias_seleccionados_json else {}
+                except json.JSONDecodeError:
+                    dias_seleccionados = {}
+                
                 # Para CT PERMANENTE, usar fecha_inicio como fecha_cambio_turno
                 datos_solicitud.update({
                     'fecha_cambio_turno': fecha_inicio,
                     'fecha_inicio': fecha_inicio,
-                    'fecha_fin': fecha_fin
+                    'fecha_fin': fecha_fin,
+                    'dias_seleccionados': dias_seleccionados
                 })
             else:
                 # Para otros tipos, usar fecha_solicitud
@@ -508,7 +471,8 @@ class MisSolicitudesListView(LoginRequiredMixin, ListView):
     
     def get_queryset(self):
         if hasattr(self.request.user, 'empleado'):
-            return SolicitudService.get_solicitudes_usuario(self.request.user)
+            from .services.solicitud_consulta_service import SolicitudConsultaService
+            return SolicitudConsultaService.get_solicitudes_usuario(self.request.user)
         return SolicitudCambio.objects.none()
 
 class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
@@ -523,12 +487,13 @@ class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
         if hasattr(self.request.user, 'empleado'):
             print(f"DEBUG SOLICITUDES PENDIENTES - Usuario: {self.request.user.empleado.nombre}")
             
+            from .services.solicitud_consulta_service import SolicitudConsultaService
             # Obtener solicitudes como receptor
-            solicitudes_receptor = SolicitudService.get_solicitudes_por_receptor(self.request.user.empleado)
+            solicitudes_receptor = SolicitudConsultaService.get_solicitudes_por_receptor(self.request.user.empleado)
             print(f"DEBUG SOLICITUDES PENDIENTES - Solicitudes como receptor: {solicitudes_receptor.count()}")
             
             # Obtener solicitudes como supervisor
-            solicitudes_supervisor = SolicitudService.get_solicitudes_por_supervisor(self.request.user.empleado)
+            solicitudes_supervisor = SolicitudConsultaService.get_solicitudes_por_supervisor(self.request.user.empleado)
             print(f"DEBUG SOLICITUDES PENDIENTES - Solicitudes como supervisor: {solicitudes_supervisor.count()}")
             
             # Combinar ambas querysets (evitar duplicados) respetando flags de aprobación
@@ -580,7 +545,8 @@ class AprobarSolicitudView(LoginRequiredMixin, View):
         
         comentario_respuesta = request.POST.get('comentario_respuesta', '')
         
-        success, message = SolicitudService.aprobar_solicitud_supervisor(
+        from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+        success, message = SolicitudAprobacionService.aprobar_solicitud_supervisor(
             solicitud_id, 
             request.user.empleado, 
             comentario_respuesta
@@ -599,7 +565,8 @@ class AprobarSolicitudReceptorView(LoginRequiredMixin, View):
         
         comentario_respuesta = request.POST.get('comentario_respuesta', '')
         
-        success, message = SolicitudService.aprobar_solicitud_receptor(
+        from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+        success, message = SolicitudAprobacionService.aprobar_solicitud_receptor(
             solicitud_id, 
             request.user.empleado, 
             comentario_respuesta
@@ -618,7 +585,8 @@ class RechazarSolicitudView(LoginRequiredMixin, View):
         
         comentario_respuesta = request.POST.get('comentario_respuesta', '')
         
-        success, message = SolicitudService.rechazar_solicitud_supervisor(
+        from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+        success, message = SolicitudAprobacionService.rechazar_solicitud_supervisor(
             solicitud_id, 
             request.user.empleado, 
             comentario_respuesta
@@ -634,7 +602,8 @@ class RechazarSolicitudReceptorView(LoginRequiredMixin, View):
     def post(self, request, solicitud_id):
         try:
             comentario_respuesta = request.POST.get('comentario_respuesta', '')
-            success, message = SolicitudService.rechazar_solicitud_receptor(
+            from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+            success, message = SolicitudAprobacionService.rechazar_solicitud_receptor(
                 solicitud_id, request.user.empleado, comentario_respuesta
             )
             return json_ok({'success': success, 'message': message})
@@ -705,7 +674,8 @@ class AprobarSolicitudAmbosView(LoginRequiredMixin, View):
             
             # Aprobar primero como receptor si falta
             if not solicitud.aprobado_receptor:
-                success, message = SolicitudService.aprobar_solicitud_receptor(solicitud_id, empleado, 'Aprobado como receptor (acción combinada)')
+                from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+                success, message = SolicitudAprobacionService.aprobar_solicitud_receptor(solicitud_id, empleado, 'Aprobado como receptor (acción combinada)')
                 if not success:
                     return json_error(message, status=400, code='approval_error')
                 # Recargar después de aprobar como receptor
@@ -713,7 +683,8 @@ class AprobarSolicitudAmbosView(LoginRequiredMixin, View):
 
             # Aprobar como supervisor si falta
             if not solicitud.aprobado_supervisor:
-                success, message = SolicitudService.aprobar_solicitud_supervisor(solicitud_id, empleado, 'Aprobado como supervisor (acción combinada)')
+                from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+                success, message = SolicitudAprobacionService.aprobar_solicitud_supervisor(solicitud_id, empleado, 'Aprobado como supervisor (acción combinada)')
                 if not success:
                     return json_error(message, status=400, code='approval_error')
                 # Recargar después de aprobar como supervisor
@@ -752,7 +723,8 @@ class AprobarSolicitudEmailView(View):
                 })
             
             # Aprobar la solicitud
-            success, message = SolicitudService.aprobar_solicitud_supervisor(
+            from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+            success, message = SolicitudAprobacionService.aprobar_solicitud_supervisor(
                 solicitud_id, 
                 supervisor, 
                 'Aprobado por email'
@@ -815,7 +787,8 @@ class RechazarSolicitudEmailView(View):
                 })
             
             # Rechazar la solicitud
-            success, message = SolicitudService.rechazar_solicitud_supervisor(
+            from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+            success, message = SolicitudAprobacionService.rechazar_solicitud_supervisor(
                 solicitud_id, 
                 supervisor, 
                 'Rechazado por email'
@@ -871,7 +844,8 @@ class AprobarSolicitudReceptorEmailView(View):
                 })
             
             # Aprobar la solicitud
-            success, message = SolicitudService.aprobar_solicitud_receptor(
+            from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+            success, message = SolicitudAprobacionService.aprobar_solicitud_receptor(
                 solicitud_id, 
                 solicitud.explorador_receptor, 
                 'Aprobado por email'
@@ -927,7 +901,8 @@ class RechazarSolicitudReceptorEmailView(View):
                 })
             
             # Rechazar la solicitud
-            success, message = SolicitudService.rechazar_solicitud_receptor(
+            from .services.solicitud_aprobacion_service import SolicitudAprobacionService
+            success, message = SolicitudAprobacionService.rechazar_solicitud_receptor(
                 solicitud_id, 
                 solicitud.explorador_receptor, 
                 'Rechazado por email'

@@ -5,6 +5,61 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
+<!-- Flatpickr CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<style>
+    /* Estilos personalizados para días festivos en Flatpickr */
+    .flatpickr-day.festivo {
+        background-color: #ff6b6b !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #ff5252 !important;
+    }
+    .flatpickr-day.festivo:hover {
+        background-color: #ff5252 !important;
+    }
+    .flatpickr-day.festivo.selected {
+        background-color: #e53935 !important;
+        border-color: #e53935 !important;
+    }
+    /* Tooltip para festivos */
+    .flatpickr-day.festivo::after {
+        content: '🎉';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+    
+    /* Estilos personalizados para días de mantenimiento en Flatpickr */
+    .flatpickr-day.mantenimiento {
+        background-color: #ff9800 !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #f57c00 !important;
+    }
+    .flatpickr-day.mantenimiento:hover {
+        background-color: #f57c00 !important;
+    }
+    .flatpickr-day.mantenimiento.selected {
+        background-color: #e65100 !important;
+        border-color: #e65100 !important;
+    }
+    /* Si un día es tanto festivo como mantenimiento, priorizar mantenimiento */
+    .flatpickr-day.festivo.mantenimiento {
+        background-color: #ff9800 !important;
+        border-color: #f57c00 !important;
+    }
+    /* Tooltip para mantenimiento */
+    .flatpickr-day.mantenimiento::after {
+        content: '🔧';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -32,11 +87,32 @@
                     <label for="fecha_solicitud">
                         <i class="fas fa-calendar mr-1"></i>Fecha del Cambio
                     </label>
-                    <input type="date" class="form-control" id="fecha_solicitud" name="fecha_solicitud" required min="{{ fecha_minima|date:'Y-m-d' }}"
+                    <input type="text" class="form-control" id="fecha_solicitud" name="fecha_solicitud" required 
+                           placeholder="Selecciona una fecha" readonly
+                           data-min-date="{{ fecha_minima|date:'Y-m-d' }}"
                            value="{{ fecha_seleccionada|date:'Y-m-d' }}">
                     <small class="form-text text-muted">
-                        Selecciona la fecha para la cual deseas cambiar tu turno
+                        Selecciona la fecha para la cual deseas cambiar tu turno. Los días festivos aparecen marcados en rojo y los días de mantenimiento en naranja.
                     </small>
+                    <!-- Indicador de día festivo -->
+                    <div id="indicador_festivo" class="mt-2" style="display: none;">
+                        <div class="alert alert-info mb-0 py-2">
+                            <i class="fas fa-calendar-check mr-2"></i>
+                            <strong>Día Festivo:</strong> <span id="descripcion_festivo"></span>
+                        </div>
+                    </div>
+                    <!-- Indicador de día de mantenimiento -->
+                    <div id="indicador_mantenimiento" class="mt-2" style="display: none;">
+                        <div class="alert alert-warning mb-0 py-2">
+                            <i class="fas fa-tools mr-2"></i>
+                            <strong>Día de Mantenimiento:</strong> <span id="descripcion_mantenimiento"></span>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <i class="fas fa-exclamation-triangle mr-1"></i>
+                                <strong>No se pueden realizar cambios de turno en días de mantenimiento.</strong>
+                            </small>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- FASE 2.5: Advertencia cuando ya existe cambio aprobado -->
@@ -142,8 +218,13 @@
 
 {% block extra_js %}
 {{ block.super }}
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 <script>
 window.solicitanteId = {{ request.user.empleado.id }};
 </script>
+<script src="{% static 'js/festivos_colombia.js' %}"></script>
+<script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/solicitar_cambio_turno.js' %}"></script>
 {% endblock %} 

@@ -121,6 +121,81 @@ class CambioPermanenteDetalle(models.Model):
     def __str__(self):
         return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud} - horas: {self.horas_solicitadas}" #type:ignore
 
+
+class CambioPermanenteDia(models.Model):
+    """
+    Modelo para almacenar los días específicos o días de la semana seleccionados
+    para un cambio permanente.
+    
+    Permite dos tipos de selección:
+    - fecha_especifica: Días específicos (ej: 23 nov, 27 nov, 3 dic)
+    - dia_semana: Días de la semana (ej: todos los martes, todos los jueves)
+    
+    Si no hay registros en esta tabla, se usa el rango completo (comportamiento retrocompatible).
+    """
+    TIPO_CHOICES = [
+        ('fecha_especifica', 'Fecha Específica'),
+        ('dia_semana', 'Día de Semana'),
+    ]
+    
+    cambio_permanente = models.ForeignKey(
+        CambioPermanenteDetalle, 
+        on_delete=models.CASCADE, 
+        related_name='dias'
+    )
+    fecha_especifica = models.DateField(
+        null=True, 
+        blank=True,
+        help_text='Fecha específica seleccionada (ej: 23 de noviembre)'
+    )
+    dia_semana = models.IntegerField(
+        null=True, 
+        blank=True,
+        choices=[
+            (0, 'Lunes'),
+            (1, 'Martes'),
+            (2, 'Miércoles'),
+            (3, 'Jueves'),
+            (4, 'Viernes'),
+            (5, 'Sábado'),
+            (6, 'Domingo'),
+        ],
+        help_text='Día de la semana (0=Lunes, 6=Domingo)'
+    )
+    tipo = models.CharField(
+        max_length=20, 
+        choices=TIPO_CHOICES,
+        help_text='Tipo de selección: fecha específica o día de semana'
+    )
+    historial = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = 'Día de Cambio Permanente'
+        verbose_name_plural = 'Días de Cambio Permanente'
+        indexes = [
+            models.Index(fields=['cambio_permanente', 'tipo'], name='camb_perm_dia_camb_tipo_idx'),
+            models.Index(fields=['fecha_especifica'], name='camb_perm_dia_fecha_idx'),
+            models.Index(fields=['dia_semana'], name='camb_perm_dia_dia_sem_idx'),
+        ]
+        # Asegurar que cada tipo tenga solo un valor no nulo
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(tipo='fecha_especifica', fecha_especifica__isnull=False, dia_semana__isnull=True) |
+                    models.Q(tipo='dia_semana', dia_semana__isnull=False, fecha_especifica__isnull=True)
+                ),
+                name='camb_perman_dia_tipo_valido'
+            ),
+        ]
+    
+    def __str__(self):
+        if self.tipo == 'fecha_especifica' and self.fecha_especifica:
+            return f"Fecha específica: {self.fecha_especifica}"
+        elif self.tipo == 'dia_semana' and self.dia_semana is not None:
+            dias_semana_nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+            return f"Día de semana: {dias_semana_nombres[self.dia_semana]}"
+        return f"Día de cambio permanente (ID: {self.id})"
+
 class DobladaDetalle(models.Model):
     solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='doblada')
     minutos_deuda = models.IntegerField(default=30)

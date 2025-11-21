@@ -15,14 +15,38 @@
 }
 .date-range-container {
     display: flex;
-    gap: 15px;
-    align-items: end;
+    gap: 20px;
+    align-items: flex-start;
 }
 .date-range-container .form-group {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0; /* Permite que los elementos se ajusten correctamente */
+}
+.date-range-container .form-group label {
+    margin-bottom: 8px;
+    font-weight: 500;
+    color: #495057;
+    display: flex;
+    align-items: center;
+}
+.date-range-container .form-group input {
+    margin-bottom: 5px;
+}
+.date-range-container .form-group small {
+    margin-top: 0;
+    margin-bottom: 0;
+    min-height: 36px; /* Altura mínima para mantener alineación */
+    display: block;
 }
 .date-range-container .form-group:last-child {
-    flex: 0.8;
+    flex: 1;
+}
+/* Contenedor para indicadores dinámicos que no afectan la alineación */
+.date-range-container .form-group .indicador-dinamico {
+    margin-top: 8px;
+    min-height: 0;
 }
 .warning-box {
     background-color: #fff3cd;
@@ -39,4 +63,29 @@
     margin: 0;
     color: #856404;
     font-size: 14px;
+}
+
+/* Responsive: Apilar campos en móviles */
+@media (max-width: 768px) {
+    .date-range-container {
+        flex-direction: column;
+        gap: 15px;
+    }
+    .date-range-container .form-group {
+        width: 100%;
+    }
+    .date-range-container .form-group small {
+        min-height: auto;
+    }
+}
+
+/* Asegurar alineación perfecta en desktop */
+@media (min-width: 769px) {
+    .date-range-container .form-group label {
+        height: 24px; /* Altura fija para labels */
+        line-height: 24px;
+    }
+    .date-range-container .form-group input {
+        height: 38px; /* Altura estándar de Bootstrap para inputs */
+    }
 }

@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}Días Especiales - Consultas Rápidas{% endblock %}
-{% block page_title %}Días Especiales (Solo Visualización){% endblock %}
+
 
 {% block content %}
 <div class="container mt-5">
@@ -12,6 +12,39 @@
                     <h4 class="mb-0"><i class="fas fa-calendar-day"></i> Lista de Días Especiales</h4>
                 </div>
                 <div class="card-body">
+                    <!-- Filtros -->
+                    <form method="get" class="mb-3">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <label for="tipo">Tipo:</label>
+                                <select name="tipo" id="tipo" class="form-control">
+                                    <option value="">Todos</option>
+                                    <option value="temporada" {% if tipo_filtro == 'temporada' %}selected{% endif %}>Temporadas</option>
+                                    <option value="festivo" {% if tipo_filtro == 'festivo' %}selected{% endif %}>Festivos</option>
+                                    <option value="mantenimiento" {% if tipo_filtro == 'mantenimiento' %}selected{% endif %}>Mantenimiento</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="anio">Año:</label>
+                                <select name="anio" id="anio" class="form-control">
+                                    <option value="">Todos</option>
+                                    {% for anio in anios_disponibles %}
+                                    <option value="{{ anio }}" {% if anio_filtro == anio|stringformat:"s" %}selected{% endif %}>{{ anio }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label>&nbsp;</label><br>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-filter"></i> Filtrar
+                                </button>
+                                <a href="{% url 'dias_especiales_visualizar' %}" class="btn btn-secondary">
+                                    <i class="fas fa-times"></i> Limpiar
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                    
                     <div class="table-responsive">
                         <table class="table table-hover table-striped table-bordered">
                             <thead class="thead-dark">
@@ -20,6 +53,7 @@
                                     <th>Fecha</th>
                                     <th>Tipo</th>
                                     <th>Descripción</th>
+                                    <th>Año Planificación</th>
                                     <th>Recurrente</th>
                                     <th>Activo</th>
                                 </tr>
@@ -29,14 +63,20 @@
                                 <tr>
                                     <td>{{ dia.id }}</td>
                                     <td>{{ dia.fecha }}</td>
-                                    <td>{{ dia.tipo }}</td>
+                                    <td>
+                                        {{ dia.tipo }}
+                                        {% if dia.es_temporada %}
+                                            <span class="badge badge-warning">Temporada</span>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ dia.descripcion }}</td>
+                                    <td>{% if dia.año_planificacion %}{{ dia.año_planificacion }}{% else %}-{% endif %}</td>
                                     <td>{% if dia.recurrente %}<span class="badge badge-info">Sí</span>{% else %}<span class="badge badge-secondary">No</span>{% endif %}</td>
                                     <td>{% if dia.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
                                 </tr>
                                 {% empty %}
                                 <tr>
-                                    <td colspan="6">No hay días especiales registrados.</td>
+                                    <td colspan="7">No hay días especiales registrados.</td>
                                 </tr>
                                 {% endfor %}
                             </tbody>

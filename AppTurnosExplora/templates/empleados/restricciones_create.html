@@ -1,55 +1,97 @@
 {% extends 'base.html' %}
 {% load widget_tweaks %}
-{% block title %}Nueva Restricción{% endblock %}
-{% block page_title %}Nueva Restricción{% endblock %}
+{% block title %}Nueva restricción{% endblock %}
+{% block page_title %}Registrar restricción{% endblock %}
+
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12 col-md-8 col-lg-6">
-            <div class="card shadow">
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-lg-7 mb-4">
+            <div class="card shadow-lg border-0 h-100">
                 <div class="card-header bg-warning text-dark">
-                    <h4 class="mb-0"><i class="fas fa-ban"></i> Nueva Restricción</h4>
+                    <h4 class="mb-0"><i class="fas fa-clipboard-medical mr-2"></i>Registrar nueva restricción</h4>
+                    <small class="text-muted">Carga incapacidades o actas oficiales para dejar trazabilidad.</small>
                 </div>
                 <div class="card-body">
-                    <form method="post">
+                    <form method="post" novalidate>
                         {% csrf_token %}
-                        <div class="form-group">
-                            <label for="id_empleado"><i class="fas fa-user"></i> <strong>Empleado:</strong></label>
-                            {{ form.empleado|add_class:'form-control' }}
+                        
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
                         </div>
-                        <div class="form-row">
-                            <div class="form-group col-md-6">
-                                <label for="id_fecha_inicio"><i class="fas fa-calendar-alt"></i> <strong>Fecha Inicio:</strong></label>
-                                {{ form.fecha_inicio|add_class:'form-control' }}
-                            </div>
-                            <div class="form-group col-md-6">
-                                <label for="id_fecha_fin"><i class="fas fa-calendar-alt"></i> <strong>Fecha Fin:</strong></label>
-                                {{ form.fecha_fin|add_class:'form-control' }}
-                            </div>
-                        </div>
-
+                        {% endif %}
+                        
                         <div class="form-group">
-                            <label for="id_tipo_restriccion"><i class="fas fa-ban"></i> <strong>Tipo de Restricción:</strong></label>
-                            {{ form.tipo_restriccion|add_class:'form-control' }}
-                        </div>
-
-                        <div class="form-group">
-                            <label for="id_recomendacion"><i class="fas fa-comment-dots"></i> <strong>Recomendación:</strong></label>
-                            {{ form.recomendacion|add_class:'form-control' }}
+                            <label for="{{ form.empleado.id_for_label }}"><i class="fas fa-user mr-1"></i> Explorador</label>
+                            {{ form.empleado|add_class:"form-control" }}
+                            {% for error in form.empleado.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
                         </div>
                         
-                        <div class="form-group text-center mt-4">
-                            <button type="submit" class="btn btn-success px-4">
-                                <i class="fas fa-save"></i> Guardar
-                            </button>
-                            <a href="{% url 'restricciones_list' %}" class="btn btn-secondary px-4">
-                                <i class="fas fa-arrow-left"></i> Cancelar
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="{{ form.fecha_inicio.id_for_label }}"><i class="far fa-calendar-plus mr-1"></i> Fecha de inicio</label>
+                                {{ form.fecha_inicio|add_class:"form-control" }}
+                                {% for error in form.fecha_inicio.errors %}
+                                    <div class="invalid-feedback d-block">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="{{ form.fecha_fin.id_for_label }}"><i class="far fa-calendar-minus mr-1"></i> Fecha fin</label>
+                                {{ form.fecha_fin|add_class:"form-control" }}
+                                <small class="form-text text-muted">Opcional. Déjalo vacío si la restricción sigue activa.</small>
+                                {% for error in form.fecha_fin.errors %}
+                                    <div class="invalid-feedback d-block">{{ error }}</div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.tipo_restriccion.id_for_label }}"><i class="fas fa-exclamation-triangle mr-1"></i> Tipo de restricción</label>
+                            {{ form.tipo_restriccion|add_class:"form-control" }}
+                            {% for error in form.tipo_restriccion.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="{{ form.recomendacion.id_for_label }}"><i class="fas fa-comment-medical mr-1"></i> Recomendación</label>
+                            {{ form.recomendacion|add_class:"form-control" }}
+                            <small class="form-text text-muted">Describe la recomendación médica o administrativa que respalda la restricción.</small>
+                            {% for error in form.recomendacion.errors %}
+                                <div class="invalid-feedback d-block">{{ error }}</div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="d-flex justify-content-between mt-4">
+                            <a href="{% url 'restricciones_list' %}" class="btn btn-outline-secondary">
+                                <i class="fas fa-arrow-left mr-1"></i> Cancelar
                             </a>
+                            <button type="submit" class="btn btn-success px-4">
+                                <i class="fas fa-save mr-1"></i> Guardar restricción
+                            </button>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
+        <div class="col-lg-5">
+            <div class="card shadow-sm h-100 border-0">
+                <div class="card-body">
+                    <h5 class="mb-3"><i class="fas fa-lightbulb text-warning mr-2"></i>Buenas prácticas</h5>
+                    <ul class="list-unstyled text-muted small mb-0">
+                        <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Registra únicamente información respaldada por actas o certificados médicos.</li>
+                        <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Si no conoces la fecha de finalización, deja el campo vacío para mantener la restricción activa.</li>
+                        <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Utiliza el campo de recomendación para detallar los alcances (ej. “Evitar levantar peso”).</li>
+                        <li><i class="fas fa-check text-success mr-2"></i>Actualiza o elimina las restricciones cuando caduquen para mantener el historial limpio.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

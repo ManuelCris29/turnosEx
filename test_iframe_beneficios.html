@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Prueba de Embedding - Beneficios Explora</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        iframe {
+            width: 100%;
+            height: 800px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            background-color: white;
+        }
+        .status {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .loading {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .auth-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(255, 255, 255, 0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+        .auth-message {
+            text-align: center;
+            max-width: 500px;
+        }
+        .auth-message h4 {
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .auth-message p {
+            color: #666;
+            margin-bottom: 20px;
+        }
+        .loading-spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .instructions {
+            background-color: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #2196F3;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #1976D2;
+        }
+        .instructions ul {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+        .instructions li {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Prueba de Embedding - Google Apps Script</h1>
+        
+        <div class="instructions">
+            <h3>📋 Instrucciones de Validación:</h3>
+            <ul>
+                <li><strong>1. Verifica el estado del iframe</strong> (arriba)</li>
+                <li><strong>2. Abre la consola del navegador</strong> (F12 → pestaña "Console")</li>
+                <li><strong>3. Busca errores</strong> relacionados con "X-Frame-Options" o "Refused to display"</li>
+                <li><strong>4. Prueba el formulario:</strong>
+                    <ul>
+                        <li>¿Se cargan los campos pre-llenados?</li>
+                        <li>¿Puedes seleccionar un beneficio?</li>
+                        <li>¿Puedes seleccionar una fecha?</li>
+                        <li>¿Puedes hacer clic en "Enviar"?</li>
+                    </ul>
+                </li>
+                <li><strong>5. Si todo funciona:</strong> ✅ Puedes proceder con la implementación en Django</li>
+                <li><strong>6. Si hay errores:</strong> ❌ Revisa el documento VALIDACION_IFRAME_GOOGLE_APPS_SCRIPT.md</li>
+            </ul>
+        </div>
+        
+        <div id="status" class="status loading">
+            ⏳ Cargando iframe...
+        </div>
+        
+        <!-- Overlay para autenticación -->
+        <div id="authOverlay" class="auth-overlay" style="display: none;">
+            <div class="loading-spinner"></div>
+            <div class="auth-message">
+                <h4><i class="fas fa-lock"></i> Autenticación Requerida</h4>
+                <p>El formulario de beneficios requiere autenticación con tu cuenta de Google. Por favor, haz clic en el botón para autenticarte.</p>
+                <button class="btn btn-primary btn-authenticate" onclick="abrirAutenticacion()" style="padding: 12px 30px; font-size: 16px; margin-top: 15px;">
+                    <i class="fab fa-google mr-2"></i>Autenticarse con Google
+                </button>
+                <p class="mt-3 small text-muted">
+                    <i class="fas fa-info-circle"></i>
+                    Después de autenticarte, regresa a esta página y el formulario se cargará automáticamente.
+                </p>
+            </div>
+        </div>
+        
+        <iframe 
+            id="testIframe"
+            src="https://script.google.com/a/macros/parqueexplora.org/s/AKfycbzEclLu4hB0BkDQ8d2wDgU3W4oFUFE_JbzTVl6k97o/exec"
+            frameborder="0"
+            allowfullscreen
+            title="Formulario de Beneficios Explora"
+            style="display: none;">
+        </iframe>
+    </div>
+    
+    <script>
+        const iframe = document.getElementById('testIframe');
+        const status = document.getElementById('status');
+        let loaded = false;
+        
+        // Función para actualizar el estado
+        function updateStatus(message, type) {
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+        
+        // Función para abrir autenticación
+        window.abrirAutenticacion = function() {
+            const scriptUrl = iframe.src;
+            const authWindow = window.open(scriptUrl, 'GoogleAuth', 'width=800,height=600,scrollbars=yes');
+            
+            // Verificar periódicamente si la ventana se cerró
+            const checkAuth = setInterval(function() {
+                if (authWindow.closed) {
+                    clearInterval(checkAuth);
+                    // Recargar el iframe
+                    iframe.src = scriptUrl + (scriptUrl.includes('?') ? '&' : '?') + '_t=' + Date.now();
+                    iframe.style.display = 'block';
+                    document.getElementById('authOverlay').style.display = 'none';
+                    updateStatus('🔄 Recargando formulario después de autenticación...', 'loading');
+                }
+            }, 1000);
+        };
+        
+        // Cuando el iframe carga
+        iframe.onload = function() {
+            loaded = true;
+            
+            // Intentar detectar errores de X-Frame-Options
+            setTimeout(function() {
+                try {
+                    // Intentar acceder al contenido (esto fallará si hay restricciones)
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    console.log('✅ Acceso al contenido del iframe: OK');
+                    updateStatus('✅ Iframe cargado correctamente. Verifica que puedas interactuar con el formulario.', 'success');
+                    iframe.style.display = 'block';
+                } catch (e) {
+                    if (e.message.includes('X-Frame-Options') || e.message.includes('frame')) {
+                        console.error('Error de X-Frame-Options:', e);
+                        updateStatus('⚠️ El script requiere autenticación. Usa el botón de abajo para autenticarte.', 'error');
+                        iframe.style.display = 'none';
+                        document.getElementById('authOverlay').style.display = 'flex';
+                    }
+                }
+            }, 2000);
+        };
+        
+        // Cuando hay un error
+        iframe.onerror = function() {
+            updateStatus('❌ Error al cargar el iframe. Abre la consola del navegador (F12) para ver los detalles del error.', 'error');
+        };
+        
+        // Verificar después de 5 segundos si no se cargó
+        setTimeout(function() {
+            if (!loaded) {
+                updateStatus('⚠️ El iframe está tardando en cargar. Esto puede indicar un problema de X-Frame-Options. Usa el botón de abajo para autenticarte.', 'error');
+                document.getElementById('authOverlay').style.display = 'flex';
+            }
+        }, 5000);
+        
+        // Verificar errores en la consola
+        window.addEventListener('error', function(e) {
+            if (e.message.includes('X-Frame-Options') || 
+                e.message.includes('Refused to display') ||
+                e.message.includes('frame')) {
+                updateStatus('❌ Error detectado: ' + e.message + '. El script NO permite embedding. Revisa VALIDACION_IFRAME_GOOGLE_APPS_SCRIPT.md', 'error');
+            }
+        });
+        
+        // Log para debugging
+        console.log('🔍 Iniciando prueba de embedding...');
+        console.log('📋 URL del iframe:', iframe.src);
+        console.log('💡 Abre la pestaña "Console" para ver más detalles');
+        console.log('⚠️ NOTA: Si ves error 403, necesitas configurar el Google Apps Script:');
+        console.log('   1. Ve a https://script.google.com');
+        console.log('   2. Abre tu script');
+        console.log('   3. Deploy → New deployment → Web app');
+        console.log('   4. "Who has access" → "Anyone" o "Anyone with Google account"');
+        console.log('   5. Usa el URL que termina en /exec (no /dev)');
+        console.log('   6. En el código, agrega: htmlOutput.setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);');
+    </script>
+</body>
+</html>
+

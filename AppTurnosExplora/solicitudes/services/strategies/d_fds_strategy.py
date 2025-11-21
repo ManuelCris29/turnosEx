@@ -9,6 +9,7 @@ from typing import Dict, Any, Tuple, Optional
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
+from core.services import get_empleado_disponibilidad_service, get_turno_service
 
 
 class DFDSStrategy(SolicitudStrategy):
@@ -149,15 +150,12 @@ class DFDSStrategy(SolicitudStrategy):
             List of available empleados
         """
         try:
-            # For D FDS, show all active employees (including self)
-            from ..solicitud_service import SolicitudService
-            
-            return SolicitudService.get_empleados_disponibles(
-                fecha, 
-                usuario_actual, 
+            servicio = get_empleado_disponibilidad_service()
+            return servicio.get_empleados_disponibles(
+                fecha,
+                usuario_actual,
                 solo_jornada_contraria=False
             )
-            
         except Exception:
             return []
     
@@ -173,10 +171,7 @@ class DFDSStrategy(SolicitudStrategy):
             Dictionary with turn information
         """
         try:
-            # Import here to avoid circular imports
-            from ..solicitud_service import SolicitudService
-            
-            return SolicitudService.get_turno_explorador(explorador_id, fecha)
-            
+            turno_service = get_turno_service()
+            return turno_service.get_turno_explorador(explorador_id, fecha)
         except Exception:
             return {}

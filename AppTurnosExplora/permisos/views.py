@@ -4,28 +4,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from .models import PDH, PermisoEspecial
 
-# Mixin personalizado para verificar permisos de administrador
-class AdminRequiredMixin:
-    def dispatch(self, request, *args, **kwargs):
-        # Verificar si el usuario es staff o tiene rol de Supervisor
-        if not request.user.is_authenticated:
-            return self.handle_no_permission()
-        
-        # Si es staff, permitir acceso
-        if request.user.is_staff:
-            return super().dispatch(request, *args, **kwargs)
-        
-        # Verificar si tiene rol de Supervisor
-        try:
-            empleado = request.user.empleado
-            tiene_rol_supervisor = empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists()
-            if tiene_rol_supervisor:
-                return super().dispatch(request, *args, **kwargs)
-        except:
-            pass
-        
-        # Si no cumple ninguna condición, denegar acceso
-        raise PermissionDenied("No tienes permisos de administrador.")
+# Importar mixin común desde core
+from core.mixins import AdminRequiredMixin
 
 # Create your views here.
 
@@ -34,6 +14,32 @@ class PermisosEspecialesView(LoginRequiredMixin, TemplateView):
 
 class BeneficiosView(LoginRequiredMixin, TemplateView):
     template_name = 'permisos/beneficios.html'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Obtener información del empleado
+        try:
+            empleado = self.request.user.empleado
+            context['empleado'] = empleado
+            context['documento'] = empleado.cedula
+            context['nombre_completo'] = f"{empleado.nombre} {empleado.apellido}"
+            context['email'] = empleado.email or self.request.user.email
+            context['tipo_usuario'] = 'Operativo'  # Puedes ajustar según tu lógica
+            context['jefe_directo'] = f"{empleado.supervisor.nombre} {empleado.supervisor.apellido}" if empleado.supervisor else ""
+        except Exception:
+            # Si no hay empleado asociado, usar información básica del usuario
+            context['empleado'] = None
+            context['documento'] = ""
+            context['nombre_completo'] = self.request.user.get_full_name() or self.request.user.username
+            context['email'] = self.request.user.email
+            context['tipo_usuario'] = 'Operativo'
+            context['jefe_directo'] = ""
+        
+        # URL del Google Apps Script (sin parámetros, el script manejará la autenticación)
+        context['google_script_url'] = 'https://script.google.com/a/macros/parqueexplora.org/s/AKfycbzEclLu4hB0BkDQ8d2wDgU3W4oFUFE_JbzTVl6k97o/exec'
+        
+        return context
 
 # CRUD de Permisos Especiales
 class PermisoEspecialListView(LoginRequiredMixin, AdminRequiredMixin, ListView):

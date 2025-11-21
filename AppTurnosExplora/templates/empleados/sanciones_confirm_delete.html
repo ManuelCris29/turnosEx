@@ -1,28 +1,83 @@
 {% extends 'base.html' %}
+
 {% block title %}Eliminar Sanción{% endblock %}
-{% block page_title %}Eliminar Sanción{% endblock %}
+
+{% block extra_css %}
+<style>
+    .delete-card {border-radius:0.75rem;box-shadow:0 4px 20px rgba(0,0,0,.08);}
+    .delete-header {background:linear-gradient(135deg,#dc3545 0%,#c82333 100%);color:#fff;border-radius:0.75rem 0.75rem 0 0;padding:1.5rem;}
+    .delete-body {padding:2rem;text-align:center;}
+    .warning-icon {width:80px;height:80px;background:rgba(220,53,69,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem;}
+    .warning-icon i {font-size:2.5rem;color:#dc3545;}
+    .btn-danger {background:linear-gradient(135deg,#dc3545 0%,#c82333 100%);border:none;transition:all 0.3s ease;}
+    .btn-danger:hover {transform:translateY(-2px);box-shadow:0 8px 20px rgba(220,53,69,.3);}
+    .info-box {background:#f8f9fa;border-radius:0.5rem;padding:1rem;margin:1.5rem 0;text-align:left;}
+</style>
+{% endblock %}
+
 {% block content %}
-<div class="container mt-5">
+<div class="container mt-4 mb-5">
     <div class="row justify-content-center">
         <div class="col-12 col-md-8 col-lg-6">
-            <div class="card shadow">
-                <div class="card-header bg-danger text-white">
-                    <h4 class="mb-0"><i class="fas fa-trash-alt"></i> Eliminar Sanción</h4>
+            <div class="card delete-card border-0">
+                <div class="delete-header">
+                    <div class="d-flex align-items-center">
+                        <div class="icon-circle bg-white text-danger d-flex align-items-center justify-content-center mr-3" style="width:48px;height:48px;border-radius:50%;">
+                            <i class="fas fa-trash-alt"></i>
+                        </div>
+                        <div>
+                            <h4 class="mb-0">Eliminar Sanción</h4>
+                            <small class="opacity-75">Esta acción no se puede deshacer</small>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body text-center">
-                    <p class="lead">¿Estás seguro de que deseas eliminar la sanción de <strong>{{ object.explorador }}</strong>?</p>
-                    <form method="post">
+                <div class="delete-body">
+                    <div class="warning-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    
+                    <h5 class="mb-3">¿Estás seguro de eliminar esta sanción?</h5>
+                    
+                    <div class="info-box">
+                        <div class="mb-2">
+                            <strong><i class="fas fa-user text-danger mr-2"></i>Explorador:</strong>
+                            <span class="ml-2">{{ object.explorador.nombre }} {{ object.explorador.apellido }}</span>
+                        </div>
+                        <div class="mb-2">
+                            <strong><i class="fas fa-calendar-alt text-danger mr-2"></i>Fecha Inicio:</strong>
+                            <span class="ml-2">{{ object.fecha_inicio|date:"d/m/Y" }}</span>
+                        </div>
+                        {% if object.fecha_fin %}
+                        <div class="mb-2">
+                            <strong><i class="fas fa-calendar-check text-danger mr-2"></i>Fecha Fin:</strong>
+                            <span class="ml-2">{{ object.fecha_fin|date:"d/m/Y" }}</span>
+                        </div>
+                        {% endif %}
+                        <div>
+                            <strong><i class="fas fa-align-left text-danger mr-2"></i>Motivo:</strong>
+                            <p class="mb-0 mt-1 text-muted">{{ object.motivo|truncatewords:20 }}</p>
+                        </div>
+                    </div>
+                    
+                    <div class="alert alert-warning" role="alert">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        Esta acción eliminará permanentemente la sanción del sistema. No podrás recuperar esta información.
+                    </div>
+                    
+                    <form method="post" class="mt-4">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-danger px-4">
-                            <i class="fas fa-trash-alt"></i> Eliminar
-                        </button>
-                        <a href="{% url 'sanciones_list' %}" class="btn btn-secondary px-4">
-                            <i class="fas fa-arrow-left"></i> Cancelar
-                        </a>
+                        <div class="d-flex justify-content-center gap-3">
+                            <a href="{% url 'sanciones_list' %}" class="btn btn-outline-secondary px-4">
+                                <i class="fas fa-times mr-2"></i>Cancelar
+                            </a>
+                            <button type="submit" class="btn btn-danger px-4">
+                                <i class="fas fa-trash-alt mr-2"></i>Eliminar Sanción
+                            </button>
+                        </div>
                     </form>
                 </div>
             </div>
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

@@ -5,10 +5,12 @@ This strategy implements the specific logic for "CT PERMANENTE" solicitudes,
 which are requests for permanent shift changes.
 """
 
-from typing import Dict, Any, Tuple, Optional
-from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle
+from typing import Dict, Any, Tuple, Optional, List, Set
+from datetime import date, timedelta
+from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
+from core.services import get_empleado_disponibilidad_service, get_turno_service
 
 
 class CTPermanenteStrategy(SolicitudStrategy):
@@ -44,10 +46,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
             explorador_receptor = datos.get('explorador_receptor')
             fecha_inicio = datos.get('fecha_inicio')
             fecha_fin = datos.get('fecha_fin')
+            dias_seleccionados = datos.get('dias_seleccionados', {})
             
             # Validar datos básicos
-            if not all([explorador_solicitante, explorador_receptor, fecha_inicio]):
-                return False, "Faltan datos requeridos para la validación"
+            if not all([explorador_solicitante, explorador_receptor, fecha_inicio, fecha_fin]):
+                return False, "Faltan datos requeridos para la validación (fecha_fin es obligatoria)"
             
             # Validaciones básicas (empleados activos, no mismo empleado)
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
@@ -57,18 +60,24 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # Validaciones específicas de CT PERMANENTE
             SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
             SolicitudValidator.validar_jornada_contraria(explorador_solicitante, explorador_receptor, fecha_inicio)
-            SolicitudValidator.validar_no_dia_mantenimiento(fecha_inicio)
-            SolicitudValidator.validar_no_domingo_por_semana(fecha_inicio, es_cambio_permanente=True)
-            SolicitudValidator.validar_no_festivo_por_semana(fecha_inicio, es_cambio_permanente=True)
+            
+            # Validar días seleccionados si existen
+            if dias_seleccionados:
+                SolicitudValidator.validar_dias_seleccionados_permanente(fecha_inicio, fecha_fin, dias_seleccionados)
+            
+            # Validar rango completo (todos los días o días seleccionados)
+            SolicitudValidator.validar_rango_completo_cambio_permanente(
+                explorador_solicitante, 
+                explorador_receptor, 
+                fecha_inicio, 
+                fecha_fin,
+                dias_seleccionados if dias_seleccionados else None
+            )
+            
+            # Validar superposición con otros cambios permanentes
             SolicitudValidator.validar_no_cambio_permanente_superpuesto(
                 explorador_solicitante, explorador_receptor, fecha_inicio, fecha_fin
             )
-            
-            # Si hay fecha fin, validar también esa fecha
-            if fecha_fin:
-                SolicitudValidator.validar_no_dia_mantenimiento(fecha_fin)
-                SolicitudValidator.validar_no_domingo_por_semana(fecha_fin, es_cambio_permanente=True)
-                SolicitudValidator.validar_no_festivo_por_semana(fecha_fin, es_cambio_permanente=True)
             
             return True, "Solicitud de CT permanente válida"
             
@@ -95,6 +104,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             comentario = datos.get('comentario', '')
             fecha_inicio = datos.get('fecha_inicio')
             fecha_fin = datos.get('fecha_fin')
+            dias_seleccionados = datos.get('dias_seleccionados', {})  # Dict con 'fechas_especificas' y 'dias_semana'
             
             # Convert fecha_inicio to date for the main solicitud
             fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
@@ -114,11 +124,32 @@ class CTPermanenteStrategy(SolicitudStrategy):
             if fecha_fin:
                 fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
             
-            CambioPermanenteDetalle.objects.create(
+            detalle = CambioPermanenteDetalle.objects.create(
                 solicitud=solicitud,
                 fecha_inicio=fecha_inicio_obj,
                 fecha_fin=fecha_fin_obj
             )
+            
+            # Crear registros de días seleccionados si existen
+            if dias_seleccionados:
+                # Guardar fechas específicas
+                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+                for fecha_str in fechas_especificas:
+                    fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                    CambioPermanenteDia.objects.create(
+                        cambio_permanente=detalle,
+                        fecha_especifica=fecha_obj,
+                        tipo='fecha_especifica'
+                    )
+                
+                # Guardar días de semana
+                dias_semana = dias_seleccionados.get('dias_semana', [])
+                for dia_semana in dias_semana:
+                    CambioPermanenteDia.objects.create(
+                        cambio_permanente=detalle,
+                        dia_semana=int(dia_semana),
+                        tipo='dia_semana'
+                    )
             
             # Crear notificaciones y enviar emails
             try:
@@ -191,11 +222,15 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # 1. Las jornadas son indefinidas por defecto, no necesitan finalización
             # Las jornadas se mantienen activas hasta que se cree una nueva asignación
             
-            # 2. Crear registros en Turno para el período de cambio permanente
+            # 2. Generar lista de fechas válidas según días seleccionados o rango completo
+            fechas_validas = self._generar_fechas_validas(detalle, fecha_fin_cambio)
+            
+            if not fechas_validas:
+                return False, "No se encontraron días válidos para aplicar el cambio permanente"
+            
+            # 3. Crear registros en Turno para el período de cambio permanente
             from turnos.models import Turno
             
-            # Crear registros diarios en Turno para el período
-            fecha_actual = detalle.fecha_inicio
             turnos_creados = []
             dias_omitidos = []
             dias_procesados = 0
@@ -230,12 +265,25 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 sala_receptor = type('obj', (object,), {'sala': sala_default})()
                 print(f"Usando sala por defecto para {solicitud.explorador_receptor.nombre}: {sala_default.nombre}")
             
-            while fecha_actual <= fecha_fin_cambio:
-                # Verificar si es día válido (no domingo, no festivo, no mantenimiento)
-                if (fecha_actual.weekday() != 6 and 
-                    not self._es_festivo(fecha_actual) and 
-                    not self._es_mantenimiento(fecha_actual)):
-                    
+            # Procesar solo las fechas válidas generadas
+            for fecha_actual in fechas_validas:
+                # Verificar si es día válido (no domingo, no festivo, no mantenimiento, no descanso)
+                # Nota: Los días de descanso ya deberían estar excluidos en la validación,
+                # pero verificamos aquí como medida de seguridad
+                es_domingo = fecha_actual.weekday() == 6
+                es_festivo = self._es_festivo(fecha_actual)
+                es_mantenimiento = self._es_mantenimiento(fecha_actual)
+                es_descanso_solicitante = self._es_dia_descanso(solicitud.explorador_solicitante, fecha_actual)
+                es_descanso_receptor = self._es_dia_descanso(solicitud.explorador_receptor, fecha_actual)
+                
+                # Determinar si el día es válido
+                es_valido = (not es_domingo and 
+                            not es_festivo and 
+                            not es_mantenimiento and
+                            not es_descanso_solicitante and
+                            not es_descanso_receptor)
+                
+                if es_valido:
                     # Crear turnos solo para días válidos
                     turno_solicitante = Turno.objects.create(
                         explorador=solicitud.explorador_solicitante,
@@ -256,11 +304,16 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     turnos_creados.append((turno_solicitante, turno_receptor))
                     dias_procesados += 1
                 else:
-                    # Registrar día omitido
-                    razon = self._obtener_razon_dia_invalido(fecha_actual)
+                    # Registrar día omitido con razón específica
+                    razon = self._obtener_razon_dia_invalido_detallada(
+                        fecha_actual, 
+                        es_domingo, 
+                        es_festivo, 
+                        es_mantenimiento,
+                        es_descanso_solicitante,
+                        es_descanso_receptor
+                    )
                     dias_omitidos.append(f"{fecha_actual.strftime('%d/%m/%Y')} ({razon})")
-                
-                fecha_actual += timedelta(days=1)
             
             # 3. Actualizar la solicitud con las referencias a los turnos creados
             # Para CT PERMANENTE, usamos el primer turno creado como referencia
@@ -300,19 +353,16 @@ class CTPermanenteStrategy(SolicitudStrategy):
             List of available empleados with opposite schedule
         """
         try:
-            # For CT permanente, only show employees with opposite schedule
-            from ..solicitud_service import SolicitudService
-            
             # Crear un objeto mock que tenga el atributo empleado
             class MockUser:
                 def __init__(self, empleado):
                     self.empleado = empleado
             
             mock_user = MockUser(usuario_actual)
-            
-            return SolicitudService.get_empleados_disponibles(
-                fecha, 
-                mock_user, 
+            servicio = get_empleado_disponibilidad_service()
+            return servicio.get_empleados_disponibles(
+                fecha,
+                mock_user,
                 solo_jornada_contraria=True  # Solo jornada contraria para CT PERMANENTE
             )
             
@@ -334,19 +384,99 @@ class CTPermanenteStrategy(SolicitudStrategy):
             Dictionary with turn information
         """
         try:
-            # Import here to avoid circular imports
-            from ..solicitud_service import SolicitudService
-            
-            return SolicitudService.get_turno_explorador(explorador_id, fecha)
-            
+            turno_service = get_turno_service()
+            return turno_service.get_turno_explorador(explorador_id, fecha)
         except Exception:
             return {}
+    
+    def _generar_fechas_validas(self, detalle: CambioPermanenteDetalle, fecha_fin: date) -> List[date]:
+        """
+        Genera lista de fechas válidas para el cambio permanente.
+        
+        Si hay días seleccionados en CambioPermanenteDia, usa esos.
+        Si no hay días seleccionados, usa el rango completo (retrocompatibilidad).
+        
+        Args:
+            detalle: Instancia de CambioPermanenteDetalle
+            fecha_fin: Fecha fin del cambio permanente
+            
+        Returns:
+            Lista de fechas válidas (dentro del rango, sin duplicados, ordenadas)
+        """
+        fechas_validas: Set[date] = set()
+        
+        # Obtener días seleccionados
+        dias_seleccionados = detalle.dias.all()
+        
+        if dias_seleccionados.exists():
+            # Hay días seleccionados: usar solo esos
+            fecha_inicio = detalle.fecha_inicio
+            
+            for dia_seleccionado in dias_seleccionados:
+                if dia_seleccionado.tipo == 'fecha_especifica' and dia_seleccionado.fecha_especifica:
+                    # Fecha específica: agregar si está dentro del rango
+                    fecha_esp = dia_seleccionado.fecha_especifica
+                    if fecha_inicio <= fecha_esp <= fecha_fin:
+                        fechas_validas.add(fecha_esp)
+                
+                elif dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
+                    # Día de semana: generar todas las ocurrencias dentro del rango
+                    fecha_actual = fecha_inicio
+                    dia_semana_buscado = dia_seleccionado.dia_semana
+                    
+                    # Avanzar hasta el primer día de la semana buscado
+                    dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
+                    if dias_hasta_proximo > 0:
+                        fecha_actual += timedelta(days=dias_hasta_proximo)
+                    
+                    # Agregar todas las ocurrencias del día de semana dentro del rango
+                    while fecha_actual <= fecha_fin:
+                        fechas_validas.add(fecha_actual)
+                        fecha_actual += timedelta(days=7)  # Siguiente semana
+        else:
+            # No hay días seleccionados: usar rango completo (retrocompatibilidad)
+            fecha_actual = detalle.fecha_inicio
+            while fecha_actual <= fecha_fin:
+                fechas_validas.add(fecha_actual)
+                fecha_actual += timedelta(days=1)
+        
+        # Ordenar y retornar
+        return sorted(list(fechas_validas))
+    
+    def _es_dia_descanso(self, explorador: Empleado, fecha: date) -> bool:
+        """
+        Verificar si un explorador está descansando en una fecha específica.
+        
+        Args:
+            explorador: Instancia de Empleado
+            fecha: Fecha a verificar
+            
+        Returns:
+            True si el explorador está descansando, False en caso contrario
+        """
+        try:
+            from core.utils.jornada_utils import JornadaUtils
+            from turnos.services.jornada_service import JornadaService
+            
+            # Obtener jornada base del explorador
+            jornada_base = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
+            
+            if not jornada_base:
+                return False
+            
+            # Calcular jornada del día
+            jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
+            
+            # Si la jornada del día es "Descanso", el explorador está descansando
+            return jornada_dia == "Descanso"
+        except Exception:
+            return False
     
     def _es_festivo(self, fecha):
         """Verificar si es festivo"""
         try:
             from turnos.models import DiaEspecial
-            return DiaEspecial.objects.filter(fecha=fecha, tipo='festivo').exists()
+            return DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
         except:
             return False
 
@@ -354,7 +484,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
         """Verificar si es día de mantenimiento"""
         try:
             from turnos.models import DiaEspecial
-            return DiaEspecial.objects.filter(fecha=fecha, tipo='mantenimiento').exists()
+            return DiaEspecial.objects.filter(fecha=fecha, tipo='mantenimiento', activo=True).exists()
         except:
             return False
     
@@ -368,3 +498,19 @@ class CTPermanenteStrategy(SolicitudStrategy):
             return "mantenimiento"
         else:
             return "no válido"
+    
+    def _obtener_razon_dia_invalido_detallada(self, fecha, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor):
+        """Obtener la razón detallada por la cual un día es inválido"""
+        razones = []
+        if es_domingo:
+            razones.append("domingo")
+        if es_festivo:
+            razones.append("festivo")
+        if es_mantenimiento:
+            razones.append("mantenimiento")
+        if es_descanso_solicitante:
+            razones.append("descanso solicitante")
+        if es_descanso_receptor:
+            razones.append("descanso receptor")
+        
+        return ", ".join(razones) if razones else "no válido"

@@ -1,50 +1,126 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Sanciones - Consultas Rápidas{% endblock %}
-{% block page_title %}Sanciones (Solo Visualización){% endblock %}
+
+{% block extra_css %}
+<style>
+    .badge-soft {font-weight:500;border-radius:999px;padding:0.25rem 0.85rem;}
+    .badge-soft-success {background:rgba(40,167,69,.15);color:#1e7e34;}
+    .badge-soft-secondary {background:rgba(108,117,125,.2);color:#495057;}
+    .badge-soft-danger {background:rgba(220,53,69,.15);color:#721c24;}
+    .border-left-danger {border-left:4px solid #dc3545;}
+    .border-left-secondary {border-left:4px solid #6c757d;}
+    .timeline-card {position:relative;padding:1.5rem;background:#fff;border-radius:0.5rem;box-shadow:0 2px 8px rgba(0,0,0,.08);margin-bottom:1.5rem;border-left:4px solid #dc3545;}
+    .timeline-card::before {content:'';position:absolute;left:-8px;top:1.5rem;width:14px;height:14px;border-radius:50%;background:#dc3545;border:2px solid #fff;box-shadow:0 0 0 2px #dc3545;}
+    .glow-badge {box-shadow:0 0 10px rgba(220,53,69,.3);}
+    .avatar-sm {width:40px;height:40px;font-size:0.875rem;}
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12">
-            <div class="card shadow">
-                <div class="card-header bg-danger text-white">
-                    <h4 class="mb-0"><i class="fas fa-gavel"></i> Lista de Sanciones</h4>
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-12 mb-3">
+            <div class="d-flex align-items-center">
+                <div class="icon-circle bg-danger text-white d-flex align-items-center justify-content-center mr-3" style="width:48px;height:48px;border-radius:50%;">
+                    <i class="fas fa-gavel"></i>
                 </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped table-bordered">
-                            <thead class="thead-dark">
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Explorador</th>
-                                    <th>Motivo</th>
-                                    <th>Supervisor</th>
-                                    <th>Fecha Inicio</th>
-                                    <th>Fecha Fin</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for sancion in sanciones %}
-                                <tr>
-                                    <td>{{ sancion.id }}</td>
-                                    <td>{{ sancion.explorador }}</td>
-                                    <td>{{ sancion.motivo }}</td>
-                                    <td>{{ sancion.supervisor }}</td>
-                                    <td>{{ sancion.fecha_inicio }}</td>
-                                    <td>{{ sancion.fecha_fin }}</td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="6">No hay sanciones registradas.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
+                <div>
+                    <h3 class="mb-1">Sanciones asignadas</h3>
+                    <p class="text-muted mb-0">Aquí verás las sanciones que tu supervisor ha registrado.</p>
                 </div>
             </div>
         </div>
     </div>
+
+    <div class="row mb-4">
+        <div class="col-sm-6 mb-3">
+            <div class="card shadow-sm border-left-danger h-100">
+                <div class="card-body text-center">
+                    <p class="text-muted mb-1">Activas</p>
+                    <h3 class="text-danger mb-0">{{ total_activas|default:0 }}</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-sm-6 mb-3">
+            <div class="card shadow-sm border-left-secondary h-100">
+                <div class="card-body text-center">
+                    <p class="text-muted mb-1">Finalizadas</p>
+                    <h3 class="text-secondary mb-0">{{ total_finalizadas|default:0 }}</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    {% if sanciones %}
+        <div class="row">
+            <div class="col-12">
+                {% for sancion in sanciones %}
+                <div class="timeline-card">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div class="d-flex align-items-center">
+                            <div class="avatar-sm bg-danger text-white rounded-circle d-flex align-items-center justify-content-center mr-3">
+                                <i class="fas fa-gavel"></i>
+                            </div>
+                            <div>
+                                <h5 class="mb-1">Sanción #{{ sancion.id }}</h5>
+                                <p class="text-muted mb-0">
+                                    <i class="fas fa-user-tie mr-1"></i>
+                                    Supervisor: {{ sancion.supervisor.nombre }} {{ sancion.supervisor.apellido }}
+                                </p>
+                            </div>
+                        </div>
+                        <div>
+                            {% if sancion.fecha_fin and sancion.fecha_fin < hoy %}
+                                <span class="badge badge-soft-secondary glow-badge">
+                                    <i class="fas fa-check-circle mr-1"></i> Finalizada
+                                </span>
+                            {% else %}
+                                <span class="badge badge-soft-danger glow-badge">
+                                    <i class="fas fa-exclamation-circle mr-1"></i> Activa
+                                </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <h6 class="text-muted mb-2"><i class="fas fa-align-left mr-2"></i>Motivo:</h6>
+                        <p class="mb-0" style="line-height:1.6;">{{ sancion.motivo }}</p>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-2">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-calendar-alt text-danger mr-2"></i>
+                                <div>
+                                    <small class="text-muted d-block">Fecha Inicio</small>
+                                    <strong>{{ sancion.fecha_inicio|date:"d/m/Y" }}</strong>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <div class="d-flex align-items-center">
+                                <i class="fas fa-calendar-check text-secondary mr-2"></i>
+                                <div>
+                                    <small class="text-muted d-block">Fecha Fin</small>
+                                    <strong>{% if sancion.fecha_fin %}{{ sancion.fecha_fin|date:"d/m/Y" }}{% else %}<span class="text-muted">Sin fecha fin</span>{% endif %}</strong>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    {% else %}
+        <div class="card shadow">
+            <div class="card-body text-center py-5">
+                <i class="fas fa-gavel fa-4x text-muted mb-3"></i>
+                <h5 class="text-muted">No hay sanciones registradas</h5>
+                <p class="text-muted mb-0">No tienes sanciones registradas en tu historial.</p>
+            </div>
+        </div>
+    {% endif %}
 </div>
-{% endblock %} 
+{% endblock %}
