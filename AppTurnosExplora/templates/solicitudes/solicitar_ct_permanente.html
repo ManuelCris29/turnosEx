@@ -60,6 +60,35 @@
         right: 2px;
         font-size: 10px;
     }
+    
+    /* Estilos para fechas excluidas en vista previa */
+    .fecha-excluida-item {
+        padding: 4px 0;
+        font-size: 0.9rem;
+        border-bottom: 1px solid rgba(0,0,0,0.1);
+    }
+    .fecha-excluida-item:last-child {
+        border-bottom: none;
+    }
+    .exclusion-razon {
+        background-color: rgba(255, 255, 255, 0.5);
+        padding: 10px;
+        border-radius: 5px;
+        margin-top: 8px;
+    }
+    .fechas-excluidas-list {
+        max-height: 200px;
+        overflow-y: auto;
+    }
+    .ver-todas-fechas {
+        font-size: 0.85rem;
+        color: #007bff;
+        text-decoration: none;
+    }
+    .ver-todas-fechas:hover {
+        text-decoration: underline;
+        color: #0056b3;
+    }
 </style>
 {% endblock %}
 

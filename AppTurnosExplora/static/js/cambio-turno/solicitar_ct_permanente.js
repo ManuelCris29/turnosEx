@@ -744,25 +744,101 @@ async function actualizarVistaPrevia() {
             }
         }
         
-        // Mostrar advertencia si hay fechas inválidas
+        // Mostrar advertencia si hay fechas inválidas con fechas específicas
         if (fechasInvalidas.length > 0) {
-            const razonesAgrupadas = {};
+            // Agrupar fechas por razón
+            const fechasPorRazon = {};
             fechasInvalidas.forEach(item => {
-                if (!razonesAgrupadas[item.razon]) {
-                    razonesAgrupadas[item.razon] = 0;
+                if (!fechasPorRazon[item.razon]) {
+                    fechasPorRazon[item.razon] = [];
                 }
-                razonesAgrupadas[item.razon]++;
+                fechasPorRazon[item.razon].push(item.fecha);
             });
             
-            const razonesHtml = Object.entries(razonesAgrupadas).map(([razon, count]) => {
-                return `<strong>${razon}:</strong> ${count} día${count > 1 ? 's' : ''}`;
-            }).join(', ');
+            // Ordenar fechas dentro de cada razón
+            Object.keys(fechasPorRazon).forEach(razon => {
+                fechasPorRazon[razon].sort();
+            });
             
-            fechasHtml += `<li class="list-group-item py-2 bg-warning text-dark">
-                <i class="fas fa-exclamation-triangle mr-2"></i>
-                <strong>Fechas excluidas:</strong> ${razonesHtml}
-                <br><small>Estas fechas no se aplicarán porque son inválidas según las reglas de negocio.</small>
-            </li>`;
+            // Generar HTML para cada razón con sus fechas
+            const seccionesExcluidas = Object.entries(fechasPorRazon).map(([razon, fechas]) => {
+                const count = fechas.length;
+                const icono = obtenerIconoRazon(razon);
+                const color = obtenerColorRazon(razon);
+                
+                // Formatear fechas
+                const fechasFormateadas = fechas.map(fechaStr => {
+                    const fechaObj = new Date(fechaStr + 'T00:00:00');
+                    return fechaObj.toLocaleDateString('es-ES', { 
+                        weekday: 'short', 
+                        year: 'numeric', 
+                        month: 'short', 
+                        day: 'numeric' 
+                    });
+                });
+                
+                // Mostrar máximo 5 fechas inicialmente
+                const mostrarTodas = fechas.length <= 5;
+                const fechasVisibles = mostrarTodas ? fechasFormateadas : fechasFormateadas.slice(0, 5);
+                const fechasOcultas = mostrarTodas ? [] : fechasFormateadas.slice(5);
+                
+                let fechasHtml = fechasVisibles.map(fecha => {
+                    return `<div class="fecha-excluida-item">
+                        <i class="fas fa-times-circle text-${color} mr-2"></i>
+                        <span>${fecha}</span>
+                    </div>`;
+                }).join('');
+                
+                // Botón para mostrar todas si hay más de 5
+                let botonVerTodas = '';
+                if (!mostrarTodas) {
+                    const razonId = razon.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                    botonVerTodas = `
+                        <button type="button" 
+                                class="btn btn-sm btn-link p-0 mt-2 ver-todas-fechas" 
+                                data-razon="${razonId}"
+                                data-mostrando="false">
+                            <i class="fas fa-chevron-down mr-1"></i>
+                            Ver ${fechasOcultas.length} fecha${fechasOcultas.length > 1 ? 's' : ''} más
+                        </button>
+                        <div class="fechas-ocultas-${razonId}" style="display: none;">
+                            ${fechasOcultas.map(fecha => {
+                                return `<div class="fecha-excluida-item">
+                                    <i class="fas fa-times-circle text-${color} mr-2"></i>
+                                    <span>${fecha}</span>
+                                </div>`;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <div class="exclusion-razon mb-3">
+                        <div class="d-flex align-items-center mb-2">
+                            ${icono}
+                            <strong class="mr-2">${razon}:</strong>
+                            <span class="badge badge-${color}">${count} día${count > 1 ? 's' : ''}</span>
+                        </div>
+                        <div class="fechas-excluidas-list pl-4">
+                            ${fechasHtml}
+                            ${botonVerTodas}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            fechasHtml += `
+                <li class="list-group-item py-3 bg-warning text-dark">
+                    <div class="d-flex align-items-start mb-2">
+                        <i class="fas fa-exclamation-triangle mr-2 mt-1"></i>
+                        <div class="flex-grow-1">
+                            <strong>Fechas excluidas:</strong>
+                            <small class="d-block mt-1 mb-2">Estas fechas no se aplicarán porque son inválidas según las reglas de negocio.</small>
+                            ${seccionesExcluidas}
+                        </div>
+                    </div>
+                </li>
+            `;
         }
         
         // Mostrar advertencia si no hay fechas válidas
@@ -775,7 +851,60 @@ async function actualizarVistaPrevia() {
         }
         
         listaFechasPrevia.innerHTML = `<ul class="list-group list-group-flush">${fechasHtml}</ul>`;
+        
+        // Agregar event listeners para botones "Ver todas"
+        document.querySelectorAll('.ver-todas-fechas').forEach(boton => {
+            boton.addEventListener('click', function() {
+                const razonId = this.getAttribute('data-razon');
+                const mostrando = this.getAttribute('data-mostrando') === 'true';
+                const fechasOcultas = document.querySelector(`.fechas-ocultas-${razonId}`);
+                const icono = this.querySelector('i');
+                
+                if (mostrando) {
+                    fechasOcultas.style.display = 'none';
+                    icono.classList.remove('fa-chevron-up');
+                    icono.classList.add('fa-chevron-down');
+                    const count = fechasOcultas.querySelectorAll('.fecha-excluida-item').length;
+                    this.innerHTML = `<i class="fas fa-chevron-down mr-1"></i>Ver ${count} fecha${count > 1 ? 's' : ''} más`;
+                    this.setAttribute('data-mostrando', 'false');
+                } else {
+                    fechasOcultas.style.display = 'block';
+                    icono.classList.remove('fa-chevron-down');
+                    icono.classList.add('fa-chevron-up');
+                    this.innerHTML = `<i class="fas fa-chevron-up mr-1"></i>Ocultar fechas`;
+                    this.setAttribute('data-mostrando', 'true');
+                }
+            });
+        });
     }
+}
+
+// Función helper para obtener icono según razón de exclusión
+function obtenerIconoRazon(razon) {
+    const iconos = {
+        'Domingo': '<i class="fas fa-calendar-times text-danger mr-2"></i>',
+        'Festivo': '<i class="fas fa-calendar-check text-danger mr-2"></i>',
+        'Mantenimiento': '<i class="fas fa-tools text-warning mr-2"></i>',
+        'Descanso (AM)': '<i class="fas fa-moon text-secondary mr-2"></i>',
+        'Descanso (PM)': '<i class="fas fa-moon text-secondary mr-2"></i>',
+        'Descanso receptor (AM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
+        'Descanso receptor (PM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>'
+    };
+    return iconos[razon] || '<i class="fas fa-ban text-danger mr-2"></i>';
+}
+
+// Función helper para obtener color según razón de exclusión
+function obtenerColorRazon(razon) {
+    const colores = {
+        'Domingo': 'danger',
+        'Festivo': 'danger',
+        'Mantenimiento': 'warning',
+        'Descanso (AM)': 'secondary',
+        'Descanso (PM)': 'secondary',
+        'Descanso receptor (AM)': 'secondary',
+        'Descanso receptor (PM)': 'secondary'
+    };
+    return colores[razon] || 'danger';
 }
 
 // Cache para festivos y mantenimiento (se carga una vez)
