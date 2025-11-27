@@ -188,6 +188,30 @@ class SolicitudValidator:
             raise ValidationError('No se puede cambiar domingo por día de semana')
     
     @staticmethod
+    def validar_no_sabado(fecha, es_cambio_permanente=False):
+        """
+        Validar que no se esté cambiando sábado.
+        Para CT PERMANENTE: NO permitir sábados (regla de negocio estricta - solo lunes-viernes)
+        
+        Args:
+            fecha: Fecha a validar
+            es_cambio_permanente: Si es True, validar estrictamente (NO permitir sábados)
+        """
+        from datetime import datetime
+        
+        if isinstance(fecha, str):
+            fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+        
+        # Para CT PERMANENTE: Validar estrictamente (NO permitir sábados)
+        if es_cambio_permanente:
+            if fecha.weekday() == 5:  # Sábado
+                raise ValidationError('No se pueden realizar cambios permanentes en sábados. Solo se permiten lunes a viernes.')
+            return True
+        
+        # Para CT normal: No validar sábados (pueden ser válidos en otros tipos)
+        return True
+    
+    @staticmethod
     def validar_no_festivo_por_semana(fecha, es_cambio_permanente=False):
         """
         Validar que no se esté cambiando festivo por día de semana.
@@ -366,6 +390,10 @@ class SolicitudValidator:
             # Validar domingo
             if fecha.weekday() == 6:
                 raise ValidationError(f'No se pueden realizar cambios permanentes en domingos ({fecha.strftime("%d/%m/%Y")})')
+            
+            # Validar sábado - CT PERMANENTE solo permite lunes-viernes
+            if fecha.weekday() == 5:
+                raise ValidationError(f'No se pueden realizar cambios permanentes en sábados ({fecha.strftime("%d/%m/%Y")}). Solo se permiten lunes a viernes.')
             
             # Validar festivo
             SolicitudValidator.validar_no_festivo_por_semana(fecha, es_cambio_permanente=True)

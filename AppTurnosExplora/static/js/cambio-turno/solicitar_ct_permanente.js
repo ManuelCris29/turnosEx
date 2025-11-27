@@ -165,7 +165,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 cargarEmpleadosDisponibles(fechaInicio);
                 // Recargar jornada del solicitante para validaciones
                 cargarJornadaSolicitante().then(() => {
-                    verificarAdvertenciaSabadoAM();
                     actualizarVistaPrevia();
                 });
             }
@@ -181,9 +180,7 @@ document.addEventListener('DOMContentLoaded', function() {
         cargarJornadaActual(fechaInicioInput.value);
         cargarEmpleadosDisponibles(fechaInicioInput.value);
         // Cargar jornada del solicitante para validaciones
-        cargarJornadaSolicitante().then(() => {
-            verificarAdvertenciaSabadoAM();
-        });
+        cargarJornadaSolicitante();
     }
 
     // Función para cargar información del compañero seleccionado
@@ -488,15 +485,10 @@ function inicializarSeleccionDias() {
     const checkboxesDiasSemana = document.querySelectorAll('input[name="dias_semana"]');
     checkboxesDiasSemana.forEach(checkbox => {
         checkbox.addEventListener('change', function() {
-            // Mostrar advertencia si AM selecciona sábado
-            verificarAdvertenciaSabadoAM();
             actualizarDiasSeleccionados();
             actualizarVistaPrevia();
         });
     });
-    
-    // Verificar advertencia al cargar si ya hay sábado seleccionado
-    verificarAdvertenciaSabadoAM();
     
     // Inicializar Flatpickr para fechas específicas (modo múltiple)
     // Usar el módulo común para mostrar festivos y mantenimiento
@@ -913,29 +905,6 @@ let cacheMantenimiento = null;
 let cacheJornadaSolicitante = null;
 let cacheJornadaReceptor = null;
 
-// Función para verificar advertencia sábado AM
-function verificarAdvertenciaSabadoAM() {
-    const checkboxSabado = document.getElementById('dia_sabado');
-    const advertencia = document.getElementById('advertencia_sabado_am');
-    
-    if (!checkboxSabado || !advertencia) return;
-    
-    // Cargar jornada del solicitante si no está en cache
-    if (!cacheJornadaSolicitante && window.solicitanteId) {
-        cargarJornadaSolicitante().then(() => {
-            verificarAdvertenciaSabadoAM();
-        });
-        return;
-    }
-    
-    // Mostrar advertencia si es AM y sábado está seleccionado
-    if (checkboxSabado.checked && cacheJornadaSolicitante === 'AM') {
-        advertencia.style.display = 'block';
-    } else {
-        advertencia.style.display = 'none';
-    }
-}
-
 // Función para cargar jornada del solicitante
 function cargarJornadaSolicitante() {
     if (!window.solicitanteId || !fechaInicioInput || !fechaInicioInput.value) {
@@ -1001,6 +970,11 @@ async function esDiaValido(fechaStr) {
     // 1. Validar domingo (getDay() === 0)
     if (diaSemana === 0) {
         return { valido: false, razon: 'Domingo' };
+    }
+    
+    // 2. Validar sábado (getDay() === 6) - CT PERMANENTE solo lunes-viernes
+    if (diaSemana === 6) {
+        return { valido: false, razon: 'Sábado' };
     }
     
     // 2. Cargar festivos y mantenimiento si no están en cache
@@ -1072,9 +1046,11 @@ async function generarFechasValidas(fechaInicioStr, fechaFinStr, diasSeleccionad
         while (fechaActual <= fechaFin) {
             const diaSemana = fechaActual.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
             // Convertir a formato del backend (0=lunes, 6=domingo)
+            // IMPORTANTE: CT PERMANENTE solo permite lunes-viernes (0-4 en backend)
             const diaSemanaBackend = diaSemana === 0 ? 6 : diaSemana - 1;
             
-            if (diasSeleccionados.dias_semana.includes(diaSemanaBackend)) {
+            // Filtrar sábados (5) y domingos (6) - no se permiten en CT PERMANENTE
+            if (diaSemanaBackend >= 0 && diaSemanaBackend <= 4 && diasSeleccionados.dias_semana.includes(diaSemanaBackend)) {
                 const fechaStr = fechaActual.toISOString().split('T')[0];
                 const validacion = await esDiaValido(fechaStr);
                 if (validacion.valido) {
@@ -1082,6 +1058,11 @@ async function generarFechasValidas(fechaInicioStr, fechaFinStr, diasSeleccionad
                 } else {
                     fechasInvalidas.push({ fecha: fechaStr, razon: validacion.razon });
                 }
+            } else if (diaSemanaBackend === 5 || diaSemanaBackend === 6) {
+                // Si se seleccionó sábado o domingo, agregarlo a inválidas
+                const fechaStr = fechaActual.toISOString().split('T')[0];
+                const razon = diaSemanaBackend === 5 ? 'Sábado' : 'Domingo';
+                fechasInvalidas.push({ fecha: fechaStr, razon: razon });
             }
             
             // Crear nueva fecha para evitar problemas con setDate
@@ -1092,15 +1073,25 @@ async function generarFechasValidas(fechaInicioStr, fechaFinStr, diasSeleccionad
     }
     
     // Si no hay días seleccionados, usar rango completo (retrocompatibilidad)
+    // IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
     if (diasSeleccionados.fechas_especificas.length === 0 && diasSeleccionados.dias_semana.length === 0) {
         let fechaActual = new Date(fechaInicio);
         while (fechaActual <= fechaFin) {
-            const fechaStr = fechaActual.toISOString().split('T')[0];
-            const validacion = await esDiaValido(fechaStr);
-            if (validacion.valido) {
-                fechas.add(fechaStr);
+            const diaSemana = fechaActual.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
+            // Solo procesar lunes-viernes (1-5)
+            if (diaSemana >= 1 && diaSemana <= 5) {
+                const fechaStr = fechaActual.toISOString().split('T')[0];
+                const validacion = await esDiaValido(fechaStr);
+                if (validacion.valido) {
+                    fechas.add(fechaStr);
+                } else {
+                    fechasInvalidas.push({ fecha: fechaStr, razon: validacion.razon });
+                }
             } else {
-                fechasInvalidas.push({ fecha: fechaStr, razon: validacion.razon });
+                // Sábado o domingo - agregar a inválidas
+                const fechaStr = fechaActual.toISOString().split('T')[0];
+                const razon = diaSemana === 0 ? 'Domingo' : 'Sábado';
+                fechasInvalidas.push({ fecha: fechaStr, razon: razon });
             }
             fechaActual.setDate(fechaActual.getDate() + 1);
         }

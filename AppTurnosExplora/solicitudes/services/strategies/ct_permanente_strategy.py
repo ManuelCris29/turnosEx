@@ -267,9 +267,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
             
             # Procesar solo las fechas válidas generadas
             for fecha_actual in fechas_validas:
-                # Verificar si es día válido (no domingo, no festivo, no mantenimiento, no descanso)
+                # Verificar si es día válido (no sábado, no domingo, no festivo, no mantenimiento, no descanso)
+                # IMPORTANTE: CT PERMANENTE solo permite lunes-viernes (weekday 0-4)
                 # Nota: Los días de descanso ya deberían estar excluidos en la validación,
                 # pero verificamos aquí como medida de seguridad
+                es_sabado = fecha_actual.weekday() == 5
                 es_domingo = fecha_actual.weekday() == 6
                 es_festivo = self._es_festivo(fecha_actual)
                 es_mantenimiento = self._es_mantenimiento(fecha_actual)
@@ -277,7 +279,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 es_descanso_receptor = self._es_dia_descanso(solicitud.explorador_receptor, fecha_actual)
                 
                 # Determinar si el día es válido
-                es_valido = (not es_domingo and 
+                es_valido = (not es_sabado and 
+                            not es_domingo and 
                             not es_festivo and 
                             not es_mantenimiento and
                             not es_descanso_solicitante and
@@ -307,6 +310,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     # Registrar día omitido con razón específica
                     razon = self._obtener_razon_dia_invalido_detallada(
                         fecha_actual, 
+                        es_sabado,
                         es_domingo, 
                         es_festivo, 
                         es_mantenimiento,
@@ -430,14 +434,20 @@ class CTPermanenteStrategy(SolicitudStrategy):
                         fecha_actual += timedelta(days=dias_hasta_proximo)
                     
                     # Agregar todas las ocurrencias del día de semana dentro del rango
+                    # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
                     while fecha_actual <= fecha_fin:
-                        fechas_validas.add(fecha_actual)
+                        # Validar que no sea sábado ni domingo
+                        if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
+                            fechas_validas.add(fecha_actual)
                         fecha_actual += timedelta(days=7)  # Siguiente semana
         else:
             # No hay días seleccionados: usar rango completo (retrocompatibilidad)
+            # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
             fecha_actual = detalle.fecha_inicio
             while fecha_actual <= fecha_fin:
-                fechas_validas.add(fecha_actual)
+                # Solo agregar lunes-viernes (weekday 0-4)
+                if fecha_actual.weekday() < 5:
+                    fechas_validas.add(fecha_actual)
                 fecha_actual += timedelta(days=1)
         
         # Ordenar y retornar
@@ -490,7 +500,9 @@ class CTPermanenteStrategy(SolicitudStrategy):
     
     def _obtener_razon_dia_invalido(self, fecha):
         """Obtener la razón por la cual un día es inválido"""
-        if fecha.weekday() == 6:
+        if fecha.weekday() == 5:  # Sábado
+            return "sábado"
+        elif fecha.weekday() == 6:  # Domingo
             return "domingo"
         elif self._es_festivo(fecha):
             return "festivo"
@@ -499,9 +511,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
         else:
             return "no válido"
     
-    def _obtener_razon_dia_invalido_detallada(self, fecha, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor):
+    def _obtener_razon_dia_invalido_detallada(self, fecha, es_sabado, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor):
         """Obtener la razón detallada por la cual un día es inválido"""
         razones = []
+        if es_sabado:
+            razones.append("sábado")
         if es_domingo:
             razones.append("domingo")
         if es_festivo:
