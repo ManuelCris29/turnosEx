@@ -132,17 +132,6 @@ class CTPermanenteStrategy(SolicitudStrategy):
             
             # Crear registros de días seleccionados si existen
             if dias_seleccionados:
-                # Guardar fechas específicas
-                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
-                for fecha_str in fechas_especificas:
-                    fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-                    CambioPermanenteDia.objects.create(
-                        cambio_permanente=detalle,
-                        fecha_especifica=fecha_obj,
-                        tipo='fecha_especifica'
-                    )
-                
-                # Guardar días de semana
                 dias_semana = dias_seleccionados.get('dias_semana', [])
                 for dia_semana in dias_semana:
                     CambioPermanenteDia.objects.create(
@@ -345,113 +334,218 @@ class CTPermanenteStrategy(SolicitudStrategy):
         except Exception as e:
             return False, f"Error aplicando cambio permanente: {str(e)}"
     
-    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado) -> list:
+    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
-        Get available employees for CT permanente (only employees with opposite schedule).
+        Get available employees for CT permanente with 'Best Match' logic.
         
         Args:
-            fecha: Date string in YYYY-MM-DD format
+            fecha: Date string in YYYY-MM-DD format (start date)
             usuario_actual: Current user's empleado instance
+            **kwargs:
+                - fecha_fin: Date string (optional)
+                - dias_seleccionados: Dict with 'dias_semana' and 'fechas_especificas'
             
         Returns:
-            List of available empleados with opposite schedule
+            List of available empleados with compatibility metadata
         """
         try:
-            # Crear un objeto mock que tenga el atributo empleado
-            class MockUser:
-                def __init__(self, empleado):
-                    self.empleado = empleado
+            from datetime import datetime
+            from turnos.services.jornada_service import JornadaService
             
-            mock_user = MockUser(usuario_actual)
-            servicio = get_empleado_disponibilidad_service()
-            return servicio.get_empleados_disponibles(
-                fecha,
-                mock_user,
-                solo_jornada_contraria=True  # Solo jornada contraria para CT PERMANENTE
+            fecha_inicio_str = fecha
+            fecha_fin_str = kwargs.get('fecha_fin')
+            dias_seleccionados = kwargs.get('dias_seleccionados', {})
+            
+            # Si no hay rango o días seleccionados, usar comportamiento por defecto (solo fecha inicio)
+            if not fecha_fin_str:
+                return super().get_empleados_disponibles(fecha, usuario_actual)
+            
+            # Convertir fechas
+            fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
+            fecha_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+            
+            # 1. Generar todas las fechas válidas del rango
+            fechas_a_evaluar = self._generar_fechas_validas_params(
+                fecha_inicio, 
+                fecha_fin, 
+                dias_seleccionados
             )
+            
+            if not fechas_a_evaluar:
+                return []
+            
+            # 2. Obtener todos los empleados activos (candidatos base)
+            servicio_disp = get_empleado_disponibilidad_service()
+            # IMPORTANTE: El servicio espera un User (con atributo empleado), pero recibimos un Empleado
+            # Por lo tanto, pasamos None y filtramos manualmente después
+            candidatos_base = servicio_disp.get_empleados_disponibles(fecha_inicio_str, None)
+            
+            # Asegurar que el usuario actual no esté en la lista
+            # Convertir a lista si es QuerySet para manejar ambos casos de forma consistente
+            import logging
+            logger = logging.getLogger(__name__)
+            
+            # Contar antes de filtrar (evaluar QuerySet si es necesario)
+            total_antes = candidatos_base.count() if hasattr(candidatos_base, 'count') else len(candidatos_base) if hasattr(candidatos_base, '__len__') else 0
+            logger.debug(f"Filtrando usuario actual (ID: {usuario_actual.id}, Nombre: {usuario_actual.nombre}) de candidatos. Total antes: {total_antes}")
+            
+            # Filtrar el usuario actual
+            if hasattr(candidatos_base, 'exclude'):
+                # Es un QuerySet, excluir y convertir a lista
+                candidatos_base = list(candidatos_base.exclude(id=usuario_actual.id))
+            else:
+                # Es una lista, filtrar manualmente
+                candidatos_base = [c for c in candidatos_base if hasattr(c, 'id') and c.id != usuario_actual.id]
+            
+            # Verificar que el usuario actual no esté en la lista
+            ids_candidatos = [c.id for c in candidatos_base if hasattr(c, 'id')]
+            if usuario_actual.id in ids_candidatos:
+                logger.warning(f"ERROR: Usuario actual (ID: {usuario_actual.id}) aún está en la lista de candidatos después del filtro!")
+                # Filtrar nuevamente de forma más estricta
+                candidatos_base = [c for c in candidatos_base if hasattr(c, 'id') and c.id != usuario_actual.id]
+            
+            logger.debug(f"Total candidatos después de filtrar: {len(candidatos_base)}. IDs: {ids_candidatos}")
+            
+            # Mapa de compatibilidad: {empleado_id: {'compatibles': [], 'incompatibles': [], 'empleado': obj}}
+            mapa_compatibilidad = {}
+            for cand in candidatos_base:
+                mapa_compatibilidad[cand.id] = {
+                    'empleado': cand,
+                    'dias_compatibles': [],
+                    'dias_incompatibles': []
+                }
+            
+            # 3. Evaluar día a día
+            logger.debug(f"Iniciando evaluación día a día para {len(fechas_a_evaluar)} fechas")
+            for fecha_eval in fechas_a_evaluar:
+                # Obtener jornada del usuario actual para este día
+                jornada_usuario = JornadaService.get_jornada_explorador_fecha(usuario_actual.id, fecha_eval)
+                
+                if not jornada_usuario:
+                    logger.debug(f"Usuario {usuario_actual.id} ({usuario_actual.nombre}) no tiene jornada para {fecha_eval}")
+                    continue
+                
+                # Determinar jornada contraria necesaria
+                nombre_contraria = 'PM' if jornada_usuario.nombre == 'AM' else 'AM'
+                logger.debug(f"Fecha {fecha_eval}: Usuario {usuario_actual.id} tiene jornada {jornada_usuario.nombre}, necesita {nombre_contraria}")
+                
+                # Evaluar cada candidato
+                for cand_id, info in mapa_compatibilidad.items():
+                    # Obtener jornada del candidato
+                    jornada_cand = JornadaService.get_jornada_explorador_fecha(cand_id, fecha_eval)
+                    
+                    es_compatible = False
+                    if jornada_cand:
+                        if jornada_cand.nombre == nombre_contraria:
+                            es_compatible = True
+                            logger.debug(f"  ✓ Candidato {cand_id} ({info['empleado'].nombre}): {jornada_cand.nombre} == {nombre_contraria} → COMPATIBLE")
+                        else:
+                            logger.debug(f"  ✗ Candidato {cand_id} ({info['empleado'].nombre}): {jornada_cand.nombre} != {nombre_contraria} → INCOMPATIBLE (misma jornada o diferente)")
+                    else:
+                        logger.debug(f"  ✗ Candidato {cand_id} ({info['empleado'].nombre}): Sin jornada para {fecha_eval} → INCOMPATIBLE")
+                    
+                    fecha_fmt = fecha_eval.strftime('%Y-%m-%d')
+                    if es_compatible:
+                        info['dias_compatibles'].append(fecha_fmt)
+                    else:
+                        info['dias_incompatibles'].append(fecha_fmt)
+            
+            # 4. Construir lista de resultados con metadatos
+            resultados = []
+            total_dias = len(fechas_a_evaluar)
+            
+            logger.debug(f"Construyendo resultados. Total días en rango: {total_dias}")
+            for info in mapa_compatibilidad.values():
+                empleado = info['empleado']
+                compatibles_count = len(info['dias_compatibles'])
+                incompatibles_count = len(info['dias_incompatibles'])
+                
+                logger.debug(f"Empleado {empleado.id} ({empleado.nombre}): {compatibles_count} días compatibles, {incompatibles_count} días incompatibles")
+                
+                # Solo incluir si tiene al menos un día compatible
+                if compatibles_count > 0:
+                    # Inyectar metadatos en el objeto empleado (temporalmente para serialización)
+                    empleado.compatibilidad_percent = int((compatibles_count / total_dias) * 100)
+                    empleado.dias_compatibles = info['dias_compatibles']
+                    empleado.dias_incompatibles = info['dias_incompatibles']
+                    empleado.total_dias_rango = total_dias
+                    resultados.append(empleado)
+                    logger.debug(f"  → INCLUIDO con {empleado.compatibilidad_percent}% de compatibilidad")
+                else:
+                    logger.debug(f"  → EXCLUIDO (0% compatibilidad - misma jornada en todos los días o sin jornada)")
+            
+            # 5. Ordenar por porcentaje de compatibilidad descendente
+            resultados.sort(key=lambda x: x.compatibilidad_percent, reverse=True)
+            
+            logger.debug(f"Total resultados finales: {len(resultados)} empleados con compatibilidad > 0%")
+            
+            return resultados
             
         except Exception as e:
             import logging
             logger = logging.getLogger(__name__)
-            logger.exception("Error en get_empleados_disponibles CT PERMANENTE")
+            logger.exception("Error en get_empleados_disponibles CT PERMANENTE (Rango)")
             return []
-    
-    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
+
+    def _generar_fechas_validas_params(self, fecha_inicio: date, fecha_fin: date, dias_seleccionados: dict) -> List[date]:
         """
-        Get turn information for an explorer.
-        
-        Args:
-            explorador_id: ID of the empleado
-            fecha: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with turn information
-        """
-        try:
-            turno_service = get_turno_service()
-            return turno_service.get_turno_explorador(explorador_id, fecha)
-        except Exception:
-            return {}
-    
-    def _generar_fechas_validas(self, detalle: CambioPermanenteDetalle, fecha_fin: date) -> List[date]:
-        """
-        Genera lista de fechas válidas para el cambio permanente.
-        
-        Si hay días seleccionados en CambioPermanenteDia, usa esos.
-        Si no hay días seleccionados, usa el rango completo (retrocompatibilidad).
-        
-        Args:
-            detalle: Instancia de CambioPermanenteDetalle
-            fecha_fin: Fecha fin del cambio permanente
-            
-        Returns:
-            Lista de fechas válidas (dentro del rango, sin duplicados, ordenadas)
+        Genera lista de fechas válidas basado en parámetros directos (no objeto DB).
         """
         fechas_validas: Set[date] = set()
         
-        # Obtener días seleccionados
-        dias_seleccionados = detalle.dias.all()
+        # Extraer listas del dict
+        dias_semana_list = dias_seleccionados.get('dias_semana', [])
+        fechas_especificas_list = dias_seleccionados.get('fechas_especificas', []) 
         
-        if dias_seleccionados.exists():
-            # Hay días seleccionados: usar solo esos
-            fecha_inicio = detalle.fecha_inicio
-            
-            for dia_seleccionado in dias_seleccionados:
-                if dia_seleccionado.tipo == 'fecha_especifica' and dia_seleccionado.fecha_especifica:
-                    # Fecha específica: agregar si está dentro del rango
-                    fecha_esp = dia_seleccionado.fecha_especifica
-                    if fecha_inicio <= fecha_esp <= fecha_fin:
-                        fechas_validas.add(fecha_esp)
-                
-                elif dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
-                    # Día de semana: generar todas las ocurrencias dentro del rango
+        # Lógica para días de semana
+        if dias_semana_list:
+            for dia_str in dias_semana_list:
+                try:
+                    dia_semana_buscado = int(dia_str)
                     fecha_actual = fecha_inicio
-                    dia_semana_buscado = dia_seleccionado.dia_semana
                     
-                    # Avanzar hasta el primer día de la semana buscado
-                    dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
-                    if dias_hasta_proximo > 0:
-                        fecha_actual += timedelta(days=dias_hasta_proximo)
+                    # Avanzar al primer día correspondiente
+                    dias_hasta = (dia_semana_buscado - fecha_actual.weekday()) % 7
+                    if dias_hasta > 0:
+                        fecha_actual += timedelta(days=dias_hasta)
                     
-                    # Agregar todas las ocurrencias del día de semana dentro del rango
-                    # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
                     while fecha_actual <= fecha_fin:
-                        # Validar que no sea sábado ni domingo
-                        if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
+                        # Solo lunes-viernes
+                        if fecha_actual.weekday() < 5:
                             fechas_validas.add(fecha_actual)
-                        fecha_actual += timedelta(days=7)  # Siguiente semana
-        else:
-            # No hay días seleccionados: usar rango completo (retrocompatibilidad)
-            # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
-            fecha_actual = detalle.fecha_inicio
+                        fecha_actual += timedelta(days=7)
+                except ValueError:
+                    continue
+        
+        # Si no hay días seleccionados explícitos, usar rango completo (lunes-viernes)
+        if not dias_semana_list and not fechas_especificas_list:
+            fecha_actual = fecha_inicio
             while fecha_actual <= fecha_fin:
-                # Solo agregar lunes-viernes (weekday 0-4)
                 if fecha_actual.weekday() < 5:
                     fechas_validas.add(fecha_actual)
                 fecha_actual += timedelta(days=1)
-        
-        # Ordenar y retornar
+                
         return sorted(list(fechas_validas))
+
+    def _generar_fechas_validas(self, detalle: CambioPermanenteDetalle, fecha_fin: date) -> List[date]:
+        """
+        Wrapper para mantener compatibilidad con el método original que usa el objeto detalle.
+        """
+        dias_semana = []
+        fechas_especificas = []
+        
+        for dia in detalle.dias.all():
+            if dia.tipo == 'dia_semana' and dia.dia_semana is not None:
+                dias_semana.append(dia.dia_semana)
+            elif dia.tipo == 'fecha_especifica' and dia.fecha_especifica:
+                fechas_especificas.append(dia.fecha_especifica)
+                
+        dias_seleccionados = {
+            'dias_semana': dias_semana,
+            'fechas_especificas': fechas_especificas
+        }
+        
+        return self._generar_fechas_validas_params(detalle.fecha_inicio, fecha_fin, dias_seleccionados)
     
     def _es_dia_descanso(self, explorador: Empleado, fecha: date) -> bool:
         """

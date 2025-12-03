@@ -91,6 +91,16 @@ class SolicitudAprobacionService:
             # Crear notificación de aprobación del supervisor
             NotificacionService.crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta)
             
+            # Invalidar cache de contadores para todos los afectados
+            from core.services.cache_service import CacheService
+            cache_keys = [
+                f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{solicitud.explorador_receptor.id}",
+                f"solicitudes_count_pend_{supervisor.id}",
+            ]
+            CacheService.delete_many(cache_keys)
+            
             return True, "Solicitud aprobada por supervisor correctamente"
             
         except SolicitudCambio.DoesNotExist:
@@ -170,6 +180,18 @@ class SolicitudAprobacionService:
             # Crear notificación de aprobación del receptor
             NotificacionService.crear_notificacion_aprobacion_receptor(solicitud, receptor, comentario_respuesta)
             
+            # Invalidar cache de contadores para todos los afectados
+            from core.services.cache_service import CacheService
+            cache_keys = [
+                f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{receptor.id}",
+            ]
+            # Si el solicitante tiene supervisor, también invalidar su caché
+            if solicitud.explorador_solicitante.supervisor:
+                cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
+            CacheService.delete_many(cache_keys)
+            
             return True, "Solicitud aprobada por compañero correctamente"
             
         except SolicitudCambio.DoesNotExist:
@@ -223,6 +245,16 @@ class SolicitudAprobacionService:
             # Crear notificación de rechazo
             NotificacionService.crear_notificacion_rechazo_supervisor(solicitud, supervisor, comentario_respuesta)
             
+            # Invalidar cache de contadores para todos los afectados
+            from core.services.cache_service import CacheService
+            cache_keys = [
+                f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{solicitud.explorador_receptor.id}",
+                f"solicitudes_count_pend_{supervisor.id}",
+            ]
+            CacheService.delete_many(cache_keys)
+            
             return True, "Solicitud rechazada por supervisor correctamente"
             
         except SolicitudCambio.DoesNotExist:
@@ -275,6 +307,18 @@ class SolicitudAprobacionService:
             
             # Crear notificación de rechazo
             NotificacionService.crear_notificacion_rechazo_receptor(solicitud, receptor, comentario_respuesta)
+            
+            # Invalidar cache de contadores para todos los afectados
+            from core.services.cache_service import CacheService
+            cache_keys = [
+                f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
+                f"solicitudes_count_pend_{receptor.id}",
+            ]
+            # Si el solicitante tiene supervisor, también invalidar su caché
+            if solicitud.explorador_solicitante.supervisor:
+                cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
+            CacheService.delete_many(cache_keys)
             
             return True, "Solicitud rechazada por compañero correctamente"
             

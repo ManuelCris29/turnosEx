@@ -280,7 +280,7 @@ class SolicitudFactory:
     
     @classmethod
     def get_empleados_disponibles(cls, tipo_solicitud: TipoSolicitudCambio, 
-                                 fecha: str, usuario_actual) -> list:
+                                 fecha: str, usuario_actual, **kwargs) -> list:
         """
         Get available employees for a solicitud type.
         
@@ -288,6 +288,7 @@ class SolicitudFactory:
             tipo_solicitud: TipoSolicitudCambio instance
             fecha: Date string in YYYY-MM-DD format
             usuario_actual: Current user's empleado instance
+            **kwargs: Additional arguments for specific strategies (e.g. fecha_fin for CT PERMANENTE)
             
         Returns:
             List of available empleados
@@ -297,7 +298,7 @@ class SolicitudFactory:
             return []
         
         try:
-            return strategy.get_empleados_disponibles(fecha, usuario_actual)
+            return strategy.get_empleados_disponibles(fecha, usuario_actual, **kwargs)
         except Exception:
             return []
     

@@ -71,7 +71,7 @@ class SolicitudStrategy(ABC):
         """
         pass
     
-    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado) -> list:
+    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
         Get available employees for this solicitud type.
         Can be overridden by specific strategies.
@@ -79,6 +79,7 @@ class SolicitudStrategy(ABC):
         Args:
             fecha: Date string in YYYY-MM-DD format
             usuario_actual: Current user's empleado instance
+            **kwargs: Additional arguments
             
         Returns:
             List of available empleados

@@ -9,7 +9,7 @@ from django.urls import reverse_lazy
 from core.mixins import AdminRequiredMixin
 from core.services import get_turno_service
 from empleados.models import Empleado
-from .models import TipoSolicitudCambio, Notificacion, SolicitudCambio, CambioPermanenteDetalle
+from .models import TipoSolicitudCambio, Notificacion, SolicitudCambio
 from .services.solicitud_service import SolicitudService
 from .services.solicitud_factory import SolicitudFactory
 from .services.permiso_service import PermisoService
@@ -111,11 +111,19 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
     
     def _render_ct_permanente(self, request, tipo_solicitud):
         """Renderizar formulario especÃ­fico para CT PERMANENTE"""
-        # No establecer fecha inicial por defecto - el usuario debe seleccionarla
+        # Usar una fecha que tenga jornadas asignadas por defecto
+        fecha_por_defecto = timezone.now().date() + timezone.timedelta(days=1)
+        
+        # Si no hay jornadas para maÃ±ana, usar una fecha futura
+        from turnos.models import AsignarJornadaExplorador
+        # Las jornadas son indefinidas por defecto (sin fecha_fin)
+        if not AsignarJornadaExplorador.objects.filter(fecha_inicio__lte=fecha_por_defecto).exists():
+            fecha_por_defecto = timezone.datetime(2025, 8, 25).date()
+        
         context = {
             'tipo_solicitud': tipo_solicitud,
             'fecha_minima': timezone.now().date() + timezone.timedelta(days=1),
-            'fecha_inicio': None,  # Sin fecha inicial - usuario debe seleccionar
+            'fecha_inicio': fecha_por_defecto,
             'fecha_fin': None,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
@@ -140,11 +148,7 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         fecha = request.GET.get('fecha')
         tipo_solicitud_id = request.GET.get('tipo_solicitud_id')
         
-        # Nuevos parámetros para CT PERMANENTE
-        fecha_fin = request.GET.get('fecha_fin')
-        dias_seleccionados_json = request.GET.get('dias_seleccionados', '{}')
-        
-        print(f"DEBUG: fecha={fecha}, tipo_solicitud_id={tipo_solicitud_id}, fecha_fin={fecha_fin}")
+        print(f"DEBUG: fecha={fecha}, tipo_solicitud_id={tipo_solicitud_id}")
         
         if not fecha:
             return json_ok({'empleados': []})
@@ -164,35 +168,19 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         # Verificar si el usuario tiene empleado asociado
         if not hasattr(request.user, 'empleado'):
             return json_ok({'empleados': []})
-            
-        # Parsear dias_seleccionados
-        import json
-        try:
-            dias_seleccionados = json.loads(dias_seleccionados_json)
-        except json.JSONDecodeError:
-            dias_seleccionados = {}
         
         # Cache para empleados disponibles usando CacheService
-        # INCLUIR usuario actual en cache key para evitar contaminación cruzada
+        # INCLUIR usuario actual en cache key para evitar contaminaciÃ³n cruzada
         from core.services.cache_service import CacheService
         
-        # Clave de caché extendida para incluir parámetros de rango
-        cache_params = f"{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
-        if fecha_fin:
-            import hashlib
-            dias_hash = hashlib.md5(dias_seleccionados_json.encode()).hexdigest()
-            cache_params += f"_{fecha_fin}_{dias_hash}"
-            
-        cache_key = f"empleados_disp_v3_{cache_params}"
+        cache_key = f"empleados_disp_{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
         
         def obtener_empleados():
-            # Obtener empleados según el tipo de solicitud usando el Factory
+            # Obtener empleados segÃºn el tipo de solicitud usando el Factory
             return SolicitudFactory.get_empleados_disponibles(
                 tipo_solicitud, 
                 fecha, 
-                request.user.empleado,
-                fecha_fin=fecha_fin,
-                dias_seleccionados=dias_seleccionados
+                request.user.empleado
             )
         
         from core.services.cache_service import CACHE_TTL_MEDIUM
@@ -208,23 +196,14 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
             'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None'
         })
         
-        # Convertir a formato JSON con metadatos extendidos
+        # Convertir a formato JSON
         empleados_data = []
         for empleado in empleados_disponibles:
-            data = {
+            empleados_data.append({
                 'id': empleado.id,
                 'nombre': empleado.nombre,
                 'apellido': empleado.apellido,
-            }
-            
-            # Agregar metadatos de compatibilidad si existen (CT Permanente Best Match)
-            if hasattr(empleado, 'compatibilidad_percent'):
-                data['compatibilidad_percent'] = empleado.compatibilidad_percent
-                data['dias_compatibles'] = getattr(empleado, 'dias_compatibles', [])
-                data['dias_incompatibles'] = getattr(empleado, 'dias_incompatibles', [])
-                data['total_dias_rango'] = getattr(empleado, 'total_dias_rango', 0)
-                
-            empleados_data.append(data)
+            })
         
         return json_ok({'empleados': empleados_data})
 
@@ -233,52 +212,11 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
     def get(self, request):
         fecha = request.GET.get('fecha')
         explorador_id = request.GET.get('explorador_id')
-        jornada_base = request.GET.get('jornada_base', 'false').lower() == 'true'
         
         if not fecha or not explorador_id:
             return json_error('Faltan parÃ¡metros requeridos', status=400, code='missing_params')
         
         try:
-            # Si se solicita jornada base, obtener directamente de AsignarJornadaExplorador
-            if jornada_base:
-                from turnos.models import AsignarJornadaExplorador
-                from datetime import datetime
-                from empleados.models import Empleado
-                
-                fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
-                explorador = Empleado.objects.get(id=explorador_id)
-                
-                # Obtener jornada base (sin considerar Turnos)
-                asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
-                    explorador=explorador,
-                    fecha_inicio__lte=fecha_obj
-                ).order_by('-fecha_inicio').first()
-                
-                if asignacion_jornada and asignacion_jornada.jornada:
-                    jornada = asignacion_jornada.jornada
-                    # Obtener salas de competencia
-                    from turnos.models import CompetenciaEmpleado
-                    competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
-                    salas_competencia = [
-                        {'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias
-                    ]
-                    
-                    turno_dict = {
-                        'id': None,
-                        'jornada': jornada.nombre,
-                        'sala': None,
-                        'sala_id': None,
-                        'hora_inicio': jornada.hora_inicio.strftime('%H:%M') if jornada.hora_inicio else None,
-                        'hora_fin': jornada.hora_fin.strftime('%H:%M') if jornada.hora_fin else None,
-                        'es_turno_virtual': True,
-                        'tipo_sala': 'competencia',
-                        'salas_competencia': salas_competencia,
-                        'es_jornada_base': True
-                    }
-                    return json_ok({'turno': turno_dict, 'tiene_turno': True})
-                else:
-                    return json_ok({'turno': None, 'tiene_turno': False})
-            
             # Obtener el tipo de solicitud desde la URL o parÃ¡metros
             tipo_solicitud_id = request.GET.get('tipo_solicitud_id')
             tipo_solicitud = None
@@ -301,91 +239,6 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
         except Exception as e:
             logger.exception('Error en ObtenerTurnoExploradorView')
             return json_error('Error al procesar la solicitud', status=500, code='internal_error')
-
-
-class ObtenerJornadasRangoView(LoginRequiredMixin, View):
-    """
-    Endpoint para obtener jornadas día a día de un explorador en un rango de fechas.
-    Útil para CT PERMANENTE para mostrar desglose de jornadas en el rango.
-    """
-    def get(self, request):
-        explorador_id = request.GET.get('explorador_id')
-        fecha_inicio = request.GET.get('fecha_inicio')
-        fecha_fin = request.GET.get('fecha_fin')
-        dias_seleccionados_json = request.GET.get('dias_seleccionados', '{}')
-        
-        if not all([explorador_id, fecha_inicio, fecha_fin]):
-            return json_error('Faltan parámetros requeridos (explorador_id, fecha_inicio, fecha_fin)', 
-                            status=400, code='missing_params')
-        
-        try:
-            from datetime import datetime, date, timedelta
-            from turnos.services.jornada_service import JornadaService
-            import json
-            
-            fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-            fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
-            
-            # Parsear días seleccionados
-            try:
-                dias_seleccionados = json.loads(dias_seleccionados_json) if dias_seleccionados_json else {}
-            except json.JSONDecodeError:
-                dias_seleccionados = {}
-            
-            # Generar fechas válidas del rango (similar a CTPermanenteStrategy)
-            fechas_validas = []
-            dias_semana_list = dias_seleccionados.get('dias_semana', [])
-            
-            if dias_semana_list:
-                # Solo días de semana seleccionados
-                fecha_actual = fecha_inicio_obj
-                while fecha_actual <= fecha_fin_obj:
-                    # weekday(): 0=lunes, 6=domingo
-                    dia_semana = fecha_actual.weekday()
-                    # Convertir a formato del backend (0=lunes, 4=viernes)
-                    if dia_semana < 5 and dia_semana in dias_semana_list:  # Solo lunes-viernes
-                        fechas_validas.append(fecha_actual)
-                    fecha_actual += timedelta(days=1)
-            else:
-                # Todos los días hábiles del rango
-                fecha_actual = fecha_inicio_obj
-                while fecha_actual <= fecha_fin_obj:
-                    if fecha_actual.weekday() < 5:  # Solo lunes-viernes
-                        fechas_validas.append(fecha_actual)
-                    fecha_actual += timedelta(days=1)
-            
-            # Obtener jornada para cada fecha
-            from django.utils import formats
-            dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-            
-            jornadas_por_dia = []
-            for fecha_obj in fechas_validas:
-                jornada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha_obj)
-                dia_semana_num = fecha_obj.weekday()
-                jornadas_por_dia.append({
-                    'fecha': fecha_obj.strftime('%Y-%m-%d'),
-                    'fecha_formateada': fecha_obj.strftime('%d/%m/%Y'),
-                    'dia_semana': dias_semana_es[dia_semana_num] if dia_semana_num < len(dias_semana_es) else fecha_obj.strftime('%A'),
-                    'jornada': jornada.nombre if jornada else None,
-                    'jornada_id': jornada.id if jornada else None
-                })
-            
-            # Calcular resumen
-            resumen = {
-                'total_dias': len(jornadas_por_dia),
-                'dias_am': len([j for j in jornadas_por_dia if j['jornada'] == 'AM']),
-                'dias_pm': len([j for j in jornadas_por_dia if j['jornada'] == 'PM']),
-                'dias_sin_jornada': len([j for j in jornadas_por_dia if j['jornada'] is None])
-            }
-            
-            return json_ok({
-                'jornadas': jornadas_por_dia,
-                'resumen': resumen
-            })
-            
-        except Exception as e:
-            logger.exception('Error en ObtenerJornadasRangoView')
-            return json_error(f'Error al procesar la solicitud: {str(e)}', status=500, code='internal_error')
 
 
 class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
@@ -779,18 +632,6 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
             solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
             solicitud.save()
             
-            # Invalidar cache de contadores para todos los afectados
-            from core.services.cache_service import CacheService
-            cache_keys = [
-                f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
-                f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
-                f"solicitudes_count_pend_{solicitud.explorador_receptor.id}",
-            ]
-            # Si el solicitante tiene supervisor, también invalidar su caché
-            if solicitud.explorador_solicitante.supervisor:
-                cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
-            CacheService.delete_many(cache_keys)
-            
             # Crear notificaciÃ³n de cancelaciÃ³n
             from .services.notificacion_service import NotificacionService
             NotificacionService.crear_notificacion_cancelacion(solicitud)
@@ -1102,142 +943,4 @@ class RechazarSolicitudReceptorEmailView(View):
         
         return hmac.compare_digest(token, expected_token)
 
-
-class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
-    """
-    Endpoint API para obtener detalles completos de una solicitud.
-    Incluye informaciÃ³n especÃ­fica segÃºn el tipo de solicitud.
-    """
-    def get(self, request, solicitud_id):
-        try:
-            # Obtener la solicitud con todas sus relaciones
-            solicitud = get_object_or_404(
-                SolicitudCambio.objects.select_related(
-                    'explorador_solicitante',
-                    'explorador_receptor',
-                    'tipo_cambio',
-                    'explorador_solicitante__supervisor',
-                    'explorador_receptor__supervisor'
-                ),
-                id=solicitud_id
-            )
-            
-            # Verificar permisos: solo el solicitante, receptor, supervisor o admin pueden ver
-            usuario_empleado = None
-            if hasattr(request.user, 'empleado'):
-                usuario_empleado = request.user.empleado
-            
-            puede_ver = False
-            if usuario_empleado:
-                puede_ver = (
-                    solicitud.explorador_solicitante == usuario_empleado or
-                    solicitud.explorador_receptor == usuario_empleado or
-                    solicitud.explorador_solicitante.supervisor == usuario_empleado or
-                    solicitud.explorador_receptor.supervisor == usuario_empleado or
-                    request.user.is_staff
-                )
-            
-            if not puede_ver:
-                return json_error('No tiene permisos para ver esta solicitud', status=403, code='forbidden')
-            
-            # InformaciÃ³n bÃ¡sica comÃºn
-            datos = {
-                'id': solicitud.id,
-                'fecha_solicitud': solicitud.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_solicitud else None,
-                'tipo': solicitud.tipo_cambio.nombre,
-                'tipo_codigo': solicitud.tipo_cambio.codigo_estrategia or solicitud.tipo_cambio.nombre.upper(),
-                'estado': solicitud.estado,
-                'comentario': solicitud.comentario or 'Sin comentario',
-                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None,
-                'solicitante': {
-                    'id': solicitud.explorador_solicitante.id,
-                    'nombre': f"{solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido}",
-                    'email': solicitud.explorador_solicitante.email,
-                    'supervisor': f"{solicitud.explorador_solicitante.supervisor.nombre} {solicitud.explorador_solicitante.supervisor.apellido}" if solicitud.explorador_solicitante.supervisor else None,
-                },
-                'receptor': {
-                    'id': solicitud.explorador_receptor.id,
-                    'nombre': f"{solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido}",
-                    'email': solicitud.explorador_receptor.email,
-                    'supervisor': f"{solicitud.explorador_receptor.supervisor.nombre} {solicitud.explorador_receptor.supervisor.apellido}" if solicitud.explorador_receptor.supervisor else None,
-                },
-                'aprobaciones': {
-                    'receptor': {
-                        'aprobado': solicitud.aprobado_receptor,
-                        'fecha': solicitud.fecha_aprobacion_receptor.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_aprobacion_receptor else None,
-                    },
-                    'supervisor': {
-                        'aprobado': solicitud.aprobado_supervisor,
-                        'fecha': solicitud.fecha_aprobacion_supervisor.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_aprobacion_supervisor else None,
-                    },
-                },
-                'fechas': {},
-                'informacion_adicional': {}
-            }
-            
-            # InformaciÃ³n especÃ­fica segÃºn el tipo
-            tipo_nombre = solicitud.tipo_cambio.nombre.upper()
-            
-            # CT PERMANENTE
-            if tipo_nombre == 'CT PERMANENTE':
-                try:
-                    detalle = solicitud.cambio_permanente
-                    if detalle:
-                        datos['fechas']['inicio'] = detalle.fecha_inicio.strftime('%d/%m/%Y')
-                        datos['fechas']['fin'] = detalle.fecha_fin.strftime('%d/%m/%Y') if detalle.fecha_fin else 'Sin fecha de fin'
-                        
-                        # Obtener dÃ­as de semana seleccionados
-                        dias_seleccionados = detalle.dias.filter(tipo='dia_semana')
-                        dias_semana_nombres = []
-                        for dia in dias_seleccionados:
-                            if dia.dia_semana is not None:
-                                dias_semana_nombres.append(dia.get_dia_semana_display())
-                        
-                        if dias_semana_nombres:
-                            datos['informacion_adicional']['dias_semana_seleccionados'] = ', '.join(dias_semana_nombres)
-                        else:
-                            datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los dÃ­as hÃ¡biles'
-                        
-                        # Calcular fechas aplicables
-                        from .services.ct_permanente_helper import calcular_fechas_aplicables_ct_permanente
-                        fechas_aplicables = calcular_fechas_aplicables_ct_permanente(
-                            detalle,
-                            solicitud.explorador_solicitante,
-                            solicitud.explorador_receptor
-                        )
-                        
-                        datos['fechas']['aplicables'] = [fecha.strftime('%d/%m/%Y') for fecha in fechas_aplicables]
-                        datos['fechas']['total_dias'] = len(fechas_aplicables)
-                        datos['informacion_adicional']['nota'] = 'Se excluyen domingos, festivos, dÃ­as de mantenimiento y dÃ­as de descanso de los exploradores.'
-                except Exception as e:
-                    logger.error(f"Error obteniendo detalles de CT PERMANENTE: {e}")
-                    datos['fechas']['error'] = 'No se pudieron obtener los detalles del cambio permanente'
-            
-            # DOBLADA
-            elif tipo_nombre == 'DOBLADA':
-                try:
-                    detalle = solicitud.doblada
-                    if detalle:
-                        datos['fechas']['fecha_doblada'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
-                        datos['informacion_adicional']['minutos_deuda'] = detalle.minutos_deuda
-                        datos['informacion_adicional']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
-                except Exception as e:
-                    logger.error(f"Error obteniendo detalles de DOBLADA: {e}")
-            
-            # CT (Cambio Turno normal) y otros tipos
-            else:
-                if solicitud.fecha_cambio_turno:
-                    datos['fechas']['fecha_cambio'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')
-                    
-                    # Obtener informaciÃ³n de jornadas si hay turnos asociados
-                    if solicitud.turno_origen:
-                        datos['informacion_adicional']['jornada_solicitante'] = solicitud.turno_origen.jornada.nombre if solicitud.turno_origen.jornada else None
-                    if solicitud.turno_destino:
-                        datos['informacion_adicional']['jornada_receptor'] = solicitud.turno_destino.jornada.nombre if solicitud.turno_destino.jornada else None
-            
-            return json_ok(datos)
-            
-        except Exception as e:
-            logger.error(f"Error en ObtenerDetalleSolicitudView: {e}", exc_info=True)
-            return json_error('Error al obtener detalles de la solicitud', status=500, code='internal_error')
 

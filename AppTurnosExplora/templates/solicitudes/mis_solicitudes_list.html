@@ -141,9 +141,246 @@
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
 <script>
 function verDetalleSolicitud(solicitudId) {
-    // Aquí puedes implementar la lógica para cargar los detalles
-    // Por ahora solo muestra el modal
+    // Mostrar modal con loading
+    const modalContent = document.getElementById('detalleSolicitudContent');
+    modalContent.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="sr-only">Cargando...</span></div><p class="mt-3">Cargando detalles de la solicitud...</p></div>';
     $('#detalleSolicitudModal').modal('show');
+    
+    // Hacer llamada AJAX para obtener detalles
+    fetch(`/solicitudes/obtener-detalle-solicitud/${solicitudId}/`, {
+        method: 'GET',
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Los datos están directamente en el objeto data, no en data.data
+            renderizarDetalleSolicitud(data);
+        } else {
+            modalContent.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> ${data.error || data.message || 'Error al cargar los detalles'}</div>`;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        modalContent.innerHTML = `<div class="alert alert-danger"><i class="fas fa-exclamation-triangle"></i> Error de conexión. Inténtalo de nuevo.</div>`;
+    });
+}
+
+function renderizarDetalleSolicitud(data) {
+    const modalContent = document.getElementById('detalleSolicitudContent');
+    
+    // Los datos vienen directamente en el objeto, no en data.data
+    // Extraer los campos necesarios (excluyendo 'success')
+    const datos = {
+        id: data.id,
+        fecha_solicitud: data.fecha_solicitud,
+        tipo: data.tipo,
+        tipo_codigo: data.tipo_codigo,
+        estado: data.estado,
+        comentario: data.comentario,
+        fecha_resolucion: data.fecha_resolucion,
+        solicitante: data.solicitante,
+        receptor: data.receptor,
+        aprobaciones: data.aprobaciones,
+        fechas: data.fechas || {},
+        informacion_adicional: data.informacion_adicional || {}
+    };
+    
+    // Mapear estados a colores y textos
+    const estadosMap = {
+        'pendiente': { class: 'warning', texto: 'Pendiente' },
+        'aprobada': { class: 'success', texto: 'Aprobada' },
+        'rechazada': { class: 'danger', texto: 'Rechazada' },
+        'cancelada': { class: 'secondary', texto: 'Cancelada' },
+        'pagada': { class: 'info', texto: 'Pagada' }
+    };
+    
+    const estadoInfo = estadosMap[datos.estado] || { class: 'secondary', texto: datos.estado };
+    
+    let html = `
+        <div class="row">
+            <!-- Información Básica -->
+            <div class="col-12 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-info-circle mr-2"></i>Información Básica</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <strong><i class="fas fa-calendar-alt mr-2"></i>Fecha de Solicitud:</strong>
+                                <p class="mb-0">${datos.fecha_solicitud || 'No especificada'}</p>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <strong><i class="fas fa-tag mr-2"></i>Tipo:</strong>
+                                <p class="mb-0"><span class="badge badge-primary">${datos.tipo}</span></p>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <strong><i class="fas fa-check-circle mr-2"></i>Estado:</strong>
+                                <p class="mb-0"><span class="badge badge-${estadoInfo.class}">${estadoInfo.texto}</span></p>
+                            </div>
+                            ${datos.fecha_resolucion ? `
+                            <div class="col-md-6 mb-3">
+                                <strong><i class="fas fa-clock mr-2"></i>Fecha de Resolución:</strong>
+                                <p class="mb-0">${datos.fecha_resolucion}</p>
+                            </div>
+                            ` : ''}
+                            <div class="col-12 mb-3">
+                                <strong><i class="fas fa-comment mr-2"></i>Comentario:</strong>
+                                <p class="mb-0">${datos.comentario}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Participantes -->
+            <div class="col-md-6 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0"><i class="fas fa-user mr-2"></i>Solicitante</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-1"><strong>Nombre:</strong> ${datos.solicitante.nombre}</p>
+                        <p class="mb-1"><strong>Email:</strong> ${datos.solicitante.email}</p>
+                        ${datos.solicitante.supervisor ? `<p class="mb-0"><strong>Supervisor:</strong> ${datos.solicitante.supervisor}</p>` : ''}
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-6 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0"><i class="fas fa-user-friends mr-2"></i>Receptor</h5>
+                    </div>
+                    <div class="card-body">
+                        <p class="mb-1"><strong>Nombre:</strong> ${datos.receptor.nombre}</p>
+                        <p class="mb-1"><strong>Email:</strong> ${datos.receptor.email}</p>
+                        ${datos.receptor.supervisor ? `<p class="mb-0"><strong>Supervisor:</strong> ${datos.receptor.supervisor}</p>` : ''}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Fechas e Información Específica -->
+            ${Object.keys(datos.fechas).length > 0 || Object.keys(datos.informacion_adicional).length > 0 ? `
+            <div class="col-12 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0"><i class="fas fa-calendar-week mr-2"></i>Fechas e Información Específica</h5>
+                    </div>
+                    <div class="card-body">
+                        ${datos.fechas.fecha_cambio ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-day mr-2"></i>Fecha del Cambio:</strong>
+                                <p class="mb-0">${datos.fechas.fecha_cambio}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.fecha_doblada ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-day mr-2"></i>Fecha de la Doblada:</strong>
+                                <p class="mb-0">${datos.fechas.fecha_doblada}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.inicio ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-check mr-2"></i>Fecha de Inicio:</strong>
+                                <p class="mb-0">${datos.fechas.inicio}</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-times mr-2"></i>Fecha de Fin:</strong>
+                                <p class="mb-0">${datos.fechas.fin}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.dias_semana_seleccionados ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-week mr-2"></i>Días de Semana Seleccionados:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.dias_semana_seleccionados}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.total_dias !== undefined ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-hashtag mr-2"></i>Total de Días Afectados:</strong>
+                                <p class="mb-0"><span class="badge badge-primary">${datos.fechas.total_dias} día${datos.fechas.total_dias !== 1 ? 's' : ''}</span></p>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.aplicables && datos.fechas.aplicables.length > 0 ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-list mr-2"></i>Fechas Aplicables:</strong>
+                                <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                                    <p class="mb-0 small">${datos.fechas.aplicables.join(', ')}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.nota ? `
+                            <div class="alert alert-info mb-0">
+                                <i class="fas fa-info-circle mr-2"></i><small>${datos.informacion_adicional.nota}</small>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.minutos_deuda !== undefined ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-clock mr-2"></i>Minutos de Deuda:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.minutos_deuda} minutos</p>
+                            </div>
+                            <div class="mb-3">
+                                <strong><i class="fas fa-money-bill mr-2"></i>Fecha de Pago:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.fecha_pago}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.jornada_solicitante ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-clock mr-2"></i>Jornada Solicitante:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.jornada_solicitante}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.jornada_receptor ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-clock mr-2"></i>Jornada Receptor:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.jornada_receptor}</p>
+                            </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+            ` : ''}
+            
+            <!-- Aprobaciones -->
+            <div class="col-12 mb-4">
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-secondary text-white">
+                        <h5 class="mb-0"><i class="fas fa-check-double mr-2"></i>Aprobaciones</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <strong>Receptor:</strong>
+                                <p class="mb-0">
+                                    ${datos.aprobaciones.receptor.aprobado ? 
+                                        `<span class="badge badge-success"><i class="fas fa-check mr-1"></i>Aprobado</span>` : 
+                                        `<span class="badge badge-secondary">Pendiente</span>`
+                                    }
+                                    ${datos.aprobaciones.receptor.fecha ? ` - ${datos.aprobaciones.receptor.fecha}` : ''}
+                                </p>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <strong>Supervisor:</strong>
+                                <p class="mb-0">
+                                    ${datos.aprobaciones.supervisor.aprobado ? 
+                                        `<span class="badge badge-success"><i class="fas fa-check mr-1"></i>Aprobado</span>` : 
+                                        `<span class="badge badge-secondary">Pendiente</span>`
+                                    }
+                                    ${datos.aprobaciones.supervisor.fecha ? ` - ${datos.aprobaciones.supervisor.fecha}` : ''}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    modalContent.innerHTML = html;
 }
 
 function cancelarSolicitud(solicitudId) {

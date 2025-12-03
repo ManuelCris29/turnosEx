@@ -1,4 +1,5 @@
 from django.db import models
+from django.core.exceptions import ValidationError
 from empleados.models import Empleado
 from turnos.models import Turno
 from django.utils import timezone
@@ -196,19 +197,15 @@ class CambioPermanenteDia(models.Model):
         # Validar día de semana seleccionado
         if self.tipo == 'dia_semana' and self.dia_semana is not None:
             if self.dia_semana == 5:  # Sábado
-                from django.core.exceptions import ValidationError
                 raise ValidationError('Los cambios permanentes solo se pueden realizar de lunes a viernes. No se permiten sábados.')
             if self.dia_semana == 6:  # Domingo
-                from django.core.exceptions import ValidationError
                 raise ValidationError('Los cambios permanentes solo se pueden realizar de lunes a viernes. No se permiten domingos.')
         
         # Validar fecha específica
         if self.tipo == 'fecha_especifica' and self.fecha_especifica:
             if self.fecha_especifica.weekday() == 5:  # Sábado
-                from django.core.exceptions import ValidationError
                 raise ValidationError(f'La fecha {self.fecha_especifica} es sábado. Los cambios permanentes solo se permiten de lunes a viernes.')
             if self.fecha_especifica.weekday() == 6:  # Domingo
-                from django.core.exceptions import ValidationError
                 raise ValidationError(f'La fecha {self.fecha_especifica} es domingo. Los cambios permanentes solo se permiten de lunes a viernes.')
         
         super().save(*args, **kwargs)

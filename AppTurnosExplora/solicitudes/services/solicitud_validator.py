@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError  # type: ignore
+from django.db import models
 from datetime import datetime
 from empleados.models import Empleado
 
@@ -163,6 +164,49 @@ class SolicitudValidator:
             pass
     
     @staticmethod
+    def validar_no_temporada(fecha):
+        """
+        Validar que no sea día de temporada.
+        
+        Args:
+            fecha: Fecha a validar (puede ser string YYYY-MM-DD o date object)
+            
+        Raises:
+            ValidationError: Si la fecha es un día de temporada activo
+        """
+        from datetime import datetime
+        try:
+            from turnos.models import DiaEspecial
+            
+            if isinstance(fecha, str):
+                fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+            
+            # Verificar si es día de temporada activo
+            es_temporada = DiaEspecial.objects.filter(
+                fecha=fecha,
+                es_temporada=True,
+                activo=True
+            ).exists()
+            
+            if es_temporada:
+                # Obtener descripción del día de temporada para mensaje más informativo
+                dia_temporada = DiaEspecial.objects.filter(
+                    fecha=fecha,
+                    es_temporada=True,
+                    activo=True
+                ).first()
+                
+                descripcion = dia_temporada.descripcion if dia_temporada and dia_temporada.descripcion else 'Día de temporada'
+                raise ValidationError(f'No se pueden realizar cambios permanentes en días de temporada. {descripcion}')
+                
+        except ImportError:
+            # Si no existe el modelo, no validar
+            pass
+        except ValueError:
+            # Si la fecha no es válida, no validar (otra validación la manejará)
+            pass
+    
+    @staticmethod
     def validar_no_domingo_por_semana(fecha, es_cambio_permanente=False):
         """
         Validar que no se esté cambiando domingo por día de semana.
@@ -297,38 +341,22 @@ class SolicitudValidator:
         Args:
             fecha_inicio: Fecha de inicio del cambio permanente
             fecha_fin: Fecha de fin del cambio permanente
-            dias_seleccionados: Dict con 'fechas_especificas' (lista de strings) y 'dias_semana' (lista de ints)
+            dias_seleccionados: Dict con 'dias_semana' (lista de ints)
             
         Raises:
-            ValidationError: Si no hay días seleccionados o están fuera del rango
+            ValidationError: Si no hay días seleccionados o son inválidos
         """
-        from datetime import datetime
-        
-        if isinstance(fecha_inicio, str):
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-        if isinstance(fecha_fin, str):
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
-        
-        fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+        dias_seleccionados = dias_seleccionados or {}
         dias_semana = dias_seleccionados.get('dias_semana', [])
         
-        # Validar que haya al menos un día seleccionado
-        if not fechas_especificas and not dias_semana:
-            raise ValidationError('Debe seleccionar al menos un día específico o un día de la semana')
+        # Validar que haya al menos un día seleccionado (lunes-viernes)
+        if not dias_semana:
+            raise ValidationError('Debe seleccionar al menos un día de la semana (lunes a viernes) para el cambio permanente.')
         
-        # Validar que las fechas específicas estén dentro del rango
-        for fecha_str in fechas_especificas:
-            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-            if fecha_obj < fecha_inicio or fecha_obj > fecha_fin:
-                raise ValidationError(f'La fecha {fecha_obj.strftime("%d/%m/%Y")} está fuera del rango permitido ({fecha_inicio.strftime("%d/%m/%Y")} - {fecha_fin.strftime("%d/%m/%Y")})')
-        
-        # Validar que los días de semana sean válidos (0-6, pero no 6=domingo)
-        for dia_semana in dias_semana:
-            dia_int = int(dia_semana)
-            if dia_int < 0 or dia_int > 6:
-                raise ValidationError(f'Día de semana inválido: {dia_int} (debe ser 0-6)')
-            if dia_int == 6:
-                raise ValidationError('No se pueden seleccionar domingos como día de semana para cambios permanentes')
+        # Validar que los días de semana sean lunes-viernes (0-4)
+        dias_invalidos = [int(d) for d in dias_semana if int(d) < 0 or int(d) > 4]
+        if dias_invalidos:
+            raise ValidationError('Los cambios permanentes solo se pueden realizar de lunes a viernes (0=Lunes, 4=Viernes).')
     
     @staticmethod
     def validar_rango_completo_cambio_permanente(explorador_solicitante: Empleado, explorador_receptor: Empleado, fecha_inicio, fecha_fin, dias_seleccionados=None):
@@ -362,20 +390,13 @@ class SolicitudValidator:
         fechas_a_validar = []
         
         if dias_seleccionados:
-            # Validar solo días seleccionados
-            fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
-            dias_semana = dias_seleccionados.get('dias_semana', [])
+            # Validar solo días de semana seleccionados (lunes-viernes)
+            dias_semana = [int(d) for d in dias_seleccionados.get('dias_semana', [])]
             
-            # Agregar fechas específicas
-            for fecha_str in fechas_especificas:
-                fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-                if fecha_inicio <= fecha_obj <= fecha_fin:
-                    fechas_a_validar.append(fecha_obj)
-            
-            # Agregar días de semana
             fecha_actual = fecha_inicio
             while fecha_actual <= fecha_fin:
-                if fecha_actual.weekday() in [int(d) for d in dias_semana]:
+                weekday = fecha_actual.weekday()
+                if weekday in dias_semana and weekday < 5:
                     fechas_a_validar.append(fecha_actual)
                 fecha_actual += timedelta(days=1)
         else:
@@ -400,6 +421,9 @@ class SolicitudValidator:
             
             # Validar mantenimiento
             SolicitudValidator.validar_no_dia_mantenimiento(fecha)
+            
+            # Validar temporada
+            SolicitudValidator.validar_no_temporada(fecha)
             
             # Validar día de descanso del solicitante
             SolicitudValidator.validar_no_dia_descanso(explorador_solicitante, fecha)
@@ -427,9 +451,12 @@ class SolicitudValidator:
             fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
         
         # Buscar cambios permanentes existentes entre estos empleados
+        # Verificar en ambas direcciones: solicitante->receptor y receptor->solicitante
         cambios_existentes = SolicitudCambio.objects.filter(
-            explorador_solicitante=solicitante,
-            explorador_receptor=receptor,
+            (
+                (models.Q(explorador_solicitante=solicitante) & models.Q(explorador_receptor=receptor)) |
+                (models.Q(explorador_solicitante=receptor) & models.Q(explorador_receptor=solicitante))
+            ),
             tipo_cambio__nombre='CT PERMANENTE',
             estado__in=['pendiente', 'aprobada']
         ).select_related('cambio_permanente')
@@ -437,16 +464,32 @@ class SolicitudValidator:
         for cambio in cambios_existentes:
             detalle = cambio.cambio_permanente
             if detalle:
-                # Verificar superposición de fechas
-                if fecha_fin:
-                    # Si hay fecha fin, verificar que no se superponga
-                    if (fecha_inicio <= detalle.fecha_fin or not detalle.fecha_fin) and \
-                       (fecha_fin >= detalle.fecha_inicio):
+                # Lógica correcta de superposición de rangos:
+                # Dos rangos [a1, b1] y [a2, b2] se superponen si: a1 <= b2 AND b1 >= a2
+                # Si b1 o b2 es None, significa que el rango es indefinido (hasta el futuro)
+                
+                fecha_fin_existente = detalle.fecha_fin
+                fecha_fin_nueva = fecha_fin
+                
+                # Si el cambio existente no tiene fecha fin, se considera indefinido (hasta el futuro)
+                # Si el cambio nuevo no tiene fecha fin, también se considera indefinido
+                
+                # Verificar superposición:
+                # - Si ambos tienen fecha fin: fecha_inicio <= fecha_fin_existente AND fecha_fin_nueva >= detalle.fecha_inicio
+                # - Si existente no tiene fecha fin: fecha_inicio >= detalle.fecha_inicio (cualquier fecha nueva se superpone)
+                # - Si nuevo no tiene fecha fin: fecha_inicio <= (fecha_fin_existente o futuro) AND fecha_inicio >= detalle.fecha_inicio
+                
+                if fecha_fin_existente is None:
+                    # Cambio existente es indefinido: cualquier fecha nueva que sea >= fecha_inicio_existente se superpone
+                    if fecha_inicio >= detalle.fecha_inicio:
+                        raise ValidationError('Ya existe un cambio permanente superpuesto entre estos empleados')
+                elif fecha_fin_nueva is None:
+                    # Cambio nuevo es indefinido: se superpone si fecha_inicio <= fecha_fin_existente
+                    if fecha_inicio <= fecha_fin_existente and fecha_inicio >= detalle.fecha_inicio:
                         raise ValidationError('Ya existe un cambio permanente superpuesto entre estos empleados')
                 else:
-                    # Si no hay fecha fin, verificar que no se superponga
-                    if fecha_inicio <= (detalle.fecha_fin or datetime.now().date()) and \
-                       fecha_inicio >= detalle.fecha_inicio:
+                    # Ambos tienen fecha fin: verificar superposición estándar
+                    if fecha_inicio <= fecha_fin_existente and fecha_fin_nueva >= detalle.fecha_inicio:
                         raise ValidationError('Ya existe un cambio permanente superpuesto entre estos empleados')
     
     # ===== VALIDACIONES ESPECÍFICAS PARA CAMBIO TURNO (CT) =====
