@@ -52,6 +52,13 @@ class JornadaService:
             ).select_related('jornada').first()
             
             if turno_especifico:
+                logger.info("JornadaService.get_jornada_explorador_fecha - Jornada obtenida de Turno", extra={
+                    'explorador_id': explorador_id,
+                    'fecha': str(fecha_obj),
+                    'jornada_nombre': turno_especifico.jornada.nombre,
+                    'turno_id': turno_especifico.id,
+                    'fuente': 'Turno (cambio aprobado)'
+                })
                 return turno_especifico.jornada  # Jornada del cambio
             
             # 2. Si no hay turno específico, usar la jornada fija del explorador
@@ -71,7 +78,23 @@ class JornadaService:
                 ttl=CACHE_TTL_LONG
             )
             
-            return asignacion_jornada.jornada if asignacion_jornada else None
+            if asignacion_jornada:
+                logger.info("JornadaService.get_jornada_explorador_fecha - Jornada obtenida de Asignación", extra={
+                    'explorador_id': explorador_id,
+                    'fecha': str(fecha_obj),
+                    'jornada_nombre': asignacion_jornada.jornada.nombre,
+                    'asignacion_id': asignacion_jornada.id,
+                    'fecha_inicio': str(asignacion_jornada.fecha_inicio),
+                    'fuente': 'AsignarJornadaExplorador (jornada predeterminada)'
+                })
+                return asignacion_jornada.jornada
+            else:
+                logger.warning("JornadaService.get_jornada_explorador_fecha - No se encontró jornada", extra={
+                    'explorador_id': explorador_id,
+                    'fecha': str(fecha_obj),
+                    'fuente': 'Ninguna'
+                })
+                return None
             
         except (ValueError, Empleado.DoesNotExist) as e:
             logger.warning(f"Error obteniendo jornada: {e}")

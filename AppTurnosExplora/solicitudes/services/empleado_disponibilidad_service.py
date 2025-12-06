@@ -66,9 +66,10 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         # Importar aquí para evitar dependencia circular
         from turnos.services.jornada_service import JornadaService
         
-        logger.debug("get_empleados_jornada_contraria", extra={
+        logger.info("get_empleados_jornada_contraria - Iniciando", extra={
             'fecha': fecha,
-            'usuario_id': getattr(getattr(usuario_actual, 'empleado', None), 'id', None)
+            'usuario_id': getattr(getattr(usuario_actual, 'empleado', None), 'id', None),
+            'usuario_tipo': type(usuario_actual).__name__
         })
         
         # Verificar si es un objeto Empleado o User
@@ -77,18 +78,32 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         elif hasattr(usuario_actual, 'empleado'):
             empleado_actual = usuario_actual.empleado
         else:
-            logger.debug("No hay usuario actual o no tiene empleado asociado")
+            logger.warning("get_empleados_jornada_contraria - No hay usuario actual o no tiene empleado asociado", extra={
+                'usuario_actual': str(usuario_actual) if usuario_actual else None
+            })
             return Empleado.objects.none()
+        
+        logger.info("get_empleados_jornada_contraria - Empleado actual identificado", extra={
+            'empleado_id': empleado_actual.id,
+            'empleado_nombre': empleado_actual.nombre
+        })
         
         # Obtener la jornada del usuario actual para esa fecha
         jornada_usuario = JornadaService.get_jornada_explorador_fecha(
             empleado_actual.id, fecha
         )
         
-        logger.debug("jornada_usuario", extra={'jornada': getattr(jornada_usuario, 'nombre', None)})
+        logger.info("get_empleados_jornada_contraria - Jornada del usuario obtenida", extra={
+            'jornada_nombre': getattr(jornada_usuario, 'nombre', None),
+            'jornada_id': getattr(jornada_usuario, 'id', None),
+            'tiene_jornada': jornada_usuario is not None
+        })
         
         if not jornada_usuario:
-            logger.debug("Usuario no tiene jornada asignada")
+            logger.warning("get_empleados_jornada_contraria - Usuario no tiene jornada asignada para esta fecha", extra={
+                'empleado_id': empleado_actual.id,
+                'fecha': fecha
+            })
             return Empleado.objects.none()
         
         # Determinar la jornada contraria
@@ -99,10 +114,16 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             jornada_contraria = 'AM'
         else:
             # Si no es AM ni PM, no hay jornada contraria definida
-            logger.debug(f"Jornada no reconocida: {jornada_usuario.nombre}")
+            logger.warning(f"get_empleados_jornada_contraria - Jornada no reconocida: {jornada_usuario.nombre}", extra={
+                'jornada_nombre': jornada_usuario.nombre,
+                'empleado_id': empleado_actual.id
+            })
             return Empleado.objects.none()
         
-        logger.debug("jornada_contraria", extra={'jornada_contraria': jornada_contraria})
+        logger.info("get_empleados_jornada_contraria - Jornada contraria determinada", extra={
+            'jornada_usuario': jornada_usuario.nombre,
+            'jornada_contraria': jornada_contraria
+        })
         
         # Buscar empleados que tengan la jornada contraria asignada
         empleados_contrarios = []
@@ -113,7 +134,15 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             .select_related('supervisor')
         )
         
-        logger.debug("empleados_activos_count", extra={'count': empleados_activos.count()})
+        total_activos = empleados_activos.count()
+        logger.info("get_empleados_jornada_contraria - Empleados activos encontrados", extra={
+            'total_activos': total_activos,
+            'excluyendo_empleado_id': empleado_actual.id
+        })
+        
+        if total_activos == 0:
+            logger.warning("get_empleados_jornada_contraria - No hay empleados activos disponibles")
+            return empleados_contrarios
         
         # OPTIMIZACIÓN - Pre-cargar Turnos de la fecha en una sola consulta
         fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
@@ -131,7 +160,10 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             for turno in turnos_fecha
         }
         
-        logger.debug("turnos_precargados_count", extra={'count': len(turnos_por_explorador)})
+        logger.info("get_empleados_jornada_contraria - Turnos pre-cargados", extra={
+            'total_turnos': len(turnos_por_explorador),
+            'fecha': str(fecha_obj)
+        })
         
         # OPTIMIZACIÓN - Pre-cargar Asignaciones de Jornada en una sola consulta
         # Traer todas las asignaciones relevantes (fecha_inicio <= fecha_obj)
@@ -147,27 +179,72 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             if asignacion.explorador_id not in asignaciones_por_explorador:
                 asignaciones_por_explorador[asignacion.explorador_id] = asignacion
         
-        logger.debug("asignaciones_precargadas_count", extra={'count': len(asignaciones_por_explorador)})
+        logger.info("get_empleados_jornada_contraria - Asignaciones pre-cargadas", extra={
+            'total_asignaciones': len(asignaciones_por_explorador)
+        })
+        
+        # Contadores para diagnóstico
+        empleados_con_turno = 0
+        empleados_con_asignacion = 0
+        empleados_sin_jornada = 0
+        empleados_jornada_incorrecta = 0
         
         # OPTIMIZACIÓN - Procesar en memoria usando datos pre-cargados
         # Iterar sobre empleados y buscar jornada en diccionarios (sin consultas DB)
         for empleado in empleados_activos:
             jornada_empleado = None
+            fuente_jornada = None
             
             # 1. Buscar primero en Turnos (cambios aprobados tienen prioridad)
             turno = turnos_por_explorador.get(empleado.id)
             if turno:
                 jornada_empleado = turno.jornada
+                fuente_jornada = 'Turno'
+                empleados_con_turno += 1
             else:
                 # 2. Si no hay turno, buscar en asignaciones fijas
                 asignacion = asignaciones_por_explorador.get(empleado.id)
                 if asignacion:
                     jornada_empleado = asignacion.jornada
+                    fuente_jornada = 'Asignacion'
+                    empleados_con_asignacion += 1
+                else:
+                    empleados_sin_jornada += 1
+                    logger.debug("get_empleados_jornada_contraria - Empleado sin jornada", extra={
+                        'empleado_id': empleado.id,
+                        'empleado_nombre': empleado.nombre
+                    })
             
             # 3. Comparar jornada con jornada contraria
-            if jornada_empleado and jornada_empleado.nombre == jornada_contraria:
-                empleados_contrarios.append(empleado)
+            if jornada_empleado:
+                if jornada_empleado.nombre == jornada_contraria:
+                    empleados_contrarios.append(empleado)
+                    logger.debug("get_empleados_jornada_contraria - Empleado compatible encontrado", extra={
+                        'empleado_id': empleado.id,
+                        'empleado_nombre': empleado.nombre,
+                        'jornada_empleado': jornada_empleado.nombre,
+                        'jornada_contraria': jornada_contraria,
+                        'fuente': fuente_jornada
+                    })
+                else:
+                    empleados_jornada_incorrecta += 1
+                    logger.debug("get_empleados_jornada_contraria - Empleado con jornada incorrecta", extra={
+                        'empleado_id': empleado.id,
+                        'empleado_nombre': empleado.nombre,
+                        'jornada_empleado': jornada_empleado.nombre,
+                        'jornada_contraria': jornada_contraria,
+                        'fuente': fuente_jornada
+                    })
         
-        logger.debug("empleados_contrarios_count", extra={'count': len(empleados_contrarios)})
+        logger.info("get_empleados_jornada_contraria - Resumen de búsqueda", extra={
+            'total_activos': total_activos,
+            'con_turno': empleados_con_turno,
+            'con_asignacion': empleados_con_asignacion,
+            'sin_jornada': empleados_sin_jornada,
+            'jornada_incorrecta': empleados_jornada_incorrecta,
+            'compatibles': len(empleados_contrarios),
+            'jornada_buscada': jornada_contraria
+        })
+        
         return empleados_contrarios
 

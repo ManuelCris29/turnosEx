@@ -144,9 +144,17 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         fecha_fin = request.GET.get('fecha_fin')
         dias_seleccionados_json = request.GET.get('dias_seleccionados', '{}')
         
-        print(f"DEBUG: fecha={fecha}, tipo_solicitud_id={tipo_solicitud_id}, fecha_fin={fecha_fin}")
+        # Logging mejorado para diagnóstico
+        logger.info("ObtenerEmpleadosDisponiblesView - Parámetros recibidos", extra={
+            'fecha': fecha,
+            'tipo_solicitud_id': tipo_solicitud_id,
+            'fecha_fin': fecha_fin,
+            'usuario_id': request.user.id if request.user.is_authenticated else None,
+            'empleado_id': request.user.empleado.id if hasattr(request.user, 'empleado') else None
+        })
         
         if not fecha:
+            logger.warning("ObtenerEmpleadosDisponiblesView - Fecha no proporcionada")
             return json_ok({'empleados': []})
         
         # Obtener el tipo de solicitud
@@ -154,12 +162,21 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         if tipo_solicitud_id:
             try:
                 tipo_solicitud = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)  # type: ignore
-                logger.debug("Tipo de solicitud obtenido", extra={
+                logger.info("ObtenerEmpleadosDisponiblesView - Tipo de solicitud obtenido", extra={
                     'tipo_solicitud': tipo_solicitud.nombre,
+                    'tipo_id': tipo_solicitud_id,
+                    'codigo_estrategia': tipo_solicitud.codigo_estrategia,
+                    'activo': tipo_solicitud.activo
+                })
+                print(f"DEBUG: Tipo de solicitud encontrado - ID: {tipo_solicitud.id}, Nombre: {tipo_solicitud.nombre}, Activo: {tipo_solicitud.activo}")
+            except TipoSolicitudCambio.DoesNotExist:  # type: ignore
+                logger.warning("ObtenerEmpleadosDisponiblesView - Tipo de solicitud no encontrado", extra={
                     'tipo_id': tipo_solicitud_id
                 })
-            except TipoSolicitudCambio.DoesNotExist:  # type: ignore
-                logger.warning("Tipo de solicitud no encontrado", extra={'tipo_id': tipo_solicitud_id})
+                print(f"DEBUG: Tipo de solicitud NO encontrado - ID: {tipo_solicitud_id}")
+        else:
+            logger.warning("ObtenerEmpleadosDisponiblesView - tipo_solicitud_id no proporcionado")
+            print("DEBUG: tipo_solicitud_id no proporcionado")
         
         # Verificar si el usuario tiene empleado asociado
         if not hasattr(request.user, 'empleado'):
@@ -183,17 +200,30 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
             dias_hash = hashlib.md5(dias_seleccionados_json.encode()).hexdigest()
             cache_params += f"_{fecha_fin}_{dias_hash}"
             
-        cache_key = f"empleados_disp_v3_{cache_params}"
+        cache_key = f"empleados_disp_v4_{cache_params}"  # Incrementado a v4 para invalidar caché anterior
         
         def obtener_empleados():
             # Obtener empleados según el tipo de solicitud usando el Factory
-            return SolicitudFactory.get_empleados_disponibles(
-                tipo_solicitud, 
-                fecha, 
-                request.user.empleado,
-                fecha_fin=fecha_fin,
-                dias_seleccionados=dias_seleccionados
-            )
+            try:
+                empleados = SolicitudFactory.get_empleados_disponibles(
+                    tipo_solicitud, 
+                    fecha, 
+                    request.user.empleado,
+                    fecha_fin=fecha_fin,
+                    dias_seleccionados=dias_seleccionados
+                )
+                logger.info("ObtenerEmpleadosDisponiblesView - Empleados obtenidos desde Factory", extra={
+                    'count': len(empleados) if empleados else 0,
+                    'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None',
+                    'tipo_id': tipo_solicitud_id
+                })
+                return empleados
+            except Exception as e:
+                logger.error("ObtenerEmpleadosDisponiblesView - Error obteniendo empleados", extra={
+                    'error': str(e),
+                    'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None'
+                }, exc_info=True)
+                return []
         
         from core.services.cache_service import CACHE_TTL_MEDIUM
         
@@ -203,28 +233,51 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
             ttl=CACHE_TTL_MEDIUM
         )
         
-        logger.debug("Empleados disponibles obtenidos", extra={
-            'count': len(empleados_disponibles),
-            'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None'
+        logger.info("ObtenerEmpleadosDisponiblesView - Empleados disponibles finales", extra={
+            'count': len(empleados_disponibles) if empleados_disponibles else 0,
+            'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None',
+            'cache_key': cache_key
         })
         
         # Convertir a formato JSON con metadatos extendidos
         empleados_data = []
+        
+        # Verificar que empleados_disponibles sea iterable
+        if not empleados_disponibles:
+            logger.warning("ObtenerEmpleadosDisponiblesView - empleados_disponibles es None o vacío")
+            empleados_disponibles = []
+        elif not hasattr(empleados_disponibles, '__iter__'):
+            logger.error("ObtenerEmpleadosDisponiblesView - empleados_disponibles no es iterable", extra={
+                'tipo': type(empleados_disponibles).__name__
+            })
+            empleados_disponibles = []
+        
         for empleado in empleados_disponibles:
-            data = {
-                'id': empleado.id,
-                'nombre': empleado.nombre,
-                'apellido': empleado.apellido,
-            }
-            
-            # Agregar metadatos de compatibilidad si existen (CT Permanente Best Match)
-            if hasattr(empleado, 'compatibilidad_percent'):
-                data['compatibilidad_percent'] = empleado.compatibilidad_percent
-                data['dias_compatibles'] = getattr(empleado, 'dias_compatibles', [])
-                data['dias_incompatibles'] = getattr(empleado, 'dias_incompatibles', [])
-                data['total_dias_rango'] = getattr(empleado, 'total_dias_rango', 0)
+            try:
+                data = {
+                    'id': empleado.id,
+                    'nombre': empleado.nombre,
+                    'apellido': empleado.apellido,
+                }
                 
-            empleados_data.append(data)
+                # Agregar metadatos de compatibilidad si existen (CT Permanente Best Match)
+                if hasattr(empleado, 'compatibilidad_percent'):
+                    data['compatibilidad_percent'] = empleado.compatibilidad_percent
+                    data['dias_compatibles'] = getattr(empleado, 'dias_compatibles', [])
+                    data['dias_incompatibles'] = getattr(empleado, 'dias_incompatibles', [])
+                    data['total_dias_rango'] = getattr(empleado, 'total_dias_rango', 0)
+                    
+                empleados_data.append(data)
+            except Exception as e:
+                logger.error("ObtenerEmpleadosDisponiblesView - Error serializando empleado", extra={
+                    'empleado_id': getattr(empleado, 'id', 'N/A'),
+                    'error': str(e)
+                }, exc_info=True)
+        
+        logger.info("ObtenerEmpleadosDisponiblesView - Respuesta JSON preparada", extra={
+            'empleados_count': len(empleados_data),
+            'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None'
+        })
         
         return json_ok({'empleados': empleados_data})
 

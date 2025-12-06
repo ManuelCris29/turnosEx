@@ -510,26 +510,47 @@ class CambioTurnoStrategy(SolicitudStrategy):
             # En caso de error, la transacción se revierte automáticamente
             return False, f"Error aplicando cambio de turno: {str(e)}"
     
-    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado) -> list:
+    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
         Get available employees for cambio turno (jornada contraria).
         
         Args:
             fecha: Date string in YYYY-MM-DD format
             usuario_actual: Current user's empleado instance
+            **kwargs: Additional arguments (ignored for CT, used for CT PERMANENTE)
             
         Returns:
             List of available empleados
         """
         try:
+            logger.info("CambioTurnoStrategy.get_empleados_disponibles - Iniciando", extra={
+                'fecha': fecha,
+                'usuario_id': usuario_actual.id if usuario_actual else None,
+                'solo_jornada_contraria': True,
+                'kwargs_keys': list(kwargs.keys()) if kwargs else []
+            })
+            
             servicio = get_empleado_disponibilidad_service()
-            return servicio.get_empleados_disponibles(
+            empleados = servicio.get_empleados_disponibles(
                 fecha, 
                 usuario_actual, 
                 solo_jornada_contraria=True
             )
             
-        except Exception:
+            logger.info("CambioTurnoStrategy.get_empleados_disponibles - Completado", extra={
+                'fecha': fecha,
+                'usuario_id': usuario_actual.id if usuario_actual else None,
+                'empleados_encontrados': len(empleados) if empleados else 0
+            })
+            
+            return empleados if empleados else []
+            
+        except Exception as e:
+            logger.error("CambioTurnoStrategy.get_empleados_disponibles - Error", extra={
+                'fecha': fecha,
+                'usuario_id': usuario_actual.id if usuario_actual else None,
+                'error': str(e)
+            }, exc_info=True)
             return []
     
     def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:

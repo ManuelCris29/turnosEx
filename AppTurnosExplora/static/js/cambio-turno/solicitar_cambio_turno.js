@@ -64,23 +64,54 @@ document.addEventListener('DOMContentLoaded', function() {
                 'X-Requested-With': 'XMLHttpRequest',
             }
         })
-        .then(response => response.json())
+        .then(response => {
+            console.log('DEBUG JS: Status de respuesta:', response.status, response.statusText);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
         .then(data => {
-            console.log('DEBUG JS: Respuesta del servidor:', data);
+            console.log('DEBUG JS: Respuesta completa del servidor:', JSON.stringify(data, null, 2));
+            console.log('DEBUG JS: Estructura de datos:', {
+                'success': data.success,
+                'tiene_empleados': !!data.empleados,
+                'cantidad_empleados': data.empleados ? data.empleados.length : 0,
+                'tipo_empleados': typeof data.empleados,
+                'es_array': Array.isArray(data.empleados)
+            });
+            
             empleadoSelect.innerHTML = '<option value="">Selecciona un compañero...</option>';
-            if (data.empleados && data.empleados.length > 0) {
-                data.empleados.forEach(empleado => {
+            
+            if (data.success === false) {
+                // Error del servidor
+                const mensajeError = data.error || 'Error al cargar compañeros disponibles';
+                empleadoSelect.innerHTML = `<option value="">${mensajeError}</option>`;
+                console.error('ERROR: Respuesta del servidor indica error:', data);
+            } else if (data.empleados && Array.isArray(data.empleados) && data.empleados.length > 0) {
+                // Hay empleados disponibles
+                console.log(`✓ Empleados encontrados: ${data.empleados.length}`);
+                data.empleados.forEach((empleado, index) => {
+                    console.log(`  [${index + 1}] ${empleado.nombre} ${empleado.apellido} (ID: ${empleado.id})`);
                     const option = document.createElement('option');
                     option.value = empleado.id;
                     option.textContent = `${empleado.nombre} ${empleado.apellido}`;
                     empleadoSelect.appendChild(option);
                 });
             } else {
-                // Mensaje dinámico según el tipo de solicitud
+                // No hay empleados disponibles
                 const mensaje = tipoSolicitudId && window.location.pathname.includes('cambio') 
                     ? 'No hay compañeros de jornada contraria disponibles para esta fecha'
                     : 'No hay compañeros disponibles para esta fecha';
                 empleadoSelect.innerHTML = `<option value="">${mensaje}</option>`;
+                console.warn('⚠ No se encontraron empleados disponibles', {
+                    fecha: fecha,
+                    tipoSolicitudId: tipoSolicitudId,
+                    respuesta_completa: data,
+                    'data.empleados existe': !!data.empleados,
+                    'data.empleados es array': Array.isArray(data.empleados),
+                    'data.empleados length': data.empleados ? data.empleados.length : 'N/A'
+                });
             }
             empleadoSelect.disabled = false;
         })

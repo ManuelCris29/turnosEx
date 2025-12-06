@@ -293,13 +293,49 @@ class SolicitudFactory:
         Returns:
             List of available empleados
         """
-        strategy = cls.get_strategy(tipo_solicitud)
-        if not strategy:
-            return []
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info("SolicitudFactory.get_empleados_disponibles - Iniciando", extra={
+            'tipo_solicitud': tipo_solicitud.nombre if tipo_solicitud else 'None',
+            'tipo_solicitud_id': tipo_solicitud.id if tipo_solicitud else None,
+            'codigo_estrategia': tipo_solicitud.codigo_estrategia if tipo_solicitud else None,
+            'fecha': fecha,
+            'usuario_id': usuario_actual.id if usuario_actual else None
+        })
+        
+        if not tipo_solicitud:
+            logger.warning("SolicitudFactory.get_empleados_disponibles - tipo_solicitud es None, usando estrategia por defecto")
+            # Si no hay tipo_solicitud, usar estrategia por defecto (CambioTurnoStrategy)
+            from .strategies.cambio_turno_strategy import CambioTurnoStrategy
+            strategy = CambioTurnoStrategy()
+        else:
+            strategy = cls.get_strategy(tipo_solicitud)
+            if not strategy:
+                logger.warning("SolicitudFactory.get_empleados_disponibles - No se encontró estrategia, usando por defecto", extra={
+                    'tipo_solicitud': tipo_solicitud.nombre,
+                    'codigo_estrategia': tipo_solicitud.codigo_estrategia
+                })
+                from .strategies.cambio_turno_strategy import CambioTurnoStrategy
+                strategy = CambioTurnoStrategy()
+            else:
+                logger.info("SolicitudFactory.get_empleados_disponibles - Estrategia encontrada", extra={
+                    'estrategia': strategy.__class__.__name__,
+                    'tipo_solicitud': tipo_solicitud.nombre
+                })
         
         try:
-            return strategy.get_empleados_disponibles(fecha, usuario_actual, **kwargs)
-        except Exception:
+            empleados = strategy.get_empleados_disponibles(fecha, usuario_actual, **kwargs)
+            logger.info("SolicitudFactory.get_empleados_disponibles - Empleados obtenidos", extra={
+                'count': len(empleados) if empleados else 0,
+                'estrategia': strategy.__class__.__name__
+            })
+            return empleados if empleados else []
+        except Exception as e:
+            logger.error("SolicitudFactory.get_empleados_disponibles - Error", extra={
+                'error': str(e),
+                'estrategia': strategy.__class__.__name__ if strategy else 'None'
+            }, exc_info=True)
             return []
     
     @classmethod

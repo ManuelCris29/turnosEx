@@ -138,7 +138,7 @@ class DFDSStrategy(SolicitudStrategy):
         except Exception as e:
             return False, f"Error aplicando D FDS: {str(e)}"
     
-    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado) -> list:
+    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
         Get available employees for D FDS (all active employees).
         

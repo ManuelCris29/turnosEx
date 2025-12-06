@@ -128,7 +128,7 @@ class DobladaStrategy(SolicitudStrategy):
         except Exception as e:
             return False, f"Error aplicando doblada: {str(e)}"
     
-    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado) -> list:
+    def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
         Get available employees for doblada (all active employees).
         
