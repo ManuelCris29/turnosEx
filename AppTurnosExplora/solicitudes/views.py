@@ -1251,9 +1251,9 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         else:
                             datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los dÃ­as hÃ¡biles'
                         
-                        # Calcular fechas aplicables
-                        from .services.ct_permanente_helper import calcular_fechas_aplicables_ct_permanente
-                        fechas_aplicables = calcular_fechas_aplicables_ct_permanente(
+                        # Calcular fechas aplicables y excluidas
+                        from .services.ct_permanente_helper import calcular_fechas_aplicables_y_excluidas_ct_permanente
+                        fechas_aplicables, fechas_excluidas = calcular_fechas_aplicables_y_excluidas_ct_permanente(
                             detalle,
                             solicitud.explorador_solicitante,
                             solicitud.explorador_receptor
@@ -1261,6 +1261,16 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         
                         datos['fechas']['aplicables'] = [fecha.strftime('%d/%m/%Y') for fecha in fechas_aplicables]
                         datos['fechas']['total_dias'] = len(fechas_aplicables)
+                        
+                        # Agregar fechas excluidas con sus razones
+                        datos['fechas']['excluidas'] = [
+                            {
+                                'fecha': fecha_info['fecha'].strftime('%d/%m/%Y'),
+                                'razon': fecha_info['razon']
+                            }
+                            for fecha_info in fechas_excluidas
+                        ]
+                        
                         datos['informacion_adicional']['nota'] = 'Se excluyen domingos, festivos, dÃ­as de mantenimiento y dÃ­as de descanso de los exploradores.'
                 except Exception as e:
                     logger.error(f"Error obteniendo detalles de CT PERMANENTE: {e}")
@@ -1274,8 +1284,53 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         datos['fechas']['fecha_doblada'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
                         datos['informacion_adicional']['minutos_deuda'] = detalle.minutos_deuda
                         datos['informacion_adicional']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
+                        
+                        # Analizar fecha para mostrar información detallada
+                        if solicitud.fecha_cambio_turno:
+                            from .services.fechas_helper import obtener_informacion_fecha_para_detalle
+                            info_fecha = obtener_informacion_fecha_para_detalle(
+                                solicitud.fecha_cambio_turno,
+                                solicitante=solicitud.explorador_solicitante,
+                                receptor=None,
+                                tipo_solicitud='DOBLADA'
+                            )
+                            datos['fechas']['analisis'] = info_fecha
+                            if info_fecha['razones_exclusion']:
+                                datos['fechas']['excluidas'] = [{
+                                    'fecha': info_fecha['fecha'],
+                                    'razon': ', '.join(info_fecha['razones_exclusion'])
+                                }]
+                            datos['informacion_adicional']['nota'] = 'Se excluyen días de mantenimiento y temporada.'
                 except Exception as e:
                     logger.error(f"Error obteniendo detalles de DOBLADA: {e}")
+            
+            # D FDS (Doblada Fin de Semana)
+            elif tipo_nombre == 'D FDS':
+                try:
+                    detalle = solicitud.doblada  # D FDS usa el mismo modelo que DOBLADA
+                    if detalle:
+                        datos['fechas']['fecha_doblada'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
+                        datos['informacion_adicional']['minutos_deuda'] = detalle.minutos_deuda
+                        datos['informacion_adicional']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
+                        
+                        # Analizar fecha para mostrar información detallada
+                        if solicitud.fecha_cambio_turno:
+                            from .services.fechas_helper import obtener_informacion_fecha_para_detalle
+                            info_fecha = obtener_informacion_fecha_para_detalle(
+                                solicitud.fecha_cambio_turno,
+                                solicitante=solicitud.explorador_solicitante,
+                                receptor=None,
+                                tipo_solicitud='D FDS'
+                            )
+                            datos['fechas']['analisis'] = info_fecha
+                            if info_fecha['razones_exclusion']:
+                                datos['fechas']['excluidas'] = [{
+                                    'fecha': info_fecha['fecha'],
+                                    'razon': ', '.join(info_fecha['razones_exclusion'])
+                                }]
+                            datos['informacion_adicional']['nota'] = 'Se excluyen días de mantenimiento y temporada.'
+                except Exception as e:
+                    logger.error(f"Error obteniendo detalles de D FDS: {e}")
             
             # CT (Cambio Turno normal) y otros tipos
             else:
@@ -1287,6 +1342,28 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         datos['informacion_adicional']['jornada_solicitante'] = solicitud.turno_origen.jornada.nombre if solicitud.turno_origen.jornada else None
                     if solicitud.turno_destino:
                         datos['informacion_adicional']['jornada_receptor'] = solicitud.turno_destino.jornada.nombre if solicitud.turno_destino.jornada else None
+                    
+                    # Analizar fecha para mostrar información detallada
+                    from .services.fechas_helper import obtener_informacion_fecha_para_detalle
+                    info_fecha = obtener_informacion_fecha_para_detalle(
+                        solicitud.fecha_cambio_turno,
+                        solicitante=solicitud.explorador_solicitante,
+                        receptor=solicitud.explorador_receptor,
+                        tipo_solicitud='CT'
+                    )
+                    datos['fechas']['analisis'] = info_fecha
+                    
+                    # Si hay razones de exclusión, agregarlas
+                    if info_fecha['razones_exclusion']:
+                        datos['fechas']['excluidas'] = [{
+                            'fecha': info_fecha['fecha'],
+                            'razon': ', '.join(info_fecha['razones_exclusion'])
+                        }]
+                    else:
+                        # Si es válida, agregarla a aplicables
+                        datos['fechas']['aplicables'] = [info_fecha['fecha']]
+                    
+                    datos['informacion_adicional']['nota'] = 'Se excluyen días de mantenimiento, domingos y dobladas activas. Los festivos se permiten si ambos empleados tienen jornada.'
             
             return json_ok(datos)
             

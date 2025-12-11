@@ -168,6 +168,57 @@ function verDetalleSolicitud(solicitudId) {
     });
 }
 
+function agruparFechasExcluidas(fechasExcluidas) {
+    // Agrupar fechas por razón
+    const agrupadas = {};
+    fechasExcluidas.forEach(item => {
+        const razon = item.razon || 'Sin razón';
+        if (!agrupadas[razon]) {
+            agrupadas[razon] = [];
+        }
+        agrupadas[razon].push(item.fecha);
+    });
+    
+    // Generar HTML agrupado
+    let html = '';
+    const iconosRazon = {
+        'Festivo': '<i class="fas fa-calendar-times text-danger mr-1"></i>',
+        'Mantenimiento': '<i class="fas fa-tools text-warning mr-1"></i>',
+        'Temporada': '<i class="fas fa-calendar-alt text-info mr-1"></i>',
+        'Descanso Solicitante': '<i class="fas fa-user-slash text-secondary mr-1"></i>',
+        'Descanso Receptor': '<i class="fas fa-user-slash text-secondary mr-1"></i>',
+        'Domingo': '<i class="fas fa-calendar-day text-muted mr-1"></i>',
+        'Sábado': '<i class="fas fa-calendar-day text-muted mr-1"></i>'
+    };
+    
+    const coloresRazon = {
+        'Festivo': 'danger',
+        'Mantenimiento': 'warning',
+        'Temporada': 'info',
+        'Descanso Solicitante': 'secondary',
+        'Descanso Receptor': 'secondary',
+        'Domingo': 'muted',
+        'Sábado': 'muted'
+    };
+    
+    Object.keys(agrupadas).forEach(razon => {
+        const fechas = agrupadas[razon];
+        const icono = iconosRazon[razon] || '<i class="fas fa-ban text-muted mr-1"></i>';
+        const color = coloresRazon[razon] || 'muted';
+        html += `
+            <div class="mb-2">
+                <strong>${icono}${razon}:</strong>
+                <span class="badge badge-${color} ml-1">${fechas.length} día${fechas.length > 1 ? 's' : ''}</span>
+                <div class="mt-1 ml-3">
+                    <small class="text-${color}">${fechas.join(', ')}</small>
+                </div>
+            </div>
+        `;
+    });
+    
+    return html;
+}
+
 function renderizarDetalleSolicitud(data) {
     const modalContent = document.getElementById('detalleSolicitudContent');
     
@@ -307,9 +358,17 @@ function renderizarDetalleSolicitud(data) {
                         ` : ''}
                         ${datos.fechas.aplicables && datos.fechas.aplicables.length > 0 ? `
                             <div class="mb-3">
-                                <strong><i class="fas fa-list mr-2"></i>Fechas Aplicables:</strong>
+                                <strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas Aplicables:</strong>
                                 <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
                                     <p class="mb-0 small">${datos.fechas.aplicables.join(', ')}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.excluidas && datos.fechas.excluidas.length > 0 ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas Excluidas:</strong>
+                                <div class="mt-2" style="max-height: 300px; overflow-y: auto;">
+                                    ${agruparFechasExcluidas(datos.fechas.excluidas)}
                                 </div>
                             </div>
                         ` : ''}

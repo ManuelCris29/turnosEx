@@ -1,5 +1,13 @@
 import os
 
+# Detección automática: usar mysqlclient si está disponible (Linux/producción)
+# Si no, usar pymysql como fallback (Windows/desarrollo)
+try:
+    import MySQLdb  # noqa: F401
+except ImportError:
+    import pymysql
+    pymysql.install_as_MySQLdb()
+
 from config.paths import BASE_DIR
 
 

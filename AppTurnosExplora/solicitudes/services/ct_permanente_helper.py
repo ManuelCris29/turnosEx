@@ -3,7 +3,7 @@ Helper para calcular fechas aplicables de cambios permanentes.
 Reutiliza la lógica de CTPermanenteStrategy para ser usada en otros contextos.
 """
 from datetime import date, timedelta
-from typing import List
+from typing import List, Dict, Tuple
 from empleados.models import Empleado
 from turnos.models import DiaEspecial
 from core.utils.jornada_utils import JornadaUtils
@@ -131,5 +131,113 @@ def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
         return jornada_dia == "Descanso"
     except Exception:
         return False
+
+
+def calcular_fechas_aplicables_y_excluidas_ct_permanente(
+    detalle: CambioPermanenteDetalle,
+    solicitante: Empleado,
+    receptor: Empleado
+) -> Tuple[List[date], List[Dict[str, any]]]:
+    """
+    Calcula las fechas aplicables y excluidas para un cambio permanente.
+    
+    Args:
+        detalle: Instancia de CambioPermanenteDetalle
+        solicitante: Empleado solicitante
+        receptor: Empleado receptor
+        
+    Returns:
+        Tupla con:
+        - Lista de fechas aplicables (válidas)
+        - Lista de dicts con fechas excluidas: [{'fecha': date, 'razon': str}]
+    """
+    fecha_inicio = detalle.fecha_inicio
+    fecha_fin = detalle.fecha_fin
+    
+    if not fecha_fin:
+        # Si no hay fecha fin, usar fin de año
+        fecha_fin = date(fecha_inicio.year, 12, 31)
+    
+    fechas_candidatas = set()
+    
+    # Obtener días seleccionados
+    dias_seleccionados = detalle.dias.all()
+    
+    if dias_seleccionados.exists():
+        # Hay días seleccionados: usar solo esos
+        for dia_seleccionado in dias_seleccionados:
+            if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
+                # Día de semana: generar todas las ocurrencias dentro del rango
+                fecha_actual = fecha_inicio
+                dia_semana_buscado = dia_seleccionado.dia_semana
+                
+                # Avanzar hasta el primer día de la semana buscado
+                dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
+                if dias_hasta_proximo > 0:
+                    fecha_actual += timedelta(days=dias_hasta_proximo)
+                
+                # Agregar todas las ocurrencias del día de semana dentro del rango
+                # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
+                while fecha_actual <= fecha_fin:
+                    if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
+                        fechas_candidatas.add(fecha_actual)
+                    fecha_actual += timedelta(days=7)  # Siguiente semana
+    else:
+        # No hay días seleccionados: usar rango completo (retrocompatibilidad)
+        # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
+        fecha_actual = fecha_inicio
+        while fecha_actual <= fecha_fin:
+            if fecha_actual.weekday() < 5:  # Solo lunes-viernes
+                fechas_candidatas.add(fecha_actual)
+            fecha_actual += timedelta(days=1)
+    
+    # Filtrar fechas y registrar exclusiones
+    fechas_aplicables = []
+    fechas_excluidas = []
+    
+    for fecha_dia in sorted(list(fechas_candidatas)):
+        razones_exclusion = []
+        
+        # Verificar domingo
+        if fecha_dia.weekday() == 6:
+            razones_exclusion.append('Domingo')
+        
+        # Verificar sábado (aunque no debería llegar aquí si ya filtramos)
+        if fecha_dia.weekday() == 5:
+            razones_exclusion.append('Sábado')
+        
+        # Verificar festivo
+        if _es_festivo(fecha_dia):
+            razones_exclusion.append('Festivo')
+        
+        # Verificar mantenimiento
+        if _es_mantenimiento(fecha_dia):
+            razones_exclusion.append('Mantenimiento')
+        
+        # Verificar temporada
+        if _es_temporada(fecha_dia):
+            razones_exclusion.append('Temporada')
+        
+        # Verificar día de descanso del solicitante
+        if _es_dia_descanso(solicitante, fecha_dia):
+            razones_exclusion.append('Descanso Solicitante')
+        
+        # Verificar día de descanso del receptor
+        if _es_dia_descanso(receptor, fecha_dia):
+            razones_exclusion.append('Descanso Receptor')
+        
+        # Si hay razones de exclusión, agregar a excluidas
+        if razones_exclusion:
+            # Si hay múltiples razones, combinarlas
+            razon = ', '.join(razones_exclusion)
+            fechas_excluidas.append({
+                'fecha': fecha_dia,
+                'razon': razon
+            })
+        else:
+            # Si no hay razones, es una fecha aplicable
+            fechas_aplicables.append(fecha_dia)
+    
+    return fechas_aplicables, fechas_excluidas
 
 

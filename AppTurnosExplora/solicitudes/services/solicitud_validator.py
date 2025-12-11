@@ -361,12 +361,17 @@ class SolicitudValidator:
     @staticmethod
     def validar_rango_completo_cambio_permanente(explorador_solicitante: Empleado, explorador_receptor: Empleado, fecha_inicio, fecha_fin, dias_seleccionados=None):
         """
-        Validar todos los días del rango (o días seleccionados) para cambio permanente.
+        Validar que haya al menos un día válido en el rango (o días seleccionados) para cambio permanente.
         
-        Valida que ningún día sea:
+        Los días inválidos se excluyen automáticamente (festivos, mantenimiento, descansos).
+        Solo se rechaza la solicitud si NO hay ningún día válido en el rango.
+        
+        Días inválidos (se excluyen automáticamente):
         - Domingo
+        - Sábado
         - Festivo
         - Día de mantenimiento
+        - Día de temporada
         - Día de descanso del explorador
         
         Args:
@@ -377,7 +382,7 @@ class SolicitudValidator:
             dias_seleccionados: Dict con días seleccionados (opcional)
             
         Raises:
-            ValidationError: Si algún día del rango no es válido
+            ValidationError: Si no hay ningún día válido en el rango
         """
         from datetime import datetime, timedelta
         
@@ -386,8 +391,8 @@ class SolicitudValidator:
         if isinstance(fecha_fin, str):
             fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
         
-        # Generar lista de fechas a validar
-        fechas_a_validar = []
+        # Generar lista de fechas candidatas
+        fechas_candidatas = []
         
         if dias_seleccionados:
             # Validar solo días de semana seleccionados (lunes-viernes)
@@ -397,39 +402,120 @@ class SolicitudValidator:
             while fecha_actual <= fecha_fin:
                 weekday = fecha_actual.weekday()
                 if weekday in dias_semana and weekday < 5:
-                    fechas_a_validar.append(fecha_actual)
+                    fechas_candidatas.append(fecha_actual)
                 fecha_actual += timedelta(days=1)
         else:
-            # Validar rango completo (retrocompatibilidad)
+            # Validar rango completo (retrocompatibilidad) - solo lunes-viernes
             fecha_actual = fecha_inicio
             while fecha_actual <= fecha_fin:
-                fechas_a_validar.append(fecha_actual)
+                if fecha_actual.weekday() < 5:  # Solo lunes-viernes
+                    fechas_candidatas.append(fecha_actual)
                 fecha_actual += timedelta(days=1)
         
-        # Validar cada fecha
-        for fecha in fechas_a_validar:
-            # Validar domingo
+        # Filtrar fechas válidas (excluir festivos, mantenimiento, descansos, etc.)
+        fechas_validas = []
+        
+        for fecha in fechas_candidatas:
+            # Validar domingo (no debería llegar aquí si ya filtramos, pero por seguridad)
             if fecha.weekday() == 6:
-                raise ValidationError(f'No se pueden realizar cambios permanentes en domingos ({fecha.strftime("%d/%m/%Y")})')
+                continue
             
-            # Validar sábado - CT PERMANENTE solo permite lunes-viernes
+            # Validar sábado (no debería llegar aquí si ya filtramos, pero por seguridad)
             if fecha.weekday() == 5:
-                raise ValidationError(f'No se pueden realizar cambios permanentes en sábados ({fecha.strftime("%d/%m/%Y")}). Solo se permiten lunes a viernes.')
+                continue
             
-            # Validar festivo
-            SolicitudValidator.validar_no_festivo_por_semana(fecha, es_cambio_permanente=True)
+            # Verificar si es festivo
+            es_festivo = False
+            try:
+                from turnos.models import DiaEspecial
+                es_festivo = DiaEspecial.objects.filter(
+                    fecha=fecha, 
+                    tipo='festivo', 
+                    activo=True
+                ).exists()
+            except ImportError:
+                pass
             
-            # Validar mantenimiento
-            SolicitudValidator.validar_no_dia_mantenimiento(fecha)
+            if es_festivo:
+                continue  # Excluir festivo, pero no rechazar toda la solicitud
             
-            # Validar temporada
-            SolicitudValidator.validar_no_temporada(fecha)
+            # Verificar si es mantenimiento
+            es_mantenimiento = False
+            try:
+                from turnos.models import DiaEspecial
+                es_mantenimiento = DiaEspecial.objects.filter(
+                    fecha=fecha,
+                    tipo='mantenimiento',
+                    activo=True
+                ).exclude(es_temporada=True).exists()
+            except ImportError:
+                pass
             
-            # Validar día de descanso del solicitante
-            SolicitudValidator.validar_no_dia_descanso(explorador_solicitante, fecha)
+            if es_mantenimiento:
+                continue  # Excluir mantenimiento
             
-            # Validar día de descanso del receptor
-            SolicitudValidator.validar_no_dia_descanso(explorador_receptor, fecha)
+            # Verificar si es temporada
+            es_temporada = False
+            try:
+                from turnos.models import DiaEspecial
+                es_temporada = DiaEspecial.objects.filter(
+                    fecha=fecha,
+                    es_temporada=True,
+                    activo=True
+                ).exists()
+            except ImportError:
+                pass
+            
+            if es_temporada:
+                continue  # Excluir temporada
+            
+            # Verificar si es día de descanso del solicitante
+            es_descanso_solicitante = False
+            try:
+                from core.utils.jornada_utils import JornadaUtils
+                from turnos.services.jornada_service import JornadaService
+                
+                jornada_base = JornadaService.get_jornada_explorador_fecha(
+                    explorador_solicitante.id, 
+                    fecha.strftime('%Y-%m-%d')
+                )
+                if jornada_base:
+                    jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
+                    es_descanso_solicitante = (jornada_dia == "Descanso")
+            except Exception:
+                pass
+            
+            if es_descanso_solicitante:
+                continue  # Excluir día de descanso del solicitante
+            
+            # Verificar si es día de descanso del receptor
+            es_descanso_receptor = False
+            try:
+                from core.utils.jornada_utils import JornadaUtils
+                from turnos.services.jornada_service import JornadaService
+                
+                jornada_base = JornadaService.get_jornada_explorador_fecha(
+                    explorador_receptor.id, 
+                    fecha.strftime('%Y-%m-%d')
+                )
+                if jornada_base:
+                    jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
+                    es_descanso_receptor = (jornada_dia == "Descanso")
+            except Exception:
+                pass
+            
+            if es_descanso_receptor:
+                continue  # Excluir día de descanso del receptor
+            
+            # Si llegamos aquí, la fecha es válida
+            fechas_validas.append(fecha)
+        
+        # Validar que haya al menos un día válido
+        if not fechas_validas:
+            raise ValidationError(
+                'No se encontraron días válidos en el rango seleccionado. '
+                'Todos los días son festivos, de mantenimiento, temporada, o días de descanso.'
+            )
     
     @staticmethod
     def validar_no_cambio_permanente_superpuesto(solicitante: Empleado, receptor: Empleado, fecha_inicio, fecha_fin=None):
