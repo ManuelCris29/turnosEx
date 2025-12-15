@@ -282,6 +282,199 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         return json_ok({'empleados': empleados_data})
 
 
+class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
+    """
+    Endpoint de previsualización para CT PERMANENTE.
+    Usa la misma lógica de negocio del backend para que la vista previa
+    coincida exactamente con las fechas que se aplicarán.
+    """
+
+    def get(self, request):
+        from datetime import datetime, timedelta
+        import json
+        from django.core.exceptions import ValidationError
+        from empleados.models import Empleado
+        from .services.ct_permanente_helper import (
+            _es_festivo,
+            _es_mantenimiento,
+            _es_temporada,
+            _es_dia_descanso,
+        )
+        from .services.solicitud_validator import SolicitudValidator  # type: ignore
+
+        fecha_inicio_str = request.GET.get('fecha_inicio')
+        fecha_fin_str = request.GET.get('fecha_fin')
+        dias_seleccionados_json = request.GET.get('dias_seleccionados', '{}')
+        empleado_receptor_id = request.GET.get('empleado_receptor_id')
+
+        if not fecha_inicio_str or not fecha_fin_str:
+            return json_error(
+                'Faltan parámetros de fecha_inicio o fecha_fin',
+                status=400,
+                code='missing_params',
+            )
+
+        try:
+            fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
+            fecha_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+        except ValueError:
+            return json_error(
+                'Formato de fecha inválido. Use YYYY-MM-DD.',
+                status=400,
+                code='invalid_date',
+            )
+
+        # Validar que el usuario tenga empleado asociado
+        if not hasattr(request.user, 'empleado'):
+            return json_error(
+                'Usuario sin empleado asociado',
+                status=400,
+                code='no_empleado',
+            )
+
+        solicitante: Empleado = request.user.empleado  # type: ignore
+
+        # Receptor es opcional en la previsualización (antes de escoger compañero)
+        receptor: Empleado | None = None  # type: ignore
+        if empleado_receptor_id:
+            try:
+                receptor = Empleado.objects.get(id=empleado_receptor_id)
+            except Empleado.DoesNotExist:
+                receptor = None
+
+        # Parsear días seleccionados
+        try:
+            dias_seleccionados = json.loads(dias_seleccionados_json) if dias_seleccionados_json else {}
+        except json.JSONDecodeError:
+            dias_seleccionados = {}
+
+        try:
+            # Validaciones básicas (mismas que al guardar)
+            SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
+
+            if dias_seleccionados:
+                SolicitudValidator.validar_dias_seleccionados_permanente(
+                    fecha_inicio, fecha_fin, dias_seleccionados
+                )
+
+            # Jornada contraria en rango solo si hay receptor
+            if receptor:
+                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+                if not fechas_especificas:
+                    SolicitudValidator.validar_jornada_contraria_rango_permanente(
+                        solicitante,
+                        receptor,
+                        fecha_inicio,
+                        fecha_fin,
+                        dias_seleccionados if dias_seleccionados else None,
+                    )
+
+            # Generar fechas candidatas
+            fechas_candidatas = []
+
+            if dias_seleccionados:
+                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+                dias_semana = dias_seleccionados.get('dias_semana', [])
+
+                if fechas_especificas:
+                    for fecha_str in fechas_especificas:
+                        try:
+                            if isinstance(fecha_str, str):
+                                fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                            else:
+                                fecha_obj = fecha_str
+                            if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                                fechas_candidatas.append(fecha_obj)
+                        except (ValueError, TypeError):
+                            continue
+                elif dias_semana:
+                    dias_semana_int = [int(d) for d in dias_semana]
+                    fecha_actual = fecha_inicio
+                    while fecha_actual <= fecha_fin:
+                        weekday = fecha_actual.weekday()
+                        if weekday in dias_semana_int and weekday < 5:
+                            fechas_candidatas.append(fecha_actual)
+                        fecha_actual += timedelta(days=1)
+            else:
+                # Rango completo lunes-viernes
+                fecha_actual = fecha_inicio
+                while fecha_actual <= fecha_fin:
+                    if fecha_actual.weekday() < 5:
+                        fechas_candidatas.append(fecha_actual)
+                    fecha_actual += timedelta(days=1)
+
+            # Filtrar fechas aplicables / excluidas usando la misma lógica del helper
+            fechas_aplicables = []
+            fechas_excluidas = []
+
+            for fecha_dia in sorted(set(fechas_candidatas)):
+                razones_exclusion = []
+
+                if fecha_dia.weekday() == 6:
+                    razones_exclusion.append('Domingo')
+                if fecha_dia.weekday() == 5:
+                    razones_exclusion.append('Sábado')
+                if _es_festivo(fecha_dia):
+                    razones_exclusion.append('Festivo')
+                if _es_mantenimiento(fecha_dia):
+                    razones_exclusion.append('Mantenimiento')
+                if _es_temporada(fecha_dia):
+                    razones_exclusion.append('Temporada')
+                if _es_dia_descanso(solicitante, fecha_dia):
+                    razones_exclusion.append('Descanso Solicitante')
+                if receptor and _es_dia_descanso(receptor, fecha_dia):
+                    razones_exclusion.append('Descanso Receptor')
+
+                if razones_exclusion:
+                    fechas_excluidas.append(
+                        {
+                            'fecha': fecha_dia.strftime('%Y-%m-%d'),
+                            'razon': ', '.join(razones_exclusion),
+                        }
+                    )
+                else:
+                    fechas_aplicables.append(fecha_dia.strftime('%Y-%m-%d'))
+
+            if not fechas_aplicables:
+                raise ValidationError(
+                    'No se encontraron días válidos en el rango seleccionado. '
+                    'Todos los días son festivos, de mantenimiento, temporada, o días de descanso.'
+                )
+
+            return json_ok(
+                {
+                    'success': True,
+                    'fechas': {
+                        'aplicables': fechas_aplicables,
+                        'excluidas': fechas_excluidas,
+                        'total_aplicables': len(fechas_aplicables),
+                        'total_excluidas': len(fechas_excluidas),
+                    },
+                }
+            )
+
+        except ValidationError as e:
+            return json_ok(
+                {
+                    'success': False,
+                    'message': str(e),
+                    'fechas': {
+                        'aplicables': [],
+                        'excluidas': [],
+                        'total_aplicables': 0,
+                        'total_excluidas': 0,
+                    },
+                }
+            )
+        except Exception as e:  # pragma: no cover
+            logger.exception('Error en PrevisualizarCTPermanenteView', extra={'error': str(e)})
+            return json_error(
+                'Error interno al previsualizar el cambio permanente.',
+                status=500,
+                code='internal_error',
+            )
+
+
 class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
     def get(self, request):
         fecha = request.GET.get('fecha')

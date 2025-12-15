@@ -59,11 +59,25 @@ class CTPermanenteStrategy(SolicitudStrategy):
             
             # Validaciones específicas de CT PERMANENTE
             SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
-            SolicitudValidator.validar_jornada_contraria(explorador_solicitante, explorador_receptor, fecha_inicio)
             
             # Validar días seleccionados si existen
             if dias_seleccionados:
                 SolicitudValidator.validar_dias_seleccionados_permanente(fecha_inicio, fecha_fin, dias_seleccionados)
+            
+            # Validar jornadas contrarias:
+            # - Si hay fechas_especificas, omitir validación (ya se evaluó día a día en get_empleados_disponibles)
+            # - Si no hay fechas_especificas, validar que haya al menos un día en el rango con jornadas contrarias
+            fechas_especificas = dias_seleccionados.get('fechas_especificas', []) if dias_seleccionados else []
+            if not fechas_especificas:
+                # No hay fechas específicas, validar jornadas contrarias en todo el rango
+                SolicitudValidator.validar_jornada_contraria_rango_permanente(
+                    explorador_solicitante, 
+                    explorador_receptor, 
+                    fecha_inicio, 
+                    fecha_fin,
+                    dias_seleccionados if dias_seleccionados else None
+                )
+            # Si hay fechas_especificas, confiar en la evaluación previa del sistema de compatibilidad parcial
             
             # Validar rango completo (todos los días o días seleccionados)
             SolicitudValidator.validar_rango_completo_cambio_permanente(
@@ -133,12 +147,34 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # Crear registros de días seleccionados si existen
             if dias_seleccionados:
                 dias_semana = dias_seleccionados.get('dias_semana', [])
+                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+                
+                # Crear registros para días de semana
                 for dia_semana in dias_semana:
                     CambioPermanenteDia.objects.create(
                         cambio_permanente=detalle,
                         dia_semana=int(dia_semana),
                         tipo='dia_semana'
                     )
+                
+                # Crear registros para fechas específicas (compatibilidad parcial)
+                for fecha_str in fechas_especificas:
+                    try:
+                        if isinstance(fecha_str, str):
+                            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                        else:
+                            fecha_obj = fecha_str
+                        
+                        CambioPermanenteDia.objects.create(
+                            cambio_permanente=detalle,
+                            fecha_especifica=fecha_obj,
+                            tipo='fecha_especifica'
+                        )
+                    except (ValueError, TypeError) as e:
+                        import logging
+                        logger = logging.getLogger(__name__)
+                        logger.warning(f"Error procesando fecha específica {fecha_str}: {e}")
+                        continue
             
             # Crear notificaciones y enviar emails
             try:
@@ -491,14 +527,31 @@ class CTPermanenteStrategy(SolicitudStrategy):
         """
         Genera lista de fechas válidas basado en parámetros directos (no objeto DB).
         """
+        from datetime import datetime
+        
         fechas_validas: Set[date] = set()
         
         # Extraer listas del dict
         dias_semana_list = dias_seleccionados.get('dias_semana', [])
         fechas_especificas_list = dias_seleccionados.get('fechas_especificas', []) 
         
-        # Lógica para días de semana
-        if dias_semana_list:
+        # Lógica para fechas específicas (tiene prioridad si existe)
+        if fechas_especificas_list:
+            for fecha_str in fechas_especificas_list:
+                try:
+                    if isinstance(fecha_str, str):
+                        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                    else:
+                        fecha_obj = fecha_str
+                    
+                    # Solo agregar si está dentro del rango y es lunes-viernes
+                    if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                        fechas_validas.add(fecha_obj)
+                except (ValueError, TypeError):
+                    continue
+        
+        # Lógica para días de semana (solo si no hay fechas específicas)
+        if dias_semana_list and not fechas_especificas_list:
             for dia_str in dias_semana_list:
                 try:
                     dia_semana_buscado = int(dia_str)

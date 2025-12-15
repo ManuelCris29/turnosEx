@@ -986,7 +986,15 @@ async function actualizarVistaPrevia() {
     
     const dias = obtenerDiasSeleccionados();
     
-    if (!dias.dias_semana.length) {
+    // Determinar el conjunto de días a enviar al backend:
+    // - Si hay override por compatibilidad parcial, usarlo (incluye fechas_especificas)
+    // - Si no, usar los días de semana seleccionados normalmente
+    let diasParaBackend = dias;
+    if (window.overrideDiasSeleccionados && window.overrideDiasSeleccionados.fechas_especificas) {
+        diasParaBackend = window.overrideDiasSeleccionados;
+    }
+    
+    if (!diasParaBackend.dias_semana.length && !(diasParaBackend.fechas_especificas && diasParaBackend.fechas_especificas.length)) {
         if (vistaPreviaFechas) {
             vistaPreviaFechas.style.display = 'none';
         }
@@ -998,10 +1006,54 @@ async function actualizarVistaPrevia() {
         listaFechasPrevia.innerHTML = '<li class="list-group-item py-1 text-muted"><i class="fas fa-spinner fa-spin"></i> Validando fechas...</li>';
     }
     
-    // Generar lista de fechas válidas
-    const resultado = await generarFechasValidas(fechaInicio, fechaFin, dias);
-    const fechasGeneradas = resultado.fechas;
-    const fechasInvalidas = resultado.invalidas;
+    // Llamar al backend para previsualizar usando la misma lógica que el servidor
+    let fechasGeneradas = [];
+    let fechasInvalidas = [];
+    
+    try {
+        const diasJSON = encodeURIComponent(JSON.stringify(diasParaBackend));
+        const empleadoReceptor = document.getElementById('empleado_receptor');
+        const empleadoReceptorId = empleadoReceptor ? empleadoReceptor.value : '';
+        
+        const url = `/solicitudes/previsualizar-ct-permanente/?fecha_inicio=${fechaInicio}&fecha_fin=${fechaFin}&dias_seleccionados=${diasJSON}&empleado_receptor_id=${empleadoReceptorId}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            // Si el backend indica que no hay días válidos u otro problema, ocultar vista previa y mostrar alerta
+            if (vistaPreviaFechas) {
+                vistaPreviaFechas.style.display = 'none';
+            }
+            if (data.message) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'Rango sin días válidos',
+                    text: data.message,
+                    confirmButtonText: 'Entendido'
+                });
+            }
+            return;
+        }
+        
+        fechasGeneradas = data.fechas.aplicables || [];
+        const excluidas = data.fechas.excluidas || [];
+        fechasInvalidas = excluidas.map(item => ({
+            fecha: item.fecha,
+            razon: item.razon
+        }));
+    } catch (error) {
+        console.error('Error previsualizando CT permanente:', error);
+        if (vistaPreviaFechas) {
+            vistaPreviaFechas.style.display = 'none';
+        }
+        return;
+    }
     
     if (fechasGeneradas.length === 0 && fechasInvalidas.length === 0) {
         if (vistaPreviaFechas) {
@@ -1554,140 +1606,6 @@ function cargarTemporadas(anio) {
         });
 }
 
-// Función para verificar si un día es válido
-async function esDiaValido(fechaStr) {
-    const fecha = new Date(fechaStr + 'T00:00:00');
-    const fechaDate = new Date(fecha.getFullYear(), fecha.getMonth(), fecha.getDate());
-    const diaSemana = fechaDate.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
-    
-    // 1. Validar domingo (getDay() === 0)
-    if (diaSemana === 0) {
-        return { valido: false, razon: 'Domingo' };
-    }
-    
-    // 2. Validar sábado (getDay() === 6) - CT PERMANENTE solo lunes-viernes
-    if (diaSemana === 6) {
-        return { valido: false, razon: 'Sábado' };
-    }
-    
-    // 2. Cargar festivos, mantenimiento y temporadas si no están en cache
-    await cargarFestivosMantenimientoYTemporadas();
-    
-    // 3. Validar festivo
-    if (cacheFestivos && cacheFestivos.has(fechaStr)) {
-        return { valido: false, razon: 'Festivo' };
-    }
-    
-    // 4. Validar mantenimiento
-    if (cacheMantenimiento && cacheMantenimiento.has(fechaStr)) {
-        return { valido: false, razon: 'Mantenimiento' };
-    }
-    
-    // 5. Validar temporada
-    if (cacheTemporadas && cacheTemporadas.has(fechaStr)) {
-        return { valido: false, razon: 'Temporada' };
-    }
-    
-    // 5. Validar día de descanso del solicitante
-    if (cacheJornadaSolicitante) {
-        if (cacheJornadaSolicitante === 'AM' && diaSemana === 6) { // Sábado
-            return { valido: false, razon: 'Descanso (AM)' };
-        }
-        if (cacheJornadaSolicitante === 'PM' && diaSemana === 0) { // Domingo
-            return { valido: false, razon: 'Descanso (PM)' };
-        }
-    }
-    
-    // 6. Validar día de descanso del receptor (si está seleccionado)
-    if (cacheJornadaReceptor) {
-        if (cacheJornadaReceptor === 'AM' && diaSemana === 6) { // Sábado
-            return { valido: false, razon: 'Descanso receptor (AM)' };
-        }
-        if (cacheJornadaReceptor === 'PM' && diaSemana === 0) { // Domingo
-            return { valido: false, razon: 'Descanso receptor (PM)' };
-        }
-    }
-    
-    return { valido: true, razon: null };
-}
-
-// Función para generar fechas válidas (similar a la lógica del backend)
-async function generarFechasValidas(fechaInicioStr, fechaFinStr, diasSeleccionados) {
-    // Cargar jornadas, festivos, mantenimiento y temporadas si no están en cache
-    await Promise.all([
-        cargarJornadaSolicitante(),
-        cargarJornadaReceptor(),
-        cargarFestivosMantenimientoYTemporadas()
-    ]);
-    
-    const fechaInicio = new Date(fechaInicioStr + 'T00:00:00');
-    const fechaFin = new Date(fechaFinStr + 'T00:00:00');
-    const fechas = new Set();
-    const fechasInvalidas = [];
-    
-    // Generar fechas para días de semana
-    if (diasSeleccionados.dias_semana.length > 0) {
-        let fechaActual = new Date(fechaInicio);
-        while (fechaActual <= fechaFin) {
-            const diaSemana = fechaActual.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
-            // Convertir a formato del backend (0=lunes, 6=domingo)
-            // IMPORTANTE: CT PERMANENTE solo permite lunes-viernes (0-4 en backend)
-            const diaSemanaBackend = diaSemana === 0 ? 6 : diaSemana - 1;
-            
-            // Filtrar sábados (5) y domingos (6) - no se permiten en CT PERMANENTE
-            if (diaSemanaBackend >= 0 && diaSemanaBackend <= 4 && diasSeleccionados.dias_semana.includes(diaSemanaBackend)) {
-                const fechaStr = fechaActual.toISOString().split('T')[0];
-                const validacion = await esDiaValido(fechaStr);
-                if (validacion.valido) {
-                    fechas.add(fechaStr);
-                } else {
-                    fechasInvalidas.push({ fecha: fechaStr, razon: validacion.razon });
-                }
-            } else if (diaSemanaBackend === 5 || diaSemanaBackend === 6) {
-                // Si se seleccionó sábado o domingo, agregarlo a inválidas
-                const fechaStr = fechaActual.toISOString().split('T')[0];
-                const razon = diaSemanaBackend === 5 ? 'Sábado' : 'Domingo';
-                fechasInvalidas.push({ fecha: fechaStr, razon: razon });
-            }
-            
-            // Crear nueva fecha para evitar problemas con setDate
-            const nuevaFecha = new Date(fechaActual);
-            nuevaFecha.setDate(nuevaFecha.getDate() + 1);
-            fechaActual = nuevaFecha;
-        }
-    }
-    
-    // Si no hay días seleccionados, usar rango completo (retrocompatibilidad)
-    // IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
-    if (diasSeleccionados.dias_semana.length === 0) {
-        let fechaActual = new Date(fechaInicio);
-        while (fechaActual <= fechaFin) {
-            const diaSemana = fechaActual.getDay(); // 0=domingo, 1=lunes, ..., 6=sábado
-            // Solo procesar lunes-viernes (1-5)
-            if (diaSemana >= 1 && diaSemana <= 5) {
-                const fechaStr = fechaActual.toISOString().split('T')[0];
-                const validacion = await esDiaValido(fechaStr);
-                if (validacion.valido) {
-                    fechas.add(fechaStr);
-                } else {
-                    fechasInvalidas.push({ fecha: fechaStr, razon: validacion.razon });
-                }
-            } else {
-                // Sábado o domingo - agregar a inválidas
-                const fechaStr = fechaActual.toISOString().split('T')[0];
-                const razon = diaSemana === 0 ? 'Domingo' : 'Sábado';
-                fechasInvalidas.push({ fecha: fechaStr, razon: razon });
-            }
-            fechaActual.setDate(fechaActual.getDate() + 1);
-        }
-    }
-    
-    return {
-        fechas: Array.from(fechas).sort(),
-        invalidas: fechasInvalidas
-    };
-}
-
 // Función para enviar la solicitud por AJAX
 function enviarSolicitudCTPermanente() {
     const form = document.getElementById('ctPermanenteForm');
@@ -1711,6 +1629,11 @@ function enviarSolicitudCTPermanente() {
     } else {
         // Actualizar normalmente desde checkboxes
         actualizarDiasSeleccionados();
+        // Asegurar que el FormData tenga el valor actualizado
+        const diasHidden = document.getElementById('dias_seleccionados');
+        if (diasHidden) {
+            formData.set('dias_seleccionados', diasHidden.value);
+        }
     }
     
     // Mostrar indicador de carga

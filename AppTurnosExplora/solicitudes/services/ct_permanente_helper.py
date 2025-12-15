@@ -43,27 +43,43 @@ def calcular_fechas_aplicables_ct_permanente(
     # Obtener días seleccionados
     dias_seleccionados = detalle.dias.all()
     
-    if dias_seleccionados.exists():
-        # Hay días seleccionados: usar solo esos
-        for dia_seleccionado in dias_seleccionados:
-            if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
-                # Día de semana: generar todas las ocurrencias dentro del rango
-                fecha_actual = fecha_inicio
-                dia_semana_buscado = dia_seleccionado.dia_semana
-                
-                # Avanzar hasta el primer día de la semana buscado
-                dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
-                if dias_hasta_proximo > 0:
-                    fecha_actual += timedelta(days=dias_hasta_proximo)
-                
-                # Agregar todas las ocurrencias del día de semana dentro del rango
-                # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
-                while fecha_actual <= fecha_fin:
-                    if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
-                        fechas_candidatas.add(fecha_actual)
-                    fecha_actual += timedelta(days=7)  # Siguiente semana
-    else:
-        # No hay días seleccionados: usar rango completo (retrocompatibilidad)
+    # Separar días de semana y fechas específicas
+    dias_semana_list = []
+    fechas_especificas_list = []
+    
+    for dia_seleccionado in dias_seleccionados:
+        if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
+            dias_semana_list.append(dia_seleccionado.dia_semana)
+        elif dia_seleccionado.tipo == 'fecha_especifica' and dia_seleccionado.fecha_especifica:
+            fechas_especificas_list.append(dia_seleccionado.fecha_especifica)
+    
+    # Procesar fechas específicas primero (tienen prioridad)
+    if fechas_especificas_list:
+        for fecha_obj in fechas_especificas_list:
+            # Solo agregar si está dentro del rango y es lunes-viernes
+            if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                fechas_candidatas.add(fecha_obj)
+    
+    # Procesar días de semana (solo si no hay fechas específicas)
+    if dias_semana_list and not fechas_especificas_list:
+        for dia_semana_buscado in dias_semana_list:
+            # Día de semana: generar todas las ocurrencias dentro del rango
+            fecha_actual = fecha_inicio
+            
+            # Avanzar hasta el primer día de la semana buscado
+            dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
+            if dias_hasta_proximo > 0:
+                fecha_actual += timedelta(days=dias_hasta_proximo)
+            
+            # Agregar todas las ocurrencias del día de semana dentro del rango
+            # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
+            while fecha_actual <= fecha_fin:
+                if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
+                    fechas_candidatas.add(fecha_actual)
+                fecha_actual += timedelta(days=7)  # Siguiente semana
+    
+    # Si no hay días seleccionados, usar rango completo (retrocompatibilidad)
+    if not dias_semana_list and not fechas_especificas_list:
         # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
         fecha_actual = fecha_inicio
         while fecha_actual <= fecha_fin:
@@ -163,27 +179,43 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
     # Obtener días seleccionados
     dias_seleccionados = detalle.dias.all()
     
-    if dias_seleccionados.exists():
-        # Hay días seleccionados: usar solo esos
-        for dia_seleccionado in dias_seleccionados:
-            if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
-                # Día de semana: generar todas las ocurrencias dentro del rango
-                fecha_actual = fecha_inicio
-                dia_semana_buscado = dia_seleccionado.dia_semana
-                
-                # Avanzar hasta el primer día de la semana buscado
-                dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
-                if dias_hasta_proximo > 0:
-                    fecha_actual += timedelta(days=dias_hasta_proximo)
-                
-                # Agregar todas las ocurrencias del día de semana dentro del rango
-                # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
-                while fecha_actual <= fecha_fin:
-                    if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
-                        fechas_candidatas.add(fecha_actual)
-                    fecha_actual += timedelta(days=7)  # Siguiente semana
-    else:
-        # No hay días seleccionados: usar rango completo (retrocompatibilidad)
+    # Separar días de semana y fechas específicas
+    dias_semana_list = []
+    fechas_especificas_list = []
+    
+    for dia_seleccionado in dias_seleccionados:
+        if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
+            dias_semana_list.append(dia_seleccionado.dia_semana)
+        elif dia_seleccionado.tipo == 'fecha_especifica' and dia_seleccionado.fecha_especifica:
+            fechas_especificas_list.append(dia_seleccionado.fecha_especifica)
+    
+    # Procesar fechas específicas primero (tienen prioridad)
+    if fechas_especificas_list:
+        for fecha_obj in fechas_especificas_list:
+            # Solo agregar si está dentro del rango y es lunes-viernes
+            if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                fechas_candidatas.add(fecha_obj)
+    
+    # Procesar días de semana (solo si no hay fechas específicas)
+    if dias_semana_list and not fechas_especificas_list:
+        for dia_semana_buscado in dias_semana_list:
+            # Día de semana: generar todas las ocurrencias dentro del rango
+            fecha_actual = fecha_inicio
+            
+            # Avanzar hasta el primer día de la semana buscado
+            dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
+            if dias_hasta_proximo > 0:
+                fecha_actual += timedelta(days=dias_hasta_proximo)
+            
+            # Agregar todas las ocurrencias del día de semana dentro del rango
+            # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
+            while fecha_actual <= fecha_fin:
+                if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
+                    fechas_candidatas.add(fecha_actual)
+                fecha_actual += timedelta(days=7)  # Siguiente semana
+    
+    # Si no hay días seleccionados, usar rango completo (retrocompatibilidad)
+    if not dias_semana_list and not fechas_especificas_list:
         # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
         fecha_actual = fecha_inicio
         while fecha_actual <= fecha_fin:

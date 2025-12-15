@@ -121,6 +121,89 @@ class SolicitudValidator:
             raise ValidationError('No se puede cambiar por la misma jornada. Los empleados deben tener jornadas contrarias')
     
     @staticmethod
+    def validar_jornada_contraria_rango_permanente(solicitante: Empleado, receptor: Empleado, fecha_inicio, fecha_fin, dias_seleccionados=None):
+        """
+        Validar que haya al menos un día en el rango donde las jornadas REALES sean contrarias.
+        
+        Esta función evalúa día a día en el rango (o días seleccionados) usando las jornadas
+        REALES de cada explorador (considera cambios aprobados previos).
+        
+        Args:
+            solicitante: Empleado que solicita el cambio
+            receptor: Empleado que recibe el cambio
+            fecha_inicio: Fecha de inicio del rango
+            fecha_fin: Fecha de fin del rango
+            dias_seleccionados: Dict con 'dias_semana' (lista de ints) o 'fechas_especificas' (lista de strings)
+            
+        Raises:
+            ValidationError: Si no hay ningún día en el rango donde las jornadas sean contrarias
+        """
+        from datetime import datetime, timedelta
+        from turnos.services.jornada_service import JornadaService
+        
+        # Convertir fechas a date si son strings
+        if isinstance(fecha_inicio, str):
+            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+        if isinstance(fecha_fin, str):
+            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+        
+        # Generar lista de fechas a evaluar
+        fechas_a_evaluar = []
+        
+        if dias_seleccionados:
+            fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+            dias_semana = dias_seleccionados.get('dias_semana', [])
+            
+            # Si hay fechas específicas, usarlas
+            if fechas_especificas:
+                for fecha_str in fechas_especificas:
+                    try:
+                        if isinstance(fecha_str, str):
+                            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                        else:
+                            fecha_obj = fecha_str
+                        # Solo lunes-viernes
+                        if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                            fechas_a_evaluar.append(fecha_obj)
+                    except (ValueError, TypeError):
+                        continue
+            # Si hay días de semana, generar fechas
+            elif dias_semana:
+                fecha_actual = fecha_inicio
+                while fecha_actual <= fecha_fin:
+                    if fecha_actual.weekday() in dias_semana and fecha_actual.weekday() < 5:
+                        fechas_a_evaluar.append(fecha_actual)
+                    fecha_actual += timedelta(days=1)
+        
+        # Si no hay días seleccionados, usar rango completo (solo lunes-viernes)
+        if not fechas_a_evaluar:
+            fecha_actual = fecha_inicio
+            while fecha_actual <= fecha_fin:
+                if fecha_actual.weekday() < 5:  # Solo lunes-viernes
+                    fechas_a_evaluar.append(fecha_actual)
+                fecha_actual += timedelta(days=1)
+        
+        # Evaluar cada fecha para verificar jornadas contrarias
+        dias_con_jornadas_contrarias = 0
+        
+        for fecha in fechas_a_evaluar:
+            jornada_solicitante = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha)
+            jornada_receptor = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha)
+            
+            # Si ambos tienen jornada y son contrarias, contar este día
+            if jornada_solicitante and jornada_receptor:
+                if jornada_solicitante.nombre != jornada_receptor.nombre:
+                    dias_con_jornadas_contrarias += 1
+        
+        # Si no hay ningún día con jornadas contrarias, rechazar
+        if dias_con_jornadas_contrarias == 0:
+            raise ValidationError(
+                'No se puede realizar el cambio permanente. '
+                'No se encontraron días en el rango donde los empleados tengan jornadas contrarias. '
+                'Los empleados deben tener jornadas opuestas (AM ↔ PM) en al menos un día del rango.'
+            )
+    
+    @staticmethod
     def validar_no_dia_mantenimiento(fecha):
         """
         Validar que no sea día de mantenimiento.
@@ -341,22 +424,56 @@ class SolicitudValidator:
         Args:
             fecha_inicio: Fecha de inicio del cambio permanente
             fecha_fin: Fecha de fin del cambio permanente
-            dias_seleccionados: Dict con 'dias_semana' (lista de ints)
+            dias_seleccionados: Dict con 'dias_semana' (lista de ints) o 'fechas_especificas' (lista de strings YYYY-MM-DD)
             
         Raises:
             ValidationError: Si no hay días seleccionados o son inválidos
         """
+        from datetime import datetime
+        
         dias_seleccionados = dias_seleccionados or {}
         dias_semana = dias_seleccionados.get('dias_semana', [])
+        fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
         
-        # Validar que haya al menos un día seleccionado (lunes-viernes)
-        if not dias_semana:
+        # Validar que haya al menos un día seleccionado (dias_semana o fechas_especificas)
+        if not dias_semana and not fechas_especificas:
             raise ValidationError('Debe seleccionar al menos un día de la semana (lunes a viernes) para el cambio permanente.')
         
-        # Validar que los días de semana sean lunes-viernes (0-4)
-        dias_invalidos = [int(d) for d in dias_semana if int(d) < 0 or int(d) > 4]
-        if dias_invalidos:
-            raise ValidationError('Los cambios permanentes solo se pueden realizar de lunes a viernes (0=Lunes, 4=Viernes).')
+        # Validar días de semana si existen
+        if dias_semana:
+            # Validar que los días de semana sean lunes-viernes (0-4)
+            dias_invalidos = [int(d) for d in dias_semana if int(d) < 0 or int(d) > 4]
+            if dias_invalidos:
+                raise ValidationError('Los cambios permanentes solo se pueden realizar de lunes a viernes (0=Lunes, 4=Viernes).')
+        
+        # Validar fechas específicas si existen
+        if fechas_especificas:
+            # Convertir fecha_inicio y fecha_fin a date si son strings
+            if isinstance(fecha_inicio, str):
+                fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            if isinstance(fecha_fin, str):
+                fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            
+            # Validar que todas las fechas estén dentro del rango
+            fechas_fuera_rango = []
+            for fecha_str in fechas_especificas:
+                try:
+                    if isinstance(fecha_str, str):
+                        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                    else:
+                        fecha_obj = fecha_str
+                    
+                    if fecha_obj < fecha_inicio or fecha_obj > fecha_fin:
+                        fechas_fuera_rango.append(fecha_str)
+                    
+                    # Validar que no sea sábado ni domingo
+                    if fecha_obj.weekday() >= 5:
+                        raise ValidationError(f'Los cambios permanentes solo se pueden realizar de lunes a viernes. La fecha {fecha_str} es {"sábado" if fecha_obj.weekday() == 5 else "domingo"}.')
+                except (ValueError, TypeError):
+                    raise ValidationError(f'Fecha inválida en fechas específicas: {fecha_str}')
+            
+            if fechas_fuera_rango:
+                raise ValidationError(f'Las siguientes fechas están fuera del rango seleccionado: {", ".join(fechas_fuera_rango)}')
     
     @staticmethod
     def validar_rango_completo_cambio_permanente(explorador_solicitante: Empleado, explorador_receptor: Empleado, fecha_inicio, fecha_fin, dias_seleccionados=None):
@@ -395,15 +512,31 @@ class SolicitudValidator:
         fechas_candidatas = []
         
         if dias_seleccionados:
-            # Validar solo días de semana seleccionados (lunes-viernes)
-            dias_semana = [int(d) for d in dias_seleccionados.get('dias_semana', [])]
+            fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
+            dias_semana = dias_seleccionados.get('dias_semana', [])
             
-            fecha_actual = fecha_inicio
-            while fecha_actual <= fecha_fin:
-                weekday = fecha_actual.weekday()
-                if weekday in dias_semana and weekday < 5:
-                    fechas_candidatas.append(fecha_actual)
-                fecha_actual += timedelta(days=1)
+            # Si hay fechas específicas, usarlas directamente (compatibilidad parcial)
+            if fechas_especificas:
+                for fecha_str in fechas_especificas:
+                    try:
+                        if isinstance(fecha_str, str):
+                            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                        else:
+                            fecha_obj = fecha_str
+                        # Solo agregar si está dentro del rango y es lunes-viernes
+                        if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                            fechas_candidatas.append(fecha_obj)
+                    except (ValueError, TypeError):
+                        continue
+            # Si hay días de semana, generar fechas
+            elif dias_semana:
+                dias_semana_int = [int(d) for d in dias_semana]
+                fecha_actual = fecha_inicio
+                while fecha_actual <= fecha_fin:
+                    weekday = fecha_actual.weekday()
+                    if weekday in dias_semana_int and weekday < 5:
+                        fechas_candidatas.append(fecha_actual)
+                    fecha_actual += timedelta(days=1)
         else:
             # Validar rango completo (retrocompatibilidad) - solo lunes-viernes
             fecha_actual = fecha_inicio
