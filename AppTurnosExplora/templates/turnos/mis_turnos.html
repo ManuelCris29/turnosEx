@@ -35,7 +35,7 @@
                     <div class="day-date">{{ fecha|date:"d/m" }}</div>
                 </div>
                 
-                <div class="shift-badge {% if info.jornada == 'AM' %}am{% elif info.jornada == 'PM' %}pm{% else %}descanso{% endif %}">
+                <div class="shift-badge {% if info.jornada == 'DOBLADA' %}doblada{% elif info.jornada == 'AM' %}am{% elif info.jornada == 'PM' %}pm{% else %}descanso{% endif %}">
                     {{ info.jornada }}
                 </div>
                 

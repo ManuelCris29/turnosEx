@@ -13,6 +13,29 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+_PRIORIDAD_RAZONES_CT_PERMANENTE = [
+    # Más importante primero (opción 2: una sola razón por fecha)
+    'Mantenimiento',
+    'Festivo',
+    'Temporada',
+    'Descanso Solicitante',
+    'Descanso Receptor',
+    'Fines de semana',
+]
+
+
+def _razon_principal_ct_permanente(razones: List[str]) -> str:
+    """
+    Selecciona una sola razón principal (sin duplicar fechas en UI).
+    Si no encuentra una razón conocida, retorna la primera.
+    """
+    if not razones:
+        return ''
+    for r in _PRIORIDAD_RAZONES_CT_PERMANENTE:
+        if r in razones:
+            return r
+    return razones[0]
+
 
 def calcular_fechas_aplicables_ct_permanente(
     detalle: CambioPermanenteDetalle,
@@ -222,6 +245,14 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
             if fecha_actual.weekday() < 5:  # Solo lunes-viernes
                 fechas_candidatas.add(fecha_actual)
             fecha_actual += timedelta(days=1)
+
+    # Incluir fines de semana como "excluidos" (para transparencia en vista previa / detalle),
+    # sin alterar los aplicables (CT Permanente aplica solo lunes-viernes).
+    fecha_actual = fecha_inicio
+    while fecha_actual <= fecha_fin:
+        if fecha_actual.weekday() in (5, 6):  # 5=sábado, 6=domingo
+            fechas_candidatas.add(fecha_actual)
+        fecha_actual += timedelta(days=1)
     
     # Filtrar fechas y registrar exclusiones
     fechas_aplicables = []
@@ -229,14 +260,10 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
     
     for fecha_dia in sorted(list(fechas_candidatas)):
         razones_exclusion = []
-        
-        # Verificar domingo
-        if fecha_dia.weekday() == 6:
-            razones_exclusion.append('Domingo')
-        
-        # Verificar sábado (aunque no debería llegar aquí si ya filtramos)
-        if fecha_dia.weekday() == 5:
-            razones_exclusion.append('Sábado')
+
+        # Verificar fin de semana (regla estructural de CT Permanente)
+        if fecha_dia.weekday() in (5, 6):
+            razones_exclusion.append('Fines de semana')
         
         # Verificar festivo
         if _es_festivo(fecha_dia):
@@ -260,8 +287,8 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
         
         # Si hay razones de exclusión, agregar a excluidas
         if razones_exclusion:
-            # Si hay múltiples razones, combinarlas
-            razon = ', '.join(razones_exclusion)
+            # Opción 2: una sola razón principal por fecha (sin razones compuestas)
+            razon = _razon_principal_ct_permanente(razones_exclusion)
             fechas_excluidas.append({
                 'fecha': fecha_dia,
                 'razon': razon

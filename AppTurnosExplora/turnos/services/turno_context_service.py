@@ -58,9 +58,16 @@ class TurnoContextService:
                 fecha__lte=fin_mes
             )
             .select_related('jornada', 'sala')
-            .order_by('fecha')
+            .order_by('fecha', 'jornada__nombre')
         )
-        turnos_por_fecha = {t.fecha: t for t in turnos_mes}
+        
+        # CORRECCIÓN: Agrupar turnos por fecha para manejar dobladas (AM+PM)
+        # En lugar de sobrescribir, crear listas de turnos por fecha
+        turnos_por_fecha = {}
+        for t in turnos_mes:
+            if t.fecha not in turnos_por_fecha:
+                turnos_por_fecha[t.fecha] = []
+            turnos_por_fecha[t.fecha].append(t)
         
         # Obtener asignaciones de sala activas
         asignaciones_activas = AsignarSalaExplorador.objects.filter(
@@ -101,25 +108,51 @@ class TurnoContextService:
         turnos_mes_dict = {}
         for i in range((fin_mes - inicio_mes).days + 1):
             fecha = inicio_mes + timedelta(days=i)
-            turno = turnos_por_fecha.get(fecha)
+            turnos_dia = turnos_por_fecha.get(fecha, [])
             
-            if turno:
-                # Hay turno asignado (puede ser cambio aprobado)
-                jornada_turno = turno.jornada.nombre
+            if turnos_dia:
+                # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
+                # Usar helper para detectar dobladas (AM+PM en misma fecha)
+                from turnos.services.turno_service import TurnoService
+                jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
+                
                 from core.utils.jornada_utils import JornadaUtils
                 jornada_predeterminada = JornadaUtils.calcular_jornada_dia(jornada_base, fecha)
-                es_cambio = turno.tipo_cambio is not None
-                coincide_con_predeterminada = jornada_turno == jornada_predeterminada
+                
+                # Detectar si es doblada
+                es_doblada = jornada_display == 'DOBLADA'
+                
+                # Determinar tipo de cambio (si todos los turnos tienen el mismo tipo_cambio)
+                tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
+                es_cambio = len(tipos_cambio) > 0
+                tipo_cambio_principal = tipos_cambio[0] if tipos_cambio else None
+                
+                # Determinar sala(s)
+                salas = [t.sala.nombre for t in turnos_dia if t.sala]
+                if len(set(salas)) == 1:
+                    # Todas las salas son iguales
+                    sala_display = salas[0]
+                else:
+                    # Salas diferentes (raro, pero posible)
+                    sala_display = ', '.join(set(salas))
+                
+                coincide_con_predeterminada = jornada_display == jornada_predeterminada if jornada_display else False
+                
+                # Usar el primer turno como referencia (para compatibilidad con código existente)
+                turno_principal = turnos_dia[0]
                 
                 turnos_mes_dict[fecha] = {
-                    'turno': turno,
-                    'jornada': jornada_turno,
-                    'sala': turno.sala.nombre,
+                    'turno': turno_principal,  # Primer turno (compatibilidad)
+                    'turnos': turnos_dia,  # Lista completa de turnos (nuevo)
+                    'jornada': jornada_display,  # Usar jornada_display (puede ser 'DOBLADA')
+                    'sala': sala_display,
                     'tipo': 'asignado',
                     'es_cambio': es_cambio,
+                    'tipo_cambio': tipo_cambio_principal,
+                    'es_doblada': es_doblada,  # Flag para frontend
                     'jornada_predeterminada': jornada_predeterminada,
                     'coincide_con_predeterminada': coincide_con_predeterminada,
-                    'turno_id': turno.id
+                    'turno_id': turno_principal.id
                 }
             else:
                 # No hay turno asignado, usar jornada predeterminada

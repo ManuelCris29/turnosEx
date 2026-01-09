@@ -134,16 +134,21 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 
                 if turno:
                     # Hay turno asignado (puede ser cambio aprobado)
-                    jornada_turno = turno.jornada.nombre
+                    # Usar helper para detectar dobladas (AM+PM en misma fecha)
+                    from turnos.services.turno_service import TurnoService
+                    jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
+                    
                     jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
                     es_cambio = turno.tipo_cambio is not None
-                    coincide_con_predeterminada = jornada_turno == jornada_predeterminada
+                    es_doblada = jornada_display == 'DOBLADA'
+                    coincide_con_predeterminada = jornada_display == jornada_predeterminada if jornada_display else False
                     
                     turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                        'jornada': jornada_turno,
+                        'jornada': jornada_display,  # Usar jornada_display (puede ser 'DOBLADA')
                         'sala': (turno.sala.nombre if turno.sala else 'Por asignar'),
                         'tipo': 'asignado',
                         'es_cambio': es_cambio,
+                        'es_doblada': es_doblada,  # Flag para frontend
                         'jornada_predeterminada': jornada_predeterminada,
                         'coincide_con_predeterminada': coincide_con_predeterminada,
                         'turno_id': turno.id

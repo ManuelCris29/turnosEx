@@ -337,14 +337,20 @@ function mostrarDetallesDia(fechaStr) {
     if (jornadaDiv) {
         if (info && info.jornada) {
             const jornadaLower = info.jornada.toLowerCase();
-            // Asegurar que el nombre de la clase coincida (am, pm, descanso)
+            // Asegurar que el nombre de la clase coincida (am, pm, descanso, doblada)
             let claseJornada = jornadaLower;
             if (jornadaLower === 'descanso' || jornadaLower.includes('descanso')) {
                 claseJornada = 'descanso';
+            } else if (jornadaLower === 'doblada') {
+                claseJornada = 'doblada';
             }
             
             // Construir HTML para la jornada
-            let jornadaHTML = `<span class="jornada-value ${claseJornada}">${info.jornada}</span>`;
+            let jornadaTexto = info.jornada;
+            if (info.jornada === 'DOBLADA') {
+                jornadaTexto = 'DOBLADA (AM + PM)';
+            }
+            let jornadaHTML = `<span class="jornada-value ${claseJornada}">${jornadaTexto}</span>`;
             
             // Si hay un cambio, mostrar información adicional
             if (info.es_cambio) {

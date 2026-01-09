@@ -188,7 +188,8 @@ function agruparFechasExcluidas(fechasExcluidas) {
         'Descanso Solicitante': '<i class="fas fa-user-slash text-secondary mr-1"></i>',
         'Descanso Receptor': '<i class="fas fa-user-slash text-secondary mr-1"></i>',
         'Domingo': '<i class="fas fa-calendar-day text-muted mr-1"></i>',
-        'Sábado': '<i class="fas fa-calendar-day text-muted mr-1"></i>'
+        'Sábado': '<i class="fas fa-calendar-day text-muted mr-1"></i>',
+        'Fines de semana': '<i class="fas fa-calendar-day text-muted mr-1"></i>'
     };
     
     const coloresRazon = {
@@ -198,13 +199,38 @@ function agruparFechasExcluidas(fechasExcluidas) {
         'Descanso Solicitante': 'secondary',
         'Descanso Receptor': 'secondary',
         'Domingo': 'muted',
-        'Sábado': 'muted'
+        'Sábado': 'muted',
+        'Fines de semana': 'muted'
     };
     
     Object.keys(agrupadas).forEach(razon => {
         const fechas = agrupadas[razon];
         const icono = iconosRazon[razon] || '<i class="fas fa-ban text-muted mr-1"></i>';
         const color = coloresRazon[razon] || 'muted';
+        const blockId = `excluidas_${razon.replace(/\s+/g, '_').replace(/[^\w]/g, '')}`;
+        const esFinde = razon === 'Fines de semana';
+
+        // Para "Fines de semana": mostrar resumen + botón "Ver detalle"
+        if (esFinde) {
+            html += `
+                <div class="mb-2">
+                    <strong>${icono}${razon}:</strong>
+                    <span class="badge badge-${color} ml-1">${fechas.length} día${fechas.length > 1 ? 's' : ''}</span>
+                    <div class="mt-1 ml-3">
+                        <button type="button" class="btn btn-link p-0 small" onclick="(function(){const el=document.getElementById('${blockId}'); if(!el) return; el.style.display = (el.style.display === 'none' ? 'block' : 'none');})()">
+                            Ver detalle
+                        </button>
+                        <div id="${blockId}" style="display:none;" class="mt-1">
+                            <ul class="mb-0 pl-3 small text-${color}">
+                                ${fechas.map(f => `<li>${f}</li>`).join('')}
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return;
+        }
+
         html += `
             <div class="mb-2">
                 <strong>${icono}${razon}:</strong>
@@ -368,6 +394,18 @@ function renderizarDetalleSolicitud(data) {
                             <div class="mb-3">
                                 <strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas Excluidas:</strong>
                                 <div class="mt-2" style="max-height: 300px; overflow-y: auto;">
+                                    ${datos.fechas.resumen ? `
+                                        <div class="alert alert-light py-2 mb-2 small">
+                                            <strong>Resumen del rango:</strong>
+                                            ${datos.fechas.resumen.total_dias_rango} días ·
+                                            ${datos.fechas.resumen.fines_de_semana_en_rango} fines de semana ·
+                                            ${datos.fechas.total_dias} aplicables ·
+                                            ${datos.fechas.excluidas.length} excluidas
+                                            <div class="mt-1"><small><strong>Cómo leer esto:</strong> En CT Permanente solo aplican días hábiles (lun–vie).</small></div>
+                                            <div class="mt-1"><small>Los fines de semana se cuentan aunque, por prioridad, puedan mostrarse como Festivo/Temporada/Mantenimiento/Descanso.</small></div>
+                                            ${datos.fechas.resumen.prioridad ? ('<div class="mt-1"><small><strong>Prioridad de exclusión:</strong> ' + datos.fechas.resumen.prioridad + '</small></div>') : ''}
+                                        </div>
+                                    ` : ''}
                                     ${agruparFechasExcluidas(datos.fechas.excluidas)}
                                 </div>
                             </div>

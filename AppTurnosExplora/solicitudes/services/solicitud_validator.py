@@ -8,25 +8,21 @@ class SolicitudValidator:
     """Validador centralizado para solicitudes de cambio de turno"""
 
     @staticmethod
-    def _to_date(fecha_str):
-        """DEPRECATED: Usar core.utils.date_utils.DateUtils.parse_date()"""
-        from core.utils.date_utils import DateUtils
-        return DateUtils.parse_date(fecha_str)
-
-    @staticmethod
     def validar_empleado_activo(empleado: Empleado):
         if not empleado or not getattr(empleado, 'activo', False):
             raise ValidationError('El empleado no está activo')
-
+    
     @staticmethod
     def validar_no_mismo_empleado(solicitante: Empleado, receptor: Empleado):
         if solicitante.id == receptor.id:
             raise ValidationError('No puedes solicitar cambio contigo mismo')
-
+    
     @staticmethod
     def validar_jornada_en_fecha(empleado: Empleado, fecha):
         # Importar aquí para evitar circular import
-        fecha_str = SolicitudValidator._to_date(fecha).strftime('%Y-%m-%d')
+        from core.utils.date_utils import DateUtils
+        fecha_obj = DateUtils.parse_date(fecha)
+        fecha_str = fecha_obj.strftime('%Y-%m-%d')
         from turnos.services.jornada_service import JornadaService
         jornada = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha_str)
         if not jornada:
@@ -716,41 +712,337 @@ class SolicitudValidator:
     @staticmethod
     def validar_no_doblada_activa(empleado: Empleado, fecha):
         """
-        Validar que el empleado no tenga una doblada activa (aprobada) para la fecha especificada.
+        Validar que el empleado no tenga una doblada activa (AM + PM) para la fecha especificada.
         
-        Si un explorador tiene doblada aprobada para una fecha, no puede realizar cambios de turno
-        con otros exploradores para esa misma fecha.
+        Si un explorador tiene doblada para una fecha (ya sea como solicitante o receptor),
+        no puede realizar cambios de turno adicionales para esa misma fecha.
+        
+        Esta validación busca directamente en turnos_turno para detectar si el empleado
+        tiene AM + PM en la fecha, sin importar cómo llegó a tener esa doblada.
         
         Args:
             empleado: Empleado a validar
             fecha: Fecha a validar (puede ser string o date)
             
         Raises:
-            ValidationError: Si el empleado tiene una doblada aprobada para esa fecha
+            ValidationError: Si el empleado tiene una doblada (AM + PM) para esa fecha
         """
         from datetime import datetime
-        from solicitudes.models import SolicitudCambio
+        from turnos.models import Turno
         
         # Convertir fecha a date si es string
         if isinstance(fecha, str):
-            fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
         elif hasattr(fecha, 'strftime'):
-            fecha = fecha
+            fecha_obj = fecha
         else:
             # Si no se puede convertir, no validar (evitar errores)
             return
         
-        # Buscar solicitudes de doblada aprobadas para este empleado y fecha
-        doblada_activa = SolicitudCambio.objects.filter(
-            explorador_solicitante=empleado,
-            tipo_cambio__nombre='DOBLADA',
-            fecha_cambio_turno=fecha,
-            estado='aprobada'
+        # CORRECCIÓN: Buscar directamente en turnos_turno si tiene AM + PM (doblada real)
+        # Esto detecta dobladas sin importar si el empleado fue solicitante o receptor
+        turnos = Turno.objects.filter(
+            explorador=empleado,
+            fecha=fecha_obj
+        ).select_related('jornada')
+        
+        jornadas = [t.jornada.nombre.upper() for t in turnos]
+        
+        # Si tiene AM + PM, es una doblada
+        if 'AM' in jornadas and 'PM' in jornadas:
+            raise ValidationError(
+                f'No se puede realizar cambio de turno. El explorador ya tiene una doblada (AM + PM) '
+                f'para el {fecha_obj.strftime("%d/%m/%Y")}. No puede agregar más cambios a esta fecha.'
+            )
+    
+    # ===== VALIDACIONES ESPECÍFICAS PARA DOBLADA =====
+    
+    @staticmethod
+    def validar_acuerdo_previo_obligatorio(fecha_cesion, fecha_pago, fecha_creacion_solicitud=None):
+        """
+        Validar que existe un acuerdo previo obligatorio para la doblada.
+        
+        Reglas:
+        - fecha_pago es obligatoria
+        - fecha_pago debe ser posterior a la fecha de creación de la solicitud
+        - fecha_pago puede ser ANTES de fecha_cesion (el receptor puede pagar antes)
+        
+        Args:
+            fecha_cesion: Fecha en que se cede la jornada
+            fecha_pago: Fecha acordada para pagar
+            fecha_creacion_solicitud: Fecha de creación de la solicitud (opcional, si no se proporciona usa hoy)
+        
+        Raises:
+            ValidationError: Si no se cumple el acuerdo previo
+        """
+        from datetime import date
+        from core.utils.date_utils import DateUtils
+        
+        if not fecha_pago:
+            raise ValidationError('La fecha de pago es obligatoria. No existen dobladas abiertas.')
+        
+        fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+        
+        # Si no se proporciona fecha_creacion_solicitud, usar hoy
+        if fecha_creacion_solicitud:
+            fecha_creacion_obj = DateUtils.parse_date(fecha_creacion_solicitud)
+        else:
+            fecha_creacion_obj = date.today()
+        
+        # Validar que fecha_pago sea posterior a fecha_creacion_solicitud
+        if fecha_pago_obj <= fecha_creacion_obj:
+            raise ValidationError(
+                f'La fecha de pago ({fecha_pago_obj.strftime("%d/%m/%Y")}) debe ser posterior a la fecha de creación de la solicitud ({fecha_creacion_obj.strftime("%d/%m/%Y")})'
+            )
+    
+    @staticmethod
+    def validar_jornadas_contrarias_doblada(solicitante: Empleado, receptor: Empleado, fecha, jornada_cedida=None):
+        """
+        Validar que las jornadas sean contrarias para una doblada.
+        
+        Reglas:
+        - Si solicitante tiene AM → receptor debe tener PM
+        - Si solicitante tiene PM → receptor debe tener AM
+        - Si solicitante está en doblada → puede solicitar a AM o PM según jornada_cedida
+        
+        Args:
+            solicitante: Explorador que solicita la doblada
+            receptor: Explorador que cubrirá la doblada
+            fecha: Fecha de la doblada
+            jornada_cedida: 'AM' o 'PM' (opcional, si solicitante está en doblada)
+        
+        Raises:
+            ValidationError: Si las jornadas no son contrarias
+        """
+        from core.utils.date_utils import DateUtils
+        from turnos.services.jornada_service import JornadaService
+        from turnos.models import Turno
+        
+        fecha_obj = DateUtils.parse_date(fecha)
+        fecha_str = fecha_obj.strftime('%Y-%m-%d')
+        
+        # Obtener jornada del solicitante
+        jornada_solicitante = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha_str)
+        
+        # Si solicitante está en doblada, usar jornada_cedida
+        if jornada_cedida:
+            # Verificar si realmente está en doblada (tiene AM y PM)
+            turnos_solicitante = Turno.objects.filter(
+                explorador=solicitante,
+                fecha=fecha_obj
+            ).select_related('jornada')
+            
+            jornadas_solicitante = [t.jornada.nombre.upper() for t in turnos_solicitante]
+            tiene_doblada = 'AM' in jornadas_solicitante and 'PM' in jornadas_solicitante
+            
+            if tiene_doblada:
+                jornada_a_ceder = jornada_cedida.upper()
+            else:
+                # No está en doblada, usar jornada predeterminada
+                if not jornada_solicitante:
+                    raise ValidationError('El solicitante no tiene jornada asignada para esa fecha')
+                jornada_a_ceder = jornada_solicitante.nombre.upper()
+        else:
+            # No hay jornada_cedida, usar jornada predeterminada
+            if not jornada_solicitante:
+                raise ValidationError('El solicitante no tiene jornada asignada para esa fecha')
+            jornada_a_ceder = jornada_solicitante.nombre.upper()
+        
+        # Obtener jornada del receptor
+        jornada_receptor = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_str)
+        if not jornada_receptor:
+            raise ValidationError('El receptor no tiene jornada asignada para esa fecha')
+        
+        jornada_receptor_nombre = jornada_receptor.nombre.upper()
+        
+        # Validar que sean contrarias
+        if jornada_a_ceder == 'AM' and jornada_receptor_nombre != 'PM':
+            raise ValidationError(
+                f'Para ceder jornada AM, el receptor debe tener jornada PM. El receptor tiene {jornada_receptor_nombre}'
+            )
+        elif jornada_a_ceder == 'PM' and jornada_receptor_nombre != 'AM':
+            raise ValidationError(
+                f'Para ceder jornada PM, el receptor debe tener jornada AM. El receptor tiene {jornada_receptor_nombre}'
+            )
+    
+    @staticmethod
+    def validar_no_triple_turno(receptor: Empleado, fecha):
+        """
+        Validar que el receptor no tenga doblada activa (evitar triple turno).
+        
+        Args:
+            receptor: Explorador receptor
+            fecha: Fecha a validar
+        
+        Raises:
+            ValidationError: Si el receptor ya tiene doblada activa
+        """
+        SolicitudValidator.validar_no_doblada_activa(receptor, fecha)
+    
+    @staticmethod
+    def validar_dias_especiales_doblada(fecha):
+        """
+        Validar que la fecha no sea domingo, festivo o día de mantenimiento.
+        
+        Reglas CRÍTICAS:
+        - ❌ NO se puede hacer doblada en domingos
+        - ❌ NO se puede hacer doblada en días festivos
+        - ❌ NO se puede hacer doblada en días de mantenimiento
+        - ✅ Solo se permiten días hábiles (lunes a sábado, excluyendo festivos y mantenimiento)
+        
+        Args:
+            fecha: Fecha a validar
+        
+        Raises:
+            ValidationError: Si la fecha es domingo, festivo o mantenimiento
+        """
+        from core.utils.date_utils import DateUtils
+        from turnos.models import DiaEspecial
+        
+        fecha_obj = DateUtils.parse_date(fecha)
+        
+        # Validar que NO sea domingo
+        if fecha_obj.weekday() == 6:  # Domingo
+            raise ValidationError('No se puede realizar doblada en domingos')
+        
+        # Validar que NO sea día festivo
+        dia_especial = DiaEspecial.objects.filter(
+            fecha=fecha_obj,
+            tipo='Festivo',
+            activo=True
         ).exists()
         
-        if doblada_activa:
-            raise ValidationError(
-                f'No se puede realizar cambio de turno. El explorador tiene una doblada aprobada para el {fecha.strftime("%d/%m/%Y")}'
-            )
+        if dia_especial:
+            raise ValidationError('No se puede realizar doblada en días festivos')
+        
+        # Validar que NO sea día de mantenimiento
+        dia_mantenimiento = DiaEspecial.objects.filter(
+            fecha=fecha_obj,
+            tipo='Mantenimiento',
+            activo=True
+        ).exists()
+        
+        if dia_mantenimiento:
+            raise ValidationError('No se puede realizar doblada en días de mantenimiento')
+    
+    @staticmethod
+    def validar_coincidencia_jornadas_pago(deudor: Empleado, acreedor: Empleado, fecha_pago):
+        """
+        Validar caso crítico: coincidencia de jornadas al pagar deuda.
+        
+        Si deudor y acreedor tienen la misma jornada en fecha de pago (ya sea de turno asignado
+        o jornada predeterminada), no se puede pagar trabajando dos veces la misma jornada.
+        
+        La validación considera:
+        1. Primero: Turnos asignados en tabla turnos_turno para esa fecha
+        2. Si no hay turno: Jornada predeterminada de AsignarJornadaExplorador
+        
+        Args:
+            deudor: Explorador deudor
+            acreedor: Explorador acreedor
+            fecha_pago: Fecha de pago
+        
+        Returns:
+            dict con:
+                - coinciden: bool
+                - jornada_comun: str ('AM' o 'PM') si coinciden
+                - requiere_cambio_turno: bool
+        """
+        import logging
+        from core.utils.date_utils import DateUtils
+        from turnos.services.jornada_service import JornadaService
+        from turnos.models import Turno
+        
+        logger = logging.getLogger(__name__)
+        
+        fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+        fecha_pago_str = fecha_pago_obj.strftime('%Y-%m-%d')
+        
+        # Obtener todos los turnos del deudor en fecha de pago para detectar dobladas
+        turnos_deudor = Turno.objects.filter(explorador=deudor, fecha=fecha_pago_obj).select_related('jornada')
+        turnos_acreedor = Turno.objects.filter(explorador=acreedor, fecha=fecha_pago_obj).select_related('jornada')
+        
+        # Verificar si el deudor tiene doblada (AM y PM en la misma fecha)
+        jornadas_deudor = [t.jornada.nombre.upper() for t in turnos_deudor]
+        tiene_doblada_deudor = 'AM' in jornadas_deudor and 'PM' in jornadas_deudor
+        
+        # Si el deudor tiene doblada, puede pagar cualquier deuda (tiene ambas jornadas)
+        if tiene_doblada_deudor:
+            logger.info("Validación coincidencia jornadas pago - Deudor tiene doblada", extra={
+                'deudor_id': deudor.id,
+                'deudor_nombre': f"{deudor.nombre} {deudor.apellido}",
+                'fecha_pago': fecha_pago_str,
+                'jornadas_deudor': jornadas_deudor
+            })
+            return {
+                'coinciden': False,
+                'jornada_comun': None,
+                'requiere_cambio_turno': False
+            }
+        
+        # Obtener jornadas (ya considera turnos primero, luego predeterminada)
+        jornada_deudor = JornadaService.get_jornada_explorador_fecha(deudor.id, fecha_pago_str)
+        jornada_acreedor = JornadaService.get_jornada_explorador_fecha(acreedor.id, fecha_pago_str)
+        
+        # Verificar si hay turnos asignados para diagnosticar la fuente
+        turno_deudor = turnos_deudor.first()
+        turno_acreedor = turnos_acreedor.first()
+        
+        fuente_deudor = 'Turno asignado' if turno_deudor else 'Jornada predeterminada'
+        fuente_acreedor = 'Turno asignado' if turno_acreedor else 'Jornada predeterminada'
+        
+        # Logging detallado para diagnóstico
+        logger.info("Validación coincidencia jornadas pago - Inicio", extra={
+            'deudor_id': deudor.id,
+            'deudor_nombre': f"{deudor.nombre} {deudor.apellido}",
+            'acreedor_id': acreedor.id,
+            'acreedor_nombre': f"{acreedor.nombre} {acreedor.apellido}",
+            'fecha_pago': fecha_pago_str,
+            'jornada_deudor': jornada_deudor.nombre if jornada_deudor else None,
+            'jornada_acreedor': jornada_acreedor.nombre if jornada_acreedor else None,
+            'fuente_deudor': fuente_deudor,
+            'fuente_acreedor': fuente_acreedor,
+            'turno_deudor_id': turno_deudor.id if turno_deudor else None,
+            'turno_acreedor_id': turno_acreedor.id if turno_acreedor else None,
+            'tiene_doblada_deudor': tiene_doblada_deudor,
+            'jornadas_deudor': jornadas_deudor
+        })
+        
+        if not jornada_deudor or not jornada_acreedor:
+            logger.warning("Validación coincidencia jornadas pago - Sin jornada", extra={
+                'deudor_tiene_jornada': jornada_deudor is not None,
+                'acreedor_tiene_jornada': jornada_acreedor is not None
+            })
+            return {
+                'coinciden': False,
+                'jornada_comun': None,
+                'requiere_cambio_turno': False
+            }
+        
+        coinciden = jornada_deudor.nombre.upper() == jornada_acreedor.nombre.upper()
+        
+        resultado = {
+            'coinciden': coinciden,
+            'jornada_comun': jornada_deudor.nombre.upper() if coinciden else None,
+            'requiere_cambio_turno': coinciden
+        }
+        
+        # Logging del resultado
+        if coinciden:
+            logger.warning("Validación coincidencia jornadas pago - COINCIDENCIA DETECTADA", extra={
+                'jornada_comun': resultado['jornada_comun'],
+                'deudor': f"{deudor.nombre} {deudor.apellido}",
+                'acreedor': f"{acreedor.nombre} {acreedor.apellido}",
+                'fecha_pago': fecha_pago_str,
+                'fuente_deudor': fuente_deudor,
+                'fuente_acreedor': fuente_acreedor
+            })
+        else:
+            logger.info("Validación coincidencia jornadas pago - Jornadas contrarias (OK)", extra={
+                'jornada_deudor': jornada_deudor.nombre,
+                'jornada_acreedor': jornada_acreedor.nombre
+            })
+        
+        return resultado
 
 

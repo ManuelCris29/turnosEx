@@ -101,29 +101,6 @@ class JornadaService:
             return None
     
     @staticmethod
-    def calcular_jornada_dia(j_base, fecha):
-        """
-        Calcula la jornada para un día específico basado en la jornada base.
-        
-        DEPRECATED: Usar core.utils.jornada_utils.JornadaUtils.calcular_jornada_dia()
-        
-        IMPORTANTE: j_base siempre debe ser 'AM' o 'PM', nunca None.
-        Todos los exploradores deben tener una jornada asignada.
-        
-        Args:
-            j_base: Nombre de la jornada base ('AM' o 'PM')
-            fecha: Objeto date
-        
-        Returns:
-            String con el nombre de la jornada ('AM', 'PM', 'Descanso')
-            
-        Raises:
-            ValueError: Si j_base no es 'AM' o 'PM'
-        """
-        from core.utils.jornada_utils import JornadaUtils
-        return JornadaUtils.calcular_jornada_dia(j_base, fecha)
-    
-    @staticmethod
     def get_jornada_predeterminada(explorador):
         """
         Obtiene la jornada predeterminada más reciente de un explorador.

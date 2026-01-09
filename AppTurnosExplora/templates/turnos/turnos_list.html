@@ -34,7 +34,13 @@
                                     <td>{{ turno.id }}</td>
                                     <td>{{ turno.explorador.nombre }} {{ turno.explorador.apellido }}</td>
                                     <td>{{ turno.fecha }}</td>
-                                    <td>{{ turno.jornada.nombre }}</td>
+                                    <td>
+                                        {% if turno.jornada_display == 'DOBLADA' %}
+                                            <span class="badge badge-warning" style="background-color: #f59e0b; color: white; font-weight: 700;">DOBLADA</span>
+                                        {% else %}
+                                            {{ turno.jornada.nombre }}
+                                        {% endif %}
+                                    </td>
                                     <td>{{ turno.sala.nombre }}</td>
                                     <td>{{ turno.tipo_cambio }}</td>
                                     <td>

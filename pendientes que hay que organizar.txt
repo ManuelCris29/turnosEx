@@ -1,0 +1,4 @@
+- cuando se pasa del mes también se esta  enviando el formulario
+- sábado con un dia de semana.(esto es doblada permanente)
+- si hay una cuenta ya creada y voy a crear una repetida. Que no aparezca un error, sino un error controlado. no mostrando código 
+- quiero que exista esta opcion. QUe el usuario tenga un tiemo de 30 minutos para que una vez aprovada la doblada, exista la opcion de que el la quiere cancelar y sea cancelada 

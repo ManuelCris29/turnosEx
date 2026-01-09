@@ -219,13 +219,197 @@ class CambioPermanenteDia(models.Model):
         return f"Día de cambio permanente (ID: {self.id})"
 
 class DobladaDetalle(models.Model):
+    TIPO_CESION_CHOICES = [
+        ('cesion_completa', 'Cesión Completa'),
+        ('cesion_parcial_am', 'Cesión Parcial AM'),
+        ('cesion_parcial_pm', 'Cesión Parcial PM'),
+    ]
+    
+    JORNADA_CHOICES = [
+        ('AM', 'AM'),
+        ('PM', 'PM'),
+    ]
+    
     solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='doblada')
     minutos_deuda = models.IntegerField(default=30)
-    fecha_pago = models.DateField(null=True, blank=True)  # <-- NUEVO
+    fecha_pago = models.DateField(
+        help_text='Fecha en que el solicitante devolverá la doblada. Obligatorio: No existen dobladas abiertas.'
+    )
+    tipo_cesion = models.CharField(
+        max_length=50,
+        choices=TIPO_CESION_CHOICES,
+        default='cesion_completa',
+        help_text='Tipo de cesión: completa o parcial (AM/PM)'
+    )
+    jornada_cedida = models.CharField(
+        max_length=2,
+        choices=JORNADA_CHOICES,
+        null=True,
+        blank=True,
+        help_text='Jornada específica que se cede (si es cesión parcial)'
+    )
+    empleado_receptor = models.ForeignKey(
+        Empleado,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='dobladas_recibidas',
+        help_text='Explorador que cubre la doblada (redundante con SolicitudCambio.explorador_receptor, pero útil para consultas directas)'
+    )
     historial = HistoricalRecords()
     
     def __str__(self):
         return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud}" #type:ignore
+
+
+class DeudaExplorador(models.Model):
+    """
+    Modelo para registrar deudas entre exploradores.
+    Se genera cuando un explorador cede su jornada a otro (doblada).
+    """
+    ESTADO_CHOICES = [
+        ('pendiente', 'Pendiente'),
+        ('pagada', 'Pagada'),
+        ('cancelada', 'Cancelada'),
+    ]
+    
+    JORNADA_CHOICES = [
+        ('AM', 'AM'),
+        ('PM', 'PM'),
+    ]
+    
+    deudor = models.ForeignKey(
+        Empleado,
+        on_delete=models.CASCADE,
+        related_name='deudas_como_deudor',
+        help_text='Explorador que debe la jornada'
+    )
+    acreedor = models.ForeignKey(
+        Empleado,
+        on_delete=models.CASCADE,
+        related_name='deudas_como_acreedor',
+        help_text='Explorador al que se le debe la jornada'
+    )
+    solicitud_origen = models.ForeignKey(
+        SolicitudCambio,
+        on_delete=models.CASCADE,
+        related_name='deuda_generada',
+        help_text='Solicitud de doblada que generó esta deuda'
+    )
+    fecha_generacion = models.DateField(
+        auto_now_add=True,
+        help_text='Fecha en que se generó la deuda'
+    )
+    fecha_pago_pactada = models.DateField(help_text='Fecha acordada para pagar la deuda')
+    fecha_pago_real = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Fecha en que se pagó realmente la deuda'
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default='pendiente',
+        help_text='Estado de la deuda'
+    )
+    media_jornada = models.BooleanField(
+        default=True,
+        help_text='True si es media jornada, False si es completa'
+    )
+    jornada_cedida = models.CharField(
+        max_length=2,
+        choices=JORNADA_CHOICES,
+        help_text='Jornada que se cedió (AM o PM)'
+    )
+    historial = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = 'Deuda entre Exploradores'
+        verbose_name_plural = 'Deudas entre Exploradores'
+        indexes = [
+            models.Index(fields=['deudor', 'estado'], name='deuda_deudor_estado_idx'),
+            models.Index(fields=['acreedor', 'estado'], name='deuda_acreedor_estado_idx'),
+            models.Index(fields=['fecha_pago_pactada', 'estado'], name='deuda_fecha_pago_estado_idx'),
+        ]
+        ordering = ['-fecha_generacion']
+    
+    def __str__(self):
+        return f"{self.deudor.nombre} debe a {self.acreedor.nombre} - {self.jornada_cedida} ({self.estado})"
+
+
+class DeudaCorporativa(models.Model):
+    """
+    Modelo para registrar deudas corporativas acumuladas.
+    Cada doblada genera +30 minutos de deuda corporativa que se acumula permanentemente.
+    """
+    ESTADO_CHOICES = [
+        ('activa', 'Activa'),
+        ('cancelada', 'Cancelada'),
+    ]
+    
+    explorador = models.ForeignKey(
+        Empleado,
+        on_delete=models.CASCADE,
+        related_name='deudas_corporativas',
+        help_text='Explorador que acumula la deuda corporativa'
+    )
+    solicitud_origen = models.ForeignKey(
+        SolicitudCambio,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='deudas_corporativas_generadas',
+        help_text='Solicitud que generó esta deuda (opcional)'
+    )
+    minutos = models.IntegerField(
+        default=30,
+        help_text='Minutos de deuda corporativa (típicamente 30 por doblada)'
+    )
+    fecha_generacion = models.DateField(
+        auto_now_add=True,
+        help_text='Fecha en que se generó la deuda'
+    )
+    fecha_doblada = models.DateField(
+        help_text='Fecha en que se realizó la doblada que generó esta deuda'
+    )
+    estado = models.CharField(
+        max_length=20,
+        choices=ESTADO_CHOICES,
+        default='activa',
+        help_text='Estado de la deuda: activa o cancelada'
+    )
+    comentario = models.TextField(
+        null=True,
+        blank=True,
+        help_text='Comentario opcional sobre la deuda'
+    )
+    historial = HistoricalRecords()
+    
+    class Meta:
+        verbose_name = 'Deuda Corporativa'
+        verbose_name_plural = 'Deudas Corporativas'
+        indexes = [
+            models.Index(fields=['explorador', 'estado'], name='deuda_corp_exp_estado_idx'),
+            models.Index(fields=['fecha_generacion', 'estado'], name='deuda_corp_fecha_estado_idx'),
+            models.Index(fields=['fecha_doblada'], name='deuda_corp_fecha_dob_idx'),
+        ]
+        ordering = ['-fecha_generacion']
+    
+    def __str__(self):
+        return f"{self.explorador.nombre} - {self.minutos} min ({self.estado}) - {self.fecha_doblada}"
+    
+    @staticmethod
+    def obtener_deuda_total(explorador):
+        """
+        Calcula la deuda corporativa total acumulada de un explorador.
+        Suma todas las deudas con estado 'activa'.
+        """
+        from django.db.models import Sum
+        total = DeudaCorporativa.objects.filter(
+            explorador=explorador,
+            estado='activa'
+        ).aggregate(total=Sum('minutos'))['total']
+        return total or 0
 
 
 # Create your models here.

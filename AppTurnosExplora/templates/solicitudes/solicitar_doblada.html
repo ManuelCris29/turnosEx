@@ -1,0 +1,617 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Solicitar Doblada{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
+<!-- Flatpickr CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<style>
+    /* Estilos personalizados para días festivos en Flatpickr */
+    .flatpickr-day.festivo {
+        background-color: #ff6b6b !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #ff5252 !important;
+    }
+    .flatpickr-day.festivo:hover {
+        background-color: #ff5252 !important;
+    }
+    .flatpickr-day.festivo.selected {
+        background-color: #e53935 !important;
+        border-color: #e53935 !important;
+    }
+    /* Tooltip para festivos */
+    .flatpickr-day.festivo::after {
+        content: '🎉';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+    /* Estilos para domingos (bloqueados) */
+    .flatpickr-day.flatpickr-disabled {
+        background-color: #f5f5f5 !important;
+        color: #ccc !important;
+        cursor: not-allowed !important;
+    }
+    /* Estilos personalizados para días de mantenimiento en Flatpickr */
+    .flatpickr-day.mantenimiento {
+        background-color: #ff9800 !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #f57c00 !important;
+    }
+    .flatpickr-day.mantenimiento:hover {
+        background-color: #f57c00 !important;
+    }
+    .flatpickr-day.mantenimiento.selected {
+        background-color: #e65100 !important;
+        border-color: #e65100 !important;
+    }
+    /* Si un día es tanto festivo como mantenimiento, priorizar mantenimiento */
+    .flatpickr-day.festivo.mantenimiento {
+        background-color: #ff9800 !important;
+        border-color: #f57c00 !important;
+    }
+    /* Tooltip para mantenimiento */
+    .flatpickr-day.mantenimiento::after {
+        content: '🔧';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+    
+    /* Estilos personalizados para días de temporada en Flatpickr */
+    .flatpickr-day.temporada {
+        background-color: #2196f3 !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #1976d2 !important;
+    }
+    .flatpickr-day.temporada:hover {
+        background-color: #1976d2 !important;
+    }
+    .flatpickr-day.temporada.selected {
+        background-color: #1565c0 !important;
+        border-color: #1565c0 !important;
+    }
+    /* Si un día es tanto festivo como temporada, priorizar festivo */
+    .flatpickr-day.festivo.temporada {
+        background-color: #ff6b6b !important;
+        border-color: #ff5252 !important;
+    }
+    /* Si un día es tanto mantenimiento como temporada, priorizar mantenimiento */
+    .flatpickr-day.mantenimiento.temporada {
+        background-color: #ff9800 !important;
+        border-color: #f57c00 !important;
+    }
+    /* Tooltip para temporada */
+    .flatpickr-day.temporada::after {
+        content: '📅';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+    
+    /* Estilos para días de descanso (usuario cedió su jornada) */
+    .flatpickr-day.descanso {
+        background-color: #ffeb3b !important;
+        color: #000 !important;
+        font-weight: bold;
+        border-color: #fdd835 !important;
+        cursor: not-allowed !important;
+    }
+    .flatpickr-day.descanso:hover {
+        background-color: #fdd835 !important;
+    }
+    .flatpickr-day.descanso::after {
+        content: '😴';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+    .flatpickr-day.flatpickr-disabled.descanso {
+        background-color: #ffeb3b !important;
+        color: #000 !important;
+        font-weight: bold;
+        border-color: #fdd835 !important;
+    }
+    
+    /* Estilos para el estado de descanso en el formulario */
+    .estado-descanso {
+        background-color: #e3f2fd;
+        border-left: 4px solid #2196f3;
+        padding: 15px;
+        margin-bottom: 15px;
+    }
+    
+    /* Asegurar que estilos de días especiales se apliquen incluso cuando están deshabilitados */
+    .flatpickr-day.flatpickr-disabled.festivo {
+        background-color: #ff6b6b !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #ff5252 !important;
+    }
+    .flatpickr-day.flatpickr-disabled.mantenimiento {
+        background-color: #ff9800 !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #f57c00 !important;
+    }
+    .flatpickr-day.flatpickr-disabled.temporada {
+        background-color: #2196f3 !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #1976d2 !important;
+    }
+    /* Si un día deshabilitado es festivo y mantenimiento, priorizar mantenimiento */
+    .flatpickr-day.flatpickr-disabled.festivo.mantenimiento {
+        background-color: #ff9800 !important;
+        border-color: #f57c00 !important;
+    }
+    /* Si un día deshabilitado es festivo y temporada, priorizar festivo */
+    .flatpickr-day.flatpickr-disabled.festivo.temporada {
+        background-color: #ff6b6b !important;
+        border-color: #ff5252 !important;
+    }
+    /* Si un día deshabilitado es mantenimiento y temporada, priorizar mantenimiento */
+    .flatpickr-day.flatpickr-disabled.mantenimiento.temporada {
+        background-color: #ff9800 !important;
+        border-color: #f57c00 !important;
+    }
+    
+    /* Vista previa del acuerdo */
+    #vista_previa_acuerdo {
+        background-color: #f8f9fa;
+        border-left: 4px solid #007bff;
+        padding: 15px;
+        margin-top: 15px;
+        border-radius: 4px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-content">
+        <div class="solicitud-card">
+        <div class="solicitud-header">
+            <h2 class="mb-1">Solicitud de Doblada</h2>
+            <div class="text-light">Tipo: {{ tipo_solicitud.nombre }}</div>
+        </div>
+        <div class="p-4">
+            {% if error_message %}
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    {{ error_message }}
+                </div>
+            {% endif %}
+
+            <form method="post" id="dobladaForm" class="solicitud-form">
+                {% csrf_token %}
+                <!-- Elemento oculto con el ID del tipo de solicitud -->
+                <input type="hidden" id="tipo_solicitud_id" name="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
+                <input type="hidden" data-tipo-nombre="{{ tipo_solicitud.nombre }}" id="tipo_solicitud_nombre">
+                
+                <!-- Fecha de Cesión -->
+                <div class="form-group">
+                    <label for="fecha_cesion">
+                        <i class="fas fa-calendar mr-1"></i>Fecha de Cesión <span class="text-danger">*</span>
+                    </label>
+                    <input type="text" class="form-control" id="fecha_cesion" name="fecha_solicitud" required 
+                           placeholder="Selecciona la fecha en que cederás tu jornada" readonly
+                           data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
+                    <small class="form-text text-muted">
+                        Selecciona la fecha en que quieres que te cubran. <strong>No se permiten domingos, festivos ni días de mantenimiento.</strong>
+                    </small>
+                    <!-- Indicador de día festivo -->
+                    <div id="indicador_festivo_cesion" class="mt-2" style="display: none;">
+                        <div class="alert alert-danger mb-0 py-2">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            <strong>Día Festivo:</strong> <span id="descripcion_festivo_cesion"></span>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <strong>No se pueden realizar dobladas en días festivos.</strong>
+                            </small>
+                        </div>
+                    </div>
+                    <!-- Indicador de día de mantenimiento -->
+                    <div id="indicador_mantenimiento_cesion" class="mt-2" style="display: none;">
+                        <div class="alert alert-danger mb-0 py-2">
+                            <i class="fas fa-tools mr-2"></i>
+                            <strong>Día de Mantenimiento:</strong> <span id="descripcion_mantenimiento_cesion"></span>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <strong>No se pueden realizar dobladas en días de mantenimiento.</strong>
+                            </small>
+                        </div>
+                    </div>
+                    <!-- Indicador de domingo -->
+                    <div id="indicador_domingo_cesion" class="mt-2" style="display: none;">
+                        <div class="alert alert-danger mb-0 py-2">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            <strong>Domingo:</strong>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <strong>No se pueden realizar dobladas en domingos.</strong>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Información del turno del solicitante (usuario logueado) -->
+                <div id="turno_solicitante_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-check mr-1"></i>Tu Jornada para la Fecha de Cesión
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_solicitante_detalles">
+                                <!-- Aquí se cargará la información del turno del solicitante -->
+                            </div>
+                            <div id="salas_solicitante_detalles" class="mt-2">
+                                <!-- Aquí se cargará la información de las salas del solicitante -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Verificación de doblada existente -->
+                <div id="doblada_existente_info" class="form-group" style="display: none;">
+                    <div class="alert alert-info">
+                        <h6 class="alert-heading">
+                            <i class="fas fa-info-circle mr-2"></i>Doblada Existente Detectada
+                        </h6>
+                        <p class="mb-2">Ya tienes una doblada aprobada para esta fecha. Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).</p>
+                        <div class="form-group">
+                            <label for="tipo_cesion_opcion">
+                                <i class="fas fa-clock mr-1"></i>Tipo de Cesión <span class="text-danger">*</span>
+                            </label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="tipo_cesion_opcion" id="cesion_parcial" value="parcial" checked>
+                                <label class="form-check-label" for="cesion_parcial">
+                                    Cesión Parcial (solo una jornada)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="tipo_cesion_opcion" id="cesion_total" value="total">
+                                <label class="form-check-label" for="cesion_total">
+                                    Cesión Total (ambas jornadas - AM y PM)
+                                </label>
+                            </div>
+                            <input type="hidden" id="tipo_cesion" name="tipo_cesion" value="cesion_parcial_am">
+                        </div>
+                        
+                        <!-- Opciones para Cesión Parcial -->
+                        <div id="opciones_cesion_parcial" class="form-group">
+                            <label for="jornada_cedida">
+                                <i class="fas fa-clock mr-1"></i>Jornada a Ceder <span class="text-danger">*</span>
+                            </label>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="jornada_cedida" id="jornada_am" value="AM">
+                                <label class="form-check-label" for="jornada_am">
+                                    AM (Mañana)
+                                </label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" name="jornada_cedida" id="jornada_pm" value="PM">
+                                <label class="form-check-label" for="jornada_pm">
+                                    PM (Tarde)
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <!-- Opciones para Cesión Total -->
+                        <div id="opciones_cesion_total" class="form-group" style="display: none;">
+                            <div class="alert alert-warning">
+                                <strong>Cesión Total:</strong> Cederás ambas jornadas (AM y PM) a dos compañeros diferentes. Se crearán 2 solicitudes independientes.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compañero Receptor (Cesión Parcial) -->
+                <div id="receptor_parcial" class="form-group">
+                    <label for="empleado_receptor">
+                        <i class="fas fa-user mr-1"></i>Compañero que te Cubrirá <span class="text-danger">*</span>
+                    </label>
+                    <select class="form-control" id="empleado_receptor" name="empleado_receptor">
+                        <option value="">Selecciona un compañero...</option>
+                    </select>
+                    <small class="form-text text-muted">
+                        Solo se muestran compañeros con jornada contraria disponibles para la fecha seleccionada
+                    </small>
+                </div>
+                
+                <!-- Receptores para Cesión Total -->
+                <div id="receptores_total" class="form-group" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="empleado_receptor_am">
+                                <i class="fas fa-user mr-1"></i>Compañero para AM (Mañana) <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-control" id="empleado_receptor_am" name="empleado_receptor_am">
+                                <option value="">Selecciona un compañero PM...</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Debe tener jornada PM disponible
+                            </small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="empleado_receptor_pm">
+                                <i class="fas fa-user mr-1"></i>Compañero para PM (Tarde) <span class="text-danger">*</span>
+                            </label>
+                            <select class="form-control" id="empleado_receptor_pm" name="empleado_receptor_pm">
+                                <option value="">Selecciona un compañero AM...</option>
+                            </select>
+                            <small class="form-text text-muted">
+                                Debe tener jornada AM disponible
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Información del turno del explorador receptor seleccionado -->
+                <div id="turno_receptor_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-friends mr-1"></i>Jornada del Explorador que te Cubrirá
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_receptor_detalles">
+                                <!-- Aquí se cargará la información del turno del receptor -->
+                            </div>
+                            <div id="salas_receptor_detalles" class="mt-2">
+                                <!-- Aquí se cargará la información de las salas del receptor -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fecha de Pago (Cesión Parcial) -->
+                <div id="fecha_pago_parcial" class="form-group">
+                    <label for="fecha_pago">
+                        <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago <span class="text-danger">*</span>
+                    </label>
+                    <input type="text" class="form-control" id="fecha_pago" name="fecha_pago" 
+                           placeholder="Selecciona la fecha en que devolverás la doblada" readonly
+                           data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
+                    <small class="form-text text-muted">
+                        <strong>Obligatorio:</strong> Fecha en que devolverás la doblada. Debe ser posterior a la fecha de creación de la solicitud. <strong>No se permiten domingos, festivos ni días de mantenimiento.</strong>
+                    </small>
+                    <!-- Indicador de día festivo -->
+                    <div id="indicador_festivo_pago" class="mt-2" style="display: none;">
+                        <div class="alert alert-danger mb-0 py-2">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            <strong>Día Festivo:</strong> <span id="descripcion_festivo_pago"></span>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <strong>No se pueden realizar dobladas en días festivos.</strong>
+                            </small>
+                        </div>
+                    </div>
+                    <!-- Indicador de día de mantenimiento -->
+                    <div id="indicador_mantenimiento_pago" class="mt-2" style="display: none;">
+                        <div class="alert alert-danger mb-0 py-2">
+                            <i class="fas fa-tools mr-2"></i>
+                            <strong>Día de Mantenimiento:</strong> <span id="descripcion_mantenimiento_pago"></span>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <strong>No se pueden realizar dobladas en días de mantenimiento.</strong>
+                            </small>
+                        </div>
+                    </div>
+                    <!-- Indicador de domingo -->
+                    <div id="indicador_domingo_pago" class="mt-2" style="display: none;">
+                        <div class="alert alert-danger mb-0 py-2">
+                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                            <strong>Domingo:</strong>
+                            <br>
+                            <small class="text-danger mt-1 d-block">
+                                <strong>No se pueden realizar dobladas en domingos.</strong>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Fechas de Pago (Cesión Total) -->
+                <div id="fechas_pago_total" class="form-group" style="display: none;">
+                    <div class="alert alert-info">
+                        <strong>Cesión Total:</strong> Debes especificar una fecha de pago para cada jornada cedida.
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <label for="fecha_pago_am">
+                                <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago para AM <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="fecha_pago_am" name="fecha_pago_am" 
+                                   placeholder="Fecha de pago para jornada AM" readonly
+                                   data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
+                            <small class="form-text text-muted">
+                                Fecha en que devolverás la doblada de AM
+                            </small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="fecha_pago_pm">
+                                <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago para PM <span class="text-danger">*</span>
+                            </label>
+                            <input type="text" class="form-control" id="fecha_pago_pm" name="fecha_pago_pm" 
+                                   placeholder="Fecha de pago para jornada PM" readonly
+                                   data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
+                            <small class="form-text text-muted">
+                                Fecha en que devolverás la doblada de PM
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Información del turno del solicitante (deudor) en fecha de pago -->
+                <div id="turno_solicitante_pago_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-check mr-1"></i>Tu Jornada para la Fecha de Pago
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_solicitante_pago_detalles">
+                                <!-- Aquí se cargará la información del turno del solicitante en fecha de pago -->
+                            </div>
+                            <div id="salas_solicitante_pago_detalles" class="mt-2">
+                                <!-- Aquí se cargará la información de las salas del solicitante en fecha de pago -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Información del turno del receptor (acreedor) en fecha de pago -->
+                <div id="turno_receptor_pago_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-friends mr-1"></i>Jornada del Explorador (Acreedor) en Fecha de Pago
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_receptor_pago_detalles">
+                                <!-- Aquí se cargará la información del turno del receptor en fecha de pago -->
+                            </div>
+                            <div id="salas_receptor_pago_detalles" class="mt-2">
+                                <!-- Aquí se cargará la información de las salas del receptor en fecha de pago -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Información de turnos para Cesión Total (AM) -->
+                <div id="turno_solicitante_pago_am_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            <h6 class="mb-0">
+                                <i class="fas fa-sun mr-1"></i>Tu Jornada para Fecha de Pago AM
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_solicitante_pago_am_detalles">
+                                <!-- Información del turno del solicitante para pago AM -->
+                            </div>
+                            <div id="salas_solicitante_pago_am_detalles" class="mt-2">
+                                <!-- Información de salas del solicitante para pago AM -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="turno_receptor_pago_am_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header bg-info text-white">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-friends mr-1"></i>Jornada del Receptor AM en Fecha de Pago
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_receptor_pago_am_detalles">
+                                <!-- Información del turno del receptor para pago AM -->
+                            </div>
+                            <div id="salas_receptor_pago_am_detalles" class="mt-2">
+                                <!-- Información de salas del receptor para pago AM -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Información de turnos para Cesión Total (PM) -->
+                <div id="turno_solicitante_pago_pm_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header bg-warning text-dark">
+                            <h6 class="mb-0">
+                                <i class="fas fa-moon mr-1"></i>Tu Jornada para Fecha de Pago PM
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_solicitante_pago_pm_detalles">
+                                <!-- Información del turno del solicitante para pago PM -->
+                            </div>
+                            <div id="salas_solicitante_pago_pm_detalles" class="mt-2">
+                                <!-- Información de salas del solicitante para pago PM -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="turno_receptor_pago_pm_info" class="form-group" style="display: none;">
+                    <div class="card">
+                        <div class="card-header bg-warning text-dark">
+                            <h6 class="mb-0">
+                                <i class="fas fa-user-friends mr-1"></i>Jornada del Receptor PM en Fecha de Pago
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="turno_receptor_pago_pm_detalles">
+                                <!-- Información del turno del receptor para pago PM -->
+                            </div>
+                            <div id="salas_receptor_pago_pm_detalles" class="mt-2">
+                                <!-- Información de salas del receptor para pago PM -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Vista Previa del Acuerdo -->
+                <div id="vista_previa_acuerdo" class="form-group" style="display: none;">
+                    <h6><i class="fas fa-eye mr-2"></i>Vista Previa del Acuerdo</h6>
+                    <p id="resumen_acuerdo" class="mb-0"></p>
+                </div>
+
+                <!-- Comentarios -->
+                <div class="form-group">
+                    <label for="comentarios">
+                        <i class="fas fa-comment mr-1"></i>Comentarios (Opcional)
+                    </label>
+                    <textarea class="form-control" 
+                              id="comentarios" 
+                              name="comentarios" 
+                              rows="4" 
+                              placeholder="Explica el motivo de la doblada..."></textarea>
+                    <small class="form-text text-muted">
+                        Proporciona detalles adicionales sobre tu solicitud
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-lg btn-block">
+                        <i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud
+                    </button>
+                </div>
+            </form>
+        </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+<script>
+window.solicitanteId = {{ request.user.empleado.id }};
+window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
+</script>
+<script src="{% static 'js/festivos_colombia.js' %}"></script>
+<script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
+<script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
+<script src="{% static 'js/cambio-turno/solicitar_doblada.js' %}"></script>
+{% endblock %}
+

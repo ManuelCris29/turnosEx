@@ -61,6 +61,39 @@
         font-size: 10px;
     }
     
+    /* Estilos personalizados para días de temporada en Flatpickr */
+    .flatpickr-day.temporada {
+        background-color: #2196f3 !important;
+        color: white !important;
+        font-weight: bold;
+        border-color: #1976d2 !important;
+    }
+    .flatpickr-day.temporada:hover {
+        background-color: #1976d2 !important;
+    }
+    .flatpickr-day.temporada.selected {
+        background-color: #1565c0 !important;
+        border-color: #1565c0 !important;
+    }
+    /* Si un día es tanto festivo como temporada, priorizar festivo */
+    .flatpickr-day.festivo.temporada {
+        background-color: #ff6b6b !important;
+        border-color: #ff5252 !important;
+    }
+    /* Si un día es tanto mantenimiento como temporada, priorizar mantenimiento */
+    .flatpickr-day.mantenimiento.temporada {
+        background-color: #ff9800 !important;
+        border-color: #f57c00 !important;
+    }
+    /* Tooltip para temporada */
+    .flatpickr-day.temporada::after {
+        content: '📅';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 10px;
+    }
+    
     /* Estilos para fechas excluidas en vista previa */
     .fecha-excluida-item {
         padding: 4px 0;
@@ -123,6 +156,8 @@
                 {% csrf_token %}
                 <!-- Elemento oculto con el ID del tipo de solicitud -->
                 <input type="hidden" id="tipo_solicitud_id" name="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
+                <!-- Elemento oculto con el nombre del tipo para validación -->
+                <input type="hidden" data-tipo-nombre="{{ tipo_solicitud.nombre }}" id="tipo_solicitud_nombre">
                 
                 <!-- Rango de fechas para el cambio permanente -->
                 <div class="date-range-container">
@@ -247,9 +282,9 @@
                         </div>
                         <div class="card-body">
                             <p class="mb-2"><strong>Total de días seleccionados:</strong> <span id="total_dias_seleccionados">0</span></p>
-                            <div id="lista_fechas_previa" style="max-height: 200px; overflow-y: auto;">
+                            <ul class="list-group" id="lista_fechas_previa" style="max-height: 200px; overflow-y: auto;">
                                 <!-- Aquí se mostrará la lista de fechas -->
-                            </div>
+                            </ul>
                         </div>
                     </div>
                     
@@ -364,5 +399,6 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 </script>
 <script src="{% static 'js/festivos_colombia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
+<script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
 <script src="{% static 'js/cambio-turno/solicitar_ct_permanente.js' %}?v=3.0"></script>
 {% endblock %}

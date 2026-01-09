@@ -103,9 +103,11 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
     def get(self, request, tipo_id):
         tipo_solicitud = get_object_or_404(TipoSolicitudCambio, id=tipo_id)
         
-        # Determinar quÃ© template usar segÃºn el tipo de solicitud
+        # Determinar qué template usar según el tipo de solicitud
         if tipo_solicitud.nombre == "CT PERMANENTE":
             return self._render_ct_permanente(request, tipo_solicitud)
+        elif tipo_solicitud.nombre == "DOBLADA":
+            return self._render_doblada(request, tipo_solicitud)
         else:
             return self._render_cambio_turno_normal(request, tipo_solicitud)
     
@@ -122,6 +124,18 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             'comentarios': '',
         }
         return render(request, 'solicitudes/solicitar_ct_permanente.html', context)
+    
+    def _render_doblada(self, request, tipo_solicitud):
+        """Renderizar formulario específico para DOBLADA"""
+        # No establecer fecha inicial - el usuario debe seleccionarla
+        context = {
+            'tipo_solicitud': tipo_solicitud,
+            'fecha_minima': timezone.now().date(),
+            'fecha_seleccionada': None,  # Sin fecha inicial - usuario debe seleccionar
+            'empleados_disponibles': [],
+            'empleado_seleccionado': None,
+        }
+        return render(request, 'solicitudes/solicitar_doblada.html', context)
     
     def _render_cambio_turno_normal(self, request, tipo_solicitud):
         """Renderizar formulario para cambio de turno normal"""
@@ -299,6 +313,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
             _es_mantenimiento,
             _es_temporada,
             _es_dia_descanso,
+            _razon_principal_ct_permanente,
         )
         from .services.solicitud_validator import SolicitudValidator  # type: ignore
 
@@ -407,13 +422,19 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
             fechas_aplicables = []
             fechas_excluidas = []
 
+            # Incluir fines de semana en el set evaluado para reportarlos en excluidas (transparencia),
+            # sin alterar que los aplicables sean solo lunes-viernes.
+            fecha_actual = fecha_inicio
+            while fecha_actual <= fecha_fin:
+                if fecha_actual.weekday() in (5, 6):
+                    fechas_candidatas.append(fecha_actual)
+                fecha_actual += timedelta(days=1)
+
             for fecha_dia in sorted(set(fechas_candidatas)):
                 razones_exclusion = []
 
-                if fecha_dia.weekday() == 6:
-                    razones_exclusion.append('Domingo')
-                if fecha_dia.weekday() == 5:
-                    razones_exclusion.append('Sábado')
+                if fecha_dia.weekday() in (5, 6):
+                    razones_exclusion.append('Fines de semana')
                 if _es_festivo(fecha_dia):
                     razones_exclusion.append('Festivo')
                 if _es_mantenimiento(fecha_dia):
@@ -429,7 +450,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                     fechas_excluidas.append(
                         {
                             'fecha': fecha_dia.strftime('%Y-%m-%d'),
-                            'razon': ', '.join(razones_exclusion),
+                            'razon': _razon_principal_ct_permanente(razones_exclusion),
                         }
                     )
                 else:
@@ -441,6 +462,15 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                     'Todos los días son festivos, de mantenimiento, temporada, o días de descanso.'
                 )
 
+            # Resumen informativo del rango (UX): siempre mostrar fines de semana en el rango
+            total_dias_rango = (fecha_fin - fecha_inicio).days + 1
+            total_fines_semana_rango = 0
+            fecha_actual = fecha_inicio
+            while fecha_actual <= fecha_fin:
+                if fecha_actual.weekday() in (5, 6):
+                    total_fines_semana_rango += 1
+                fecha_actual += timedelta(days=1)
+
             return json_ok(
                 {
                     'success': True,
@@ -449,6 +479,11 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                         'excluidas': fechas_excluidas,
                         'total_aplicables': len(fechas_aplicables),
                         'total_excluidas': len(fechas_excluidas),
+                        'resumen': {
+                            'total_dias_rango': total_dias_rango,
+                            'fines_de_semana_en_rango': total_fines_semana_rango,
+                            'prioridad': 'Mantenimiento > Festivo > Temporada > Descanso Solicitante > Descanso Receptor > Fines de semana',
+                        },
                     },
                 }
             )
@@ -543,9 +578,90 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 turno_service = get_turno_service()
                 turno_dict = turno_service.get_turno_explorador(explorador_id, fecha)
             
-            return json_ok({'turno': turno_dict, 'tiene_turno': turno_dict is not None})
+            # CORRECCIÓN: Detectar si el explorador tiene doblada (AM + PM) en esta fecha
+            from turnos.models import Turno
+            from datetime import datetime
+            
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            turnos_en_fecha = Turno.objects.filter(
+                explorador_id=explorador_id,
+                fecha=fecha_obj
+            ).select_related('jornada')
+            
+            turnos_list = [t.jornada.nombre for t in turnos_en_fecha if t.jornada]
+            es_doblada = 'AM' in turnos_list and 'PM' in turnos_list
+            
+            response_data = {
+                'turno': turno_dict,
+                'tiene_turno': turno_dict is not None,
+                'es_doblada': es_doblada,
+                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict else [])
+            }
+            
+            return json_ok(response_data)
         except Exception as e:
             logger.exception('Error en ObtenerTurnoExploradorView')
+            return json_error('Error al procesar la solicitud', status=500, code='internal_error')
+
+
+class VerificarCoincidenciaJornadasView(LoginRequiredMixin, View):
+    """
+    Endpoint para validar en tiempo real si hay coincidencia de jornadas en fecha de pago.
+    Útil para DOBLADA para verificar el caso crítico antes de enviar la solicitud.
+    
+    Parámetros:
+    - deudor_id: ID del explorador deudor (solicitante)
+    - acreedor_id: ID del explorador acreedor (receptor)
+    - fecha_pago: Fecha de pago en formato YYYY-MM-DD
+    """
+    def get(self, request):
+        deudor_id = request.GET.get('deudor_id')
+        acreedor_id = request.GET.get('acreedor_id')
+        fecha_pago = request.GET.get('fecha_pago')
+        
+        if not all([deudor_id, acreedor_id, fecha_pago]):
+            return json_error('Faltan parámetros requeridos (deudor_id, acreedor_id, fecha_pago)', 
+                            status=400, code='missing_params')
+        
+        try:
+            from empleados.models import Empleado
+            from solicitudes.services.solicitud_validator import SolicitudValidator
+            
+            deudor = Empleado.objects.get(id=deudor_id)
+            acreedor = Empleado.objects.get(id=acreedor_id)
+            
+            # Validar coincidencia de jornadas
+            resultado = SolicitudValidator.validar_coincidencia_jornadas_pago(
+                deudor,
+                acreedor,
+                fecha_pago
+            )
+            
+            # Construir respuesta
+            respuesta = {
+                'coinciden': resultado['coinciden'],
+                'jornada_comun': resultado.get('jornada_comun'),
+                'requiere_cambio_turno': resultado.get('requiere_cambio_turno', False)
+            }
+            
+            # Agregar mensaje explicativo
+            if resultado['requiere_cambio_turno']:
+                respuesta['mensaje'] = (
+                    f"No se puede pagar trabajando dos veces la misma jornada ({resultado.get('jornada_comun', '')}). "
+                    "Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago."
+                )
+                respuesta['url_redireccion'] = f'/solicitudes/cambio-turno/solicitar/?tipo_id=1&fecha_solicitud={fecha_pago}'
+            elif resultado['coinciden']:
+                respuesta['mensaje'] = f"Ambos exploradores tienen la misma jornada ({resultado.get('jornada_comun', '')}) en la fecha de pago."
+            else:
+                respuesta['mensaje'] = 'Las jornadas son contrarias. Puedes proceder con la doblada.'
+            
+            return json_ok(respuesta)
+            
+        except Empleado.DoesNotExist:
+            return json_error('Empleado no encontrado', status=404, code='empleado_not_found')
+        except Exception as e:
+            logger.exception('Error en VerificarCoincidenciaJornadasView')
             return json_error('Error al procesar la solicitud', status=500, code='internal_error')
 
 
@@ -734,43 +850,102 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             print(f"DEBUG POST: request.POST completo={dict(request.POST)}")
             
             # Validar datos requeridos segÃºn el tipo de solicitud
-            if tipo_solicitud_id and empleado_receptor_id:
-                # Obtener el tipo de solicitud para validar campos especÃ­ficos
-                try:
-                    tipo_solicitud_obj = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)
-                    if tipo_solicitud_obj.nombre == "CT PERMANENTE":
-                        # Para CT PERMANENTE, validar fecha_inicio en lugar de fecha_solicitud
-                        fecha_inicio = request.POST.get('fecha_inicio')
-                        if not fecha_inicio:
-                            return json_error('Todos los campos son requeridos', status=400, code='missing_fields')
-                    else:
-                        # Para otros tipos, validar fecha_solicitud
-                        if not fecha_solicitud:
-                            return json_error('Todos los campos son requeridos', status=400, code='missing_fields')
-                except TipoSolicitudCambio.DoesNotExist:
-                    return json_error('Tipo de solicitud no vÃ¡lido', status=400, code='invalid_type')
+            if not tipo_solicitud_id:
+                return json_error('El tipo de solicitud es requerido', status=400, code='missing_fields')
+            
+            # Obtener el tipo de solicitud para validar campos especÃ­ficos
+            try:
+                tipo_solicitud_obj = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)
+                tipo_nombre = tipo_solicitud_obj.nombre
+            except TipoSolicitudCambio.DoesNotExist:
+                return json_error('Tipo de solicitud no vÃ¡lido', status=400, code='invalid_type')
+            
+            # Validaciones específicas por tipo de solicitud
+            if tipo_nombre == "CT PERMANENTE":
+                # CT PERMANENTE requiere: empleado_receptor, fecha_inicio, fecha_fin
+                if not empleado_receptor_id:
+                    return json_error('Debe seleccionar un compañero para el intercambio', status=400, code='missing_fields')
+                fecha_inicio = request.POST.get('fecha_inicio')
+                fecha_fin = request.POST.get('fecha_fin')
+                if not fecha_inicio:
+                    return json_error('La fecha de inicio es requerida', status=400, code='missing_fields')
+                if not fecha_fin:
+                    return json_error('La fecha de fin es requerida', status=400, code='missing_fields')
+            elif tipo_nombre == "DOBLADA":
+                # DOBLADA requiere validaciones según tipo de cesión
+                if not fecha_solicitud:
+                    return json_error('La fecha de cesión es requerida', status=400, code='missing_fields')
+                
+                # Verificar si es cesión total
+                tipo_cesion = request.POST.get('tipo_cesion', 'cesion_completa')
+                empleado_receptor_am = request.POST.get('empleado_receptor_am')
+                empleado_receptor_pm = request.POST.get('empleado_receptor_pm')
+                fecha_pago_am = request.POST.get('fecha_pago_am')
+                fecha_pago_pm = request.POST.get('fecha_pago_pm')
+                
+                es_cesion_total = (tipo_cesion == 'cesion_completa' and 
+                                  empleado_receptor_am and empleado_receptor_pm and
+                                  fecha_pago_am and fecha_pago_pm)
+                
+                if es_cesion_total:
+                    # Cesión total: validar ambos receptores y fechas
+                    if not empleado_receptor_am:
+                        return json_error('Debe seleccionar un compañero para la jornada AM', status=400, code='missing_fields')
+                    if not empleado_receptor_pm:
+                        return json_error('Debe seleccionar un compañero para la jornada PM', status=400, code='missing_fields')
+                    if not fecha_pago_am:
+                        return json_error('La fecha de pago para AM es obligatoria', status=400, code='missing_fields')
+                    if not fecha_pago_pm:
+                        return json_error('La fecha de pago para PM es obligatoria', status=400, code='missing_fields')
+                else:
+                    # Cesión parcial o completa normal
+                    if not empleado_receptor_id:
+                        return json_error('Debe seleccionar un compañero para cubrir la doblada', status=400, code='missing_fields')
+                    fecha_pago = request.POST.get('fecha_pago')
+                    if not fecha_pago:
+                        return json_error('La fecha de pago es obligatoria. No existen dobladas abiertas.', status=400, code='missing_fields')
+            elif tipo_nombre == "D FDS":
+                # D FDS NO requiere empleado_receptor (es auto-solicitud)
+                if not fecha_solicitud:
+                    return json_error('La fecha es requerida', status=400, code='missing_fields')
+                # Para D FDS, usar el mismo empleado como receptor
+                empleado_receptor_id = None  # Se establecerá después como el mismo solicitante
             else:
-                return json_error('Todos los campos son requeridos', status=400, code='missing_fields')
+                # CT y otros tipos requieren: empleado_receptor, fecha_solicitud
+                if not empleado_receptor_id:
+                    return json_error('Debe seleccionar un compañero para el intercambio', status=400, code='missing_fields')
+                if not fecha_solicitud:
+                    return json_error('La fecha es requerida', status=400, code='missing_fields')
             
             # Obtener objetos
             tipo_solicitud = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)  # type: ignore
-            empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)  # type: ignore
             empleado_solicitante = request.user.empleado
             
-            # Preparar datos para el Factory
-            datos_solicitud = {
+            # Para D FDS, el receptor es el mismo que el solicitante
+            if tipo_nombre == "D FDS":
+                empleado_receptor = empleado_solicitante
+            elif tipo_nombre == "DOBLADA":
+                # Para DOBLADA, verificar si es cesión total (se manejará después)
+                # Por ahora, establecer None (se obtendrá después si es cesión parcial)
+                empleado_receptor = None
+            else:
+                if not empleado_receptor_id:
+                    return json_error('Debe seleccionar un compañero para el intercambio', status=400, code='missing_fields')
+                empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)  # type: ignore
+            
+            # Preparar datos base para el Factory
+            datos_solicitud_base = {
                 'explorador_solicitante': empleado_solicitante,
-                'explorador_receptor': empleado_receptor,
                 'tipo_cambio': tipo_solicitud,
                 'comentario': comentario,
             }
             
-            # Configurar fecha segÃºn el tipo de solicitud
+            # Configurar fecha según el tipo de solicitud
             if tipo_solicitud.nombre == "CT PERMANENTE":
                 fecha_inicio = request.POST.get('fecha_inicio')
                 fecha_fin = request.POST.get('fecha_fin')
                 
-                # Capturar dÃ­as seleccionados (JSON string)
+                # Capturar días seleccionados (JSON string)
                 import json
                 dias_seleccionados_json = request.POST.get('dias_seleccionados', '{}')
                 try:
@@ -779,30 +954,298 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     dias_seleccionados = {}
                 
                 # Para CT PERMANENTE, usar fecha_inicio como fecha_cambio_turno
+                datos_solicitud = datos_solicitud_base.copy()
                 datos_solicitud.update({
+                    'explorador_receptor': empleado_receptor,
                     'fecha_cambio_turno': fecha_inicio,
                     'fecha_inicio': fecha_inicio,
                     'fecha_fin': fecha_fin,
                     'dias_seleccionados': dias_seleccionados
                 })
+            elif tipo_solicitud.nombre == "DOBLADA":
+                # Para DOBLADA, capturar fecha_pago y otros campos
+                fecha_pago = request.POST.get('fecha_pago')
+                jornada_cedida = request.POST.get('jornada_cedida')  # 'AM' o 'PM' (opcional)
+                tipo_cesion = request.POST.get('tipo_cesion', 'cesion_completa')
+                
+                # CORRECCIÓN: Inferir jornada_cedida si no se proporcionó
+                # Esto ocurre cuando es cesión completa desde jornada simple (no doblada existente)
+                if not jornada_cedida and fecha_solicitud:
+                    from turnos.services.jornada_service import JornadaService
+                    try:
+                        jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
+                            empleado_solicitante.id, 
+                            fecha_solicitud
+                        )
+                        jornada_cedida = jornada_solicitante.nombre.upper()
+                        logger.info(
+                            f"jornada_cedida inferida automáticamente: {jornada_cedida} "
+                            f"para {empleado_solicitante.nombre} en fecha {fecha_solicitud}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"No se pudo inferir jornada_cedida: {str(e)}")
+                        # Si falla, dejarlo None (el backend validará después)
+                
+                # Verificar si es cesión total (cesión completa desde doblada existente)
+                empleado_receptor_am = request.POST.get('empleado_receptor_am')
+                empleado_receptor_pm = request.POST.get('empleado_receptor_pm')
+                fecha_pago_am = request.POST.get('fecha_pago_am')
+                fecha_pago_pm = request.POST.get('fecha_pago_pm')
+                
+                es_cesion_total = (tipo_cesion == 'cesion_completa' and 
+                                  empleado_receptor_am and empleado_receptor_pm and
+                                  fecha_pago_am and fecha_pago_pm)
+                
+                if es_cesion_total:
+                    # Cesión Total: Crear 2 solicitudes independientes
+                    # Solicitud 1: Cesión AM
+                    datos_solicitud_am = datos_solicitud_base.copy()
+                    datos_solicitud_am.update({
+                        'explorador_receptor': Empleado.objects.get(id=empleado_receptor_am),
+                        'fecha_cambio_turno': fecha_solicitud,
+                        'fecha_pago': fecha_pago_am,
+                        'jornada_cedida': 'AM',
+                        'tipo_cesion': 'cesion_parcial_am',
+                        'fecha_creacion_solicitud': timezone.now().date()
+                    })
+                    
+                    # Solicitud 2: Cesión PM
+                    datos_solicitud_pm = datos_solicitud_base.copy()
+                    datos_solicitud_pm.update({
+                        'explorador_receptor': Empleado.objects.get(id=empleado_receptor_pm),
+                        'fecha_cambio_turno': fecha_solicitud,
+                        'fecha_pago': fecha_pago_pm,
+                        'jornada_cedida': 'PM',
+                        'tipo_cesion': 'cesion_parcial_pm',
+                        'fecha_creacion_solicitud': timezone.now().date()
+                    })
+                    
+                    # Validar ambas solicitudes
+                    es_valida_am, mensaje_am = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud_am)
+                    es_valida_pm, mensaje_pm = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud_pm)
+                    
+                    # Verificar si alguna validación falló con el caso crítico o doblada existente
+                    if not es_valida_am:
+                        try:
+                            import json
+                            error_data_am = json.loads(mensaje_am)
+                            if isinstance(error_data_am, dict) and error_data_am.get('code') == 'requiere_cambio_turno_previo':
+                                # Retornar error especial del caso crítico para AM
+                                return JsonResponse({
+                                    'success': False,
+                                    'code': 'requiere_cambio_turno_previo',
+                                    'message': error_data_am.get('message', 'Se requiere cambio de turno previo'),
+                                    'fecha_pago': error_data_am.get('fecha_pago'),
+                                    'jornada_comun': error_data_am.get('jornada_comun'),
+                                    'jornada_afectada': 'AM'  # Indicar que es la jornada AM
+                                }, status=400)
+                        except (json.JSONDecodeError, TypeError, AttributeError):
+                            pass
+                        
+                        # Detectar error de doblada existente
+                        if 'ya tiene una doblada' in str(mensaje_am).lower():
+                            import re
+                            fecha_match = re.search(r'\d{2}/\d{2}/\d{4}', str(mensaje_am))
+                            fecha_conflicto = fecha_match.group(0) if fecha_match else 'desconocida'
+                            return JsonResponse({
+                                'success': False,
+                                'code': 'doblada_existente',
+                                'message': 'No se puede crear la solicitud porque ya tienes una doblada en la fecha de pago seleccionada.',
+                                'fecha_conflicto': fecha_conflicto,
+                                'jornada_afectada': 'AM',
+                                'mensaje_detallado': str(mensaje_am)
+                            }, status=400)
+                        
+                        return json_error(f'Error en solicitud AM: {mensaje_am}', status=400, code='validation_error')
+                    
+                    if not es_valida_pm:
+                        try:
+                            import json
+                            error_data_pm = json.loads(mensaje_pm)
+                            if isinstance(error_data_pm, dict) and error_data_pm.get('code') == 'requiere_cambio_turno_previo':
+                                # Retornar error especial del caso crítico para PM
+                                return JsonResponse({
+                                    'success': False,
+                                    'code': 'requiere_cambio_turno_previo',
+                                    'message': error_data_pm.get('message', 'Se requiere cambio de turno previo'),
+                                    'fecha_pago': error_data_pm.get('fecha_pago'),
+                                    'jornada_comun': error_data_pm.get('jornada_comun'),
+                                    'jornada_afectada': 'PM'  # Indicar que es la jornada PM
+                                }, status=400)
+                        except (json.JSONDecodeError, TypeError, AttributeError):
+                            pass
+                        
+                        # Detectar error de doblada existente
+                        if 'ya tiene una doblada' in str(mensaje_pm).lower():
+                            import re
+                            fecha_match = re.search(r'\d{2}/\d{2}/\d{4}', str(mensaje_pm))
+                            fecha_conflicto = fecha_match.group(0) if fecha_match else 'desconocida'
+                            return JsonResponse({
+                                'success': False,
+                                'code': 'doblada_existente',
+                                'message': 'No se puede crear la solicitud porque ya tienes una doblada en la fecha de pago seleccionada.',
+                                'fecha_conflicto': fecha_conflicto,
+                                'jornada_afectada': 'PM',
+                                'mensaje_detallado': str(mensaje_pm)
+                            }, status=400)
+                        
+                        return json_error(f'Error en solicitud PM: {mensaje_pm}', status=400, code='validation_error')
+                    
+                    # Crear ambas solicitudes
+                    try:
+                        solicitud_am, mensaje_am = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud_am)
+                        solicitud_pm, mensaje_pm = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud_pm)
+                        
+                        if solicitud_am is None or solicitud_pm is None:
+                            return json_error(
+                                f'Error creando solicitudes: {mensaje_am if solicitud_am is None else mensaje_pm}',
+                                status=400,
+                                code='creation_failed'
+                            )
+                        
+                        logger.info("Cesión total creada: 2 solicitudes independientes", extra={
+                            'solicitud_am_id': solicitud_am.id,
+                            'solicitud_pm_id': solicitud_pm.id,
+                            'solicitante_id': empleado_solicitante.id
+                        })
+                        
+                        return json_ok({
+                            'message': 'Solicitudes de cesión total enviadas correctamente. Se han enviado notificaciones a los supervisores y compañeros.',
+                            'solicitud_am_id': solicitud_am.id,
+                            'solicitud_pm_id': solicitud_pm.id,
+                            'es_cesion_total': True
+                        }, status=201)
+                        
+                    except Exception as e:
+                        logger.exception("Error creando solicitudes de cesión total")
+                        return json_error('Error al procesar las solicitudes de cesión total', status=500, code='internal_error')
+                else:
+                    # Cesión parcial o completa normal
+                    # Obtener receptor si no se obtuvo antes
+                    if not empleado_receptor and empleado_receptor_id:
+                        empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)
+                    
+                    datos_solicitud = datos_solicitud_base.copy()
+                    datos_solicitud.update({
+                        'explorador_receptor': empleado_receptor,
+                        'fecha_cambio_turno': fecha_solicitud,  # Fecha de cesión
+                        'fecha_pago': fecha_pago,
+                        'jornada_cedida': jornada_cedida,
+                        'tipo_cesion': tipo_cesion,
+                        'fecha_creacion_solicitud': timezone.now().date()  # Para validación de fecha_pago
+                    })
             else:
                 # Para otros tipos, usar fecha_solicitud
-                datos_solicitud['fecha_cambio_turno'] = fecha_solicitud
+                datos_solicitud = datos_solicitud_base.copy()
+                datos_solicitud.update({
+                    'explorador_receptor': empleado_receptor,
+                    'fecha_cambio_turno': fecha_solicitud
+                })
+            
+            # Solo validar y crear si no es cesión total (cesión total ya se procesó arriba)
+            if tipo_solicitud.nombre == "DOBLADA":
+                tipo_cesion_check = request.POST.get('tipo_cesion', 'cesion_completa')
+                empleado_receptor_am_check = request.POST.get('empleado_receptor_am')
+                empleado_receptor_pm_check = request.POST.get('empleado_receptor_pm')
+                fecha_pago_am_check = request.POST.get('fecha_pago_am')
+                fecha_pago_pm_check = request.POST.get('fecha_pago_pm')
                 
-            logger.info("Datos preparados", extra={
-                'tipo_solicitud': tipo_solicitud.nombre,
-                'fecha_cambio_turno': datos_solicitud.get('fecha_cambio_turno'),
-                'fecha_inicio': datos_solicitud.get('fecha_inicio'),
-                'fecha_fin': datos_solicitud.get('fecha_fin')
-            })
-            
-            # Validar la solicitud usando el Factory
-            # Nota: Las estrategias se registran automÃ¡ticamente en solicitud_factory.py
-            # No es necesario registrarlas manualmente aquÃ­
-            es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
-            
-            if not es_valida:
-                return json_error(mensaje, status=400, code='validation_error')
+                es_cesion_total_check = (tipo_cesion_check == 'cesion_completa' and 
+                                       empleado_receptor_am_check and empleado_receptor_pm_check and
+                                       fecha_pago_am_check and fecha_pago_pm_check)
+                
+                if es_cesion_total_check:
+                    # Ya se procesó arriba, no hacer nada más
+                    return  # Salir temprano, ya se retornó respuesta arriba
+                else:
+                    # Continuar con validación y creación normal
+                    logger.info("Datos preparados", extra={
+                        'tipo_solicitud': tipo_solicitud.nombre,
+                        'fecha_cambio_turno': datos_solicitud.get('fecha_cambio_turno'),
+                        'fecha_inicio': datos_solicitud.get('fecha_inicio'),
+                        'fecha_fin': datos_solicitud.get('fecha_fin')
+                    })
+                    
+                    # Validar la solicitud usando el Factory
+                    es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
+                    
+                    if not es_valida:
+                        # Verificar si es el caso crítico de coincidencia de jornadas (DOBLADA)
+                        try:
+                            import json
+                            error_data = json.loads(mensaje)
+                            if isinstance(error_data, dict) and error_data.get('code') == 'requiere_cambio_turno_previo':
+                                # Retornar error especial para que frontend maneje la redirección
+                                return JsonResponse({
+                                    'success': False,
+                                    'code': 'requiere_cambio_turno_previo',
+                                    'message': error_data.get('message', 'Se requiere cambio de turno previo'),
+                                    'fecha_pago': error_data.get('fecha_pago'),
+                                    'jornada_comun': error_data.get('jornada_comun')
+                                }, status=400)
+                        except (json.JSONDecodeError, TypeError, AttributeError):
+                            # No es JSON, es un error normal
+                            pass
+                        
+                        return json_error(mensaje, status=400, code='validation_error')
+                    
+                    # Crear la solicitud usando el Factory
+                    logger.info("Creando solicitud usando SolicitudFactory", extra={
+                        'tipo_solicitud': tipo_solicitud.nombre,
+                        'solicitante_id': empleado_solicitante.id,
+                        'receptor_id': empleado_receptor.id if empleado_receptor else None
+                    })
+                    
+                    try:
+                        solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud)
+                        
+                        if solicitud is None:
+                            return json_error(mensaje, status=400, code='creation_failed')
+                        
+                        logger.info("Solicitud creada exitosamente", extra={
+                            'solicitud_id': solicitud.id,
+                            'tipo_solicitud': tipo_solicitud.nombre
+                        })
+                        
+                        return json_ok({
+                            'message': 'Solicitud enviada correctamente. Se han enviado notificaciones al supervisor y al compañero.',
+                            'solicitud_id': solicitud.id
+                        }, status=201)
+                        
+                    except Exception as e:
+                        logger.exception("Error al crear solicitud usando Factory")
+                        return json_error('Error al procesar la solicitud', status=500, code='internal_error')
+            else:
+                # Para otros tipos, validar normalmente
+                logger.info("Datos preparados", extra={
+                    'tipo_solicitud': tipo_solicitud.nombre,
+                    'fecha_cambio_turno': datos_solicitud.get('fecha_cambio_turno'),
+                    'fecha_inicio': datos_solicitud.get('fecha_inicio'),
+                    'fecha_fin': datos_solicitud.get('fecha_fin')
+                })
+                
+                # Validar la solicitud usando el Factory
+                es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
+                
+                if not es_valida:
+                    # Verificar si es el caso crítico de coincidencia de jornadas (DOBLADA)
+                    try:
+                        import json
+                        error_data = json.loads(mensaje)
+                        if isinstance(error_data, dict) and error_data.get('code') == 'requiere_cambio_turno_previo':
+                            # Retornar error especial para que frontend maneje la redirección
+                            return JsonResponse({
+                                'success': False,
+                                'code': 'requiere_cambio_turno_previo',
+                                'message': error_data.get('message', 'Se requiere cambio de turno previo'),
+                                'fecha_pago': error_data.get('fecha_pago'),
+                                'jornada_comun': error_data.get('jornada_comun')
+                            }, status=400)
+                    except (json.JSONDecodeError, TypeError, AttributeError):
+                        # No es JSON, es un error normal
+                        pass
+                    
+                    return json_error(mensaje, status=400, code='validation_error')
             
             # Crear la solicitud usando el Factory
             logger.info("Creando solicitud usando SolicitudFactory", extra={
@@ -1349,6 +1792,187 @@ class RechazarSolicitudReceptorEmailView(View):
         return hmac.compare_digest(token, expected_token)
 
 
+class ObtenerExploradoresDobladaView(LoginRequiredMixin, View):
+    """
+    Endpoint para obtener exploradores disponibles para doblada.
+    Filtra según jornada contraria y excluye exploradores con doblada activa.
+    """
+    def get(self, request):
+        try:
+            fecha = request.GET.get('fecha')
+            jornada_cedida = request.GET.get('jornada_cedida')  # Opcional: 'AM' o 'PM'
+            
+            if not fecha:
+                return json_error('La fecha es requerida', status=400, code='missing_fields')
+            
+            usuario_actual = request.user.empleado
+            
+            # Obtener estrategia de doblada
+            tipo_doblada = TipoSolicitudCambio.objects.filter(nombre='DOBLADA').first()
+            if not tipo_doblada:
+                return json_error('Tipo de solicitud DOBLADA no encontrado', status=404, code='not_found')
+            
+            strategy = SolicitudFactory.get_strategy(tipo_doblada)
+            empleados_disponibles = strategy.get_empleados_disponibles(
+                fecha,
+                usuario_actual,
+                jornada_cedida=jornada_cedida
+            )
+            
+            return json_ok({
+                'empleados': empleados_disponibles,
+                'total': len(empleados_disponibles)
+            })
+            
+        except Exception as e:
+            logger.exception("Error obteniendo exploradores para doblada")
+            return json_error('Error al obtener exploradores disponibles', status=500, code='internal_error')
+
+
+class VerificarDobladaExistenteView(LoginRequiredMixin, View):
+    """
+    Endpoint para verificar si el usuario tiene alguna relación con una doblada en una fecha.
+    Distingue entre 3 estados:
+    1. Usuario está descansando (cedió su jornada como solicitante)
+    2. Usuario tiene doblada (cubre como receptor)
+    3. Usuario no tiene ninguna doblada
+    """
+    def get(self, request):
+        try:
+            fecha = request.GET.get('fecha')
+            
+            if not fecha:
+                return json_error('La fecha es requerida', status=400, code='missing_fields')
+            
+            usuario_actual = request.user.empleado
+            
+            # Verificar si tiene doblada aprobada en esa fecha
+            from datetime import datetime
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            
+            # Buscar solicitudes donde el usuario está involucrado
+            doblada_como_solicitante = SolicitudCambio.objects.filter(
+                explorador_solicitante=usuario_actual,
+                tipo_cambio__nombre='DOBLADA',
+                fecha_cambio_turno=fecha_obj,
+                estado='aprobada'
+            ).first()
+            
+            doblada_como_receptor = SolicitudCambio.objects.filter(
+                explorador_receptor=usuario_actual,
+                tipo_cambio__nombre='DOBLADA',
+                fecha_cambio_turno=fecha_obj,
+                estado='aprobada'
+            ).first()
+            
+            # CASO 1: Usuario cedió su jornada → está descansando
+            if doblada_como_solicitante:
+                return json_ok({
+                    'tiene_doblada': False,
+                    'esta_descansando': True,
+                    'puede_ceder': False,
+                    'jornadas': [],
+                    'mensaje': 'Ya cediste tu jornada para esta fecha. Estás descansando este día.',
+                    'solicitud_id': doblada_como_solicitante.id
+                })
+            
+            # CASO 2: Usuario cubre a otro → tiene doblada
+            if doblada_como_receptor:
+                # Obtener jornadas del turno (AM, PM, o ambas)
+                from turnos.models import Turno
+                turnos = Turno.objects.filter(
+                    explorador=usuario_actual,
+                    fecha=fecha_obj
+                ).select_related('jornada')
+                
+                jornadas = [t.jornada.nombre.upper() for t in turnos]
+                
+                # VALIDACIÓN DE INTEGRIDAD: Detectar inconsistencias
+                datos_inconsistentes = False
+                mensaje_inconsistencia = None
+                
+                if not jornadas:
+                    # PROBLEMA: Solicitud aprobada pero sin turnos generados
+                    datos_inconsistentes = True
+                    mensaje_inconsistencia = (
+                        f'⚠️ Datos inconsistentes detectados: Tienes una doblada aprobada '
+                        f'(Solicitud #{doblada_como_receptor.id}) pero no se generaron los turnos correctamente. '
+                        f'Por favor, contacta al administrador o intenta cancelar y volver a solicitar.'
+                    )
+                    logger.error(
+                        f"INCONSISTENCIA DETECTADA: Usuario {usuario_actual.nombre} (ID: {usuario_actual.id}) "
+                        f"tiene doblada aprobada (ID: {doblada_como_receptor.id}) para {fecha_obj} "
+                        f"pero no tiene turnos generados en la tabla turnos_turno"
+                    )
+                    
+                    # Intentar obtener la jornada predeterminada para mostrar algo
+                    from turnos.services.jornada_service import JornadaService
+                    jornada_pred = JornadaService.get_jornada_explorador_fecha(
+                        usuario_actual.id, fecha
+                    )
+                    if jornada_pred:
+                        jornadas = [jornada_pred.nombre.upper()]
+                        mensaje_inconsistencia += f' Se muestra tu jornada predeterminada ({jornada_pred.nombre}).'
+                
+                mensaje = mensaje_inconsistencia if datos_inconsistentes else (
+                    f'Tienes una doblada aprobada ({", ".join(jornadas)}). Puedes ceder una o ambas jornadas.'
+                )
+                
+                return json_ok({
+                    'tiene_doblada': True,
+                    'esta_descansando': False,
+                    'puede_ceder': not datos_inconsistentes,  # No permitir ceder si hay inconsistencia
+                    'jornadas': jornadas,
+                    'mensaje': mensaje,
+                    'solicitud_id': doblada_como_receptor.id,
+                    'datos_inconsistentes': datos_inconsistentes,  # Nuevo flag
+                    'requiere_atencion_admin': datos_inconsistentes  # Nuevo flag
+                })
+            
+            # CASO 3: No hay doblada
+            return json_ok({
+                'tiene_doblada': False,
+                'esta_descansando': False,
+                'puede_ceder': True,
+                'jornadas': [],
+                'solicitud_id': None
+            })
+            
+        except Exception as e:
+            logger.exception("Error verificando doblada existente")
+            return json_error('Error al verificar doblada existente', status=500, code='internal_error')
+
+
+class ObtenerFechasDescansoView(LoginRequiredMixin, View):
+    """
+    Endpoint para obtener fechas donde el usuario está descansando (cedió su jornada).
+    Útil para deshabilitar estas fechas en el calendario de solicitud de doblada.
+    """
+    def get(self, request):
+        try:
+            usuario_actual = request.user.empleado
+            
+            # Buscar solicitudes donde usuario es solicitante y estado=aprobada
+            from datetime import datetime
+            
+            solicitudes_cedidas = SolicitudCambio.objects.filter(
+                explorador_solicitante=usuario_actual,
+                tipo_cambio__nombre='DOBLADA',
+                estado='aprobada'
+            ).values_list('fecha_cambio_turno', flat=True)
+            
+            fechas_descanso = [f.strftime('%Y-%m-%d') for f in solicitudes_cedidas]
+            
+            return json_ok({
+                'fechas': fechas_descanso,
+                'total': len(fechas_descanso)
+            })
+            
+        except Exception as e:
+            logger.exception("Error obteniendo fechas de descanso")
+            return json_error('Error al obtener fechas de descanso', status=500, code='internal_error')
+
+
 class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
     """
     Endpoint API para obtener detalles completos de una solicitud.
@@ -1445,6 +2069,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                             datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los dÃ­as hÃ¡biles'
                         
                         # Calcular fechas aplicables y excluidas
+                        from datetime import datetime as _dt
                         from .services.ct_permanente_helper import calcular_fechas_aplicables_y_excluidas_ct_permanente
                         fechas_aplicables, fechas_excluidas = calcular_fechas_aplicables_y_excluidas_ct_permanente(
                             detalle,
@@ -1463,6 +2088,25 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                             }
                             for fecha_info in fechas_excluidas
                         ]
+
+                        # Resumen informativo del rango (UX)
+                        try:
+                            fi = detalle.fecha_inicio
+                            ff = detalle.fecha_fin or _dt.strptime(f"{fi.year}-12-31", "%Y-%m-%d").date()
+                            total_dias_rango = (ff - fi).days + 1
+                            fines_semana = 0
+                            cur = fi
+                            while cur <= ff:
+                                if cur.weekday() in (5, 6):
+                                    fines_semana += 1
+                                cur = cur + timezone.timedelta(days=1)
+                            datos['fechas']['resumen'] = {
+                                'total_dias_rango': total_dias_rango,
+                                'fines_de_semana_en_rango': fines_semana,
+                                'prioridad': 'Mantenimiento > Festivo > Temporada > Descanso Solicitante > Descanso Receptor > Fines de semana',
+                            }
+                        except Exception:
+                            datos['fechas']['resumen'] = None
                         
                         datos['informacion_adicional']['nota'] = 'Se excluyen domingos, festivos, dÃ­as de mantenimiento y dÃ­as de descanso de los exploradores.'
                 except Exception as e:

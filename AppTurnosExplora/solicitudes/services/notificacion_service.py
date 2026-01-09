@@ -20,7 +20,8 @@ class NotificacionService:
             'explorador_solicitante',
             'explorador_receptor', 
             'tipo_cambio',
-            'cambio_permanente'  # ← Esta es la clave
+            'cambio_permanente',
+            'doblada'  # ← Incluir doblada para solicitudes de tipo DOBLADA
         ).prefetch_related(
             'cambio_permanente'
         ).get(id=solicitud.id)

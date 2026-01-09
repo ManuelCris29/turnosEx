@@ -285,6 +285,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const form = document.getElementById('cambioTurnoForm');
         const fecha = fechaInput.value;
         
+        // Validación genérica de campos requeridos
+        if (window.ValidadoresSolicitudes) {
+            const tipoNombre = window.ValidadoresSolicitudes.obtenerTipoSolicitud(form) || 
+                              document.querySelector('[data-tipo-nombre]')?.getAttribute('data-tipo-nombre');
+            
+            if (tipoNombre) {
+                const validacion = window.ValidadoresSolicitudes.validarFormularioSolicitud(form, tipoNombre);
+                if (!validacion.valido) {
+                    window.ValidadoresSolicitudes.mostrarErroresValidacion(validacion.errores);
+                    return;
+                }
+            }
+        }
+        
         // Validar que no sea día de mantenimiento antes de enviar
         if (fecha && window.DatepickerFestivos && window.DatepickerFestivos.cargarDiasMantenimiento) {
             const año = parseInt(fecha.split('-')[0]);

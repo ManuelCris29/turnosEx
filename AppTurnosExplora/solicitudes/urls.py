@@ -8,7 +8,9 @@ from .views import (
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
     AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, AprobarSolicitudAmbosView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView,
-    ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView
+    ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView,
+    ObtenerExploradoresDobladaView, VerificarDobladaExistenteView, ObtenerFechasDescansoView,
+    VerificarCoincidenciaJornadasView
 )
 
 app_name = 'solicitudes'
@@ -47,6 +49,12 @@ urlpatterns = [
     path('obtener-detalle-solicitud/<int:solicitud_id>/', ObtenerDetalleSolicitudView.as_view(), name='obtener_detalle_solicitud'),
     path('previsualizar-ct-permanente/', PrevisualizarCTPermanenteView.as_view(), name='previsualizar_ct_permanente'),
     path('procesar-solicitud/', ProcesarSolicitudView.as_view(), name='procesar_solicitud'),
+    
+    # DOBLADA - Endpoints específicos
+    path('obtener-exploradores-doblada/', ObtenerExploradoresDobladaView.as_view(), name='obtener_exploradores_doblada'),
+    path('verificar-doblada-existente/', VerificarDobladaExistenteView.as_view(), name='verificar_doblada_existente'),
+    path('obtener-fechas-descanso/', ObtenerFechasDescansoView.as_view(), name='obtener_fechas_descanso'),
+    path('verificar-coincidencia-jornadas/', VerificarCoincidenciaJornadasView.as_view(), name='verificar_coincidencia_jornadas'),
     
     # APROBACIÓN POR EMAIL
     path('aprobar-email/<int:solicitud_id>/<str:token>/', AprobarSolicitudEmailView.as_view(), name='aprobar_solicitud_email'),

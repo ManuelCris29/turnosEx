@@ -301,52 +301,22 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('ctPermanenteForm').addEventListener('submit', function(e) {
         e.preventDefault(); // Prevenir envío tradicional del formulario
         
-        const fechaInicio = document.getElementById('fecha_inicio').value;
-        const fechaFin = document.getElementById('fecha_fin').value;
-        const empleadoReceptor = document.getElementById('empleado_receptor').value;
+        const form = document.getElementById('ctPermanenteForm');
         
-        // Validaciones
-        if (!fechaInicio) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Campo requerido',
-                text: 'Por favor selecciona una fecha de inicio',
-                confirmButtonText: 'Entendido'
-            });
-            return;
+        // Validación genérica de campos requeridos
+        if (window.ValidadoresSolicitudes) {
+            const tipoNombre = window.ValidadoresSolicitudes.obtenerTipoSolicitud(form) || 
+                              document.querySelector('[data-tipo-nombre]')?.getAttribute('data-tipo-nombre') ||
+                              'CT PERMANENTE';
+            
+            const validacion = window.ValidadoresSolicitudes.validarFormularioSolicitud(form, tipoNombre);
+            if (!validacion.valido) {
+                window.ValidadoresSolicitudes.mostrarErroresValidacion(validacion.errores);
+                return;
+            }
         }
         
-        if (!empleadoReceptor) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Campo requerido',
-                text: 'Por favor selecciona un compañero para el intercambio',
-                confirmButtonText: 'Entendido'
-            });
-            return;
-        }
-        
-        if (!fechaFin) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Campo requerido',
-                text: 'La fecha de fin es obligatoria para cambios permanentes',
-                confirmButtonText: 'Entendido'
-            });
-            return;
-        }
-        
-        if (fechaFin <= fechaInicio) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Fecha inválida',
-                text: 'La fecha de fin debe ser posterior a la fecha de inicio',
-                confirmButtonText: 'Entendido'
-            });
-            return;
-        }
-        
-        // Validar que haya al menos un día seleccionado
+        // Validar que haya al menos un día seleccionado (validación específica de CT PERMANENTE)
         // Primero verificar si hay override activo (compatibilidad parcial)
         let tieneDiasValidos = false;
         let mensajeError = 'Debe seleccionar al menos un día de la semana (lunes a viernes) para el cambio permanente.';
@@ -1047,6 +1017,8 @@ async function actualizarVistaPrevia() {
             fecha: item.fecha,
             razon: item.razon
         }));
+        // Guardar resumen informativo del rango si viene del backend
+        window.__ctPermResumen = data.fechas.resumen || null;
     } catch (error) {
         console.error('Error previsualizando CT permanente:', error);
         if (vistaPreviaFechas) {
@@ -1075,6 +1047,29 @@ async function actualizarVistaPrevia() {
     // Mostrar lista de fechas válidas
     if (listaFechasPrevia) {
         let fechasHtml = '';
+        const resumen = window.__ctPermResumen;
+
+        // Resumen UX (siempre visible arriba): ayuda a entender rangos con muchas exclusiones
+        if (resumen && resumen.total_dias_rango !== undefined) {
+            fechasHtml += `
+                <li class="list-group-item py-2">
+                    <div class="small text-muted">
+                        <strong>Resumen del rango:</strong>
+                        ${resumen.total_dias_rango} días en el rango ·
+                        ${resumen.fines_de_semana_en_rango || 0} fines de semana ·
+                        ${fechasGeneradas.length} aplicables ·
+                        ${fechasInvalidas.length} excluidas
+                        <div class="mt-1">
+                            <small><strong>Cómo leer esto:</strong> En CT Permanente solo aplican días hábiles (lun–vie).</small>
+                        </div>
+                        <div class="mt-1">
+                            <small>Los fines de semana se cuentan en el rango aunque, por prioridad, puedan mostrarse como Festivo/Temporada/Mantenimiento/Descanso.</small>
+                        </div>
+                        ${resumen.prioridad ? `<div class="mt-1"><small><strong>Prioridad de exclusión:</strong> ${resumen.prioridad}</small></div>` : ''}
+                    </div>
+                </li>
+            `;
+        }
         
         // Agrupar fechas inválidas por razón (siempre, incluso cuando hay 0 válidos)
         const fechasPorRazon = agruparFechasInvalidasPorRazon(fechasInvalidas);
@@ -1398,6 +1393,7 @@ function obtenerIconoRazon(razon) {
     const iconos = {
         'Domingo': '<i class="fas fa-calendar-times text-danger mr-2"></i>',
         'Sábado': '<i class="fas fa-calendar-times text-danger mr-2"></i>',
+        'Fines de semana': '<i class="fas fa-calendar-times text-muted mr-2"></i>',
         'Festivo': '<i class="fas fa-calendar-check text-danger mr-2"></i>',
         'Mantenimiento': '<i class="fas fa-tools text-warning mr-2"></i>',
         'Temporada': '<i class="fas fa-calendar-alt text-warning mr-2"></i>',
@@ -1414,6 +1410,7 @@ function obtenerColorRazon(razon) {
     const colores = {
         'Domingo': 'danger',
         'Sábado': 'danger',
+        'Fines de semana': 'muted',
         'Festivo': 'danger',
         'Mantenimiento': 'warning',
         'Temporada': 'warning',

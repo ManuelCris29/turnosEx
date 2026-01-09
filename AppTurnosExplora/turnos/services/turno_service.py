@@ -77,22 +77,39 @@ class TurnoService(ITurnoService):
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             explorador = Empleado.objects.get(id=explorador_id)
             
-            # 1. Buscar turno específico para esa fecha
-            turno = Turno.objects.select_related('jornada', 'sala').filter(
+            # 1. Buscar turnos específicos para esa fecha (puede haber múltiples si es doblada)
+            turnos = Turno.objects.select_related('jornada', 'sala').filter(
                 explorador_id=explorador_id,
                 fecha=fecha_obj
-            ).first()
+            )
             
-            if turno:
+            if turnos.exists():
+                # Usar helper para obtener jornada display (detecta dobladas)
+                jornada_display = TurnoService.obtener_jornada_display(explorador, fecha_obj)
+                
+                # Obtener el primer turno para datos de sala y horarios
+                turno = turnos.first()
+                
+                # Si es doblada, obtener horarios combinados (AM inicio, PM fin)
+                if jornada_display == 'DOBLADA':
+                    turno_am = turnos.filter(jornada__nombre__iexact='AM').first()
+                    turno_pm = turnos.filter(jornada__nombre__iexact='PM').first()
+                    hora_inicio = turno_am.jornada.hora_inicio.strftime('%H:%M') if turno_am else turno.jornada.hora_inicio.strftime('%H:%M')
+                    hora_fin = turno_pm.jornada.hora_fin.strftime('%H:%M') if turno_pm else turno.jornada.hora_fin.strftime('%H:%M')
+                else:
+                    hora_inicio = turno.jornada.hora_inicio.strftime('%H:%M')
+                    hora_fin = turno.jornada.hora_fin.strftime('%H:%M')
+                
                 return {
                     'id': turno.id,
-                    'jornada': turno.jornada.nombre,
+                    'jornada': jornada_display,  # 'DOBLADA', 'AM', o 'PM'
                     'sala': turno.sala.nombre,
                     'sala_id': turno.sala.id,
-                    'hora_inicio': turno.jornada.hora_inicio.strftime('%H:%M'),
-                    'hora_fin': turno.jornada.hora_fin.strftime('%H:%M'),
+                    'hora_inicio': hora_inicio,
+                    'hora_fin': hora_fin,
                     'es_turno_virtual': False,
-                    'tipo_sala': 'turno'
+                    'tipo_sala': 'turno',
+                    'es_doblada': jornada_display == 'DOBLADA'
                 }
             
             # 2. Si no hay turno, buscar jornada predeterminada
@@ -177,3 +194,54 @@ class TurnoService(ITurnoService):
             .order_by('fecha')
         )
         return {t.fecha: t for t in turnos}
+    
+    @staticmethod
+    def obtener_jornada_display(explorador: Empleado, fecha) -> str:
+        """
+        Obtiene la jornada para mostrar en UI.
+        
+        Si hay AM+PM en la misma fecha → "DOBLADA"
+        Si hay solo AM → "AM"
+        Si hay solo PM → "PM"
+        Si no hay turnos → jornada predeterminada
+        
+        Args:
+            explorador: Instancia de Empleado
+            fecha: Fecha (date object o string 'YYYY-MM-DD')
+        
+        Returns:
+            String con la jornada para mostrar: 'DOBLADA', 'AM', 'PM', o jornada predeterminada
+        """
+        from datetime import date as date_type
+        
+        # Convertir fecha a objeto date si es string
+        if isinstance(fecha, str):
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        elif isinstance(fecha, date_type):
+            fecha_obj = fecha
+        else:
+            fecha_obj = fecha
+        
+        # Obtener todos los turnos del explorador en esa fecha
+        turnos = Turno.objects.filter(
+            explorador=explorador,
+            fecha=fecha_obj
+        ).select_related('jornada')
+        
+        jornadas = [t.jornada.nombre.upper() for t in turnos]
+        
+        # Si hay AM+PM → DOBLADA
+        if 'AM' in jornadas and 'PM' in jornadas:
+            return 'DOBLADA'
+        elif 'AM' in jornadas:
+            return 'AM'
+        elif 'PM' in jornadas:
+            return 'PM'
+        else:
+            # No hay turnos, usar jornada predeterminada
+            jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(
+                explorador.id, fecha_obj.strftime('%Y-%m-%d')
+            )
+            if jornada_predeterminada:
+                return jornada_predeterminada.nombre.upper()
+            return None

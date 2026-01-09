@@ -190,7 +190,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 LIMITE_CAMBIOS_POR_FECHA = 3
                 
                 # Verificar límite para el solicitante
-                from .solicitud_consulta_service import SolicitudConsultaService
+                from ..solicitud_consulta_service import SolicitudConsultaService
                 cambios_solicitante = SolicitudConsultaService.contar_cambios_explorador_fecha(
                     solicitud.explorador_solicitante.id,
                     fecha_cambio
@@ -240,6 +240,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 )
                 
                 # 1. Obtener jornadas actuales de ambos empleados para esa fecha
+                from turnos.services.jornada_service import JornadaService
                 jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
                     solicitud.explorador_solicitante.id, 
                     fecha_cambio.strftime('%Y-%m-%d')

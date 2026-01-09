@@ -52,6 +52,29 @@ class TurnoListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     model = Turno
     template_name = 'turnos/turnos_list.html'
     context_object_name = 'turnos'
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        turnos = context['turnos']
+        
+        # Agregar información de jornada display a cada turno
+        from turnos.services.turno_service import TurnoService
+        from collections import defaultdict
+        
+        # Cache de jornada_display por (explorador_id, fecha)
+        display_cache = {}
+        
+        for turno in turnos:
+            key = (turno.explorador.id, turno.fecha)
+            if key not in display_cache:
+                jornada_display = TurnoService.obtener_jornada_display(turno.explorador, turno.fecha)
+                display_cache[key] = jornada_display
+            
+            # Agregar atributo temporal para el template
+            turno.jornada_display = display_cache[key]
+        
+        context['turnos'] = turnos
+        return context
 
 class TurnoCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = Turno

@@ -6,6 +6,7 @@ which are requests for weekend double shifts.
 """
 
 from typing import Dict, Any, Tuple, Optional
+from django.core.exceptions import ValidationError
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
@@ -37,10 +38,14 @@ class DFDSStrategy(SolicitudStrategy):
             Tuple of (is_valid, error_message)
         """
         try:
+            from ..solicitud_validator import SolicitudValidator
+            from datetime import datetime
+            
             explorador_solicitante = datos.get('explorador_solicitante')
             fecha = datos.get('fecha_cambio_turno')
             minutos_deuda = datos.get('minutos_deuda', 30)
             
+            # Validaciones básicas de campos requeridos
             if not explorador_solicitante:
                 return False, "Explorador solicitante es requerido"
             
@@ -50,12 +55,10 @@ class DFDSStrategy(SolicitudStrategy):
             if not isinstance(minutos_deuda, int) or minutos_deuda <= 0:
                 return False, "Minutos de deuda debe ser un número positivo"
             
-            # Validate empleado is active
-            if not explorador_solicitante.activo:
-                return False, "El explorador no está activo"
+            # Validar empleado activo usando validador centralizado
+            SolicitudValidator.validar_empleado_activo(explorador_solicitante)
             
-            # Validate that fecha is a weekend
-            from datetime import datetime
+            # Validar formato de fecha y que sea fin de semana
             try:
                 fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
                 # weekday() returns 0=Monday, 6=Sunday
@@ -64,6 +67,15 @@ class DFDSStrategy(SolicitudStrategy):
             except ValueError:
                 return False, "Formato de fecha inválido"
             
+            # Validar que no sea día de mantenimiento
+            SolicitudValidator.validar_no_dia_mantenimiento(fecha)
+            
+            # Validar que el empleado tenga jornada en esa fecha
+            SolicitudValidator.validar_jornada_en_fecha(explorador_solicitante, fecha)
+            
+            # Validar que no tenga doblada activa para esa fecha
+            SolicitudValidator.validar_no_doblada_activa(explorador_solicitante, fecha)
+            
             # TODO: Add more specific validations
             # - Check if empleado already has a D FDS for that weekend
             # - Check if empleado has permission for weekend shifts
@@ -71,6 +83,8 @@ class DFDSStrategy(SolicitudStrategy):
             
             return True, "Solicitud de D FDS válida"
             
+        except ValidationError as e:
+            return False, str(e)
         except Exception as e:
             return False, f"Error validando D FDS: {str(e)}"
     

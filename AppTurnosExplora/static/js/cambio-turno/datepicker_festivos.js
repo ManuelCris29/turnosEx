@@ -301,6 +301,183 @@ function marcarMantenimientoEnCalendario(instance, mantenimientoMap) {
 }
 
 /**
+ * Carga días de temporada desde el API
+ * 
+ * @param {number} anio - Año específico a cargar
+ * @returns {Promise<Map>} Map con fecha (YYYY-MM-DD) como clave y descripción como valor
+ */
+function cargarDiasTemporada(anio = null) {
+    if (anio === null) {
+        anio = new Date().getFullYear();
+    }
+    
+    return fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
+        .then(response => response.json())
+        .then(data => {
+            const temporadaMap = new Map();
+            
+            // El endpoint devuelve {por_mes: {mes: [dias]}, ...} o {temporadas: [...], por_mes: {...}}
+            if (data.por_mes) {
+                // Convertir estructura {mes: [dias]} a Map de fechas YYYY-MM-DD
+                for (const mes in data.por_mes) {
+                    const dias = data.por_mes[mes];
+                    if (Array.isArray(dias)) {
+                        dias.forEach(dia => {
+                            const fechaStr = `${anio}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+                            temporadaMap.set(fechaStr, 'Día de temporada');
+                        });
+                    }
+                }
+            } else if (data.temporadas && Array.isArray(data.temporadas)) {
+                // Si no hay por_mes, intentar con temporadas (array de objetos con fecha)
+                data.temporadas.forEach(temp => {
+                    if (temp.fecha) {
+                        temporadaMap.set(temp.fecha, temp.descripcion || 'Día de temporada');
+                    }
+                });
+            }
+            
+            return temporadaMap;
+        })
+        .catch(error => {
+            console.error('Error cargando días de temporada:', error);
+            return new Map();
+        });
+}
+
+/**
+ * Marca días festivos en un calendario Flatpickr incluyendo días deshabilitados
+ * 
+ * @param {Object} instance - Instancia de Flatpickr
+ * @param {Map} festivosMap - Map con festivos (fecha -> descripción)
+ */
+function marcarFestivosEnCalendarioIncluyendoDeshabilitados(instance, festivosMap) {
+    if (!instance || !instance.calendarContainer || !festivosMap) {
+        return;
+    }
+    
+    const fechasFestivos = Array.from(festivosMap.keys());
+    // Incluir TODOS los días, incluso los deshabilitados
+    const dayElements = instance.calendarContainer.querySelectorAll('.flatpickr-day');
+    
+    dayElements.forEach(day => {
+        if (day.dateObj) {
+            const dayDate = new Date(day.dateObj);
+            const dayDateStr = dayDate.toISOString().split('T')[0];
+            
+            if (fechasFestivos.includes(dayDateStr)) {
+                // Es festivo: agregar clase y actualizar tooltip
+                day.classList.add('festivo');
+                day.title = festivosMap.get(dayDateStr) || 'Día festivo';
+            } else {
+                // No es festivo: remover clase si existe (por si cambió de mes/año)
+                day.classList.remove('festivo');
+            }
+        }
+    });
+}
+
+/**
+ * Marca días de mantenimiento en un calendario Flatpickr incluyendo días deshabilitados
+ * 
+ * @param {Object} instance - Instancia de Flatpickr
+ * @param {Map} mantenimientoMap - Map con días de mantenimiento (fecha -> descripción)
+ */
+function marcarMantenimientoEnCalendarioIncluyendoDeshabilitados(instance, mantenimientoMap) {
+    if (!instance || !instance.calendarContainer || !mantenimientoMap) {
+        return;
+    }
+    
+    const fechasMantenimiento = Array.from(mantenimientoMap.keys());
+    // Incluir TODOS los días, incluso los deshabilitados
+    const dayElements = instance.calendarContainer.querySelectorAll('.flatpickr-day');
+    
+    dayElements.forEach(day => {
+        if (day.dateObj) {
+            const dayDate = new Date(day.dateObj);
+            const dayDateStr = dayDate.toISOString().split('T')[0];
+            
+            if (fechasMantenimiento.includes(dayDateStr)) {
+                // Es día de mantenimiento: agregar clase y actualizar tooltip
+                day.classList.add('mantenimiento');
+                const descripcion = mantenimientoMap.get(dayDateStr) || 'Día de mantenimiento';
+                
+                // Si ya tiene un title (festivo), agregar información de mantenimiento
+                const titleActual = day.title || '';
+                if (titleActual && !titleActual.includes(descripcion)) {
+                    day.title = titleActual + ' | ' + descripcion;
+                } else if (!titleActual) {
+                    day.title = descripcion;
+                }
+            } else {
+                // No es día de mantenimiento: remover clase si existe (por si cambió de mes/año)
+                day.classList.remove('mantenimiento');
+                
+                // Limpiar tooltip de mantenimiento si existe, pero mantener festivo si hay
+                const titleActual = day.title || '';
+                if (titleActual.includes(' | ')) {
+                    const partes = titleActual.split(' | ');
+                    const parteFestivo = partes.find(p => !p.includes('mantenimiento'));
+                    day.title = parteFestivo || titleActual.replace(/ \| .*mantenimiento.*/i, '');
+                } else if (titleActual.toLowerCase().includes('mantenimiento')) {
+                    day.title = '';
+                }
+            }
+        }
+    });
+}
+
+/**
+ * Marca días de temporada en un calendario Flatpickr
+ * 
+ * @param {Object} instance - Instancia de Flatpickr
+ * @param {Map} temporadaMap - Map con días de temporada (fecha -> descripción)
+ */
+function marcarTemporadaEnCalendario(instance, temporadaMap) {
+    if (!instance || !instance.calendarContainer || !temporadaMap) {
+        return;
+    }
+    
+    const fechasTemporada = Array.from(temporadaMap.keys());
+    // Incluir TODOS los días, incluso los deshabilitados (temporada no bloquea, solo marca)
+    const dayElements = instance.calendarContainer.querySelectorAll('.flatpickr-day');
+    
+    dayElements.forEach(day => {
+        if (day.dateObj) {
+            const dayDate = new Date(day.dateObj);
+            const dayDateStr = dayDate.toISOString().split('T')[0];
+            
+            if (fechasTemporada.includes(dayDateStr)) {
+                // Es día de temporada: agregar clase y actualizar tooltip
+                day.classList.add('temporada');
+                const descripcion = temporadaMap.get(dayDateStr) || 'Día de temporada';
+                
+                // Si ya tiene un title (festivo o mantenimiento), agregar información de temporada
+                const titleActual = day.title || '';
+                if (titleActual && !titleActual.includes(descripcion)) {
+                    day.title = titleActual + ' | ' + descripcion;
+                } else if (!titleActual) {
+                    day.title = descripcion;
+                }
+            } else {
+                // No es día de temporada: remover clase si existe
+                day.classList.remove('temporada');
+                
+                // Limpiar tooltip de temporada si existe, pero mantener otros si hay
+                const titleActual = day.title || '';
+                if (titleActual.includes(' | ')) {
+                    const partes = titleActual.split(' | ');
+                    const partesFiltradas = partes.filter(p => !p.toLowerCase().includes('temporada'));
+                    day.title = partesFiltradas.join(' | ');
+                } else if (titleActual.toLowerCase().includes('temporada')) {
+                    day.title = '';
+                }
+            }
+        }
+    });
+}
+
+/**
  * Inicializa un datepicker Flatpickr con festivos marcados
  * 
  * @param {Object} config - Configuración del datepicker
@@ -321,7 +498,8 @@ function inicializarDatepickerFestivos(config) {
         onDateChange = null,
         indicadorFestivo = null,
         descripcionFestivo = null,
-        flatpickrOptions = {}
+        flatpickrOptions = {},
+        bloquearDiasEspeciales = false
     } = config;
     
     if (!input) {
@@ -332,11 +510,15 @@ function inicializarDatepickerFestivos(config) {
     // Obtener fecha mínima del atributo data o del parámetro
     const fechaMinima = minDate || input.getAttribute('data-min-date') || new Date().toISOString().split('T')[0];
     
-    // Cargar festivos y mantenimiento en paralelo
+    // Obtener año para cargar temporadas
+    const añoActual = new Date().getFullYear();
+    
+    // Cargar festivos, mantenimiento y temporadas en paralelo
     return Promise.all([
         cargarDiasFestivos(),
-        cargarDiasMantenimiento()
-    ]).then(([festivosMap, mantenimientoMap]) => {
+        cargarDiasMantenimiento(),
+        cargarDiasTemporada(añoActual)
+    ]).then(([festivosMap, mantenimientoMap, temporadaMap]) => {
         // Configuración base de Flatpickr
         const opcionesBase = {
             locale: 'es',
@@ -352,17 +534,62 @@ function inicializarDatepickerFestivos(config) {
         // Variables para mantener los Maps actualizados (para uso en callbacks)
         let festivosMapActual = festivosMap;
         let mantenimientoMapActual = mantenimientoMap;
+        let temporadaMapActual = temporadaMap;
         
         // Función auxiliar para marcar todos los días especiales
+        // Si bloquearDiasEspeciales es true, marca también días deshabilitados
         const marcarTodosLosDiasEspeciales = (instance) => {
             // Usar un timeout más largo para asegurar que el DOM esté completamente renderizado
             setTimeout(() => {
                 if (instance && instance.calendarContainer) {
-                    marcarFestivosEnCalendario(instance, festivosMapActual);
-                    marcarMantenimientoEnCalendario(instance, mantenimientoMapActual);
+                    if (bloquearDiasEspeciales) {
+                        // Marcar incluyendo días deshabilitados
+                        marcarFestivosEnCalendarioIncluyendoDeshabilitados(instance, festivosMapActual);
+                        marcarMantenimientoEnCalendarioIncluyendoDeshabilitados(instance, mantenimientoMapActual);
+                        marcarTemporadaEnCalendario(instance, temporadaMapActual); // Temporada siempre incluye deshabilitados
+                    } else {
+                        // Marcar solo días habilitados (comportamiento normal)
+                        marcarFestivosEnCalendario(instance, festivosMapActual);
+                        marcarMantenimientoEnCalendario(instance, mantenimientoMapActual);
+                        marcarTemporadaEnCalendario(instance, temporadaMapActual);
+                    }
                 }
             }, 100);
         };
+        
+        // Si bloquearDiasEspeciales es true, configurar disable para bloquear domingos, festivos y mantenimiento
+        if (bloquearDiasEspeciales) {
+            const fechasFestivos = Array.from(festivosMap.keys());
+            const fechasMantenimiento = Array.from(mantenimientoMap.keys());
+            
+            // Agregar funciones de disable a las opciones base
+            if (!opcionesBase.disable) {
+                opcionesBase.disable = [];
+            }
+            
+            // Asegurar que disable sea un array
+            if (!Array.isArray(opcionesBase.disable)) {
+                opcionesBase.disable = [opcionesBase.disable];
+            }
+            
+            // Agregar funciones de bloqueo
+            opcionesBase.disable.push(
+                // Bloquear domingos
+                function(date) {
+                    return date.getDay() === 0; // Domingo
+                },
+                // Bloquear festivos
+                function(date) {
+                    const fechaStr = date.toISOString().split('T')[0];
+                    return fechasFestivos.includes(fechaStr);
+                },
+                // Bloquear días de mantenimiento
+                function(date) {
+                    const fechaStr = date.toISOString().split('T')[0];
+                    return fechasMantenimiento.includes(fechaStr);
+                }
+            );
+        }
         
         // Callbacks para marcar festivos y mantenimiento
         opcionesBase.onReady = function(selectedDates, dateStr, instance) {
@@ -404,7 +631,20 @@ function inicializarDatepickerFestivos(config) {
         };
         
         opcionesBase.onMonthChange = function(selectedDates, dateStr, instance) {
-            marcarTodosLosDiasEspeciales(instance);
+            // Verificar si el año cambió al cambiar el mes (ej: diciembre 2025 -> enero 2026)
+            const añoVisible = instance.currentYear;
+            const añoCargado = temporadaMapActual && temporadaMapActual.size > 0 ? 
+                parseInt(Array.from(temporadaMapActual.keys())[0].split('-')[0]) : añoActual;
+            
+            // Si el año visible es diferente al año cargado, recargar temporadas
+            if (añoVisible !== añoCargado) {
+                cargarDiasTemporada(añoVisible).then(nuevaTemporada => {
+                    temporadaMapActual = nuevaTemporada;
+                    marcarTodosLosDiasEspeciales(instance);
+                });
+            } else {
+                marcarTodosLosDiasEspeciales(instance);
+            }
             
             // Ejecutar callback personalizado si existe
             if (flatpickrOptions.onMonthChange) {
@@ -416,24 +656,35 @@ function inicializarDatepickerFestivos(config) {
             const nuevoAño = instance.currentYear;
             const añoActual = new Date().getFullYear();
             
-            // Si el año está fuera del rango cargado, cargar festivos y mantenimiento para ese año
+            // Si el año está fuera del rango cargado, cargar festivos, mantenimiento y temporadas para ese año
             if (nuevoAño < añoActual - 1 || nuevoAño > añoActual + 10) {
                 Promise.all([
                     cargarDiasFestivos(nuevoAño),
-                    cargarDiasMantenimiento(nuevoAño)
-                ]).then(([nuevosFestivos, nuevoMantenimiento]) => {
+                    cargarDiasMantenimiento(nuevoAño),
+                    cargarDiasTemporada(nuevoAño)
+                ]).then(([nuevosFestivos, nuevoMantenimiento, nuevaTemporada]) => {
                     // Actualizar los Maps (tanto locales como actuales)
                     festivosMap = nuevosFestivos;
                     mantenimientoMap = nuevoMantenimiento;
+                    temporadaMap = nuevaTemporada;
                     festivosMapActual = nuevosFestivos;
                     mantenimientoMapActual = nuevoMantenimiento;
+                    temporadaMapActual = nuevaTemporada;
                     
                     // Re-marcar todos los días especiales
                     marcarTodosLosDiasEspeciales(instance);
                 });
             } else {
-                // Re-marcar días especiales del año actual
-                marcarTodosLosDiasEspeciales(instance);
+                // Cargar temporadas para el nuevo año si cambió
+                if (nuevoAño !== añoActual) {
+                    cargarDiasTemporada(nuevoAño).then(nuevaTemporada => {
+                        temporadaMapActual = nuevaTemporada;
+                        marcarTodosLosDiasEspeciales(instance);
+                    });
+                } else {
+                    // Re-marcar días especiales del año actual
+                    marcarTodosLosDiasEspeciales(instance);
+                }
             }
             
             // Ejecutar callback personalizado si existe
@@ -444,6 +695,23 @@ function inicializarDatepickerFestivos(config) {
         
         // Inicializar Flatpickr
         const flatpickrInstance = flatpickr(input, opcionesBase);
+        
+        // Cargar temporadas para el año inicial del calendario si es diferente al año actual
+        // Esto es importante si el calendario muestra un año diferente (ej: diciembre 2025 -> enero 2026)
+        setTimeout(() => {
+            if (flatpickrInstance && flatpickrInstance.calendarContainer) {
+                const añoInicial = flatpickrInstance.currentYear || añoActual;
+                if (añoInicial !== añoActual) {
+                    cargarDiasTemporada(añoInicial).then(nuevaTemporada => {
+                        temporadaMapActual = nuevaTemporada;
+                        marcarTodosLosDiasEspeciales(flatpickrInstance);
+                    });
+                } else {
+                    // Asegurar que se marquen las temporadas incluso si el calendario ya está renderizado
+                    marcarTodosLosDiasEspeciales(flatpickrInstance);
+                }
+            }
+        }, 200);
         
         // Si hay fecha inicial, establecerla
         if (input.value) {
@@ -467,9 +735,11 @@ window.DatepickerFestivos = {
     inicializar: inicializarDatepickerFestivos,
     cargarDiasFestivos: cargarDiasFestivos,
     cargarDiasMantenimiento: cargarDiasMantenimiento,
+    cargarDiasTemporada: cargarDiasTemporada,
     verificarDiaFestivo: verificarDiaFestivo,
     verificarDiaMantenimiento: verificarDiaMantenimiento,
     marcarFestivosEnCalendario: marcarFestivosEnCalendario,
-    marcarMantenimientoEnCalendario: marcarMantenimientoEnCalendario
+    marcarMantenimientoEnCalendario: marcarMantenimientoEnCalendario,
+    marcarTemporadaEnCalendario: marcarTemporadaEnCalendario
 };
 
