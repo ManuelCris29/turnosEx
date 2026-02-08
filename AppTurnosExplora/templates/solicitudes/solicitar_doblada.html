@@ -9,6 +9,16 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
 <style>
+    /* Ocultar días de mes anterior/siguiente SIN romper la cuadrícula.
+       Usar visibility: hidden (no display: none) para que las celdas sigan ocupando
+       espacio y Lun–Dom sigan alineados con las columnas. */
+    .flatpickr-day.prevMonthDay,
+    .flatpickr-day.nextMonthDay,
+    .flatpickr-day.flatpickr-prevMonth,
+    .flatpickr-day.flatpickr-nextMonth {
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
     /* Estilos personalizados para días festivos en Flatpickr */
     .flatpickr-day.festivo {
         background-color: #ff6b6b !important;
@@ -31,7 +41,22 @@
         right: 2px;
         font-size: 10px;
     }
-    /* Estilos para domingos (bloqueados) */
+    /* Estilos para domingos (bloqueados): distintivo para que se vea que es domingo */
+    .flatpickr-day.flatpickr-disabled.domingo {
+        background-color: #e0e0e0 !important;
+        color: #757575 !important;
+        cursor: not-allowed !important;
+    }
+    .flatpickr-day.flatpickr-disabled.domingo::after {
+        content: 'D';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 9px;
+        font-weight: bold;
+        color: #757575;
+    }
+    /* Resto de días bloqueados sin otro distintivo (fallback) */
     .flatpickr-day.flatpickr-disabled {
         background-color: #f5f5f5 !important;
         color: #ccc !important;
@@ -389,6 +414,33 @@
                     <small class="form-text text-muted">
                         <strong>Obligatorio:</strong> Fecha en que devolverás la doblada. Debe ser posterior a la fecha de creación de la solicitud. <strong>No se permiten domingos, festivos ni días de mantenimiento.</strong>
                     </small>
+
+                    <!-- Aviso cuando el sábado de pago ya te corresponde trabajar por alternancia (no hay que elegir jornada) -->
+                    <div id="mensaje_no_necesario_pago_sabado" class="mt-3" style="display: none;">
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-info-circle mr-2"></i>
+                            <strong>No es necesario seleccionar jornada:</strong> Por la regla de alternancia de fines de semana, ese sábado ya te corresponde trabajar. La doblada se devuelve en tu jornada habitual de ese día.
+                        </div>
+                    </div>
+                    <!-- Selección de jornada cuando la fecha de pago es sábado y NO te corresponde trabajar (regla especial) -->
+                    <div id="opciones_pago_sabado" class="mt-3" style="display: none;">
+                        <div class="alert alert-warning mb-2">
+                            <strong>Pago en Sábado:</strong> Selecciona qué jornada trabajarás ese sábado (AM o PM).
+                            El receptor trabajará la jornada contraria (la que queda disponible).
+                        </div>
+                        <label class="mb-1">
+                            <i class="fas fa-clock mr-1"></i>Jornada que trabajarás el sábado <span class="text-danger">*</span>
+                        </label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="jornada_pago_sabado" id="jornada_pago_sabado_am" value="AM">
+                            <label class="form-check-label" for="jornada_pago_sabado_am">AM (Mañana)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="jornada_pago_sabado" id="jornada_pago_sabado_pm" value="PM">
+                            <label class="form-check-label" for="jornada_pago_sabado_pm">PM (Tarde)</label>
+                        </div>
+                    </div>
+
                     <!-- Indicador de día festivo -->
                     <div id="indicador_festivo_pago" class="mt-2" style="display: none;">
                         <div class="alert alert-danger mb-0 py-2">

@@ -44,6 +44,9 @@
     const indicadorFestivoPago = document.getElementById('indicador_festivo_pago');
     const indicadorMantenimientoPago = document.getElementById('indicador_mantenimiento_pago');
     const indicadorDomingoPago = document.getElementById('indicador_domingo_pago');
+    const opcionesPagoSabado = document.getElementById('opciones_pago_sabado');
+    const mensajeNoNecesarioPagoSabado = document.getElementById('mensaje_no_necesario_pago_sabado');
+    const jornadaPagoSabadoRadios = document.querySelectorAll('input[name="jornada_pago_sabado"]');
     
     // Variables globales
     let flatpickrCesion = null;
@@ -70,26 +73,52 @@
     const salasReceptorPagoDetalles = document.getElementById('salas_receptor_pago_detalles');
     
     /**
-     * Función reutilizable para renderizar turno y salas de manera ordenada
+     * Función reutilizable para renderizar turno y salas de manera ordenada.
+     * @param {Object|null} turno - Datos del turno o null
+     * @param {HTMLElement} detallesElem - Contenedor de detalles de jornada
+     * @param {HTMLElement} salasElem - Contenedor de salas
+     * @param {boolean} esDoblada - Si tiene doblada (AM+PM)
+     * @param {string[]} jornadas - Lista de jornadas
+     * @param {{ contexto?: 'solicitante'|'receptor' }} opciones - Si contexto es 'receptor' y no hay turno, se muestra estado "Descanso"
      */
-    function renderTurnoYSalas(turno, detallesElem, salasElem, esDoblada = false, jornadas = []) {
+    function renderTurnoYSalas(turno, detallesElem, salasElem, esDoblada = false, jornadas = [], opciones = {}) {
         if (!turno) {
-            detallesElem.innerHTML = `
-                <div class="card mb-3">
-                    <div class="card-body text-center">
-                        <i class="fas fa-exclamation-triangle text-warning"></i>
-                        <span class="text-muted">No tiene jornada asignada para esta fecha</span>
+            if (opciones.contexto === 'receptor') {
+                // Estado profesional: el receptor está en día de descanso
+                detallesElem.innerHTML = `
+                    <div class="card mb-3 border-secondary">
+                        <div class="card-body text-center py-4">
+                            <i class="fas fa-moon text-secondary fa-2x mb-2" aria-hidden="true"></i>
+                            <p class="mb-1 font-weight-bold text-secondary">Descanso</p>
+                            <p class="mb-0 small text-muted">El receptor no tiene jornada asignada para esta fecha. Corresponde su día de descanso según su turno.</p>
+                        </div>
                     </div>
-                </div>
-            `;
-            salasElem.innerHTML = `
-                <div class="card mb-3">
-                    <div class="card-body text-center">
-                        <i class="fas fa-exclamation-triangle text-warning"></i>
-                        <span class="text-muted">No tiene salas asignadas</span>
+                `;
+                salasElem.innerHTML = `
+                    <div class="card mb-3 border-0 bg-light">
+                        <div class="card-body py-2 text-center">
+                            <span class="text-muted small">Sin asignación — día de descanso</span>
+                        </div>
                     </div>
-                </div>
-            `;
+                `;
+            } else {
+                detallesElem.innerHTML = `
+                    <div class="card mb-3">
+                        <div class="card-body text-center">
+                            <i class="fas fa-exclamation-triangle text-warning"></i>
+                            <span class="text-muted">No tiene jornada asignada para esta fecha</span>
+                        </div>
+                    </div>
+                `;
+                salasElem.innerHTML = `
+                    <div class="card mb-3">
+                        <div class="card-body text-center">
+                            <i class="fas fa-exclamation-triangle text-warning"></i>
+                            <span class="text-muted">No tiene salas asignadas</span>
+                        </div>
+                    </div>
+                `;
+            }
             return;
         }
         
@@ -156,6 +185,31 @@
     function esDomingo(fecha) {
         const fechaObj = new Date(fecha + 'T00:00:00');
         return fechaObj.getDay() === 0; // 0 = Domingo
+    }
+
+    /**
+     * Verificar si una fecha es sábado
+     */
+    function esSabado(fecha) {
+        const fechaObj = new Date(fecha + 'T00:00:00');
+        return fechaObj.getDay() === 6; // 6 = Sábado
+    }
+
+    function limpiarSeleccionPagoSabado() {
+        if (jornadaPagoSabadoRadios && jornadaPagoSabadoRadios.length > 0) {
+            jornadaPagoSabadoRadios.forEach(r => { r.checked = false; });
+        }
+    }
+
+    function mostrarOpcionesPagoSabado(mostrar) {
+        if (!opcionesPagoSabado) return;
+        opcionesPagoSabado.style.display = mostrar ? 'block' : 'none';
+        if (!mostrar) limpiarSeleccionPagoSabado();
+    }
+
+    function mostrarMensajeNoNecesarioPagoSabado(mostrar) {
+        if (!mensajeNoNecesarioPagoSabado) return;
+        mensajeNoNecesarioPagoSabado.style.display = mostrar ? 'block' : 'none';
     }
     
     /**
@@ -282,8 +336,8 @@
     }
     
     /**
-     * Bloquear domingos, festivos y días de mantenimiento en Flatpickr
-     * También marca visualmente estos días en el calendario
+     * Bloquear domingos, festivos, mantenimiento y temporada en Flatpickr.
+     * Marca visualmente los días especiales (colores distintivos se mantienen).
      */
     function bloquearDiasEspeciales(instance) {
         if (!instance) return;
@@ -311,25 +365,23 @@
             instance._diasEspecialesMaps.mantenimiento = mantenimientoMap;
             instance._diasEspecialesMaps.temporada = temporadaMap;
             
-            // Convertir Maps a arrays de fechas
             const fechasFestivos = Array.from(festivosMap.keys());
             const fechasMantenimiento = Array.from(mantenimientoMap.keys());
-            
-            // Configurar disable en Flatpickr
+            const fechasTemporada = Array.from(temporadaMap.keys());
+
             instance.set('disable', [
-                // Bloquear domingos
-                function(date) {
-                    return date.getDay() === 0; // Domingo
-                },
-                // Bloquear festivos
+                function(date) { return date.getDay() === 0; },
                 function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasFestivos.includes(fechaStr);
                 },
-                // Bloquear días de mantenimiento
                 function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasMantenimiento.includes(fechaStr);
+                },
+                function(date) {
+                    const fechaStr = date.toISOString().split('T')[0];
+                    return fechasTemporada.includes(fechaStr);
                 }
             ]);
             
@@ -555,14 +607,15 @@
                 // Cargar jornada del solicitante
                 cargarJornadaSolicitante(fecha);
                 
-                // Cargar exploradores disponibles
-                // Si es cesión total, cargar para AM y PM; si no, cargar normal
+                // Cargar exploradores disponibles (quien te cubrirá trabaja en la fecha de pago)
                 const esCesionTotal = document.querySelector('input[name="tipo_cesion_opcion"]:checked')?.value === 'total';
                 if (esCesionTotal && tieneDobladaExistente) {
                     cargarExploradoresDisponibles(fecha, 'AM', empleadoReceptorAM);
                     cargarExploradoresDisponibles(fecha, 'PM', empleadoReceptorPM);
                 } else {
-                    cargarExploradoresDisponibles(fecha);
+                    // Cesión parcial: usar fecha de pago si está elegida (el receptor trabaja ese día)
+                    const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fecha;
+                    cargarExploradoresDisponibles(fechaParaLista);
                 }
             }
         }).then(instance => {
@@ -574,7 +627,8 @@
             if (fechaInicial) {
                 verificarDobladaExistente(fechaInicial);
                 cargarJornadaSolicitante(fechaInicial);
-                cargarExploradoresDisponibles(fechaInicial);
+                const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fechaInicial;
+                cargarExploradoresDisponibles(fechaParaLista);
             }
         }).catch(error => {
             console.error('Error inicializando datepicker de cesión:', error);
@@ -605,9 +659,16 @@
                 if (esDomingo(fecha)) {
                     indicadorDomingoPago.style.display = 'block';
                     fechaPagoInput.value = '';
+                    mostrarOpcionesPagoSabado(false);
                     return;
                 } else {
                     indicadorDomingoPago.style.display = 'none';
+                }
+
+                // Si es sábado, cargarJornadaSolicitantePago decidirá si mostrar selector o mensaje "no necesario"
+                if (!esSabado(fecha)) {
+                    mostrarOpcionesPagoSabado(false);
+                    mostrarMensajeNoNecesarioPagoSabado(false);
                 }
                 
                 // Verificar si es día de mantenimiento
@@ -644,6 +705,12 @@
                 const empleadoReceptorId = empleadoReceptorSelect.value;
                 if (empleadoReceptorId) {
                     cargarJornadaReceptorPago(empleadoReceptorId, fecha);
+                }
+                
+                // Cesión parcial: recargar "Compañero que te cubrirá" con la fecha de pago
+                // (si es sábado, el backend devuelve solo quienes trabajan ese sábado)
+                if (receptorParcial && receptorParcial.style.display !== 'none' && fechaCesionInput.value) {
+                    cargarExploradoresDisponibles(fecha);
                 }
                 
                 // Actualizar vista previa
@@ -819,7 +886,7 @@
                     data.jornadas || []
                 );
             } else {
-                renderTurnoYSalas(null, turnoReceptorDetalles, salasReceptorDetalles, false, []);
+                renderTurnoYSalas(null, turnoReceptorDetalles, salasReceptorDetalles, false, [], { contexto: 'receptor' });
             }
         })
         .catch(error => {
@@ -873,16 +940,39 @@
         .then(response => response.json())
         .then(data => {
             if (data.success && data.turno) {
-                // CORRECCIÓN: Pasar información de doblada
+                // Incluir doblada de sábado (backend devuelve jornada 'DOBLADA' cuando corresponde por alternancia)
+                const esDoblada = data.es_doblada || (data.turno.jornada === 'DOBLADA');
+                const jornadas = (data.jornadas && data.jornadas.length) ? data.jornadas : (data.turno.jornada === 'DOBLADA' ? ['AM', 'PM'] : []);
                 renderTurnoYSalas(
                     data.turno, 
                     turnoSolicitantePagoDetalles, 
                     salasSolicitantePagoDetalles,
-                    data.es_doblada || false,
-                    data.jornadas || []
+                    esDoblada,
+                    jornadas
                 );
             } else {
                 renderTurnoYSalas(null, turnoSolicitantePagoDetalles, salasSolicitantePagoDetalles, false, []);
+            }
+            // Regla doblada: si la fecha de pago es sábado, mostrar selector solo si NO te corresponde trabajar ese sábado por alternancia
+            if (data.jornada_trabaja_sabado !== undefined) {
+                const correspondeTrabajarSabado = data.turno && (
+                    data.turno.jornada === data.jornada_trabaja_sabado ||
+                    data.turno.jornada === 'DOBLADA'
+                );
+                if (correspondeTrabajarSabado) {
+                    mostrarOpcionesPagoSabado(false);
+                    mostrarMensajeNoNecesarioPagoSabado(true);
+                    // Marcar la jornada que corresponde (para que el backend reciba jornada_pago_sabado al enviar)
+                    const radioAuto = document.querySelector(`input[name="jornada_pago_sabado"][value="${data.jornada_trabaja_sabado}"]`);
+                    if (radioAuto) radioAuto.checked = true;
+                } else {
+                    mostrarOpcionesPagoSabado(true);
+                    mostrarMensajeNoNecesarioPagoSabado(false);
+                    limpiarSeleccionPagoSabado();
+                }
+            } else {
+                mostrarOpcionesPagoSabado(false);
+                mostrarMensajeNoNecesarioPagoSabado(false);
             }
         })
         .catch(error => {
@@ -945,7 +1035,7 @@
                     data.jornadas || []
                 );
             } else {
-                renderTurnoYSalas(null, turnoReceptorPagoDetalles, salasReceptorPagoDetalles, false, []);
+                renderTurnoYSalas(null, turnoReceptorPagoDetalles, salasReceptorPagoDetalles, false, [], { contexto: 'receptor' });
             }
         })
         .catch(error => {
@@ -1061,7 +1151,7 @@
                 if (data.success && data.turno) {
                     renderTurnoYSalas(data.turno, detallesDiv, salasDiv, data.es_doblada || false, data.jornadas || []);
                 } else {
-                    renderTurnoYSalas(null, detallesDiv, salasDiv, false, []);
+                    renderTurnoYSalas(null, detallesDiv, salasDiv, false, [], { contexto: 'receptor' });
                 }
             })
             .catch(error => {
@@ -1095,7 +1185,7 @@
                 if (data.success && data.turno) {
                     renderTurnoYSalas(data.turno, detallesDiv, salasDiv, data.es_doblada || false, data.jornadas || []);
                 } else {
-                    renderTurnoYSalas(null, detallesDiv, salasDiv, false, []);
+                    renderTurnoYSalas(null, detallesDiv, salasDiv, false, [], { contexto: 'receptor' });
                 }
             })
             .catch(error => {
@@ -1253,8 +1343,10 @@
      * Cargar exploradores disponibles para doblada
      */
     /**
-     * Cargar exploradores disponibles para la fecha seleccionada
-     * @param {string} fecha - Fecha de cesión
+     * Cargar exploradores disponibles para "Compañero que te cubrirá".
+     * Usa la fecha en la que el receptor trabajará (fecha de pago cuando aplique).
+     * Si la fecha es sábado, el backend devuelve solo quienes trabajan ese sábado (alternancia).
+     * @param {string} fecha - Fecha para la que se buscan compañeros (cesión o fecha de pago)
      * @param {string} jornada - Jornada específica ('AM' o 'PM') para cesión total (opcional)
      * @param {HTMLElement} selectElement - Elemento select donde cargar (opcional, por defecto empleadoReceptorSelect)
      */
@@ -1502,9 +1594,10 @@
             if (fechaPagoAM) fechaPagoAM.value = '';
             if (fechaPagoPM) fechaPagoPM.value = '';
             
-            // Cargar exploradores para cesión parcial
+            // Cargar exploradores para cesión parcial (usar fecha de pago si está elegida)
             if (fechaCesionInput && fechaCesionInput.value) {
-                cargarExploradoresDisponibles(fechaCesionInput.value);
+                const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fechaCesionInput.value;
+                cargarExploradoresDisponibles(fechaParaLista);
             }
         }
         
@@ -1518,9 +1611,10 @@
         radio.addEventListener('change', function() {
             if (this.checked) {
                 tipoCesionHidden.value = `cesion_parcial_${this.value.toLowerCase()}`;
-                // Recargar exploradores disponibles con la nueva jornada
-                if (fechaCesionInput.value) {
-                    cargarExploradoresDisponibles(fechaCesionInput.value);
+                // Recargar exploradores disponibles (fecha de pago si existe, sino fecha de cesión)
+                const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fechaCesionInput.value;
+                if (fechaParaLista) {
+                    cargarExploradoresDisponibles(fechaParaLista);
                 }
                 actualizarVistaPrevia();
             }
@@ -1667,7 +1761,38 @@
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
             }
         })
-        .then(response => response.json())
+        .then(async response => {
+            // Intentar parsear el JSON siempre, incluso si response.ok es false
+            let data;
+            try {
+                const text = await response.text();
+                if (text) {
+                    data = JSON.parse(text);
+                } else {
+                    data = { success: false, error: `Error ${response.status}: ${response.statusText}` };
+                }
+            } catch (e) {
+                // Si no se puede parsear, crear objeto de error genérico
+                data = { 
+                    success: false, 
+                    error: `Error ${response.status}: ${response.statusText}`,
+                    message: `Error ${response.status}: ${response.statusText}`
+                };
+            }
+            
+            // Si la respuesta no es OK, lanzar error con los datos parseados
+            if (!response.ok) {
+                const errorMessage = data.error || data.message || `Error ${response.status}: ${response.statusText}`;
+                const errorObj = {
+                    ...data,
+                    status: response.status,
+                    statusText: response.statusText
+                };
+                throw errorObj;
+            }
+            
+            return data;
+        })
         .then(data => {
             // Verificar si requiere cambio de turno previo (caso crítico)
             if (data.code === 'requiere_cambio_turno_previo') {
@@ -1781,10 +1906,35 @@
         })
         .catch(error => {
             console.error('Error enviando solicitud:', error);
+            let mensajeError = 'Error al enviar la solicitud. Por favor, intenta nuevamente.';
+            
+            // Si el error es un objeto (del throw que hicimos arriba)
+            if (typeof error === 'object' && error !== null) {
+                // Prioridad: error > message > statusText
+                mensajeError = error.error || error.message || error.statusText || mensajeError;
+                
+                // Si tiene código especial, manejarlo
+                if (error.code === 'requiere_cambio_turno_previo') {
+                    // Este caso ya se maneja arriba, pero por si acaso
+                    return;
+                }
+            } else if (typeof error === 'string') {
+                mensajeError = error;
+            } else if (error.message) {
+                // Intentar parsear si viene como string JSON
+                try {
+                    const errorData = JSON.parse(error.message);
+                    mensajeError = errorData.error || errorData.message || mensajeError;
+                } catch (e) {
+                    mensajeError = error.message;
+                }
+            }
+            
             Swal.fire({
                 icon: 'error',
                 title: 'Error',
-                text: 'Error al enviar la solicitud. Por favor, intenta nuevamente.'
+                text: mensajeError,
+                width: '600px'
             });
         });
     }
@@ -1871,6 +2021,15 @@
             }
             if (!fechaPagoInput || !fechaPagoInput.value) {
                 erroresValidacion.push('Fecha de pago es requerida');
+            }
+
+            // Si la fecha de pago es sábado y se muestra el selector (no te corresponde trabajar ese sábado por alternancia), exigir selección
+            if (fechaPagoInput && fechaPagoInput.value && esSabado(fechaPagoInput.value) &&
+                opcionesPagoSabado && opcionesPagoSabado.style.display !== 'none') {
+                const jornadaPagoSabadoSel = form.querySelector('input[name="jornada_pago_sabado"]:checked');
+                if (!jornadaPagoSabadoSel) {
+                    erroresValidacion.push('Debes seleccionar qué jornada trabajarás el sábado (AM o PM)');
+                }
             }
             
             // Validar jornada a ceder si hay doblada existente

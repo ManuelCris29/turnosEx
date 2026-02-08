@@ -85,6 +85,9 @@ class CambioTurnoStrategy(SolicitudStrategy):
             # 3. Validar que no sea domingo (no se puede cambiar domingo por día de semana)
             SolicitudValidator.validar_no_domingo_por_semana(fecha, es_cambio_permanente=False)
             
+            # 3.1. Validar que no sea sábado (no se puede cambiar sábado por día de semana)
+            SolicitudValidator.validar_no_sabado_ct_sencillo(fecha)
+            
             # 4. Validar que el solicitante no tenga doblada activa para esa fecha
             SolicitudValidator.validar_no_doblada_activa(explorador_solicitante, fecha)
             

@@ -1,4 +1,4 @@
-﻿from django.shortcuts import render, get_object_or_404
+from django.shortcuts import render, get_object_or_404
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -598,6 +598,11 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict else [])
             }
             
+            # Si la fecha es sábado, incluir qué jornada trabaja ese sábado por alternancia (para doblada: ocultar selector si el solicitante ya corresponde trabajar)
+            if fecha_obj.weekday() == 5:
+                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                response_data['jornada_trabaja_sabado'] = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+            
             return json_ok(response_data)
         except Exception as e:
             logger.exception('Error en ObtenerTurnoExploradorView')
@@ -966,6 +971,7 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                 # Para DOBLADA, capturar fecha_pago y otros campos
                 fecha_pago = request.POST.get('fecha_pago')
                 jornada_cedida = request.POST.get('jornada_cedida')  # 'AM' o 'PM' (opcional)
+                jornada_pago_sabado = request.POST.get('jornada_pago_sabado')  # 'AM' o 'PM' (si fecha_pago es sábado)
                 tipo_cesion = request.POST.get('tipo_cesion', 'cesion_completa')
                 
                 # CORRECCIÓN: Inferir jornada_cedida si no se proporcionó
@@ -1131,8 +1137,19 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                         'fecha_cambio_turno': fecha_solicitud,  # Fecha de cesión
                         'fecha_pago': fecha_pago,
                         'jornada_cedida': jornada_cedida,
+                        'jornada_pago_sabado': jornada_pago_sabado,
                         'tipo_cesion': tipo_cesion,
                         'fecha_creacion_solicitud': timezone.now().date()  # Para validación de fecha_pago
+                    })
+                    
+                    # Log para debugging
+                    logger.info("Datos de solicitud DOBLADA preparados", extra={
+                        'fecha_cesion': fecha_solicitud,
+                        'fecha_pago': fecha_pago,
+                        'jornada_cedida': jornada_cedida,
+                        'jornada_pago_sabado': jornada_pago_sabado,
+                        'tipo_cesion': tipo_cesion,
+                        'receptor_id': empleado_receptor.id if empleado_receptor else None
                     })
             else:
                 # Para otros tipos, usar fecha_solicitud
@@ -1168,6 +1185,14 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     
                     # Validar la solicitud usando el Factory
                     es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
+                    
+                    logger.info("Resultado de validación DOBLADA", extra={
+                        'es_valida': es_valida,
+                        'mensaje': mensaje[:200] if mensaje else None,  # Limitar longitud del mensaje
+                        'fecha_cesion': datos_solicitud.get('fecha_cambio_turno'),
+                        'fecha_pago': datos_solicitud.get('fecha_pago'),
+                        'jornada_pago_sabado': datos_solicitud.get('jornada_pago_sabado')
+                    })
                     
                     if not es_valida:
                         # Verificar si es el caso crítico de coincidencia de jornadas (DOBLADA)
@@ -1850,16 +1875,68 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             from datetime import datetime
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             
-            # Buscar solicitudes donde el usuario está involucrado
+            # PRIMERO: Verificar si tiene turnos en esa fecha (doblada real)
+            # Esto detecta si el usuario tiene AM+PM o una jornada, independientemente
+            # de si es solicitante o receptor de una doblada
+            from turnos.models import Turno
+            turnos = Turno.objects.filter(
+                explorador=usuario_actual,
+                fecha=fecha_obj
+            ).select_related('jornada')
+            
+            jornadas = [t.jornada.nombre.upper() for t in turnos if t.jornada]
+            
+            # Si tiene turnos (AM+PM o una jornada), puede ceder parte de su doblada
+            if jornadas:
+                # Verificar contexto: si es solicitante o receptor para el mensaje
+                doblada_como_solicitante = SolicitudCambio.objects.filter(
+                    explorador_solicitante=usuario_actual,
+                    tipo_cambio__nombre='DOBLADA',
+                    fecha_cambio_turno=fecha_obj,
+                    estado='aprobada'
+                ).first()
+                
+                doblada_como_receptor = SolicitudCambio.objects.filter(
+                    explorador_receptor=usuario_actual,
+                    tipo_cambio__nombre='DOBLADA',
+                    doblada__fecha_pago=fecha_obj,  # ✅ CORRECTO: fecha_pago para receptor
+                    estado='aprobada'
+                ).select_related('doblada').first()
+                
+                # VALIDACIÓN DE INTEGRIDAD: Detectar inconsistencias
+                datos_inconsistentes = False
+                mensaje_inconsistencia = None
+                
+                # Si tiene turnos pero no hay solicitud de doblada relacionada, puede ser inconsistencia
+                # (aunque también puede ser una doblada asignada directamente)
+                if not doblada_como_solicitante and not doblada_como_receptor:
+                    # Puede ser una doblada asignada directamente, no es necesariamente inconsistencia
+                    pass
+                
+                mensaje = mensaje_inconsistencia if datos_inconsistentes else (
+                    f'Tienes una doblada aprobada ({", ".join(jornadas)}). Puedes ceder una o ambas jornadas.'
+                )
+                
+                solicitud_id = None
+                if doblada_como_solicitante:
+                    solicitud_id = doblada_como_solicitante.id
+                elif doblada_como_receptor:
+                    solicitud_id = doblada_como_receptor.id
+                
+                return json_ok({
+                    'tiene_doblada': True,
+                    'esta_descansando': False,
+                    'puede_ceder': not datos_inconsistentes,
+                    'jornadas': jornadas,
+                    'mensaje': mensaje,
+                    'solicitud_id': solicitud_id,
+                    'datos_inconsistentes': datos_inconsistentes,
+                    'requiere_atencion_admin': datos_inconsistentes
+                })
+            
+            # Si NO tiene turnos, verificar si es solicitante (está descansando)
             doblada_como_solicitante = SolicitudCambio.objects.filter(
                 explorador_solicitante=usuario_actual,
-                tipo_cambio__nombre='DOBLADA',
-                fecha_cambio_turno=fecha_obj,
-                estado='aprobada'
-            ).first()
-            
-            doblada_como_receptor = SolicitudCambio.objects.filter(
-                explorador_receptor=usuario_actual,
                 tipo_cambio__nombre='DOBLADA',
                 fecha_cambio_turno=fecha_obj,
                 estado='aprobada'
@@ -1876,57 +1953,47 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     'solicitud_id': doblada_como_solicitante.id
                 })
             
-            # CASO 2: Usuario cubre a otro → tiene doblada
+            # CASO 2: Usuario cubre a otro → tiene doblada (pero sin turnos, inconsistencia)
+            doblada_como_receptor = SolicitudCambio.objects.filter(
+                explorador_receptor=usuario_actual,
+                tipo_cambio__nombre='DOBLADA',
+                doblada__fecha_pago=fecha_obj,  # ✅ CORRECTO: fecha_pago para receptor
+                estado='aprobada'
+            ).select_related('doblada').first()
+            
             if doblada_como_receptor:
-                # Obtener jornadas del turno (AM, PM, o ambas)
-                from turnos.models import Turno
-                turnos = Turno.objects.filter(
-                    explorador=usuario_actual,
-                    fecha=fecha_obj
-                ).select_related('jornada')
-                
-                jornadas = [t.jornada.nombre.upper() for t in turnos]
-                
-                # VALIDACIÓN DE INTEGRIDAD: Detectar inconsistencias
-                datos_inconsistentes = False
-                mensaje_inconsistencia = None
-                
-                if not jornadas:
-                    # PROBLEMA: Solicitud aprobada pero sin turnos generados
-                    datos_inconsistentes = True
-                    mensaje_inconsistencia = (
-                        f'⚠️ Datos inconsistentes detectados: Tienes una doblada aprobada '
-                        f'(Solicitud #{doblada_como_receptor.id}) pero no se generaron los turnos correctamente. '
-                        f'Por favor, contacta al administrador o intenta cancelar y volver a solicitar.'
-                    )
-                    logger.error(
-                        f"INCONSISTENCIA DETECTADA: Usuario {usuario_actual.nombre} (ID: {usuario_actual.id}) "
-                        f"tiene doblada aprobada (ID: {doblada_como_receptor.id}) para {fecha_obj} "
-                        f"pero no tiene turnos generados en la tabla turnos_turno"
-                    )
-                    
-                    # Intentar obtener la jornada predeterminada para mostrar algo
-                    from turnos.services.jornada_service import JornadaService
-                    jornada_pred = JornadaService.get_jornada_explorador_fecha(
-                        usuario_actual.id, fecha
-                    )
-                    if jornada_pred:
-                        jornadas = [jornada_pred.nombre.upper()]
-                        mensaje_inconsistencia += f' Se muestra tu jornada predeterminada ({jornada_pred.nombre}).'
-                
-                mensaje = mensaje_inconsistencia if datos_inconsistentes else (
-                    f'Tienes una doblada aprobada ({", ".join(jornadas)}). Puedes ceder una o ambas jornadas.'
+                # PROBLEMA: Solicitud aprobada pero sin turnos generados
+                datos_inconsistentes = True
+                mensaje_inconsistencia = (
+                    f'⚠️ Datos inconsistentes detectados: Tienes una doblada aprobada '
+                    f'(Solicitud #{doblada_como_receptor.id}) pero no se generaron los turnos correctamente. '
+                    f'Por favor, contacta al administrador o intenta cancelar y volver a solicitar.'
                 )
+                logger.error(
+                    f"INCONSISTENCIA DETECTADA: Usuario {usuario_actual.nombre} (ID: {usuario_actual.id}) "
+                    f"tiene doblada aprobada (ID: {doblada_como_receptor.id}) para {fecha_obj} "
+                    f"pero no tiene turnos generados en la tabla turnos_turno"
+                )
+                
+                # Intentar obtener la jornada predeterminada para mostrar algo
+                from turnos.services.jornada_service import JornadaService
+                jornada_pred = JornadaService.get_jornada_explorador_fecha(
+                    usuario_actual.id, fecha
+                )
+                jornadas = []
+                if jornada_pred:
+                    jornadas = [jornada_pred.nombre.upper()]
+                    mensaje_inconsistencia += f' Se muestra tu jornada predeterminada ({jornada_pred.nombre}).'
                 
                 return json_ok({
                     'tiene_doblada': True,
                     'esta_descansando': False,
-                    'puede_ceder': not datos_inconsistentes,  # No permitir ceder si hay inconsistencia
+                    'puede_ceder': False,  # No permitir ceder si hay inconsistencia
                     'jornadas': jornadas,
-                    'mensaje': mensaje,
+                    'mensaje': mensaje_inconsistencia,
                     'solicitud_id': doblada_como_receptor.id,
-                    'datos_inconsistentes': datos_inconsistentes,  # Nuevo flag
-                    'requiere_atencion_admin': datos_inconsistentes  # Nuevo flag
+                    'datos_inconsistentes': datos_inconsistentes,
+                    'requiere_atencion_admin': datos_inconsistentes
                 })
             
             # CASO 3: No hay doblada

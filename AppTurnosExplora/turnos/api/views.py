@@ -91,9 +91,16 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 Turno.objects
                 .filter(explorador=empleado, fecha__gte=fecha_inicio, fecha__lte=fecha_fin)
                 .select_related('jornada', 'sala')
-                .order_by('fecha')
+                .order_by('fecha', 'jornada__nombre')
             )
-            turnos_por_fecha = {t.fecha: t for t in turnos_mes}
+            
+            # CORRECCIÓN: Agrupar turnos por fecha para manejar dobladas (AM+PM)
+            # En lugar de sobrescribir, crear listas de turnos por fecha
+            turnos_por_fecha = {}
+            for t in turnos_mes:
+                if t.fecha not in turnos_por_fecha:
+                    turnos_por_fecha[t.fecha] = []
+                turnos_por_fecha[t.fecha].append(t)
             
             # FASE 3.2: Obtener jornada predeterminada (usar first() en lugar de get() para evitar errores)
             # Obtener la jornada más reciente por fecha_inicio
@@ -130,52 +137,112 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             dias_mes = (fecha_fin - fecha_inicio).days + 1
             for i in range(dias_mes):
                 fecha = fecha_inicio + timedelta(days=i)
-                turno = turnos_por_fecha.get(fecha)
+                turnos_dia = turnos_por_fecha.get(fecha, [])
                 
-                if turno:
-                    # Hay turno asignado (puede ser cambio aprobado)
+                if turnos_dia:
+                    # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
                     # Usar helper para detectar dobladas (AM+PM en misma fecha)
                     from turnos.services.turno_service import TurnoService
                     jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
                     
                     jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
-                    es_cambio = turno.tipo_cambio is not None
+                    
+                    # Detectar si es doblada
                     es_doblada = jornada_display == 'DOBLADA'
+                    
+                    # Determinar tipo de cambio (si todos los turnos tienen el mismo tipo_cambio)
+                    tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
+                    es_cambio = len(tipos_cambio) > 0
+                    tipo_cambio_principal = tipos_cambio[0] if tipos_cambio else None
+                    
+                    # Determinar sala(s)
+                    salas = [t.sala.nombre for t in turnos_dia if t.sala]
+                    if len(set(salas)) == 1:
+                        # Todas las salas son iguales
+                        sala_display = salas[0]
+                    else:
+                        # Salas diferentes (raro, pero posible)
+                        sala_display = ', '.join(set(salas)) if salas else 'Por asignar'
+                    
                     coincide_con_predeterminada = jornada_display == jornada_predeterminada if jornada_display else False
+                    
+                    # Usar el primer turno como referencia (para compatibilidad con código existente)
+                    turno_principal = turnos_dia[0]
                     
                     turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                         'jornada': jornada_display,  # Usar jornada_display (puede ser 'DOBLADA')
-                        'sala': (turno.sala.nombre if turno.sala else 'Por asignar'),
+                        'sala': sala_display,
                         'tipo': 'asignado',
                         'es_cambio': es_cambio,
                         'es_doblada': es_doblada,  # Flag para frontend
                         'jornada_predeterminada': jornada_predeterminada,
                         'coincide_con_predeterminada': coincide_con_predeterminada,
-                        'turno_id': turno.id
+                        'turno_id': turno_principal.id
                     }
                 else:
-                    # No hay turno asignado, usar jornada predeterminada
-                    jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+                    # No hay turno asignado
+                    # Verificar si está descansando por doblada (dos casos posibles):
+                    from solicitudes.models import SolicitudCambio, DobladaDetalle
                     
-                    # Intentar obtener sala de asignación activa
-                    sala_nombre = 'Por asignar'
-                    if asignaciones_activas:
-                        sala_nombre = asignaciones_activas.sala.nombre
+                    # CASO 1: Usuario es SOLICITANTE (cedió su jornada) en fecha de cesión
+                    esta_descansando_como_solicitante = SolicitudCambio.objects.filter(
+                        explorador_solicitante=empleado,  # Es solicitante (quien cedió)
+                        tipo_cambio__nombre='DOBLADA',
+                        fecha_cambio_turno=fecha,  # La fecha de cesión es esta fecha (él descansa)
+                        estado='aprobada'
+                    ).exists()
                     
-                    turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                        'jornada': jornada_nombre,
-                        'sala': sala_nombre,
-                        'tipo': 'predeterminado',
-                        'es_cambio': False,
-                        'jornada_predeterminada': jornada_nombre,
-                        'coincide_con_predeterminada': True,
-                        'turno_id': None
-                    }
+                    # CASO 2: Usuario es RECEPTOR (quien cubrió) en fecha de pago
+                    esta_descansando_como_receptor = SolicitudCambio.objects.filter(
+                        explorador_receptor=empleado,  # Es receptor (quien cubrió)
+                        tipo_cambio__nombre='DOBLADA',
+                        estado='aprobada',
+                        doblada__fecha_pago=fecha  # La fecha de pago es esta fecha (él descansa)
+                    ).exists()
+                    
+                    esta_descansando = esta_descansando_como_solicitante or esta_descansando_como_receptor
+                    
+                    if esta_descansando:
+                        # Usuario está descansando (cedió su jornada)
+                        turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                            'jornada': None,  # Sin jornada porque está descansando
+                            'sala': None,
+                            'tipo': 'descanso',
+                            'es_cambio': False,
+                            'es_descanso': True,  # Flag para frontend
+                            'jornada_predeterminada': calcular_jornada_dia(jornada_base, fecha),
+                            'coincide_con_predeterminada': False,
+                            'turno_id': None
+                        }
+                    else:
+                        # No hay turno, usar jornada predeterminada (día normal)
+                        jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+                        
+                        # Intentar obtener sala de asignación activa
+                        sala_nombre = 'Por asignar'
+                        if asignaciones_activas:
+                            sala_nombre = asignaciones_activas.sala.nombre
+                        
+                        turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                            'jornada': jornada_nombre,
+                            'sala': sala_nombre,
+                            'tipo': 'predeterminado',
+                            'es_cambio': False,
+                            'es_descanso': False,
+                            'jornada_predeterminada': jornada_nombre,
+                            'coincide_con_predeterminada': True,
+                            'turno_id': None
+                        }
             
             # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
             # Limitar a las solicitudes más recientes para mejorar rendimiento
             from solicitudes.models import SolicitudCambio
-            turno_ids_con_cambio = [t.id for t in turnos_por_fecha.values() if t.tipo_cambio is not None]
+            # CORRECCIÓN: turnos_por_fecha ahora contiene listas de turnos, no turnos individuales
+            turno_ids_con_cambio = []
+            for turnos_lista in turnos_por_fecha.values():
+                for turno in turnos_lista:
+                    if turno.tipo_cambio is not None:
+                        turno_ids_con_cambio.append(turno.id)
             solicitudes_info = {}
             
             if turno_ids_con_cambio:
@@ -225,7 +292,14 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             return JsonResponse(turnos_mes_dict)
             
         except Exception as e:
-            return JsonResponse({'error': f'Error al procesar fechas: {str(e)}'}, status=400)
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"ERROR en MisTurnosPorMesView: {str(e)}")
+            print(f"Traceback: {error_trace}")
+            return JsonResponse({
+                'error': f'Error al procesar fechas: {str(e)}',
+                'traceback': error_trace if request.user.is_staff else None  # Solo mostrar traceback a staff
+            }, status=400)
 
 
 class DiasFestivosView(LoginRequiredMixin, View):

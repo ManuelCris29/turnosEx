@@ -499,11 +499,13 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Usar módulo común para inicializar datepicker
+        // Usar módulo común para inicializar datepicker (bloquea domingos, sábados, festivos, mantenimiento y temporada)
         window.DatepickerFestivos.inicializar({
             input: fechaInput,
             indicadorFestivo: indicadorFestivo,
             descripcionFestivo: descripcionFestivo,
+            bloquearDiasEspeciales: true,
+            bloquearSabados: true, // Para CT Sencillo, también bloquear sábados
             onDateChange: function(fecha) {
                 // Verificar si es día de mantenimiento
                 if (fecha && window.DatepickerFestivos && window.DatepickerFestivos.verificarDiaMantenimiento) {

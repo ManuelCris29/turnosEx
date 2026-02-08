@@ -248,6 +248,13 @@ class DobladaDetalle(models.Model):
         blank=True,
         help_text='Jornada específica que se cede (si es cesión parcial)'
     )
+    jornada_pago_sabado = models.CharField(
+        max_length=2,
+        choices=JORNADA_CHOICES,
+        null=True,
+        blank=True,
+        help_text='Si la fecha de pago es sábado, jornada (AM/PM) que el solicitante elige trabajar ese sábado'
+    )
     empleado_receptor = models.ForeignKey(
         Empleado,
         on_delete=models.CASCADE,
@@ -256,7 +263,7 @@ class DobladaDetalle(models.Model):
         related_name='dobladas_recibidas',
         help_text='Explorador que cubre la doblada (redundante con SolicitudCambio.explorador_receptor, pero útil para consultas directas)'
     )
-    historial = HistoricalRecords()
+    historial = HistoricalRecords(excluded_fields=['jornada_pago_sabado'])
     
     def __str__(self):
         return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud}" #type:ignore

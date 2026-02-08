@@ -721,3 +721,46 @@
     0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
     50% { box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.1); }
 }
+
+/* Estilos para días con descanso (doblada) */
+.dia-con-descanso {
+    background-color: #e3f2fd !important;
+    border: 2px solid #2196f3 !important;
+    position: relative;
+}
+
+.dia-con-descanso:hover {
+    background-color: #bbdefb !important;
+    border-color: #1976d2 !important;
+}
+
+.descanso-icon {
+    position: absolute !important;
+    top: 2px !important;
+    right: 2px !important;
+    font-size: 10px !important;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* Mejorar visibilidad del ícono en días con descanso */
+.dia-con-descanso .fc-daygrid-day-number {
+    color: #1976d2 !important;
+    font-weight: 600 !important;
+}
+
+/* Asegurar que el ícono sea visible en diferentes temas */
+.fc-theme-standard .dia-con-descanso {
+    background-color: #e3f2fd !important;
+    border-color: #2196f3 !important;
+}
+
+/* Animación sutil para días con descanso */
+.dia-con-descanso {
+    animation: pulse-descanso 2s infinite;
+}
+
+@keyframes pulse-descanso {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4); }
+    50% { box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.1); }
+}

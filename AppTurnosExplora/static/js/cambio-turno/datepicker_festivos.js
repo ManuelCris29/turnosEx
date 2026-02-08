@@ -25,6 +25,26 @@ let festivosCacheGlobal = null;
 // Cache global de días de mantenimiento (compartido entre todas las instancias)
 let mantenimientoCacheGlobal = null;
 
+// Forzar lunes como primer día de la semana en el locale español de Flatpickr.
+// Sin esto, la cuadrícula (domingo primero) y las cabeceras Lun–Dom quedan desalineadas.
+(function() {
+    function aplicarFirstDayOfWeekLunes() {
+        if (typeof flatpickr !== 'undefined' && flatpickr.l10ns) {
+            if (flatpickr.l10ns.es) {
+                flatpickr.l10ns.es.firstDayOfWeek = 1;
+            }
+            if (flatpickr.l10ns.default) {
+                flatpickr.l10ns.default.firstDayOfWeek = 1;
+            }
+        }
+    }
+    if (typeof flatpickr !== 'undefined') {
+        aplicarFirstDayOfWeekLunes();
+    } else {
+        window.addEventListener('load', aplicarFirstDayOfWeekLunes);
+    }
+})();
+
 /**
  * Carga días festivos combinando cálculo JavaScript + API de BD
  * 
@@ -428,6 +448,99 @@ function marcarMantenimientoEnCalendarioIncluyendoDeshabilitados(instance, mante
 }
 
 /**
+ * Marca domingos en el calendario Flatpickr (días deshabilitados por ser domingo).
+ * Solo añade clase "domingo" si el día no tiene ya festivo/mantenimiento/temporada,
+ * para que prevalezca el distintivo de esos tipos.
+ *
+ * @param {Object} instance - Instancia de Flatpickr
+ */
+function marcarDomingosEnCalendario(instance) {
+    if (!instance || !instance.calendarContainer) {
+        return;
+    }
+    const dayElements = instance.calendarContainer.querySelectorAll('.flatpickr-day');
+    const currentYear = instance.currentYear != null ? instance.currentYear : new Date().getFullYear();
+    const currentMonth = instance.currentMonth != null ? instance.currentMonth : new Date().getMonth();
+
+    dayElements.forEach(day => {
+        let dayDate = null;
+        if (day.dateObj) {
+            dayDate = new Date(day.dateObj);
+        } else {
+            // Fallback: algunos entornos o versiones de Flatpickr pueden no tener dateObj en el elemento
+            const isPrevOrNext = day.classList.contains('prevMonthDay') || day.classList.contains('nextMonthDay');
+            if (!isPrevOrNext) {
+                const dayNum = parseInt(day.textContent && day.textContent.trim(), 10);
+                if (!isNaN(dayNum)) {
+                    dayDate = new Date(currentYear, currentMonth, dayNum);
+                }
+            }
+        }
+        if (dayDate) {
+            const esDomingo = dayDate.getDay() === 0;
+            const yaTieneDistintivo = day.classList.contains('festivo') ||
+                day.classList.contains('mantenimiento') ||
+                day.classList.contains('temporada');
+            if (esDomingo && !yaTieneDistintivo) {
+                day.classList.add('domingo');
+                if (!day.title) {
+                    day.title = 'Domingo (no disponible)';
+                }
+            } else if (!esDomingo) {
+                day.classList.remove('domingo');
+            }
+        }
+    });
+}
+
+/**
+ * Marca sábados en el calendario Flatpickr (días deshabilitados por ser sábado).
+ * Solo añade clase "sabado" si el día no tiene ya festivo/mantenimiento/temporada,
+ * para que prevalezca el distintivo de esos tipos.
+ *
+ * @param {Object} instance - Instancia de Flatpickr
+ */
+function marcarSabadosEnCalendario(instance) {
+    if (!instance || !instance.calendarContainer) {
+        return;
+    }
+    const dayElements = instance.calendarContainer.querySelectorAll('.flatpickr-day');
+    const currentYear = instance.currentYear != null ? instance.currentYear : new Date().getFullYear();
+    const currentMonth = instance.currentMonth != null ? instance.currentMonth : new Date().getMonth();
+
+    dayElements.forEach(day => {
+        let dayDate = null;
+        if (day.dateObj) {
+            dayDate = new Date(day.dateObj);
+        } else {
+            // Fallback: algunos entornos o versiones de Flatpickr pueden no tener dateObj en el elemento
+            const isPrevOrNext = day.classList.contains('prevMonthDay') || day.classList.contains('nextMonthDay');
+            if (!isPrevOrNext) {
+                const dayNum = parseInt(day.textContent && day.textContent.trim(), 10);
+                if (!isNaN(dayNum)) {
+                    dayDate = new Date(currentYear, currentMonth, dayNum);
+                }
+            }
+        }
+        if (dayDate) {
+            const esSabado = dayDate.getDay() === 6;
+            const yaTieneDistintivo = day.classList.contains('festivo') ||
+                day.classList.contains('mantenimiento') ||
+                day.classList.contains('temporada') ||
+                day.classList.contains('domingo');
+            if (esSabado && !yaTieneDistintivo) {
+                day.classList.add('sabado');
+                if (!day.title) {
+                    day.title = 'Sábado (no disponible)';
+                }
+            } else if (!esSabado) {
+                day.classList.remove('sabado');
+            }
+        }
+    });
+}
+
+/**
  * Marca días de temporada en un calendario Flatpickr
  * 
  * @param {Object} instance - Instancia de Flatpickr
@@ -439,7 +552,7 @@ function marcarTemporadaEnCalendario(instance, temporadaMap) {
     }
     
     const fechasTemporada = Array.from(temporadaMap.keys());
-    // Incluir TODOS los días, incluso los deshabilitados (temporada no bloquea, solo marca)
+    // Marcar todos los días de temporada (incluidos deshabilitados cuando bloquearDiasEspeciales es true)
     const dayElements = instance.calendarContainer.querySelectorAll('.flatpickr-day');
     
     dayElements.forEach(day => {
@@ -499,7 +612,8 @@ function inicializarDatepickerFestivos(config) {
         indicadorFestivo = null,
         descripcionFestivo = null,
         flatpickrOptions = {},
-        bloquearDiasEspeciales = false
+        bloquearDiasEspeciales = false,
+        bloquearSabados = false
     } = config;
     
     if (!input) {
@@ -519,9 +633,14 @@ function inicializarDatepickerFestivos(config) {
         cargarDiasMantenimiento(),
         cargarDiasTemporada(añoActual)
     ]).then(([festivosMap, mantenimientoMap, temporadaMap]) => {
-        // Configuración base de Flatpickr
+        // Configuración base de Flatpickr.
+        // Forzar firstDayOfWeek: 1 (lunes) para que la cuadrícula y las cabeceras Lun–Dom coincidan.
+        // El locale 'es' de Flatpickr puede usar domingo como primer día, provocando desalineación.
+        const localeEs = (typeof flatpickr !== 'undefined' && flatpickr.l10ns && flatpickr.l10ns.es)
+            ? { ...flatpickr.l10ns.es, firstDayOfWeek: 1 }
+            : 'es';
         const opcionesBase = {
-            locale: 'es',
+            locale: localeEs,
             dateFormat: 'Y-m-d',
             minDate: fechaMinima,
             ...flatpickrOptions
@@ -530,7 +649,15 @@ function inicializarDatepickerFestivos(config) {
         if (maxDate) {
             opcionesBase.maxDate = maxDate;
         }
-        
+
+        // Forzar lunes como primer día de la semana para alinear cabeceras (Lun–Dom) con la cuadrícula.
+        // Si flatpickrOptions ha sobrescrito locale, reaplicamos firstDayOfWeek: 1 para español.
+        if (opcionesBase.locale === 'es' || (opcionesBase.locale && typeof opcionesBase.locale === 'object' && opcionesBase.locale.firstDayOfWeek !== 1)) {
+            opcionesBase.locale = (typeof flatpickr !== 'undefined' && flatpickr.l10ns && flatpickr.l10ns.es)
+                ? { ...flatpickr.l10ns.es, firstDayOfWeek: 1 }
+                : opcionesBase.locale;
+        }
+
         // Variables para mantener los Maps actualizados (para uso en callbacks)
         let festivosMapActual = festivosMap;
         let mantenimientoMapActual = mantenimientoMap;
@@ -543,10 +670,15 @@ function inicializarDatepickerFestivos(config) {
             setTimeout(() => {
                 if (instance && instance.calendarContainer) {
                     if (bloquearDiasEspeciales) {
-                        // Marcar incluyendo días deshabilitados
+                        // Marcar incluyendo días deshabilitados (festivo, mantenimiento, temporada, domingo)
                         marcarFestivosEnCalendarioIncluyendoDeshabilitados(instance, festivosMapActual);
                         marcarMantenimientoEnCalendarioIncluyendoDeshabilitados(instance, mantenimientoMapActual);
-                        marcarTemporadaEnCalendario(instance, temporadaMapActual); // Temporada siempre incluye deshabilitados
+                        marcarTemporadaEnCalendario(instance, temporadaMapActual);
+                        marcarDomingosEnCalendario(instance);
+                        // Si bloquearSabados es true, también marcar sábados (para CT Sencillo)
+                        if (bloquearSabados) {
+                            marcarSabadosEnCalendario(instance);
+                        }
                     } else {
                         // Marcar solo días habilitados (comportamiento normal)
                         marcarFestivosEnCalendario(instance, festivosMapActual);
@@ -557,38 +689,64 @@ function inicializarDatepickerFestivos(config) {
             }, 100);
         };
         
-        // Si bloquearDiasEspeciales es true, configurar disable para bloquear domingos, festivos y mantenimiento
+        // Si bloquearDiasEspeciales es true, configurar disable: domingos, festivos, mantenimiento y temporada
         if (bloquearDiasEspeciales) {
             const fechasFestivos = Array.from(festivosMap.keys());
             const fechasMantenimiento = Array.from(mantenimientoMap.keys());
-            
-            // Agregar funciones de disable a las opciones base
+            const fechasTemporada = Array.from(temporadaMap.keys());
+
             if (!opcionesBase.disable) {
                 opcionesBase.disable = [];
             }
-            
-            // Asegurar que disable sea un array
             if (!Array.isArray(opcionesBase.disable)) {
                 opcionesBase.disable = [opcionesBase.disable];
             }
-            
-            // Agregar funciones de bloqueo
+
             opcionesBase.disable.push(
-                // Bloquear domingos
-                function(date) {
-                    return date.getDay() === 0; // Domingo
-                },
-                // Bloquear festivos
+                function(date) { return date.getDay() === 0; }, // Domingo
                 function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasFestivos.includes(fechaStr);
                 },
-                // Bloquear días de mantenimiento
                 function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasMantenimiento.includes(fechaStr);
+                },
+                function(date) {
+                    const fechaStr = date.toISOString().split('T')[0];
+                    return fechasTemporada.includes(fechaStr);
                 }
             );
+            
+            // Si bloquearSabados es true, también deshabilitar sábados (para CT Sencillo)
+            if (bloquearSabados) {
+                opcionesBase.disable.push(
+                    function(date) { return date.getDay() === 6; } // Sábado (0=domingo, 6=sábado)
+                );
+            }
+
+            // Marcar domingos (y sábados si aplica) en el momento de crear cada día (onDayCreate), para que
+            // el distintivo aparezca aunque el marcado posterior (setTimeout) falle o se retrase
+            const userOnDayCreate = opcionesBase.onDayCreate;
+            opcionesBase.onDayCreate = function(dates, str, inst, dayElem) {
+                if (dayElem && dayElem.dateObj) {
+                    const dayOfWeek = dayElem.dateObj.getDay();
+                    if (dayOfWeek === 0) { // Domingo
+                        dayElem.classList.add('domingo');
+                        if (!dayElem.title) {
+                            dayElem.title = 'Domingo (no disponible)';
+                        }
+                    } else if (bloquearSabados && dayOfWeek === 6) { // Sábado
+                        dayElem.classList.add('sabado');
+                        if (!dayElem.title) {
+                            dayElem.title = 'Sábado (no disponible)';
+                        }
+                    }
+                }
+                if (userOnDayCreate) {
+                    userOnDayCreate(dates, str, inst, dayElem);
+                }
+            };
         }
         
         // Callbacks para marcar festivos y mantenimiento

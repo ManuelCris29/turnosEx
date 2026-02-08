@@ -335,6 +335,22 @@ class SolicitudValidator:
         return True
     
     @staticmethod
+    def validar_no_sabado_ct_sencillo(fecha):
+        """
+        Validar que no se esté cambiando sábado en Cambio de Turno Sencillo.
+        
+        Args:
+            fecha: Fecha a validar
+        """
+        from datetime import datetime
+        
+        if isinstance(fecha, str):
+            fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+        
+        if fecha.weekday() == 5:  # Sábado
+            raise ValidationError('No se puede cambiar sábado por día de semana')
+    
+    @staticmethod
     def validar_no_festivo_por_semana(fecha, es_cambio_permanente=False):
         """
         Validar que no se esté cambiando festivo por día de semana.
@@ -882,48 +898,48 @@ class SolicitudValidator:
     @staticmethod
     def validar_dias_especiales_doblada(fecha):
         """
-        Validar que la fecha no sea domingo, festivo o día de mantenimiento.
-        
-        Reglas CRÍTICAS:
-        - ❌ NO se puede hacer doblada en domingos
-        - ❌ NO se puede hacer doblada en días festivos
-        - ❌ NO se puede hacer doblada en días de mantenimiento
-        - ✅ Solo se permiten días hábiles (lunes a sábado, excluyendo festivos y mantenimiento)
-        
+        Validar que la fecha no sea domingo, festivo, mantenimiento ni temporada.
+
+        Reglas:
+        - No doblada en domingos, festivos, mantenimiento ni temporada.
+        - Solo días hábiles (lunes a sábado, excluyendo festivos, mantenimiento y temporada).
+
         Args:
             fecha: Fecha a validar
-        
+
         Raises:
-            ValidationError: Si la fecha es domingo, festivo o mantenimiento
+            ValidationError: Si la fecha es domingo, festivo, mantenimiento o temporada
         """
         from core.utils.date_utils import DateUtils
         from turnos.models import DiaEspecial
-        
+
         fecha_obj = DateUtils.parse_date(fecha)
-        
-        # Validar que NO sea domingo
-        if fecha_obj.weekday() == 6:  # Domingo
+
+        if fecha_obj.weekday() == 6:
             raise ValidationError('No se puede realizar doblada en domingos')
-        
-        # Validar que NO sea día festivo
-        dia_especial = DiaEspecial.objects.filter(
+
+        if DiaEspecial.objects.filter(
             fecha=fecha_obj,
             tipo='Festivo',
             activo=True
-        ).exists()
-        
-        if dia_especial:
+        ).exists():
             raise ValidationError('No se puede realizar doblada en días festivos')
-        
-        # Validar que NO sea día de mantenimiento
-        dia_mantenimiento = DiaEspecial.objects.filter(
+
+        if DiaEspecial.objects.filter(
             fecha=fecha_obj,
             tipo='Mantenimiento',
             activo=True
-        ).exists()
-        
-        if dia_mantenimiento:
+        ).exists():
             raise ValidationError('No se puede realizar doblada en días de mantenimiento')
+
+        dia_temporada = DiaEspecial.objects.filter(
+            fecha=fecha_obj,
+            es_temporada=True,
+            activo=True
+        ).first()
+        if dia_temporada:
+            descripcion = dia_temporada.descripcion or 'Día de temporada'
+            raise ValidationError(f'No se puede realizar doblada en días de temporada. {descripcion}')
     
     @staticmethod
     def validar_coincidencia_jornadas_pago(deudor: Empleado, acreedor: Empleado, fecha_pago):

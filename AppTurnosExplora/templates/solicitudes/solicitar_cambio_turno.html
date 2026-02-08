@@ -9,6 +9,34 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
 <style>
+    /* Ocultar días de mes anterior/siguiente sin romper la cuadrícula (visibility, no display:none). */
+    .flatpickr-day.prevMonthDay,
+    .flatpickr-day.nextMonthDay,
+    .flatpickr-day.flatpickr-prevMonth,
+    .flatpickr-day.flatpickr-nextMonth {
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+    /* Domingos bloqueados: distintivo para que se vea que es domingo */
+    .flatpickr-day.flatpickr-disabled.domingo {
+        background-color: #e0e0e0 !important;
+        color: #757575 !important;
+        cursor: not-allowed !important;
+    }
+    .flatpickr-day.flatpickr-disabled.domingo::after {
+        content: 'D';
+        position: absolute;
+        top: 2px;
+        right: 2px;
+        font-size: 9px;
+        font-weight: bold;
+        color: #757575;
+    }
+    .flatpickr-day.flatpickr-disabled {
+        background-color: #f5f5f5 !important;
+        color: #ccc !important;
+        cursor: not-allowed !important;
+    }
     /* Estilos personalizados para días festivos en Flatpickr */
     .flatpickr-day.festivo {
         background-color: #ff6b6b !important;

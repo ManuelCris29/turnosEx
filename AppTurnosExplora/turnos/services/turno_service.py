@@ -6,6 +6,8 @@ Responsabilidad única: Obtener y procesar información de turnos de exploradore
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from turnos.models import AsignarJornadaExplorador, Turno, AsignarSalaExplorador
 from turnos.services.jornada_service import JornadaService
+from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+from core.utils.jornada_utils import JornadaUtils
 from datetime import datetime, timedelta
 from django.db.models import Q
 import re
@@ -112,9 +114,52 @@ class TurnoService(ITurnoService):
                     'es_doblada': jornada_display == 'DOBLADA'
                 }
             
-            # 2. Si no hay turno, buscar jornada predeterminada
+            # 2. Si no hay turno, calcular jornada usando alternancia de fines de semana
             jornada_predeterminada = JornadaService.get_jornada_predeterminada(explorador)
-            jornada = jornada_predeterminada.jornada if jornada_predeterminada else None
+            jornada_base_obj = jornada_predeterminada.jornada if jornada_predeterminada else None
+            
+            # Calcular jornada real del día (considera alternancia de fines de semana)
+            jornada_dia = None
+            if jornada_base_obj:
+                try:
+                    jornada_dia_calculada = JornadaUtils.calcular_jornada_dia(
+                        jornada_base_obj.nombre, fecha_obj
+                    )
+                    # Si está en descanso, retornar None (no tiene jornada ese día)
+                    if jornada_dia_calculada == "Descanso":
+                        jornada_dia = None
+                    else:
+                        # Buscar objeto Jornada con el nombre calculado
+                        jornada_dia = Jornada.objects.filter(nombre=jornada_dia_calculada).first()
+                except Exception as e:
+                    logger.warning(f"Error calculando jornada día para {explorador.id} en {fecha_obj}: {e}")
+                    jornada_dia = jornada_base_obj  # Fallback a jornada base
+            
+            # Si está en descanso (jornada_dia es None), retornar None
+            if jornada_dia is None:
+                return None
+            
+            # 2b. Sábado: si por alternancia le corresponde trabajar ese sábado, mostrar DOBLADA (AM+PM)
+            if fecha_obj.weekday() == 5:
+                jornada_trabaja_sab = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                if jornada_trabaja_sab and jornada_dia.nombre.upper() == jornada_trabaja_sab.upper():
+                    jornada_am = Jornada.objects.filter(nombre__iexact='AM').first()
+                    jornada_pm = Jornada.objects.filter(nombre__iexact='PM').first()
+                    if jornada_am and jornada_pm:
+                        competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
+                        salas_competencia = [{'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias]
+                        return {
+                            'id': None,
+                            'jornada': 'DOBLADA',
+                            'sala': None,
+                            'sala_id': None,
+                            'hora_inicio': jornada_am.hora_inicio.strftime('%H:%M') if jornada_am.hora_inicio else None,
+                            'hora_fin': jornada_pm.hora_fin.strftime('%H:%M') if jornada_pm.hora_fin else None,
+                            'es_turno_virtual': True,
+                            'tipo_sala': 'competencia',
+                            'salas_competencia': salas_competencia,
+                            'es_doblada_sabado': True,
+                        }
             
             # 3. Buscar sala asignada especial para ese día
             asignacion_sala = AsignarSalaExplorador.objects.select_related('sala').filter(
@@ -127,11 +172,11 @@ class TurnoService(ITurnoService):
             if asignacion_sala:
                 return {
                     'id': None,
-                    'jornada': jornada.nombre if jornada else None,
+                    'jornada': jornada_dia.nombre if jornada_dia else None,
                     'sala': asignacion_sala.sala.nombre,
                     'sala_id': asignacion_sala.sala.id,
-                    'hora_inicio': jornada.hora_inicio.strftime('%H:%M') if jornada else None,
-                    'hora_fin': jornada.hora_fin.strftime('%H:%M') if jornada else None,
+                    'hora_inicio': jornada_dia.hora_inicio.strftime('%H:%M') if jornada_dia and jornada_dia.hora_inicio else None,
+                    'hora_fin': jornada_dia.hora_fin.strftime('%H:%M') if jornada_dia and jornada_dia.hora_fin else None,
                     'es_turno_virtual': True,
                     'tipo_sala': 'asignacion_especial'
                 }
@@ -143,11 +188,11 @@ class TurnoService(ITurnoService):
             ]
             return {
                 'id': None,
-                'jornada': jornada.nombre if jornada else None,
+                'jornada': jornada_dia.nombre if jornada_dia else None,
                 'sala': None,
                 'sala_id': None,
-                'hora_inicio': jornada.hora_inicio.strftime('%H:%M') if jornada else None,
-                'hora_fin': jornada.hora_fin.strftime('%H:%M') if jornada else None,
+                'hora_inicio': jornada_dia.hora_inicio.strftime('%H:%M') if jornada_dia and jornada_dia.hora_inicio else None,
+                'hora_fin': jornada_dia.hora_fin.strftime('%H:%M') if jornada_dia and jornada_dia.hora_fin else None,
                 'es_turno_virtual': True,
                 'tipo_sala': 'competencia',
                 'salas_competencia': salas_competencia
@@ -238,10 +283,22 @@ class TurnoService(ITurnoService):
         elif 'PM' in jornadas:
             return 'PM'
         else:
-            # No hay turnos, usar jornada predeterminada
+            # No hay turnos, calcular jornada usando alternancia de fines de semana
             jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(
                 explorador.id, fecha_obj.strftime('%Y-%m-%d')
             )
             if jornada_predeterminada:
-                return jornada_predeterminada.nombre.upper()
+                try:
+                    # Usar JornadaUtils para calcular jornada real del día (considera alternancia)
+                    jornada_dia_calculada = JornadaUtils.calcular_jornada_dia(
+                        jornada_predeterminada.nombre, fecha_obj
+                    )
+                    # Si está en descanso, retornar None (no tiene jornada ese día)
+                    if jornada_dia_calculada == "Descanso":
+                        return None
+                    return jornada_dia_calculada.upper()
+                except Exception as e:
+                    logger.warning(f"Error calculando jornada día para {explorador.id} en {fecha_obj}: {e}")
+                    # Fallback a jornada predeterminada si hay error
+                    return jornada_predeterminada.nombre.upper()
             return None

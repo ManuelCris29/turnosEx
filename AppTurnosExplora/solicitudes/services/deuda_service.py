@@ -163,3 +163,6 @@ class DeudaService:
         return DeudaExplorador.objects.filter(solicitud_origen=solicitud).first()
 
 
+
+
+

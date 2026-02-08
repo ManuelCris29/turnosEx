@@ -439,3 +439,6 @@ tail -f /var/log/integridad_dobladas.log
 **Versión:** 1.0  
 **Autor:** Ingeniero Senior - Sistema AppTurnosExplora
 
+
+
+

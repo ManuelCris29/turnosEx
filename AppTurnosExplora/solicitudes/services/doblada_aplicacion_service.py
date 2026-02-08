@@ -261,6 +261,68 @@ class DobladaAplicacionService:
         
         fecha_pago_str = fecha_pago.strftime('%Y-%m-%d')
         
+        # ===========================
+        # Caso especial: Pago en Sábado
+        # ===========================
+        # Regla de negocio:
+        # - En un sábado (fin de semana), el explorador que "tiene el fin de semana"
+        #   normalmente tiene AM+PM (doblada completa) en BD o por asignación.
+        # - Al pagar en sábado, el solicitante elige qué jornada trabajará (AM o PM)
+        # - El receptor trabaja la jornada contraria (la que queda disponible).
+        #
+        # Implementación:
+        # - Asegurar que el solicitante tenga SOLO la jornada seleccionada.
+        # - Asegurar que el receptor tenga SOLO la jornada contraria.
+        #
+        if fecha_pago.weekday() == 5 and detalle.jornada_pago_sabado:
+            jornada_sel = detalle.jornada_pago_sabado.upper()
+            if jornada_sel not in ("AM", "PM"):
+                raise ValidationError("jornada_pago_sabado inválida. Debe ser 'AM' o 'PM'")
+
+            jornada_contraria = "PM" if jornada_sel == "AM" else "AM"
+
+            jornadas_cache = _obtener_jornadas_cache()
+            jornada_sel_obj = jornadas_cache[jornada_sel]
+            jornada_contraria_obj = jornadas_cache[jornada_contraria]
+
+            from turnos.models import Turno
+            from turnos.services.doblada_turno_service import DobladaTurnoService
+
+            # 1) Solicitante: dejar SOLO la jornada seleccionada
+            Turno.objects.filter(explorador=solicitante, fecha=fecha_pago).delete()
+            sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
+            Turno.objects.create(
+                explorador=solicitante,
+                fecha=fecha_pago,
+                jornada=jornada_sel_obj,
+                sala=sala_solicitante,
+                tipo_cambio="DOBLADA"
+            )
+
+            # 2) Receptor: dejar SOLO la jornada contraria
+            # - Si tenía doblada completa (AM+PM) ese sábado, se elimina la jornada que ahora cubre el solicitante.
+            Turno.objects.filter(explorador=receptor, fecha=fecha_pago, jornada=jornada_sel_obj).delete()
+
+            # Si el receptor no tiene aún la jornada contraria en BD, crearla (caso raro)
+            if not Turno.objects.filter(explorador=receptor, fecha=fecha_pago, jornada=jornada_contraria_obj).exists():
+                sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_pago)
+                Turno.objects.create(
+                    explorador=receptor,
+                    fecha=fecha_pago,
+                    jornada=jornada_contraria_obj,
+                    sala=sala_receptor,
+                    tipo_cambio="DOBLADA"
+                )
+
+            logger.info(
+                f"Pago en sábado aplicado: {solicitante.nombre} trabaja {jornada_sel} en {fecha_pago}, "
+                f"{receptor.nombre} trabaja {jornada_contraria} (jornada restante)"
+            )
+            return
+
+        # ===========================
+        # Caso normal: Pago (no sábado)
+        # ===========================
         # Obtener jornadas
         jornada_deudor = JornadaService.get_jornada_explorador_fecha(
             solicitante.id, fecha_pago_str

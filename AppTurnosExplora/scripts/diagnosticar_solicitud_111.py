@@ -110,3 +110,6 @@ try:
 except SolicitudCambio.DoesNotExist:
     print("\n❌ ERROR: No se encontró la solicitud 111")
 
+
+
+

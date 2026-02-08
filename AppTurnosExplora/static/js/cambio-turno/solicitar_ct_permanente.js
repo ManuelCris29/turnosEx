@@ -83,12 +83,13 @@ document.addEventListener('DOMContentLoaded', function() {
             fechaInicioInput.dispatchEvent(new Event('change'));
         };
         
-        // Inicializar Flatpickr para fecha de inicio
+        // Inicializar Flatpickr para fecha de inicio (bloquea domingos, festivos, mantenimiento y temporada)
         const promesaInicio = window.DatepickerFestivos.inicializar({
             input: fechaInicioInput,
             minDate: fechaMinima,
             indicadorFestivo: indicadorFestivoInicio,
             descripcionFestivo: descripcionFestivoInicio,
+            bloquearDiasEspeciales: true,
             onDateChange: onDateChangeInicio
         }).then(instance => {
             flatpickrInicio = instance;
@@ -106,6 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 minDate: fechaMinima,
                 indicadorFestivo: indicadorFestivoFin,
                 descripcionFestivo: descripcionFestivoFin,
+                bloquearDiasEspeciales: true,
                 onDateChange: function(fecha) {
                     // Verificar si es día de mantenimiento
                     if (fecha && window.DatepickerFestivos && window.DatepickerFestivos.verificarDiaMantenimiento) {

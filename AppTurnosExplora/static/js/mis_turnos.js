@@ -5,6 +5,8 @@ var fechaSeleccionada = null;
 // Variable para rastrear qué meses ya están cargados o están cargando
 var mesesCargando = new Set();
 var mesesCargados = new Set();
+// Timestamps de cuándo se cargó cada mes (para invalidar después de 5 minutos)
+var mesesCargadosTimestamps = {};
 
 // Variable para prevenir múltiples ejecuciones de datesSet
 var ultimoMesProcesado = null;
@@ -28,8 +30,22 @@ function cargarDatos(anio, mes) {
     
     // Si ya está cargado este mes, no hacer nada
     if (mesesCargados.has(claveMes)) {
-        console.log(`[DEBUG cargarDatos] El mes ${claveMes} ya está cargado`);
-        return Promise.resolve();
+        // Verificar si han pasado más de 1 minuto desde la última carga
+        // Esto asegura que los datos se actualicen después de aprobar solicitudes
+        const timestampAnterior = mesesCargadosTimestamps[claveMes];
+        const ahora = Date.now();
+        const tiempoTranscurrido = timestampAnterior ? (ahora - timestampAnterior) : Infinity;
+        const UN_MINUTO = 60 * 1000; // 1 minuto en milisegundos
+        
+        if (timestampAnterior && tiempoTranscurrido < UN_MINUTO) {
+            console.log(`[DEBUG cargarDatos] El mes ${claveMes} ya está cargado (hace ${Math.round(tiempoTranscurrido / 1000)}s)`);
+            return Promise.resolve();
+        } else {
+            // Han pasado más de 1 minuto, forzar recarga
+            console.log(`[DEBUG cargarDatos] El mes ${claveMes} está cargado pero expirado (hace ${Math.round(tiempoTranscurrido / 1000)}s), forzando recarga...`);
+            mesesCargados.delete(claveMes);
+            delete mesesCargadosTimestamps[claveMes];
+        }
     }
     
     console.log(`[DEBUG cargarDatos] INICIANDO carga de datos para ${anio}-${mes}`);
@@ -46,10 +62,11 @@ function cargarDatos(anio, mes) {
             turnosMes = Object.assign({}, turnosMes, data); // Merge en lugar de reemplazar
             console.log('[DEBUG cargarDatos] Datos cargados, total fechas en turnosMes:', Object.keys(turnosMes).length);
             
-            // Marcar como cargado
+            // Marcar como cargado con timestamp
             mesesCargando.delete(claveMes);
             mesesCargados.add(claveMes);
-            console.log(`[DEBUG cargarDatos] Mes ${claveMes} marcado como cargado`);
+            mesesCargadosTimestamps[claveMes] = Date.now();
+            console.log(`[DEBUG cargarDatos] Mes ${claveMes} marcado como cargado (timestamp: ${mesesCargadosTimestamps[claveMes]})`);
 
             // Refrescar detalles si ya hay una fecha seleccionada
             // NO llamar a mostrarDetallesDia aquí porque puede causar bucles
@@ -106,10 +123,16 @@ function aplicarEstilosCambios() {
     console.log("[DEBUG aplicarEstilosCambios] Aplicando estilos de cambios...");
     console.log("[DEBUG aplicarEstilosCambios] Datos disponibles:", Object.keys(turnosMes).length, "fechas");
     
-    // Limpiar estilos anteriores
+    // Limpiar estilos anteriores (cambios y descansos)
     document.querySelectorAll('.dia-con-cambio').forEach(el => {
         el.classList.remove('dia-con-cambio');
         const icon = el.querySelector('.cambio-turno-icon');
+        if (icon) icon.remove();
+    });
+    
+    document.querySelectorAll('.dia-con-descanso').forEach(el => {
+        el.classList.remove('dia-con-descanso');
+        const icon = el.querySelector('.descanso-icon');
         if (icon) icon.remove();
     });
     
@@ -197,22 +220,28 @@ function aplicarEstilosCambios() {
         let totalFechasConCambios = 0;
         let fechasFiltradas = 0;
         
-        // Primero, contar todas las fechas con cambios para debug
+        // Primero, contar todas las fechas con cambios y descansos para debug
+        let totalFechasConDescanso = 0;
         for (const [fechaStr, turnoInfo] of Object.entries(turnosMes)) {
             if (turnoInfo && turnoInfo.es_cambio) {
                 totalFechasConCambios++;
             }
+            if (turnoInfo && (turnoInfo.es_descanso || turnoInfo.tipo === 'descanso')) {
+                totalFechasConDescanso++;
+            }
         }
         console.log(`[DEBUG aplicarEstilosCambios] Total fechas con cambios en turnosMes: ${totalFechasConCambios}`);
+        console.log(`[DEBUG aplicarEstilosCambios] Total fechas con descanso en turnosMes: ${totalFechasConDescanso}`);
         
-        // Si no hay fechas con cambios, no hay nada que hacer
-        if (totalFechasConCambios === 0) {
-            console.log('[DEBUG aplicarEstilosCambios] No hay fechas con cambios en los datos cargados');
+        // Si no hay fechas con cambios ni descansos, no hay nada que hacer
+        if (totalFechasConCambios === 0 && totalFechasConDescanso === 0) {
+            console.log('[DEBUG aplicarEstilosCambios] No hay fechas con cambios ni descansos en los datos cargados');
             aplicandoEstilos = false;
             return;
         }
         
         for (const [fechaStr, turnoInfo] of Object.entries(turnosMes)) {
+            // Procesar días con cambios
             if (turnoInfo && turnoInfo.es_cambio) {
                 // Filtrar solo fechas del mes visible
                 const fechaObj = new Date(fechaStr + 'T00:00:00');
@@ -294,9 +323,83 @@ function aplicarEstilosCambios() {
                     elementosNoEncontrados.push(fechaStr);
                 }
             }
+            
+            // Procesar días con descanso
+            if (turnoInfo && (turnoInfo.es_descanso || turnoInfo.tipo === 'descanso')) {
+                // Filtrar solo fechas del mes visible
+                const fechaObj = new Date(fechaStr + 'T00:00:00');
+                const mesFecha = fechaObj.getMonth() + 1;
+                const anioFecha = fechaObj.getFullYear();
+                
+                // Si hay un mes visible, solo procesar fechas de ese mes
+                if (mesVisible && anioVisible && (mesFecha !== mesVisible || anioFecha !== anioVisible)) {
+                    continue; // Saltar fechas que no están en el mes visible
+                }
+                
+                // FullCalendar usa diferentes selectores según la versión
+                let cellElement = null;
+                
+                // Opción 1: data-date attribute (FullCalendar 5+)
+                cellElement = document.querySelector(`.fc-daygrid-day[data-date="${fechaStr}"]`);
+                
+                // Opción 2: Buscar por todas las celdas y comparar data-date
+                if (!cellElement) {
+                    celdasExistentes.forEach(celda => {
+                        const dataDate = celda.getAttribute('data-date');
+                        if (dataDate === fechaStr) {
+                            cellElement = celda;
+                        }
+                    });
+                }
+                
+                // Opción 3: Buscar por aria-label
+                if (!cellElement) {
+                    const dia = fechaObj.getDate();
+                    const todasLasCeldas = document.querySelectorAll('.fc-daygrid-day');
+                    todasLasCeldas.forEach(celda => {
+                        const ariaLabel = celda.getAttribute('aria-label');
+                        if (ariaLabel && ariaLabel.includes(`${dia}`) && ariaLabel.includes(`${mesFecha}`) && ariaLabel.includes(`${anioFecha}`)) {
+                            if (!celda.classList.contains('fc-day-other')) {
+                                cellElement = celda;
+                            }
+                        }
+                    });
+                }
+                
+                // Opción 4: Buscar por número de día (último recurso)
+                if (!cellElement && mesVisible && anioVisible && mesFecha === mesVisible && anioFecha === anioVisible) {
+                    const dia = fechaObj.getDate();
+                    const todasLasCeldas = document.querySelectorAll('.fc-daygrid-day:not(.fc-day-other)');
+                    todasLasCeldas.forEach(celda => {
+                        const numeroDia = celda.querySelector('.fc-daygrid-day-number');
+                        if (numeroDia && parseInt(numeroDia.textContent.trim()) === dia) {
+                            cellElement = celda;
+                        }
+                    });
+                }
+                
+                if (cellElement) {
+                    elementosEncontrados++;
+                    // Usar requestAnimationFrame para evitar causar re-renderizados
+                    requestAnimationFrame(function() {
+                        if (cellElement && cellElement.parentNode) { // Verificar que aún existe
+                            cellElement.classList.add('dia-con-descanso');
+                            
+                            // Agregar ícono si no existe
+                            if (!cellElement.querySelector('.descanso-icon')) {
+                                const iconElement = document.createElement('span');
+                                iconElement.className = 'descanso-icon';
+                                iconElement.innerHTML = '😴';
+                                iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; z-index: 10;';
+                                cellElement.appendChild(iconElement);
+                            }
+                        }
+                    });
+                }
+            }
         }
         
-        console.log(`[DEBUG aplicarEstilosCambios] Intento ${intentos}/${maxIntentos}: ${totalFechasConCambios} fechas con cambios, ${fechasFiltradas} filtradas, ${elementosEncontrados} encontrados, ${elementosNoEncontrados.length} no encontrados`);
+        console.log(`[DEBUG aplicarEstilosCambios] Intento ${intentos}/${maxIntentos}: ${totalFechasConCambios} fechas con cambios, ${totalFechasConDescanso} fechas con descanso, ${fechasFiltradas} filtradas, ${elementosEncontrados} encontrados, ${elementosNoEncontrados.length} no encontrados`);
         
         // Si hay elementos no encontrados y aún tenemos intentos, reintentar
         if (elementosNoEncontrados.length > 0 && intentos < maxIntentos) {
@@ -305,7 +408,7 @@ function aplicarEstilosCambios() {
         } else {
             aplicandoEstilos = false; // Permitir nuevas ejecuciones
             if (elementosEncontrados > 0) {
-                console.log(`[DEBUG aplicarEstilosCambios] Estilos aplicados correctamente a ${elementosEncontrados} día(s) con cambios`);
+                console.log(`[DEBUG aplicarEstilosCambios] Estilos aplicados correctamente a ${elementosEncontrados} día(s) (cambios y descansos)`);
             }
             if (elementosNoEncontrados.length > 0 && intentos >= maxIntentos) {
                 // Solo mostrar warning si ya agotamos los intentos
@@ -335,7 +438,20 @@ function mostrarDetallesDia(fechaStr) {
     }
 
     if (jornadaDiv) {
-        if (info && info.jornada) {
+        // Verificar si hay información disponible (incluyendo descanso)
+        if (info && (info.jornada || info.es_descanso || info.tipo === 'descanso')) {
+            // Manejar caso de descanso
+            if (info.es_descanso || info.tipo === 'descanso' || (!info.jornada && info.tipo === 'descanso')) {
+                const jornadaHTML = `<span class="jornada-value descanso">DESCANSO</span>
+                    <div class="info-descanso" style="margin-top: 8px; padding: 8px; background-color: #e3f2fd; border-left: 3px solid #2196f3; border-radius: 4px; font-size: 0.85rem; color: #1565c0;">
+                        <i class="fas fa-bed" style="margin-right: 4px;"></i>
+                        <strong>Estás descansando:</strong> Cediste tu jornada en una doblada. El compañero que te cubrió está trabajando por ti.
+                    </div>`;
+                jornadaDiv.innerHTML = jornadaHTML;
+                console.log('Descanso mostrado para:', fechaStr);
+                return;
+            }
+            
             const jornadaLower = info.jornada.toLowerCase();
             // Asegurar que el nombre de la clase coincida (am, pm, descanso, doblada)
             let claseJornada = jornadaLower;
@@ -453,6 +569,21 @@ document.addEventListener('DOMContentLoaded', function() {
             // NO hacerlo inmediatamente para evitar bucles
         }, 300); // Debounce de 300ms
     });
+
+    // Forzar recarga del mes actual al cargar la página
+    // Esto asegura que los datos se actualicen después de aprobar solicitudes
+    // El usuario puede estar volviendo a esta página después de aprobar una solicitud
+    const ahora = new Date();
+    const anioActual = ahora.getFullYear();
+    const mesActual = ahora.getMonth() + 1;
+    const claveMesActual = `${anioActual}-${mesActual}`;
+    
+    // Invalidar caché del mes actual para forzar recarga
+    if (mesesCargados.has(claveMesActual)) {
+        console.log(`[DEBUG] Invalidando caché del mes actual (${claveMesActual}) para forzar recarga al cargar la página`);
+        mesesCargados.delete(claveMesActual);
+        delete mesesCargadosTimestamps[claveMesActual];
+    }
 
     // Inicializar FullCalendar
     var calendarEl = document.getElementById('calendar');

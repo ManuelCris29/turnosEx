@@ -208,3 +208,6 @@ Este es un mensaje automático del sistema de monitoreo.
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"\n❌ Error enviando email: {e}"))
 
+
+
+

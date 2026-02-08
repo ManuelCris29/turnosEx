@@ -214,3 +214,6 @@ DEFAULT_FROM_EMAIL = 'AppTurnos <no-reply@tudominio.com>'
 
 **Última actualización:** Enero 2026
 
+
+
+

@@ -8,23 +8,40 @@ from datetime import datetime
 from django.utils import timezone
 import hashlib
 import hmac
+import logging
 from django.core.mail.backends.smtp import EmailBackend
+
+logger = logging.getLogger(__name__)
 
 class NotificacionService:
     @staticmethod
     def _cargar_solicitud_completa(solicitud):
         """
         Carga la solicitud con todas las relaciones necesarias para los emails
+        Maneja casos donde algunas relaciones pueden no existir (ej: doblada)
         """
-        return SolicitudCambio.objects.select_related(
-            'explorador_solicitante',
-            'explorador_receptor', 
-            'tipo_cambio',
-            'cambio_permanente',
-            'doblada'  # ← Incluir doblada para solicitudes de tipo DOBLADA
-        ).prefetch_related(
-            'cambio_permanente'
-        ).get(id=solicitud.id)
+        try:
+            # Intentar cargar con todas las relaciones
+            solicitud_completa = SolicitudCambio.objects.select_related(
+                'explorador_solicitante',
+                'explorador_receptor', 
+                'explorador_solicitante__user',
+                'explorador_receptor__user',
+                'tipo_cambio',
+                'cambio_permanente',
+                'doblada'  # Puede ser None si aún no se ha creado
+            ).prefetch_related(
+                'cambio_permanente'
+            ).get(id=solicitud.id)
+            
+            return solicitud_completa
+        except SolicitudCambio.DoesNotExist:
+            logger.error(f"Solicitud {solicitud.id} no encontrada al cargar relaciones")
+            raise
+        except Exception as e:
+            logger.error(f"Error cargando solicitud completa {solicitud.id}: {e}")
+            # Fallback: retornar la solicitud original con relaciones básicas
+            return solicitud
     
     @staticmethod
     def _convertir_fecha(fecha):
@@ -57,34 +74,57 @@ class NotificacionService:
     def _enviar_email_desde_usuario(subject, message, from_email, recipient_list, html_message=None):
         """Envía email usando la configuración por defecto del sistema"""
         try:
+            # Validaciones antes de enviar
+            if not subject or not subject.strip():
+                logger.error("No se puede enviar email: subject vacío")
+                return False
+            
+            if not recipient_list or not isinstance(recipient_list, list) or len(recipient_list) == 0:
+                logger.error(f"No se puede enviar email: recipient_list inválido: {recipient_list}")
+                return False
+            
+            # Filtrar emails None o vacíos
+            recipient_list_validos = [email for email in recipient_list if email and email.strip()]
+            if not recipient_list_validos:
+                logger.error(f"No se puede enviar email: todos los destinatarios son inválidos: {recipient_list}")
+                return False
+            
+            # Validar from_email
+            from_email_final = from_email if from_email and from_email.strip() else settings.DEFAULT_FROM_EMAIL
+            if not from_email_final:
+                logger.error("No se puede enviar email: from_email y DEFAULT_FROM_EMAIL están vacíos")
+                return False
+            
+            logger.info(f"Intentando enviar email: subject='{subject}', from='{from_email_final}', to={recipient_list_validos}")
+            
             # Para desarrollo: usar backend de consola
             if settings.EMAIL_BACKEND == 'django.core.mail.backends.console.EmailBackend':
                 send_mail(
                     subject=subject,
                     message=message,
-                    from_email=from_email,  # Usar el email del usuario en desarrollo
-                    recipient_list=recipient_list,
+                    from_email=from_email_final,
+                    recipient_list=recipient_list_validos,
                     html_message=html_message,
                     fail_silently=False,
                 )
-                print(f"[OK] Email enviado a consola (desarrollo) desde {from_email} a {recipient_list}")
+                logger.info(f"✅ Email enviado a consola (desarrollo) desde {from_email_final} a {recipient_list_validos}")
                 return True
             else:
                 # Para producción: usar credenciales configuradas
                 send_mail(
                     subject=subject,
                     message=message,
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=recipient_list,
+                    from_email=from_email_final,
+                    recipient_list=recipient_list_validos,
                     html_message=html_message,
                     fail_silently=False,
                 )
-                print(f"[OK] Email enviado exitosamente desde {settings.DEFAULT_FROM_EMAIL} a {recipient_list}")
+                logger.info(f"✅ Email enviado exitosamente desde {from_email_final} a {recipient_list_validos}")
                 return True
                 
         except Exception as e:
-            print(f"[ERROR] Error enviando email: {e}")
-            print(f"[ERROR] Detalles del error: {str(e)}")
+            logger.exception(f"❌ Error enviando email: {e}")
+            logger.error(f"Detalles: subject='{subject}', from='{from_email}', to={recipient_list}")
             return False
     
     @staticmethod
@@ -126,83 +166,127 @@ class NotificacionService:
         Crea notificaciones para el supervisor, el compañero receptor Y el solicitante
         Maneja el caso especial donde supervisor = receptor
         """
-        print(f"DEBUG: Iniciando creación de notificaciones para solicitud {solicitud.id}")
-        print(f"DEBUG: Solicitante: {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido}")
-        print(f"DEBUG: Receptor: {solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido}")
-        print(f"DEBUG: Fecha cambio turno: {solicitud.fecha_cambio_turno}")
+        logger.info(f"Iniciando creación de notificaciones para solicitud {solicitud.id}")
+        
+        try:
+            # Cargar solicitud con relaciones completas
+            solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
+        except Exception as e:
+            logger.exception(f"Error cargando solicitud completa {solicitud.id}: {e}")
+            solicitud_completa = solicitud  # Usar solicitud original como fallback
+        
+        logger.info(f"Solicitante: {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}")
+        logger.info(f"Receptor: {solicitud_completa.explorador_receptor.nombre} {solicitud_completa.explorador_receptor.apellido}")
+        logger.info(f"Fecha cambio turno: {solicitud_completa.fecha_cambio_turno}")
         
         # Verificar si supervisor = receptor
-        supervisor = solicitud.explorador_solicitante.supervisor
-        receptor = solicitud.explorador_receptor
+        supervisor = solicitud_completa.explorador_solicitante.supervisor
+        receptor = solicitud_completa.explorador_receptor
         es_mismo_usuario = supervisor and supervisor.id == receptor.id
         
-        print(f"DEBUG: Supervisor: {supervisor.nombre if supervisor else 'No asignado'}")
-        print(f"DEBUG: Receptor: {receptor.nombre}")
-        print(f"DEBUG: ¿Es el mismo usuario? {es_mismo_usuario}")
+        logger.info(f"Supervisor: {supervisor.nombre if supervisor else 'No asignado'}")
+        logger.info(f"Receptor: {receptor.nombre}")
+        logger.info(f"¿Es el mismo usuario? {es_mismo_usuario}")
+        
+        # Validar emails antes de proceder
+        emails_validos = True
+        if not receptor.email or not receptor.email.strip():
+            logger.error(f"❌ Receptor {receptor.nombre} no tiene email válido: '{receptor.email}'")
+            emails_validos = False
+        
+        if supervisor and (not supervisor.email or not supervisor.email.strip()):
+            logger.error(f"❌ Supervisor {supervisor.nombre} no tiene email válido: '{supervisor.email}'")
+            emails_validos = False
+        
+        if not solicitud_completa.explorador_solicitante.email or not solicitud_completa.explorador_solicitante.email.strip():
+            logger.error(f"❌ Solicitante {solicitud_completa.explorador_solicitante.nombre} no tiene email válido: '{solicitud_completa.explorador_solicitante.email}'")
+            emails_validos = False
+        
+        if not emails_validos:
+            logger.warning("⚠️ Algunos emails son inválidos, pero se continuará con el proceso de notificaciones")
         
         if es_mismo_usuario:
             # CASO ESPECIAL: Supervisor = Receptor
-            print(f"DEBUG: Caso especial - Supervisor = Receptor")
+            logger.info("Caso especial - Supervisor = Receptor")
             
             # Crear notificación combinada
-            NotificacionService._crear_notificacion_supervisor_receptor(solicitud)
+            try:
+                NotificacionService._crear_notificacion_supervisor_receptor(solicitud_completa)
+            except Exception as e:
+                logger.exception(f"Error creando notificación supervisor-receptor: {e}")
             
             # Enviar email combinado
             try:
-                NotificacionService._enviar_email_supervisor_receptor(solicitud)
-                print(f"DEBUG: Email combinado enviado")
+                resultado = NotificacionService._enviar_email_supervisor_receptor(solicitud_completa)
+                if resultado:
+                    logger.info("✅ Email combinado enviado exitosamente")
+                else:
+                    logger.warning("⚠️ Email combinado no se pudo enviar (retornó False)")
             except Exception as e:
-                print(f"ERROR enviando email combinado: {e}")
+                logger.exception(f"❌ Error enviando email combinado: {e}")
         else:
             # CASO NORMAL: Supervisor ≠ Receptor
-            print(f"DEBUG: Caso normal - Supervisor ≠ Receptor")
+            logger.info("Caso normal - Supervisor ≠ Receptor")
             
             # Notificación para el supervisor
             if supervisor:
-                print(f"DEBUG: Creando notificación para supervisor: {supervisor.nombre}")
-                NotificacionService._crear_notificacion_supervisor(solicitud)
+                logger.info(f"Creando notificación para supervisor: {supervisor.nombre}")
+                try:
+                    NotificacionService._crear_notificacion_supervisor(solicitud_completa)
+                except Exception as e:
+                    logger.exception(f"Error creando notificación supervisor: {e}")
             else:
-                print(f"DEBUG: No hay supervisor asignado para {solicitud.explorador_solicitante.nombre}")
+                logger.info(f"No hay supervisor asignado para {solicitud_completa.explorador_solicitante.nombre}")
             
             # Notificación para el compañero receptor
-            print(f"DEBUG: Creando notificación para receptor: {receptor.nombre}")
-            NotificacionService._crear_notificacion_receptor(solicitud)
+            logger.info(f"Creando notificación para receptor: {receptor.nombre}")
+            try:
+                NotificacionService._crear_notificacion_receptor(solicitud_completa)
+            except Exception as e:
+                logger.exception(f"Error creando notificación receptor: {e}")
             
             # Enviar emails separados
-            print(f"DEBUG: Enviando emails separados...")
+            logger.info("Enviando emails separados...")
             # Enviar email al supervisor
             supervisor_email_sent = False
-            try:
-                supervisor_email_sent = NotificacionService._enviar_email_supervisor(solicitud)
-                if supervisor_email_sent:
-                    print(f"[OK] Email al supervisor enviado exitosamente")
-                else:
-                    print(f"[ERROR] Error enviando email al supervisor")
-            except Exception as e:
-                print(f"[ERROR] ERROR enviando email al supervisor: {e}")
+            if supervisor:
+                try:
+                    supervisor_email_sent = NotificacionService._enviar_email_supervisor(solicitud_completa)
+                    if supervisor_email_sent:
+                        logger.info("✅ Email al supervisor enviado exitosamente")
+                    else:
+                        logger.warning("⚠️ Email al supervisor no se pudo enviar (retornó False)")
+                except Exception as e:
+                    logger.exception(f"❌ Error enviando email al supervisor: {e}")
             
             # Enviar email al receptor
             receptor_email_sent = False
             try:
-                receptor_email_sent = NotificacionService._enviar_email_receptor(solicitud)
+                receptor_email_sent = NotificacionService._enviar_email_receptor(solicitud_completa)
                 if receptor_email_sent:
-                    print(f"[OK] Email al receptor enviado exitosamente")
+                    logger.info("✅ Email al receptor enviado exitosamente")
                 else:
-                    print(f"[ERROR] Error enviando email al receptor")
+                    logger.warning("⚠️ Email al receptor no se pudo enviar (retornó False)")
             except Exception as e:
-                print(f"[ERROR] ERROR enviando email al receptor: {e}")
+                logger.exception(f"❌ Error enviando email al receptor: {e}")
         
         # Notificación para el solicitante (siempre se crea)
-        print(f"DEBUG: Creando notificación para solicitante: {solicitud.explorador_solicitante.nombre}")
-        NotificacionService._crear_notificacion_solicitante(solicitud)
+        logger.info(f"Creando notificación para solicitante: {solicitud_completa.explorador_solicitante.nombre}")
+        try:
+            NotificacionService._crear_notificacion_solicitante(solicitud_completa)
+        except Exception as e:
+            logger.exception(f"Error creando notificación solicitante: {e}")
         
         try:
-            NotificacionService._enviar_email_solicitante(solicitud)
-            print(f"DEBUG: Email al solicitante enviado")
+            resultado = NotificacionService._enviar_email_solicitante(solicitud_completa)
+            if resultado:
+                logger.info("✅ Email al solicitante enviado exitosamente")
+            else:
+                logger.warning("⚠️ Email al solicitante no se pudo enviar (retornó False)")
         except Exception as e:
-            print(f"ERROR enviando email al solicitante: {e}")
+            logger.exception(f"❌ Error enviando email al solicitante: {e}")
         
-        print(f"DEBUG: Proceso de notificaciones completado")
+        logger.info("Proceso de notificaciones completado")
     
     @staticmethod
     def _crear_notificacion_supervisor(solicitud):
@@ -289,35 +373,47 @@ class NotificacionService:
     @staticmethod
     def _enviar_email_supervisor_receptor(solicitud):
         """Envía email combinado cuando supervisor = receptor"""
-        # Cargar solicitud con relaciones completas
-        solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
-        supervisor_receptor = solicitud_completa.explorador_receptor
-        
-        subject = f"Solicitud de cambio de turno - Rol Doble - {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}"
-        
-        # Generar enlaces de aprobación
-        enlaces = NotificacionService._generar_enlaces_aprobacion(solicitud_completa)
-        
-        # Renderizar template HTML
-        html_message = render_to_string('solicitudes/emails/solicitud_supervisor_receptor.html', {
-            'solicitud': solicitud_completa,
-            'supervisor_receptor': supervisor_receptor,
-            'enlaces': enlaces
-        })
-        
-        # Versión texto plano
-        plain_message = strip_tags(html_message)
-        
         try:
-            NotificacionService._enviar_email_desde_usuario(
+            # Cargar solicitud con relaciones completas
+            solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
+            supervisor_receptor = solicitud_completa.explorador_receptor
+            
+            # Validar email del receptor
+            if not supervisor_receptor.email or not supervisor_receptor.email.strip():
+                logger.error(f"No se puede enviar email: receptor {supervisor_receptor.nombre} no tiene email válido")
+                return False
+            
+            subject = f"Solicitud de cambio de turno - Rol Doble - {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}"
+            
+            # Generar enlaces de aprobación
+            enlaces = NotificacionService._generar_enlaces_aprobacion(solicitud_completa)
+            
+            # Renderizar template HTML
+            try:
+                html_message = render_to_string('solicitudes/emails/solicitud_supervisor_receptor.html', {
+                    'solicitud': solicitud_completa,
+                    'supervisor_receptor': supervisor_receptor,
+                    'enlaces': enlaces
+                })
+            except Exception as e:
+                logger.exception(f"Error renderizando template de email supervisor-receptor: {e}")
+                return False
+            
+            # Versión texto plano
+            plain_message = strip_tags(html_message)
+            
+            from_email = solicitud_completa.explorador_solicitante.email if solicitud_completa.explorador_solicitante.email else settings.DEFAULT_FROM_EMAIL
+            
+            return NotificacionService._enviar_email_desde_usuario(
                 subject=subject,
                 message=plain_message,
-                from_email=solicitud_completa.explorador_solicitante.email,
+                from_email=from_email,
                 recipient_list=[supervisor_receptor.email],
                 html_message=html_message
             )
         except Exception as e:
-            print(f"Error enviando email combinado: {e}")
+            logger.exception(f"Error en _enviar_email_supervisor_receptor: {e}")
+            return False
     
     @staticmethod
     def _crear_notificacion_solicitante(solicitud):
@@ -348,69 +444,92 @@ class NotificacionService:
     @staticmethod
     def _enviar_email_supervisor(solicitud):
         """Envía email al supervisor"""
-        # Cargar solicitud con relaciones completas
-        solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
-        supervisor = solicitud_completa.explorador_solicitante.supervisor
-        if not supervisor:
-            return
-        
-        subject = f"Nueva solicitud de cambio de turno - {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}"
-        
-        # Generar enlaces de aprobación
-        enlaces = NotificacionService._generar_enlaces_aprobacion(solicitud_completa)
-        
-        # Renderizar template HTML
-        html_message = render_to_string('solicitudes/emails/solicitud_supervisor.html', {
-            'solicitud': solicitud_completa,
-            'supervisor': supervisor,
-            'enlaces': enlaces
-        })
-        
-        # Versión texto plano
-        plain_message = strip_tags(html_message)
-        
         try:
+            # Cargar solicitud con relaciones completas
+            solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
+            supervisor = solicitud_completa.explorador_solicitante.supervisor
+            if not supervisor:
+                logger.warning("No hay supervisor asignado, no se enviará email")
+                return False
+            
+            # Validar email del supervisor
+            if not supervisor.email or not supervisor.email.strip():
+                logger.error(f"No se puede enviar email: supervisor {supervisor.nombre} no tiene email válido")
+                return False
+            
+            subject = f"Nueva solicitud de cambio de turno - {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}"
+            
+            # Generar enlaces de aprobación
+            enlaces = NotificacionService._generar_enlaces_aprobacion(solicitud_completa)
+            
+            # Renderizar template HTML
+            try:
+                html_message = render_to_string('solicitudes/emails/solicitud_supervisor.html', {
+                    'solicitud': solicitud_completa,
+                    'supervisor': supervisor,
+                    'enlaces': enlaces
+                })
+            except Exception as e:
+                logger.exception(f"Error renderizando template de email supervisor: {e}")
+                return False
+            
+            # Versión texto plano
+            plain_message = strip_tags(html_message)
+            
+            from_email = solicitud_completa.explorador_solicitante.email if solicitud_completa.explorador_solicitante.email else settings.DEFAULT_FROM_EMAIL
+            
             return NotificacionService._enviar_email_desde_usuario(
                 subject=subject,
                 message=plain_message,
-                from_email=solicitud_completa.explorador_solicitante.email,  # Email del usuario logueado
+                from_email=from_email,
                 recipient_list=[supervisor.email],
                 html_message=html_message,
             )
         except Exception as e:
-            print(f"[ERROR] Error enviando email al supervisor: {e}")
+            logger.exception(f"Error en _enviar_email_supervisor: {e}")
             return False
     
     @staticmethod
     def _enviar_email_receptor(solicitud):
         """Envía email al compañero receptor"""
-        # Cargar solicitud con relaciones completas
-        solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
-        
-        subject = f"Solicitud de cambio de turno recibida - {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}"
-        
-        # Generar enlaces de aprobación
-        enlaces = NotificacionService._generar_enlaces_aprobacion(solicitud_completa)
-        
-        # Renderizar template HTML
-        html_message = render_to_string('solicitudes/emails/solicitud_receptor.html', {
-            'solicitud': solicitud_completa,
-            'enlaces': enlaces
-        })
-        
-        # Versión texto plano
-        plain_message = strip_tags(html_message)
-        
         try:
+            # Cargar solicitud con relaciones completas
+            solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
+            
+            # Validar email del receptor
+            if not solicitud_completa.explorador_receptor.email or not solicitud_completa.explorador_receptor.email.strip():
+                logger.error(f"No se puede enviar email: receptor {solicitud_completa.explorador_receptor.nombre} no tiene email válido")
+                return False
+            
+            subject = f"Solicitud de cambio de turno recibida - {solicitud_completa.explorador_solicitante.nombre} {solicitud_completa.explorador_solicitante.apellido}"
+            
+            # Generar enlaces de aprobación
+            enlaces = NotificacionService._generar_enlaces_aprobacion(solicitud_completa)
+            
+            # Renderizar template HTML
+            try:
+                html_message = render_to_string('solicitudes/emails/solicitud_receptor.html', {
+                    'solicitud': solicitud_completa,
+                    'enlaces': enlaces
+                })
+            except Exception as e:
+                logger.exception(f"Error renderizando template de email receptor: {e}")
+                return False
+            
+            # Versión texto plano
+            plain_message = strip_tags(html_message)
+            
+            from_email = solicitud_completa.explorador_solicitante.email if solicitud_completa.explorador_solicitante.email else settings.DEFAULT_FROM_EMAIL
+            
             return NotificacionService._enviar_email_desde_usuario(
                 subject=subject,
                 message=plain_message,
-                from_email=solicitud_completa.explorador_solicitante.email,  # Email del usuario logueado
+                from_email=from_email,
                 recipient_list=[solicitud_completa.explorador_receptor.email],
                 html_message=html_message,
             )
         except Exception as e:
-            print(f"[ERROR] Error enviando email al receptor: {e}")
+            logger.exception(f"Error en _enviar_email_receptor: {e}")
             return False
     
     @staticmethod
@@ -420,29 +539,37 @@ class NotificacionService:
             # Cargar solicitud con relaciones completas
             solicitud_completa = NotificacionService._cargar_solicitud_completa(solicitud)
             
+            # Validar email del solicitante
+            if not solicitud_completa.explorador_solicitante.email or not solicitud_completa.explorador_solicitante.email.strip():
+                logger.error(f"No se puede enviar email: solicitante {solicitud_completa.explorador_solicitante.nombre} no tiene email válido")
+                return False
+            
             subject = f"Confirmación de solicitud de cambio de turno"
             
-            html_message = render_to_string('solicitudes/emails/confirmacion_solicitud.html', {
-                'solicitud': solicitud_completa,
-                'empleado': solicitud_completa.explorador_solicitante
-            })
+            try:
+                html_message = render_to_string('solicitudes/emails/confirmacion_solicitud.html', {
+                    'solicitud': solicitud_completa,
+                    'empleado': solicitud_completa.explorador_solicitante
+                })
+            except Exception as e:
+                logger.exception(f"Error renderizando template de email confirmación: {e}")
+                return False
             
             plain_message = strip_tags(html_message)
             
-            NotificacionService._enviar_email_desde_usuario(
+            from_email = solicitud_completa.explorador_solicitante.email if solicitud_completa.explorador_solicitante.email else settings.DEFAULT_FROM_EMAIL
+            
+            return NotificacionService._enviar_email_desde_usuario(
                 subject=subject,
                 message=plain_message,
-                from_email=solicitud_completa.explorador_solicitante.email,  # Email del usuario logueado
+                from_email=from_email,
                 recipient_list=[solicitud_completa.explorador_solicitante.email],
                 html_message=html_message,
             )
             
-            print(f"DEBUG: Email de confirmación enviado a {solicitud_completa.explorador_solicitante.email}")
-            
         except Exception as e:
-            print(f"ERROR enviando email de confirmación al solicitante: {e}")
-            import traceback
-            print(f"ERROR traceback: {traceback.format_exc()}")
+            logger.exception(f"Error en _enviar_email_solicitante: {e}")
+            return False
     
     @staticmethod
     def marcar_como_leida(notificacion_id, empleado):

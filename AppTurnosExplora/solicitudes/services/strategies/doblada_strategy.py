@@ -17,6 +17,7 @@ from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from ..solicitud_validator import SolicitudValidator
 from turnos.services.jornada_service import JornadaService
+from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from core.services import get_empleado_disponibilidad_service, get_turno_service
 from core.utils.date_utils import DateUtils
 
@@ -60,6 +61,7 @@ class DobladaStrategy(SolicitudStrategy):
             fecha_cesion = datos.get('fecha_cambio_turno')
             fecha_pago = datos.get('fecha_pago')
             jornada_cedida = datos.get('jornada_cedida')
+            jornada_pago_sabado = datos.get('jornada_pago_sabado')
             fecha_creacion_solicitud = datos.get('fecha_creacion_solicitud')
             
             # Validaciones básicas de campos requeridos
@@ -101,6 +103,44 @@ class DobladaStrategy(SolicitudStrategy):
             # Validar días especiales para fecha de pago
             SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
             
+            # ===========================
+            # Regla especial: pago en sábado (día de semana ↔ sábado)
+            # ===========================
+            fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+            es_pago_sabado = fecha_pago_obj.weekday() == 5 and jornada_pago_sabado
+
+            if es_pago_sabado:
+                jornada_pago_sabado_upper = str(jornada_pago_sabado).upper()
+                if jornada_pago_sabado_upper not in ("AM", "PM"):
+                    logger.warning(f"Validación fallida: jornada_pago_sabado inválida: {jornada_pago_sabado}")
+                    return False, "Para pagar en sábado debes seleccionar una jornada válida (AM o PM)."
+
+                # Validar que el receptor TRABAJA ese sábado según alternancia
+                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_pago_obj)
+                if not jornada_trabaja_sabado:
+                    logger.warning(f"Validación fallida: no se pudo determinar alternancia para {fecha_pago_obj}")
+                    return False, "No se pudo determinar la alternancia para el sábado seleccionado."
+
+                # Usamos la jornada base del receptor (AM/PM) como verificación de grupo.
+                # Nota: si el receptor ya tiene turnos en BD en ese sábado, JornadaService podría devolver AM/PM;
+                # si no, devuelve su asignación. En ambos casos debe coincidir con el grupo que trabaja ese sábado.
+                jornada_receptor_pago = JornadaService.get_jornada_explorador_fecha(
+                    explorador_receptor.id, fecha_pago_obj.strftime('%Y-%m-%d')
+                )
+                if not jornada_receptor_pago:
+                    logger.warning(f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_pago_obj}")
+                    return False, "El receptor no tiene jornada asignada para la fecha de pago (sábado)."
+
+                if jornada_receptor_pago.nombre.upper() != jornada_trabaja_sabado:
+                    logger.warning(
+                        f"Validación fallida: receptor {explorador_receptor.id} tiene {jornada_receptor_pago.nombre.upper()} "
+                        f"pero debe ser {jornada_trabaja_sabado} para sábado {fecha_pago_obj}"
+                    )
+                    return False, (
+                        f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')}, el receptor debe ser del grupo "
+                        f"que trabaja ese sábado ({jornada_trabaja_sabado}). El receptor tiene {jornada_receptor_pago.nombre.upper()}."
+                    )
+
             # Validar jornadas contrarias
             SolicitudValidator.validar_jornadas_contrarias_doblada(
                 explorador_solicitante,
@@ -110,8 +150,11 @@ class DobladaStrategy(SolicitudStrategy):
             )
             
             # Validar que receptor no tenga doblada activa (evitar triple turno)
+            # EXCEPCIÓN: si el pago es sábado (regla especial), el receptor puede tener AM+PM ese sábado
+            # porque el sistema lo partirá en media jornada para cada uno.
             SolicitudValidator.validar_no_triple_turno(explorador_receptor, fecha_cesion)
-            SolicitudValidator.validar_no_triple_turno(explorador_receptor, fecha_pago)
+            if not es_pago_sabado:
+                SolicitudValidator.validar_no_triple_turno(explorador_receptor, fecha_pago)
             
             # IMPORTANTE: NO validar doblada del solicitante en fecha de cesión
             # Porque Cesión Total existe precisamente para ceder una doblada existente
@@ -173,6 +216,7 @@ class DobladaStrategy(SolicitudStrategy):
             fecha_cambio_turno = datos.get('fecha_cambio_turno')
             fecha_pago = datos.get('fecha_pago')
             jornada_cedida = datos.get('jornada_cedida')
+            jornada_pago_sabado = datos.get('jornada_pago_sabado')
             tipo_cesion = datos.get('tipo_cesion', 'cesion_completa')
             
             # Create the main solicitud
@@ -186,14 +230,39 @@ class DobladaStrategy(SolicitudStrategy):
             )
             
             # Create the doblada detail
-            DobladaDetalle.objects.create(
-                solicitud=solicitud,
-                minutos_deuda=30,  # Default 30 minutes
-                fecha_pago=fecha_pago,
-                tipo_cesion=tipo_cesion,
-                jornada_cedida=jornada_cedida,
-                empleado_receptor=explorador_receptor  # Guardar receptor en DobladaDetalle para consultas directas
-            )
+            # Construir diccionario de campos dinámicamente para evitar pasar None cuando no es necesario
+            doblada_detalle_data = {
+                'solicitud': solicitud,
+                'minutos_deuda': 30,  # Default 30 minutes
+                'fecha_pago': fecha_pago,
+                'tipo_cesion': tipo_cesion,
+                'empleado_receptor': explorador_receptor  # Guardar receptor en DobladaDetalle para consultas directas
+            }
+            
+            # Solo agregar jornada_cedida si tiene valor
+            if jornada_cedida:
+                doblada_detalle_data['jornada_cedida'] = jornada_cedida
+            
+            # Solo agregar jornada_pago_sabado si tiene valor (evita problemas con columnas NULL)
+            if jornada_pago_sabado:
+                doblada_detalle_data['jornada_pago_sabado'] = jornada_pago_sabado
+            
+            try:
+                doblada_detalle = DobladaDetalle.objects.create(**doblada_detalle_data)
+                logger.info(f"DobladaDetalle creado: ID={doblada_detalle.id}, jornada_pago_sabado={jornada_pago_sabado}")
+            except Exception as e:
+                # Si hay error con jornada_pago_sabado, intentar sin ese campo
+                if 'jornada_pago_sabado' in str(e):
+                    logger.warning(f"Error creando DobladaDetalle con jornada_pago_sabado: {e}. Intentando sin ese campo...")
+                    doblada_detalle_data.pop('jornada_pago_sabado', None)
+                    doblada_detalle = DobladaDetalle.objects.create(**doblada_detalle_data)
+                    # Actualizar después con el valor si es necesario
+                    if jornada_pago_sabado:
+                        doblada_detalle.jornada_pago_sabado = jornada_pago_sabado
+                        doblada_detalle.save(update_fields=['jornada_pago_sabado'])
+                    logger.info(f"DobladaDetalle creado sin jornada_pago_sabado inicialmente, luego actualizado")
+                else:
+                    raise  # Re-lanzar si es otro error
             
             logger.info(f"Doblada solicitud creada: {solicitud.id} - {explorador_solicitante.nombre} -> {explorador_receptor.nombre}")
             
@@ -201,8 +270,11 @@ class DobladaStrategy(SolicitudStrategy):
             try:
                 from ..notificacion_service import NotificacionService
                 NotificacionService.crear_notificacion_solicitud(solicitud)
+                logger.info(f"Notificaciones y emails procesados para solicitud {solicitud.id}")
             except Exception as e:
-                logger.exception("Error creando notificaciones para DOBLADA")
+                logger.exception(f"Error creando notificaciones para DOBLADA {solicitud.id}: {e}")
+                # No re-lanzar el error para que la solicitud se cree exitosamente
+                # pero loguear el problema para diagnóstico
             
             return solicitud, "Solicitud de doblada creada correctamente"
             
@@ -242,8 +314,32 @@ class DobladaStrategy(SolicitudStrategy):
                 DobladaAplicacionService.generar_deudas_doblada(solicitud, detalle)
                 
                 logger.info(f"Doblada aplicada: Solicitud {solicitud.id}")
-                
-                return True, "Doblada aplicada correctamente. Ambas dobladas (cesión y pago) fueron aplicadas inmediatamente."
+            
+            # IMPORTANTE: Limpiar caché DESPUÉS de que la transacción se confirme
+            # Esto asegura que los turnos ya estén guardados en BD antes de limpiar el caché
+            from core.services.cache_service import CacheService
+            solicitante = solicitud.explorador_solicitante
+            receptor = solicitud.explorador_receptor
+            fecha_cesion = solicitud.fecha_cambio_turno
+            fecha_pago = detalle.fecha_pago
+            
+            # Limpiar caché para solicitante (mes de cesión y mes de pago)
+            for fecha in [fecha_cesion, fecha_pago]:
+                anio = fecha.year
+                mes = fecha.month
+                cache_key_solicitante = f'turnos_mes_{solicitante.id}_{anio}_{mes:02d}'
+                CacheService.delete(cache_key_solicitante)
+                logger.info(f"Caché limpiado para solicitante: {cache_key_solicitante}")
+            
+            # Limpiar caché para receptor (mes de cesión y mes de pago)
+            for fecha in [fecha_cesion, fecha_pago]:
+                anio = fecha.year
+                mes = fecha.month
+                cache_key_receptor = f'turnos_mes_{receptor.id}_{anio}_{mes:02d}'
+                CacheService.delete(cache_key_receptor)
+                logger.info(f"Caché limpiado para receptor: {cache_key_receptor}")
+            
+            return True, "Doblada aplicada correctamente. Ambas dobladas (cesión y pago) fueron aplicadas inmediatamente."
                 
         except Exception as e:
             logger.error(f"Error aplicando doblada: {str(e)}", exc_info=True)
@@ -254,15 +350,15 @@ class DobladaStrategy(SolicitudStrategy):
         Get available employees for doblada according to visibility rules.
         
         Rules:
-        - If solicitante works AM → only show PM employees (except those in doblada)
-        - If solicitante works PM → only show AM employees (except those in doblada)
+        - If fecha is Saturday: show employees who WORK that Saturday (by alternancia).
+        - Otherwise (weekday): show employees with opposite shift (jornada contraria).
         - If solicitante is in doblada:
           - To cede AM → show PM employees (except those in doblada)
           - To cede PM → show AM employees (except those in doblada)
         - Exclude employees who already have doblada active in that date
         
         Args:
-            fecha: Date string in YYYY-MM-DD format
+            fecha: Date string in YYYY-MM-DD format (cesión or payment date)
             usuario_actual: Current user's empleado instance
             **kwargs: Additional arguments
                 - jornada_cedida: 'AM' or 'PM' (optional, if usuario is in doblada)
@@ -272,49 +368,61 @@ class DobladaStrategy(SolicitudStrategy):
         """
         try:
             from ..doblada_filtro_service import DobladaFiltroService
+            from turnos.services.jornada_service import JornadaService
             
-            jornada_cedida = kwargs.get('jornada_cedida')
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            es_sabado = fecha_obj.weekday() == 5
             
-            # Determinar jornada a ceder
-            jornada_a_ceder = DobladaFiltroService.obtener_jornada_a_ceder(
-                usuario_actual, fecha, jornada_cedida
-            )
-            
-            if not jornada_a_ceder:
-                logger.warning(
-                    f"No se pudo determinar jornada a ceder para {usuario_actual.nombre} en {fecha}"
+            if es_sabado:
+                # Fecha de pago (o cesión) es sábado: mostrar solo quienes TRABAJAN ese sábado (alternancia)
+                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                if not jornada_trabaja_sabado:
+                    return []
+                
+                empleados_activos = (
+                    Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id).select_related('supervisor')
                 )
-                return []
-            
-            # Obtener empleados con jornada contraria usando el servicio optimizado
-            servicio = get_empleado_disponibilidad_service()
-            
-            # Si hay jornada_cedida, necesitamos filtrar manualmente por jornada contraria
-            # porque el servicio usa la jornada del usuario_actual
-            if jornada_cedida:
-                # Caso especial: usuario está en doblada, usar jornada_cedida para determinar contraria
-                # Obtener todos los empleados activos y filtrar por jornada contraria manualmente
-                from turnos.services.jornada_service import JornadaService
-                jornada_contraria = 'PM' if jornada_a_ceder == 'AM' else 'AM'
-                
-                empleados_activos = Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id)
                 empleados_contrarios = []
-                
                 for empleado in empleados_activos:
                     jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)
-                    if jornada_empleado and jornada_empleado.nombre.upper() == jornada_contraria:
+                    if jornada_empleado and jornada_empleado.nombre.upper() == jornada_trabaja_sabado:
                         empleados_contrarios.append(empleado)
+                
+                logger.info(
+                    f"get_empleados_disponibles sábado: {fecha} jornada trabaja={jornada_trabaja_sabado} "
+                    f"→ {len(empleados_contrarios)} empleados"
+                )
             else:
-                # Caso normal: usar servicio optimizado
-                empleados_contrarios = list(servicio.get_empleados_jornada_contraria(fecha, usuario_actual))
+                # Día entre semana: lógica por jornada contraria
+                jornada_cedida = kwargs.get('jornada_cedida')
+                jornada_a_ceder = DobladaFiltroService.obtener_jornada_a_ceder(
+                    usuario_actual, fecha, jornada_cedida
+                )
+                
+                if not jornada_a_ceder:
+                    logger.warning(
+                        f"No se pudo determinar jornada a ceder para {usuario_actual.nombre} en {fecha}"
+                    )
+                    return []
+                
+                servicio = get_empleado_disponibilidad_service()
+                
+                if jornada_cedida:
+                    jornada_contraria = 'PM' if jornada_a_ceder == 'AM' else 'AM'
+                    empleados_activos = Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id)
+                    empleados_contrarios = []
+                    for empleado in empleados_activos:
+                        jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)
+                        if jornada_empleado and jornada_empleado.nombre.upper() == jornada_contraria:
+                            empleados_contrarios.append(empleado)
+                else:
+                    empleados_contrarios = list(servicio.get_empleados_jornada_contraria(fecha, usuario_actual))
             
             # Filtrar empleados con doblada activa
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             empleados_sin_doblada = DobladaFiltroService.filtrar_empleados_sin_doblada_activa(
                 empleados_contrarios, fecha_obj
             )
             
-            # Convertir a formato de diccionario
             return DobladaFiltroService.convertir_empleados_a_dict(empleados_sin_doblada, fecha)
             
         except Exception as e:
