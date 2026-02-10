@@ -150,6 +150,18 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     # Detectar si es doblada
                     es_doblada = jornada_display == 'DOBLADA'
                     
+                    # Si es sábado o domingo con doblada completa (AM+PM en BD), generar deuda corporativa
+                    if fecha.weekday() in [5, 6] and es_doblada and turnos_dia:  # Sábado (5) o Domingo (6)
+                        # Verificar que tiene AM+PM (doblada completa)
+                        jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
+                        tiene_am = 'AM' in jornadas_turnos
+                        tiene_pm = 'PM' in jornadas_turnos
+                        tiene_doblada_completa = tiene_am and tiene_pm
+                        
+                        if tiene_doblada_completa:
+                            from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+                            DeudaCorporativaService.generar_deuda_fin_semana_predeterminado(empleado, fecha)
+                    
                     # Determinar tipo de cambio (si todos los turnos tienen el mismo tipo_cambio)
                     tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
                     es_cambio = len(tipos_cambio) > 0
@@ -185,25 +197,67 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     from solicitudes.models import SolicitudCambio, DobladaDetalle
                     
                     # CASO 1: Usuario es SOLICITANTE (cedió su jornada) en fecha de cesión
-                    esta_descansando_como_solicitante = SolicitudCambio.objects.filter(
+                    solicitud_como_solicitante = SolicitudCambio.objects.filter(
                         explorador_solicitante=empleado,  # Es solicitante (quien cedió)
                         tipo_cambio__nombre='DOBLADA',
                         fecha_cambio_turno=fecha,  # La fecha de cesión es esta fecha (él descansa)
                         estado='aprobada'
-                    ).exists()
+                    ).select_related('explorador_receptor').first()
                     
                     # CASO 2: Usuario es RECEPTOR (quien cubrió) en fecha de pago
-                    esta_descansando_como_receptor = SolicitudCambio.objects.filter(
+                    solicitud_como_receptor = SolicitudCambio.objects.filter(
                         explorador_receptor=empleado,  # Es receptor (quien cubrió)
                         tipo_cambio__nombre='DOBLADA',
                         estado='aprobada',
                         doblada__fecha_pago=fecha  # La fecha de pago es esta fecha (él descansa)
-                    ).exists()
+                    ).select_related('explorador_solicitante', 'doblada').first()
                     
-                    esta_descansando = esta_descansando_como_solicitante or esta_descansando_como_receptor
+                    esta_descansando = solicitud_como_solicitante is not None or solicitud_como_receptor is not None
                     
                     if esta_descansando:
-                        # Usuario está descansando (cedió su jornada)
+                        # Determinar información detallada del descanso
+                        companero_nombre = None
+                        companero_id = None
+                        tipo_descanso = None  # 'cedio' o 'pago'
+                        solicitud_id = None
+                        fecha_relacionada = None
+                        fecha_solicitud = None
+                        fecha_aprobacion = None
+                        tipo_cesion = None
+                        jornada_cedida = None
+                        fecha_cesion = None
+                        fecha_pago = None
+                        
+                        if solicitud_como_solicitante:
+                            # Está descansando porque CEDIÓ su jornada
+                            detalle = solicitud_como_solicitante.doblada
+                            companero_nombre = f"{solicitud_como_solicitante.explorador_receptor.nombre} {solicitud_como_solicitante.explorador_receptor.apellido}"
+                            companero_id = solicitud_como_solicitante.explorador_receptor.id
+                            tipo_descanso = 'cedio'
+                            solicitud_id = solicitud_como_solicitante.id
+                            fecha_cesion = solicitud_como_solicitante.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud_como_solicitante.fecha_cambio_turno else None
+                            fecha_pago = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle and detalle.fecha_pago else None
+                            fecha_relacionada = fecha_pago
+                            fecha_solicitud = solicitud_como_solicitante.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if solicitud_como_solicitante.fecha_solicitud else None
+                            fecha_aprobacion = solicitud_como_solicitante.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_como_solicitante.fecha_resolucion else None
+                            tipo_cesion = detalle.get_tipo_cesion_display() if detalle else None
+                            jornada_cedida = detalle.jornada_cedida if detalle and detalle.jornada_cedida else None
+                        elif solicitud_como_receptor:
+                            # Está descansando porque está PAGANDO una doblada
+                            detalle = solicitud_como_receptor.doblada
+                            companero_nombre = f"{solicitud_como_receptor.explorador_solicitante.nombre} {solicitud_como_receptor.explorador_solicitante.apellido}"
+                            companero_id = solicitud_como_receptor.explorador_solicitante.id
+                            tipo_descanso = 'pago'
+                            solicitud_id = solicitud_como_receptor.id
+                            fecha_cesion = solicitud_como_receptor.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud_como_receptor.fecha_cambio_turno else None
+                            fecha_pago = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle and detalle.fecha_pago else None
+                            fecha_relacionada = fecha_cesion
+                            fecha_solicitud = solicitud_como_receptor.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if solicitud_como_receptor.fecha_solicitud else None
+                            fecha_aprobacion = solicitud_como_receptor.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_como_receptor.fecha_resolucion else None
+                            tipo_cesion = detalle.get_tipo_cesion_display() if detalle else None
+                            jornada_cedida = detalle.jornada_cedida if detalle and detalle.jornada_cedida else None
+                        
+                        # Usuario está descansando
                         turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                             'jornada': None,  # Sin jornada porque está descansando
                             'sala': None,
@@ -212,27 +266,75 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'es_descanso': True,  # Flag para frontend
                             'jornada_predeterminada': calcular_jornada_dia(jornada_base, fecha),
                             'coincide_con_predeterminada': False,
-                            'turno_id': None
+                            'turno_id': None,
+                            'descanso_info': {  # ✅ MEJORADO: Información detallada sobre el descanso
+                                'tipo': tipo_descanso,  # 'cedio' o 'pago'
+                                'companero_nombre': companero_nombre,
+                                'companero_id': companero_id,
+                                'solicitud_id': solicitud_id,
+                                'fecha_relacionada': fecha_relacionada,
+                                'fecha_cesion': fecha_cesion,
+                                'fecha_pago': fecha_pago,
+                                'fecha_solicitud': fecha_solicitud,
+                                'fecha_aprobacion': fecha_aprobacion,
+                                'tipo_cesion': tipo_cesion,
+                                'jornada_cedida': jornada_cedida
+                            }
                         }
                     else:
-                        # No hay turno, usar jornada predeterminada (día normal)
-                        jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+                        # No hay turno asignado
+                        # Verificar si es sábado o domingo y corresponde trabajar (jornada predeterminada = DOBLADA)
+                        es_fin_semana_doblada = False
+                        if fecha.weekday() == 5:  # Sábado
+                            from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                            jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha)
+                            if jornada_trabaja_sabado:
+                                # jornada_base ya es un string (nombre de la jornada), no un objeto
+                                jornada_base_nombre = jornada_base.upper() if jornada_base else None
+                                if jornada_base_nombre == jornada_trabaja_sabado.upper():
+                                    # Le corresponde trabajar ese sábado → jornada predeterminada es DOBLADA
+                                    es_fin_semana_doblada = True
+                        elif fecha.weekday() == 6:  # Domingo
+                            from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                            jornada_trabaja_domingo = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha)
+                            if jornada_trabaja_domingo:
+                                # jornada_base ya es un string (nombre de la jornada), no un objeto
+                                jornada_base_nombre = jornada_base.upper() if jornada_base else None
+                                if jornada_base_nombre == jornada_trabaja_domingo.upper():
+                                    # Le corresponde trabajar ese domingo → jornada predeterminada es DOBLADA
+                                    es_fin_semana_doblada = True
                         
-                        # Intentar obtener sala de asignación activa
-                        sala_nombre = 'Por asignar'
-                        if asignaciones_activas:
-                            sala_nombre = asignaciones_activas.sala.nombre
-                        
-                        turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                            'jornada': jornada_nombre,
-                            'sala': sala_nombre,
-                            'tipo': 'predeterminado',
-                            'es_cambio': False,
-                            'es_descanso': False,
-                            'jornada_predeterminada': jornada_nombre,
-                            'coincide_con_predeterminada': True,
-                            'turno_id': None
-                        }
+                        if es_fin_semana_doblada:
+                            # Sábado o domingo con jornada predeterminada = DOBLADA
+                            turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                                'jornada': 'DOBLADA',
+                                'sala': 'Por asignar',
+                                'tipo': 'predeterminado',
+                                'es_cambio': False,
+                                'es_doblada': True,  # Flag para frontend
+                                'jornada_predeterminada': 'DOBLADA',
+                                'coincide_con_predeterminada': True,
+                                'turno_id': None
+                            }
+                        else:
+                            # No hay turno, usar jornada predeterminada (día normal)
+                            jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+                            
+                            # Intentar obtener sala de asignación activa
+                            sala_nombre = 'Por asignar'
+                            if asignaciones_activas:
+                                sala_nombre = asignaciones_activas.sala.nombre
+                            
+                            turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                                'jornada': jornada_nombre,
+                                'sala': sala_nombre,
+                                'tipo': 'predeterminado',
+                                'es_cambio': False,
+                                'es_descanso': False,
+                                'jornada_predeterminada': jornada_nombre,
+                                'coincide_con_predeterminada': True,
+                                'turno_id': None
+                            }
             
             # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
             # Limitar a las solicitudes más recientes para mejorar rendimiento
@@ -277,12 +379,139 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             }
             
             # Agregar información de solicitudes a los turnos
+            # Para dobladas, buscar en todos los turnos de esa fecha
             for fecha_str, info in turnos_mes_dict.items():
                 turno_id = info.get('turno_id')
+                solicitud_encontrada = None
+                
+                # Si hay turno_id, buscar directamente
                 if turno_id and turno_id in solicitudes_info:
-                    info['solicitud_info'] = solicitudes_info[turno_id]
+                    solicitud_encontrada = solicitudes_info[turno_id]
                 else:
-                    info['solicitud_info'] = None
+                    # Si no se encontró, puede ser una doblada con múltiples turnos
+                    # Buscar en todos los turnos de esa fecha
+                    fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                    turnos_fecha = turnos_por_fecha.get(fecha_obj, [])
+                    for turno in turnos_fecha:
+                        if turno.id in solicitudes_info:
+                            solicitud_encontrada = solicitudes_info[turno.id]
+                            break  # Usar la primera encontrada
+                
+                info['solicitud_info'] = solicitud_encontrada
+            
+            # BÚSQUEDA ADICIONAL PARA DOBLADAS
+            # Las dobladas no tienen turno_origen/turno_destino asignados, así que buscamos por fecha y empleado
+            # Solo buscar para fechas que aún no tienen solicitud_info y tienen cambios (es_cambio o es_doblada)
+            fechas_sin_solicitud = [
+                fecha_str for fecha_str, info in turnos_mes_dict.items()
+                if not info.get('solicitud_info') and (info.get('es_cambio', False) or info.get('es_doblada', False))
+            ]
+            
+            if fechas_sin_solicitud:
+                # Convertir fechas string a objetos date
+                fechas_obj = [datetime.strptime(f, '%Y-%m-%d').date() for f in fechas_sin_solicitud]
+                
+                # IMPORTANTE: Para dobladas, necesitamos buscar en ambos escenarios:
+                # 1. Empleado como SOLICITANTE en fecha de cesión (empleado cedió, receptor trabaja)
+                # 2. Empleado como RECEPTOR en fecha de cesión (empleado trabaja/dobla, solicitante descansa)
+                # 3. Empleado como RECEPTOR en fecha de pago (empleado descansa, solicitante trabaja/dobla)
+                # 4. Empleado como SOLICITANTE en fecha de pago (empleado trabaja/dobla, receptor descansa)
+                
+                # Buscar donde el empleado es SOLICITANTE y la fecha es de CESIÓN (empleado descansa, receptor trabaja)
+                solicitudes_solicitante_cesion = SolicitudCambio.objects.filter(
+                    explorador_solicitante=empleado,
+                    tipo_cambio__nombre='DOBLADA',
+                    fecha_cambio_turno__in=fechas_obj,
+                    estado='aprobada'
+                ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+                
+                # Buscar donde el empleado es RECEPTOR y la fecha es de CESIÓN (empleado trabaja/dobla, solicitante descansa)
+                solicitudes_receptor_cesion = SolicitudCambio.objects.filter(
+                    explorador_receptor=empleado,
+                    tipo_cambio__nombre='DOBLADA',
+                    fecha_cambio_turno__in=fechas_obj,
+                    estado='aprobada'
+                ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+                
+                # Buscar donde el empleado es RECEPTOR y la fecha es de PAGO (empleado descansa, solicitante trabaja/dobla)
+                solicitudes_receptor_pago = SolicitudCambio.objects.filter(
+                    explorador_receptor=empleado,
+                    tipo_cambio__nombre='DOBLADA',
+                    doblada__fecha_pago__in=fechas_obj,
+                    estado='aprobada'
+                ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+                
+                # Buscar donde el empleado es SOLICITANTE y la fecha es de PAGO (empleado trabaja/dobla, receptor descansa)
+                solicitudes_solicitante_pago = SolicitudCambio.objects.filter(
+                    explorador_solicitante=empleado,
+                    tipo_cambio__nombre='DOBLADA',
+                    doblada__fecha_pago__in=fechas_obj,
+                    estado='aprobada'
+                ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+                
+                # Crear diccionarios para búsqueda rápida (solo la más reciente por fecha)
+                dobladas_dict = {}
+                
+                # Solicitudes donde empleado es solicitante en fecha de cesión
+                for sol in solicitudes_solicitante_cesion:
+                    fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
+                    if fecha_str not in dobladas_dict:
+                        dobladas_dict[fecha_str] = {
+                            'solicitud': sol,
+                            'companero': sol.explorador_receptor.nombre,
+                            'rol': 'solicitante'
+                        }
+                
+                # Solicitudes donde empleado es receptor en fecha de cesión
+                for sol in solicitudes_receptor_cesion:
+                    fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
+                    if fecha_str not in dobladas_dict:
+                        dobladas_dict[fecha_str] = {
+                            'solicitud': sol,
+                            'companero': sol.explorador_solicitante.nombre,
+                            'rol': 'receptor'
+                        }
+                
+                # Solicitudes donde empleado es receptor en fecha de pago
+                for sol in solicitudes_receptor_pago:
+                    if sol.doblada and sol.doblada.fecha_pago:
+                        fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
+                        if fecha_str not in dobladas_dict:
+                            dobladas_dict[fecha_str] = {
+                                'solicitud': sol,
+                                'companero': sol.explorador_solicitante.nombre,
+                                'rol': 'receptor'
+                            }
+                
+                # Solicitudes donde empleado es solicitante en fecha de pago
+                for sol in solicitudes_solicitante_pago:
+                    if sol.doblada and sol.doblada.fecha_pago:
+                        fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
+                        if fecha_str not in dobladas_dict:
+                            dobladas_dict[fecha_str] = {
+                                'solicitud': sol,
+                                'companero': sol.explorador_receptor.nombre,
+                                'rol': 'solicitante'
+                            }
+                
+                # Asociar información de dobladas a los turnos
+                for fecha_str in fechas_sin_solicitud:
+                    if fecha_str not in turnos_mes_dict:
+                        continue
+                    
+                    info = turnos_mes_dict[fecha_str]
+                    if info.get('solicitud_info'):
+                        continue  # Ya tiene información
+                    
+                    doblada_info = dobladas_dict.get(fecha_str)
+                    if doblada_info:
+                        sol = doblada_info['solicitud']
+                        info['solicitud_info'] = {
+                            'solicitud_id': sol.id,
+                            'companero_nombre': doblada_info['companero'],
+                            'rol': doblada_info['rol'],
+                            'fecha_resolucion': sol.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if sol.fecha_resolucion else None
+                        }
             
             # FASE 3.5: Guardar en caché usando CacheService
             # Los datos de turnos no cambian frecuentemente, así que 1 hora es seguro
@@ -700,3 +929,69 @@ class CalcularMantenimientoAutomaticoView(LoginRequiredMixin, View):
             logger = logging.getLogger(__name__)
             logger.error(f"Error al calcular días de mantenimiento automático: {e}")
             return JsonResponse({'error': f'Error al calcular días de mantenimiento: {str(e)}'}, status=500)
+
+
+class CalcularFestivosAutomaticoView(LoginRequiredMixin, View):
+    """
+    Endpoint API para generar y obtener automáticamente los días festivos para un año.
+
+    Parámetros:
+    - anio: Año (requerido)
+
+    Retorna JSON con días festivos calculados y/o generados en BD, agrupados por mes.
+    """
+
+    def get(self, request):
+        try:
+            anio = request.GET.get('anio')
+
+            if not anio:
+                return JsonResponse({'error': 'El parámetro \"anio\" es requerido'}, status=400)
+
+            try:
+                anio = int(anio)
+            except ValueError:
+                return JsonResponse({'error': 'El año debe ser un número válido'}, status=400)
+
+            # Validar año mínimo (solo para evitar años históricos muy antiguos)
+            if anio < 2000:
+                return JsonResponse({
+                    'error': f'El año debe ser mayor o igual a 2000. Año proporcionado: {anio}'
+                }, status=400)
+
+            from turnos.services.dia_especial_service import DiaEspecialService
+
+            # Generar (si faltan) y obtener festivos automáticos
+            dias_por_mes = DiaEspecialService.generar_festivos_automaticos(anio)
+
+            # Convertir a formato de lista para compatibilidad
+            dias_list = []
+            for mes, dias in dias_por_mes.items():
+                for dia in dias:
+                    fecha = date(anio, mes, dia)
+                    dias_list.append({
+                        'fecha': fecha.strftime('%Y-%m-%d'),
+                        'mes': mes,
+                        'dia': dia,
+                        'descripcion': 'Día festivo'
+                    })
+
+            return JsonResponse({
+                'dias': dias_list,
+                'por_mes': dias_por_mes,
+                'total': len(dias_list),
+                'tipo': 'festivo',
+                'anio': anio
+            })
+
+        except ValueError as e:
+            # Capturar errores de validación de rango de años
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Intento de generar festivos con año inválido: {e}")
+            return JsonResponse({'error': str(e)}, status=400)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error al calcular festivos automáticos: {e}")
+            return JsonResponse({'error': f'Error al calcular festivos automáticos: {str(e)}'}, status=500)

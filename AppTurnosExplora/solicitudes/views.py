@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.urls import reverse_lazy
+from django.db.models import Q
 from core.mixins import AdminRequiredMixin
 from core.services import get_turno_service
 from empleados.models import Empleado
@@ -579,6 +580,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 turno_dict = turno_service.get_turno_explorador(explorador_id, fecha)
             
             # CORRECCIÓN: Detectar si el explorador tiene doblada (AM + PM) en esta fecha
+            # IMPORTANTE: Solo es doblada si hay TURNOS ASIGNADOS (AM+PM), no solo jornada predeterminada
             from turnos.models import Turno
             from datetime import datetime
             
@@ -589,13 +591,51 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             ).select_related('jornada')
             
             turnos_list = [t.jornada.nombre for t in turnos_en_fecha if t.jornada]
-            es_doblada = 'AM' in turnos_list and 'PM' in turnos_list
+            # ✅ CORRECCIÓN: Solo es doblada si hay TURNOS REALES asignados (AM+PM)
+            # No considerar jornada predeterminada como doblada
+            es_doblada = len(turnos_en_fecha) >= 2 and 'AM' in turnos_list and 'PM' in turnos_list
+            
+            # Verificar si es sábado o domingo y corresponde trabajar (doblada por alternancia = jornada predeterminada)
+            es_fin_semana_doblada_predeterminada = False
+            if fecha_obj.weekday() == 5:  # Sábado
+                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                if jornada_trabaja_sabado:
+                    from turnos.services.jornada_service import JornadaService
+                    jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
+                    if jornada_predeterminada and jornada_predeterminada.nombre.upper() == jornada_trabaja_sabado.upper():
+                        # Para sábados, la jornada predeterminada es DOBLADA, no AM o PM
+                        es_fin_semana_doblada_predeterminada = True
+            elif fecha_obj.weekday() == 6:  # Domingo
+                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                jornada_trabaja_domingo = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha_obj)
+                if jornada_trabaja_domingo:
+                    from turnos.services.jornada_service import JornadaService
+                    jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
+                    if jornada_predeterminada and jornada_predeterminada.nombre.upper() == jornada_trabaja_domingo.upper():
+                        # Para domingos, la jornada predeterminada es DOBLADA, no AM o PM
+                        es_fin_semana_doblada_predeterminada = True
+            
+            # Solo convertir DOBLADA a jornada simple si:
+            # 1. NO es doblada real (no hay turnos AM+PM en BD)
+            # 2. Y NO es sábado/domingo con doblada predeterminada (porque para fines de semana la predeterminada ES doblada)
+            if turno_dict and turno_dict.get('jornada') == 'DOBLADA' and not es_doblada and not es_fin_semana_doblada_predeterminada:
+                # Es jornada predeterminada de un día de semana, no doblada real
+                # Obtener jornada real del día
+                from turnos.services.jornada_service import JornadaService
+                jornada_real = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
+                if jornada_real:
+                    turno_dict['jornada'] = jornada_real.nombre
+                    # Ajustar horario según jornada real
+                    if jornada_real.hora_inicio and jornada_real.hora_fin:
+                        turno_dict['hora_inicio'] = jornada_real.hora_inicio.strftime('%H:%M')
+                        turno_dict['hora_fin'] = jornada_real.hora_fin.strftime('%H:%M')
             
             response_data = {
                 'turno': turno_dict,
                 'tiene_turno': turno_dict is not None,
                 'es_doblada': es_doblada,
-                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict else [])
+                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict and turno_dict['jornada'] != 'DOBLADA' else [])
             }
             
             # Si la fecha es sábado, incluir qué jornada trabaja ese sábado por alternancia (para doblada: ocultar selector si el solicitante ya corresponde trabajar)
@@ -1360,14 +1400,28 @@ class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
             # Combinar ambas querysets (evitar duplicados) respetando flags de aprobaciÃ³n
             # Solo receptor y supervisor (NO solicitante)
             from django.db.models import Q
-            solicitudes_combined = SolicitudCambio.objects.filter(
-                (
-                    Q(estado='pendiente', explorador_receptor=self.request.user.empleado, aprobado_receptor=False)
-                ) |
-                (
-                    Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado, aprobado_supervisor=False)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitudes_combined = (
+                SolicitudCambio.objects
+                .filter(
+                    (
+                        Q(estado='pendiente', explorador_receptor=self.request.user.empleado, aprobado_receptor=False)
+                    ) |
+                    (
+                        Q(estado='pendiente', explorador_solicitante__supervisor=self.request.user.empleado, aprobado_supervisor=False)
+                    )
                 )
-            ).distinct().order_by('-fecha_solicitud')
+                .select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'tipo_cambio',
+                    'explorador_solicitante__supervisor',
+                    'turno_origen',
+                    'turno_destino'
+                )
+                .distinct()
+                .order_by('-fecha_solicitud')
+            )
             
             print(f"DEBUG SOLICITUDES PENDIENTES - Total combinado: {solicitudes_combined.count()}")
             
@@ -1476,8 +1530,16 @@ class RechazarSolicitudReceptorView(LoginRequiredMixin, View):
 class CancelarSolicitudView(LoginRequiredMixin, View):
     def post(self, request, solicitud_id):
         try:
-            # Verificar que el usuario sea el solicitante o tenga permisos
-            solicitud = SolicitudCambio.objects.get(id=solicitud_id)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitud = (
+                SolicitudCambio.objects
+                .select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'explorador_solicitante__supervisor'
+                )
+                .get(id=solicitud_id)
+            )
             
             # Solo el solicitante puede cancelar su propia solicitud
             if solicitud.explorador_solicitante != request.user.empleado:
@@ -1529,7 +1591,16 @@ class AprobarSolicitudAmbosView(LoginRequiredMixin, View):
             if not hasattr(request.user, 'empleado'):
                 return json_error('Usuario no tiene empleado asociado', status=403, code='forbidden')
 
-            solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitud = get_object_or_404(
+                SolicitudCambio.objects.select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'explorador_solicitante__supervisor',
+                    'tipo_cambio'
+                ),
+                id=solicitud_id
+            )
             empleado = request.user.empleado
 
             # Validar roles simultÃ¡neos
@@ -1580,7 +1651,16 @@ class AprobarSolicitudEmailView(View):
     """
     def get(self, request, solicitud_id, token):
         try:
-            solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitud = get_object_or_404(
+                SolicitudCambio.objects.select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'explorador_solicitante__supervisor',
+                    'tipo_cambio'
+                ),
+                id=solicitud_id
+            )
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'supervisor'):
@@ -1644,7 +1724,16 @@ class RechazarSolicitudEmailView(View):
     """
     def get(self, request, solicitud_id, token):
         try:
-            solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitud = get_object_or_404(
+                SolicitudCambio.objects.select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'explorador_solicitante__supervisor',
+                    'tipo_cambio'
+                ),
+                id=solicitud_id
+            )
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'supervisor'):
@@ -1708,7 +1797,16 @@ class AprobarSolicitudReceptorEmailView(View):
     """
     def get(self, request, solicitud_id, token):
         try:
-            solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitud = get_object_or_404(
+                SolicitudCambio.objects.select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'explorador_solicitante__supervisor',
+                    'tipo_cambio'
+                ),
+                id=solicitud_id
+            )
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'receptor'):
@@ -1765,7 +1863,16 @@ class RechazarSolicitudReceptorEmailView(View):
     """
     def get(self, request, solicitud_id, token):
         try:
-            solicitud = get_object_or_404(SolicitudCambio, id=solicitud_id)
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            solicitud = get_object_or_404(
+                SolicitudCambio.objects.select_related(
+                    'explorador_solicitante',
+                    'explorador_receptor',
+                    'explorador_solicitante__supervisor',
+                    'tipo_cambio'
+                ),
+                id=solicitud_id
+            )
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'receptor'):
@@ -1832,8 +1939,8 @@ class ObtenerExploradoresDobladaView(LoginRequiredMixin, View):
             
             usuario_actual = request.user.empleado
             
-            # Obtener estrategia de doblada
-            tipo_doblada = TipoSolicitudCambio.objects.filter(nombre='DOBLADA').first()
+            # OPTIMIZACIÓN: Cachear tipo de doblada si se usa frecuentemente
+            tipo_doblada = TipoSolicitudCambio.objects.filter(nombre='DOBLADA', activo=True).first()
             if not tipo_doblada:
                 return json_error('Tipo de solicitud DOBLADA no encontrado', status=404, code='not_found')
             
@@ -1875,9 +1982,9 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             from datetime import datetime
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             
-            # PRIMERO: Verificar si tiene turnos en esa fecha (doblada real)
-            # Esto detecta si el usuario tiene AM+PM o una jornada, independientemente
-            # de si es solicitante o receptor de una doblada
+            # ✅ OPTIMIZACIÓN: Usar Turno como fuente de verdad única
+            # Si hay turnos AM+PM en Turno, significa que ya está aplicado (aprobado y ejecutado)
+            # Esto simplifica la lógica y mejora el rendimiento (una sola consulta)
             from turnos.models import Turno
             turnos = Turno.objects.filter(
                 explorador=usuario_actual,
@@ -1885,64 +1992,66 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             ).select_related('jornada')
             
             jornadas = [t.jornada.nombre.upper() for t in turnos if t.jornada]
+            es_doblada_turnos = 'AM' in jornadas and 'PM' in jornadas
             
-            # Si tiene turnos (AM+PM o una jornada), puede ceder parte de su doblada
-            if jornadas:
-                # Verificar contexto: si es solicitante o receptor para el mensaje
-                doblada_como_solicitante = SolicitudCambio.objects.filter(
-                    explorador_solicitante=usuario_actual,
-                    tipo_cambio__nombre='DOBLADA',
-                    fecha_cambio_turno=fecha_obj,
-                    estado='aprobada'
-                ).first()
-                
-                doblada_como_receptor = SolicitudCambio.objects.filter(
-                    explorador_receptor=usuario_actual,
-                    tipo_cambio__nombre='DOBLADA',
-                    doblada__fecha_pago=fecha_obj,  # ✅ CORRECTO: fecha_pago para receptor
-                    estado='aprobada'
-                ).select_related('doblada').first()
-                
-                # VALIDACIÓN DE INTEGRIDAD: Detectar inconsistencias
-                datos_inconsistentes = False
-                mensaje_inconsistencia = None
-                
-                # Si tiene turnos pero no hay solicitud de doblada relacionada, puede ser inconsistencia
-                # (aunque también puede ser una doblada asignada directamente)
-                if not doblada_como_solicitante and not doblada_como_receptor:
-                    # Puede ser una doblada asignada directamente, no es necesariamente inconsistencia
-                    pass
-                
-                mensaje = mensaje_inconsistencia if datos_inconsistentes else (
-                    f'Tienes una doblada aprobada ({", ".join(jornadas)}). Puedes ceder una o ambas jornadas.'
-                )
-                
+            # CASO 1: Usuario tiene turnos AM+PM (doblada asignada)
+            # Puede ceder parte de su jornada (AM, PM o ambas)
+            if es_doblada_turnos:
+                # Opcional: Buscar solicitud relacionada solo para mostrar ID (si existe)
+                # Esto es opcional y no afecta la lógica principal
                 solicitud_id = None
-                if doblada_como_solicitante:
-                    solicitud_id = doblada_como_solicitante.id
-                elif doblada_como_receptor:
-                    solicitud_id = doblada_como_receptor.id
+                try:
+                    doblada_solicitud = (
+                        SolicitudCambio.objects
+                        .filter(
+                            Q(explorador_solicitante=usuario_actual, fecha_cambio_turno=fecha_obj) |
+                            Q(explorador_receptor=usuario_actual, doblada__fecha_pago=fecha_obj),
+                            tipo_cambio__nombre='DOBLADA',
+                            estado='aprobada'
+                        )
+                        .first()
+                    )
+                    if doblada_solicitud:
+                        solicitud_id = doblada_solicitud.id
+                except Exception:
+                    # Si falla la búsqueda de solicitud, no es crítico
+                    pass
                 
                 return json_ok({
                     'tiene_doblada': True,
                     'esta_descansando': False,
-                    'puede_ceder': not datos_inconsistentes,
+                    'puede_ceder': True,
                     'jornadas': jornadas,
-                    'mensaje': mensaje,
+                    'mensaje': f'Tienes jornada doblada ({", ".join(jornadas)}). Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).',
                     'solicitud_id': solicitud_id,
-                    'datos_inconsistentes': datos_inconsistentes,
-                    'requiere_atencion_admin': datos_inconsistentes
+                    'datos_inconsistentes': False,
+                    'requiere_atencion_admin': False
                 })
             
-            # Si NO tiene turnos, verificar si es solicitante (está descansando)
-            doblada_como_solicitante = SolicitudCambio.objects.filter(
-                explorador_solicitante=usuario_actual,
-                tipo_cambio__nombre='DOBLADA',
-                fecha_cambio_turno=fecha_obj,
-                estado='aprobada'
-            ).first()
+            # CASO 2: Usuario tiene turnos pero NO es doblada (solo una jornada)
+            if jornadas:
+                return json_ok({
+                    'tiene_doblada': False,
+                    'esta_descansando': False,
+                    'puede_ceder': True,
+                    'jornadas': jornadas,
+                    'solicitud_id': None
+                })
             
-            # CASO 1: Usuario cedió su jornada → está descansando
+            # CASO 3: Usuario NO tiene turnos - verificar si cedió su jornada (está descansando)
+            # Solo en este caso necesitamos verificar SolicitudCambio porque no hay turnos
+            doblada_como_solicitante = (
+                SolicitudCambio.objects
+                .filter(
+                    explorador_solicitante=usuario_actual,
+                    tipo_cambio__nombre='DOBLADA',
+                    fecha_cambio_turno=fecha_obj,
+                    estado='aprobada'
+                )
+                .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor')
+                .first()
+            )
+            
             if doblada_como_solicitante:
                 return json_ok({
                     'tiene_doblada': False,
@@ -1953,50 +2062,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     'solicitud_id': doblada_como_solicitante.id
                 })
             
-            # CASO 2: Usuario cubre a otro → tiene doblada (pero sin turnos, inconsistencia)
-            doblada_como_receptor = SolicitudCambio.objects.filter(
-                explorador_receptor=usuario_actual,
-                tipo_cambio__nombre='DOBLADA',
-                doblada__fecha_pago=fecha_obj,  # ✅ CORRECTO: fecha_pago para receptor
-                estado='aprobada'
-            ).select_related('doblada').first()
-            
-            if doblada_como_receptor:
-                # PROBLEMA: Solicitud aprobada pero sin turnos generados
-                datos_inconsistentes = True
-                mensaje_inconsistencia = (
-                    f'⚠️ Datos inconsistentes detectados: Tienes una doblada aprobada '
-                    f'(Solicitud #{doblada_como_receptor.id}) pero no se generaron los turnos correctamente. '
-                    f'Por favor, contacta al administrador o intenta cancelar y volver a solicitar.'
-                )
-                logger.error(
-                    f"INCONSISTENCIA DETECTADA: Usuario {usuario_actual.nombre} (ID: {usuario_actual.id}) "
-                    f"tiene doblada aprobada (ID: {doblada_como_receptor.id}) para {fecha_obj} "
-                    f"pero no tiene turnos generados en la tabla turnos_turno"
-                )
-                
-                # Intentar obtener la jornada predeterminada para mostrar algo
-                from turnos.services.jornada_service import JornadaService
-                jornada_pred = JornadaService.get_jornada_explorador_fecha(
-                    usuario_actual.id, fecha
-                )
-                jornadas = []
-                if jornada_pred:
-                    jornadas = [jornada_pred.nombre.upper()]
-                    mensaje_inconsistencia += f' Se muestra tu jornada predeterminada ({jornada_pred.nombre}).'
-                
-                return json_ok({
-                    'tiene_doblada': True,
-                    'esta_descansando': False,
-                    'puede_ceder': False,  # No permitir ceder si hay inconsistencia
-                    'jornadas': jornadas,
-                    'mensaje': mensaje_inconsistencia,
-                    'solicitud_id': doblada_como_receptor.id,
-                    'datos_inconsistentes': datos_inconsistentes,
-                    'requiere_atencion_admin': datos_inconsistentes
-                })
-            
-            # CASO 3: No hay doblada
+            # CASO 4: No hay turnos ni solicitud - puede solicitar doblada normalmente
             return json_ok({
                 'tiene_doblada': False,
                 'esta_descansando': False,
@@ -2022,11 +2088,16 @@ class ObtenerFechasDescansoView(LoginRequiredMixin, View):
             # Buscar solicitudes donde usuario es solicitante y estado=aprobada
             from datetime import datetime
             
-            solicitudes_cedidas = SolicitudCambio.objects.filter(
-                explorador_solicitante=usuario_actual,
-                tipo_cambio__nombre='DOBLADA',
-                estado='aprobada'
-            ).values_list('fecha_cambio_turno', flat=True)
+            # OPTIMIZACIÓN: Solo necesitamos las fechas, usar values_list directamente
+            solicitudes_cedidas = (
+                SolicitudCambio.objects
+                .filter(
+                    explorador_solicitante=usuario_actual,
+                    tipo_cambio__nombre='DOBLADA',
+                    estado='aprobada'
+                )
+                .values_list('fecha_cambio_turno', flat=True)
+            )
             
             fechas_descanso = [f.strftime('%Y-%m-%d') for f in solicitudes_cedidas]
             

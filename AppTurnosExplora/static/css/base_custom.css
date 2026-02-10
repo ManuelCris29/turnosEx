@@ -90,4 +90,167 @@
     background: linear-gradient(90deg, #007bff, #28a745) !important;
 }
 
+/* ============================================
+   FIXES PARA SIDEBAR Y BADGE DE NOTIFICACIONES
+   ============================================ */
+
+/* 1. Eliminar espacio en blanco cuando sidebar está colapsado */
+body.sidebar-collapse .content-wrapper,
+body.sidebar-collapse .main-footer,
+body.sidebar-collapse .main-header {
+    margin-left: 0 !important;
+    width: 100% !important;
+    left: 0 !important;
+}
+
+/* Asegurar que el contenido use todo el ancho disponible */
+body.sidebar-collapse .content-wrapper > .content {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+}
+
+/* Eliminar cualquier padding o margin que cause espacio en blanco */
+body.sidebar-collapse .content-wrapper > .content > .container-fluid {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+
+/* 2. Fix para badge de notificaciones en modo sidebar-mini */
+/* Cuando el sidebar está en modo mini (solo iconos), ajustar el badge */
+.sidebar-mini .main-sidebar .nav-link .badge.right {
+    position: absolute;
+    top: 7px;
+    right: 10px;
+    font-size: 0.7rem;
+    padding: 0.25em 0.5em;
+    min-width: 1.5em;
+    text-align: center;
+    line-height: 1.2;
+}
+
+/* Asegurar que el nav-link tenga posición relativa para el badge absoluto */
+.sidebar-mini .main-sidebar .nav-link {
+    position: relative;
+}
+
+/* Cuando el sidebar está expandido (hover en modo mini), mantener el badge visible */
+.sidebar-mini .main-sidebar:hover .nav-link .badge.right {
+    position: absolute;
+    top: 7px;
+    right: 10px;
+}
+
+/* 3. Fix adicional para cuando sidebar está completamente oculto */
+body.sidebar-collapse:not(.sidebar-mini):not(.sidebar-mini-md):not(.sidebar-mini-xs) .main-sidebar {
+    margin-left: -250px !important;
+    width: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Asegurar que el wrapper use todo el espacio */
+body.sidebar-collapse .wrapper {
+    width: 100% !important;
+}
+
+/* Fix para el contenido cuando sidebar está oculto */
+body.sidebar-collapse .content-wrapper {
+    margin-left: 0 !important;
+    width: 100% !important;
+    flex: 1 !important;
+}
+
+/* 4. Asegurar transición suave */
+.content-wrapper,
+.main-footer,
+.main-header {
+    transition: margin-left 0.3s ease-in-out, width 0.3s ease-in-out;
+}
+
+/* 8. Fix adicional: Asegurar que no haya overflow o espacios no deseados */
+body.sidebar-collapse .wrapper {
+    overflow-x: hidden;
+}
+
+body.sidebar-collapse .content-wrapper > .content {
+    box-sizing: border-box;
+}
+
+/* 9. Fix para el dashboard-container en mis_turnos cuando sidebar está colapsado */
+body.sidebar-collapse .dashboard-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+
+body.sidebar-collapse .dashboard-content {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+}
+
+/* 10. Asegurar que el calendario FullCalendar use todo el ancho disponible */
+body.sidebar-collapse #calendar {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+body.sidebar-collapse .fc {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* 11. Fix para el contenedor del calendario */
+body.sidebar-collapse .calendar-section {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: visible !important;
+}
+
+/* 5. Fix para badge en modo sidebar-mini-md y sidebar-mini-xs */
+.sidebar-mini-md .main-sidebar .nav-link .badge.right,
+.sidebar-mini-xs .main-sidebar .nav-link .badge.right {
+    position: absolute;
+    top: 7px;
+    right: 10px;
+    font-size: 0.7rem;
+    padding: 0.25em 0.5em;
+    min-width: 1.5em;
+    text-align: center;
+    line-height: 1.2;
+}
+
+.sidebar-mini-md .main-sidebar .nav-link,
+.sidebar-mini-xs .main-sidebar .nav-link {
+    position: relative;
+}
+
+/* 6. Ajuste para números grandes en el badge (3 dígitos) */
+.sidebar-mini .main-sidebar .nav-link .badge.right,
+.sidebar-mini-md .main-sidebar .nav-link .badge.right,
+.sidebar-mini-xs .main-sidebar .nav-link .badge.right {
+    font-size: 0.65rem;
+    padding: 0.2em 0.4em;
+    min-width: 1.6em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 2.5em;
+}
+
+/* 7. Mejorar visibilidad del badge en modo mini */
+.sidebar-mini .main-sidebar .nav-link .badge.badge-warning,
+.sidebar-mini-md .main-sidebar .nav-link .badge.badge-warning,
+.sidebar-mini-xs .main-sidebar .nav-link .badge.badge-warning {
+    background-color: #ffc107 !important;
+    color: #212529 !important;
+    font-weight: 700;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
 

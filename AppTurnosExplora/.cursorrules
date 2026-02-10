@@ -1,0 +1,125 @@
+# Reglas de Cursor para AppTurnosExplora
+
+## Activación Automática de Skills
+
+**Aplicar automáticamente los skills relevantes según el contexto del trabajo.**
+
+Este proyecto es una aplicación Django (AppTurnosExplora) con frontend JavaScript. Los skills deben aplicarse automáticamente según el tipo de tarea:
+
+### 1. @django-expert - Para todo lo relacionado con Django
+
+**Aplicar automáticamente cuando se trabaje con:**
+- Modelos y ORM: Creación, modificación, optimización de modelos Django
+- Vistas y APIs: Desarrollo de vistas (FBV, CBV), DRF viewsets, serializers
+- Consultas de Base de Datos: Optimización de queries, N+1 problems, select_related, prefetch_related
+- Migraciones: Creación, modificación, debugging de migraciones
+- Autenticación y Permisos: Implementación de autenticación, permisos personalizados
+- Testing: Escritura de tests, fixtures, factories
+- Deployment: Configuración de producción, settings, HTTPS
+- Debugging: Resolución de errores Django, problemas de ORM, etc.
+
+**Instrucciones:**
+- **SIEMPRE** activar `@django-expert` cuando se trabaje con código Django
+- **SIEMPRE** seguir las mejores prácticas de Django documentadas en el skill
+- **SIEMPRE** consultar las referencias del skill (`references/`) cuando sea necesario
+- **SIEMPRE** aplicar los patrones y convenciones de Django recomendados
+
+### 2. @modern-javascript-patterns - Para todo lo relacionado con JavaScript
+
+**Aplicar automáticamente cuando se trabaje con:**
+- Código JavaScript/ES6+: Refactorización, desarrollo, optimización
+- Frontend: Manipulación del DOM, eventos, APIs del navegador
+- Asincronía: Promises, async/await, callbacks
+- Funcional: map, filter, reduce, funciones puras
+- Modernización: Migración de código legacy a ES6+
+- Módulos: Organización de código JavaScript
+
+**Instrucciones:**
+- **SIEMPRE** usar arrow functions en lugar de function declarations
+- **SIEMPRE** usar destructuring para objetos y arrays
+- **SIEMPRE** usar template literals en lugar de concatenación
+- **SIEMPRE** usar const/let en lugar de var
+- **SIEMPRE** aplicar optional chaining y nullish coalescing cuando sea apropiado
+- **SIEMPRE** preferir funciones puras y programación funcional
+- **SIEMPRE** usar async/await en lugar de callbacks cuando sea posible
+
+### 3. @web-performance-optimization - Para optimización de rendimiento
+
+**Aplicar automáticamente cuando se trabaje con:**
+- Rendimiento web: Optimización de carga, Core Web Vitals
+- Assets: Optimización de imágenes, CSS, JavaScript
+- Caching: Estrategias de caché, headers HTTP
+- Bundle size: Reducción de tamaño de archivos JavaScript/CSS
+- Lazy loading: Carga diferida de recursos
+- Database queries: Optimización de consultas (también usar @django-expert)
+- Network: Optimización de requests HTTP
+
+**Instrucciones:**
+- **SIEMPRE** considerar el impacto en rendimiento al hacer cambios
+- **SIEMPRE** optimizar imágenes y assets
+- **SIEMPRE** implementar caching apropiado
+- **SIEMPRE** minimizar bundle sizes
+- **SIEMPRE** usar lazy loading para recursos no críticos
+- **SIEMPRE** medir y verificar mejoras de rendimiento
+
+### 4. @web-security - Para seguridad web
+
+**Aplicar automáticamente cuando se trabaje con:**
+- Validación de entrada: Sanitización de datos de usuario
+- Autenticación: Implementación segura de login/sesiones
+- Autorización: Control de acceso y permisos
+- XSS/CSRF: Prevención de vulnerabilidades
+- SQL Injection: Protección en queries (también usar @django-expert)
+- Headers de seguridad: CSP, CORS, HSTS
+- Datos sensibles: Manejo seguro de información confidencial
+
+**Instrucciones:**
+- **SIEMPRE** validar y sanitizar entrada de usuario
+- **SIEMPRE** usar protección CSRF de Django
+- **SIEMPRE** escapar datos dinámicos en templates
+- **SIEMPRE** usar parámetros preparados en queries
+- **SIEMPRE** implementar autorización en el servidor
+- **SIEMPRE** evitar almacenar secretos en código
+- **SIEMPRE** usar HTTPS en producción
+
+### Contexto del Proyecto:
+
+Este es un proyecto Django para gestión de turnos de exploradores en Parque Explora. Incluye:
+- Apps: `solicitudes`, `turnos`, `empleados`, `permisos`, `core`
+- Uso de Django REST Framework para APIs
+- Sistema de solicitudes de cambio de turno con diferentes estrategias
+- Integración con calendarios y festivos de Colombia
+- Sistema de notificaciones por email
+- Frontend: AdminLTE 3, Bootstrap 4, jQuery, FullCalendar, Flatpickr
+
+### Convenciones del Proyecto:
+
+- Usar servicios para lógica de negocio (patrón Service Layer)
+- Usar estrategias (Strategy Pattern) para diferentes tipos de solicitudes
+- Seguir principios SOLID
+- Mantener código limpio y bien documentado
+- Usar type hints cuando sea posible
+- Escribir tests para funcionalidad crítica
+- Aplicar patrones modernos de JavaScript (ES6+)
+- Optimizar rendimiento y seguridad por defecto
+
+### Regla General de Aplicación de Skills:
+
+**Aplicar múltiples skills cuando sea apropiado:**
+- Django + Security: Al trabajar con autenticación, validación, APIs
+- Django + Performance: Al optimizar queries, implementar caching
+- JavaScript + Performance: Al optimizar frontend, reducir bundle size
+- JavaScript + Security: Al validar entrada en frontend, manejar datos sensibles
+- Todos los skills: Al hacer cambios que afecten múltiples áreas
+
+**Ejemplos:**
+- Crear un endpoint API → `@django-expert` + `@web-security`
+- Optimizar una query → `@django-expert` + `@web-performance-optimization`
+- Refactorizar JavaScript → `@modern-javascript-patterns` + `@web-performance-optimization`
+- Implementar autenticación → `@django-expert` + `@web-security`
+
+---
+
+**Nota**: Los skills están ubicados en `.agents/skills/` y deben ser consultados automáticamente según el contexto de la tarea.
+
+

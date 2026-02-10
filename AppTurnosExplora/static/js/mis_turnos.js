@@ -442,13 +442,36 @@ function mostrarDetallesDia(fechaStr) {
         if (info && (info.jornada || info.es_descanso || info.tipo === 'descanso')) {
             // Manejar caso de descanso
             if (info.es_descanso || info.tipo === 'descanso' || (!info.jornada && info.tipo === 'descanso')) {
+                // ✅ MEJORADO: Mensajes sencillos y profesionales
+                const descansoInfo = info.descanso_info || {};
+                const tipoDescanso = descansoInfo.tipo; // 'cedio' o 'pago'
+                const companeroNombre = descansoInfo.companero_nombre || 'un compañero';
+                const fechaCesion = descansoInfo.fecha_cesion;
+                const fechaPago = descansoInfo.fecha_pago;
+                
+                // Construir mensaje principal según el tipo (sencillo y profesional)
+                let mensajeDescanso = '';
+                
+                if (tipoDescanso === 'cedio') {
+                    mensajeDescanso = `El compañero <strong>${companeroNombre}</strong> está trabajando por ti este día.`;
+                    if (fechaPago) {
+                        mensajeDescanso += ` Pagarás el ${fechaPago}.`;
+                    }
+                } else if (tipoDescanso === 'pago') {
+                    mensajeDescanso = `El compañero <strong>${companeroNombre}</strong> está trabajando por ti hoy.`;
+                    if (fechaCesion) {
+                        mensajeDescanso += ` Tú lo cubriste el ${fechaCesion}.`;
+                    }
+                } else {
+                    mensajeDescanso = 'Cediste tu jornada en una doblada. El compañero que te cubrió está trabajando por ti.';
+                }
+                
                 const jornadaHTML = `<span class="jornada-value descanso">DESCANSO</span>
-                    <div class="info-descanso" style="margin-top: 8px; padding: 8px; background-color: #e3f2fd; border-left: 3px solid #2196f3; border-radius: 4px; font-size: 0.85rem; color: #1565c0;">
-                        <i class="fas fa-bed" style="margin-right: 4px;"></i>
-                        <strong>Estás descansando:</strong> Cediste tu jornada en una doblada. El compañero que te cubrió está trabajando por ti.
+                    <div class="info-descanso" style="margin-top: 8px; padding: 10px; background-color: #e3f2fd; border-left: 3px solid #2196f3; border-radius: 4px; font-size: 0.9rem; color: #1565c0; line-height: 1.5;">
+                        <i class="fas fa-bed" style="margin-right: 6px;"></i>
+                        <strong>Estás descansando:</strong> ${mensajeDescanso}
                     </div>`;
                 jornadaDiv.innerHTML = jornadaHTML;
-                console.log('Descanso mostrado para:', fechaStr);
                 return;
             }
             
@@ -468,36 +491,44 @@ function mostrarDetallesDia(fechaStr) {
             }
             let jornadaHTML = `<span class="jornada-value ${claseJornada}">${jornadaTexto}</span>`;
             
-            // Si hay un cambio, mostrar información adicional
+            // Si hay un cambio, mostrar información detallada (sencilla y profesional)
             if (info.es_cambio) {
                 const jornadaPredeterminada = info.jornada_predeterminada || 'N/A';
-                const coincidePredeterminada = info.coincide_con_predeterminada !== undefined ? info.coincide_con_predeterminada : false;
+                const coincidePredeterminada = info.coincide_con_predeterminada ?? false;
+                const solicitudInfo = info.solicitud_info;
+                
+                // Construir mensaje profesional y claro
+                let mensajeCambio = '';
+                const companero = solicitudInfo?.companero_nombre;
+                const fechaAprobacion = solicitudInfo?.fecha_resolucion;
                 
                 if (coincidePredeterminada) {
                     // Cambio que coincide con la predeterminada
-                    let mensajeInfo = 'Este turno fue modificado por un cambio aprobado, pero la jornada actual coincide con tu jornada predeterminada.';
-                    if (info.solicitud_info && info.solicitud_info.companero_nombre) {
-                        const companero = info.solicitud_info.companero_nombre;
-                        const fecha = info.solicitud_info.fecha_resolucion || 'N/A';
-                        mensajeInfo += ` Cambio realizado con ${companero} (aprobado el ${fecha}).`;
+                    mensajeCambio = `Este turno fue modificado por un cambio aprobado. Tu jornada actual (${info.jornada}) coincide con tu jornada predeterminada.`;
+                    if (companero && fechaAprobacion) {
+                        mensajeCambio += ` Cambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
                     }
-                    jornadaHTML += `<div class="info-cambio-predeterminada" style="margin-top: 8px; padding: 8px; background-color: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px; font-size: 0.85rem; color: #856404;">
-                        <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
-                        <strong>Nota:</strong> ${mensajeInfo}
-                    </div>`;
                 } else {
                     // Cambio que difiere de la predeterminada
-                    let mensajeInfo = `Jornada modificada por cambio de turno. Jornada predeterminada: ${jornadaPredeterminada}.`;
-                    if (info.solicitud_info && info.solicitud_info.companero_nombre) {
-                        const companero = info.solicitud_info.companero_nombre;
-                        const fecha = info.solicitud_info.fecha_resolucion || 'N/A';
-                        mensajeInfo += ` Cambio realizado con ${companero} (aprobado el ${fecha}).`;
+                    mensajeCambio = `Jornada modificada por cambio de turno. Tu jornada predeterminada era <strong>${jornadaPredeterminada}</strong>, ahora trabajas <strong>${info.jornada}</strong>.`;
+                    if (companero && fechaAprobacion) {
+                        mensajeCambio += ` Cambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
+                    } else if (companero) {
+                        mensajeCambio += ` Cambio realizado con <strong>${companero}</strong>.`;
                     }
-                    jornadaHTML += `<div class="info-cambio-diferente" style="margin-top: 8px; padding: 8px; background-color: #d1ecf1; border-left: 3px solid #17a2b8; border-radius: 4px; font-size: 0.85rem; color: #0c5460;">
-                        <i class="fas fa-exchange-alt" style="margin-right: 4px;"></i>
-                        <strong>Cambio de turno:</strong> ${mensajeInfo}
-                    </div>`;
                 }
+                
+                jornadaHTML += `<div class="info-cambio" style="margin-top: 8px; padding: 10px; background-color: #d1ecf1; border-left: 3px solid #17a2b8; border-radius: 4px; font-size: 0.9rem; color: #0c5460; line-height: 1.5;">
+                    <i class="fas fa-exchange-alt" style="margin-right: 6px;"></i>
+                    <strong>Cambio de turno:</strong> ${mensajeCambio}
+                </div>`;
+            } else if (info.tipo === 'predeterminado' && info.jornada) {
+                // Mostrar información para días predeterminados (sin cambios)
+                const mensajePredeterminado = `Jornada predeterminada: <strong>${info.jornada}</strong>.`;
+                jornadaHTML += `<div class="info-predeterminada" style="margin-top: 8px; padding: 8px; background-color: #f8f9fa; border-left: 3px solid #6c757d; border-radius: 4px; font-size: 0.85rem; color: #495057; line-height: 1.4;">
+                    <i class="fas fa-info-circle" style="margin-right: 4px;"></i>
+                    ${mensajePredeterminado}
+                </div>`;
             }
             
             jornadaDiv.innerHTML = jornadaHTML;
@@ -586,12 +617,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Inicializar FullCalendar
-    var calendarEl = document.getElementById('calendar');
-    var calendar = new FullCalendar.Calendar(calendarEl, {
+    const calendarEl = document.getElementById('calendar');
+    const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         locale: 'es',
         height: 500,
         initialDate: new Date(),
+        showNonCurrentDates: false, // Ocultar días de otros meses (mejora rendimiento)
 
         datesSet: function(info) {
             // DEBUG: Log detallado
@@ -666,56 +698,89 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Solo cargar si no está cargado o cargando
                 if (!mesesCargados.has(claveMes2) && !mesesCargando.has(claveMes2)) {
-                    console.log('[DEBUG datesSet] Llamando a cargarDatos para', claveMes2);
+                    console.log(`[DEBUG datesSet] Llamando a cargarDatos para ${claveMes2}`);
                     ultimoMesProcesado = claveMes2;
                     fechaUltimoProcesamiento = Date.now();
                     cargarDatos(anio2, mes2);
                 } else {
                     console.log('[DEBUG datesSet] NO se carga porque ya está cargado o cargando');
+                    // NUEVO: Aplicar estilos aunque el mes ya esté cargado
+                    // Esperar a que las celdas se rendericen
+                    setTimeout(() => {
+                        console.log('[DEBUG datesSet] Aplicando estilos para mes ya cargado');
+                        aplicarEstilosCambios();
+                    }, 800); // Delay para asegurar que viewDidMount haya renderizado
                 }
             }, 500); // Debounce de 500ms para agrupar múltiples ejecuciones
         },
         dayCellDidMount: function(info) {
             // Este evento se dispara cuando cada celda del día se renderiza
             // Aplicar estilos inmediatamente si hay datos disponibles
-            const fechaStr = info.dateStr;
+            const { dateStr, el } = info;
             
-            // Función para aplicar estilos a esta celda
-            function aplicarEstiloACelda() {
-                if (turnosMes[fechaStr] && turnosMes[fechaStr].es_cambio) {
-                    // Usar requestAnimationFrame para evitar causar re-renderizados
-                    requestAnimationFrame(function() {
-                        if (info.el && info.el.parentNode) { // Verificar que aún existe
-                            info.el.classList.add('dia-con-cambio');
-                            
-                            // Agregar ícono si no existe
-                            if (!info.el.querySelector('.cambio-turno-icon')) {
-                                const iconElement = document.createElement('span');
-                                iconElement.className = 'cambio-turno-icon';
-                                iconElement.innerHTML = '🔄';
-                                iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; color: #e74c3c; z-index: 10;';
-                                info.el.appendChild(iconElement);
+            // Funciones puras para crear íconos
+            const crearIconoCambio = () => {
+                const iconElement = document.createElement('span');
+                iconElement.className = 'cambio-turno-icon';
+                iconElement.innerHTML = '🔄';
+                iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; color: #e74c3c; z-index: 10;';
+                return iconElement;
+            };
+            
+            const crearIconoDescanso = () => {
+                const iconElement = document.createElement('span');
+                iconElement.className = 'descanso-icon';
+                iconElement.innerHTML = '😴';
+                iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; z-index: 10;';
+                return iconElement;
+            };
+            
+            // Función para aplicar estilos a esta celda (arrow function)
+            const aplicarEstiloACelda = () => {
+                const turnoInfo = turnosMes[dateStr];
+                if (!turnoInfo) return;
+                
+                // Verificar si el elemento aún existe en el DOM
+                if (!el?.parentNode) return;
+                
+                // Aplicar estilo para cambios
+                if (turnoInfo.es_cambio) {
+                    requestAnimationFrame(() => {
+                        if (el?.parentNode) {
+                            el.classList.add('dia-con-cambio');
+                            if (!el.querySelector('.cambio-turno-icon')) {
+                                el.appendChild(crearIconoCambio());
                             }
                         }
                     });
                 }
-            }
+                
+                // Aplicar estilo para descansos
+                if (turnoInfo.es_descanso || turnoInfo.tipo === 'descanso') {
+                    requestAnimationFrame(() => {
+                        if (el?.parentNode) {
+                            el.classList.add('dia-con-descanso');
+                            if (!el.querySelector('.descanso-icon')) {
+                                el.appendChild(crearIconoDescanso());
+                            }
+                        }
+                    });
+                }
+            };
             
             // Intentar aplicar estilos inmediatamente
             aplicarEstiloACelda();
             
             // Si los datos no están disponibles aún, intentar después de delays progresivos
-            // Esto maneja el caso donde las celdas se renderizan antes de que los datos se carguen
-            if (!turnosMes[fechaStr]) {
-                // Intentar varias veces con delays progresivos
-                setTimeout(aplicarEstiloACelda, 300);
-                setTimeout(aplicarEstiloACelda, 800);
-                setTimeout(aplicarEstiloACelda, 1500);
+            if (!turnosMes[dateStr]) {
+                const delays = [300, 800, 1500];
+                delays.forEach(delay => setTimeout(aplicarEstiloACelda, delay));
             }
         },
         viewDidMount: function() {
+            const datosDisponibles = Object.keys(turnosMes).length;
             console.log('[DEBUG viewDidMount] Evento disparado', {
-                datosDisponibles: Object.keys(turnosMes).length,
+                datosDisponibles,
                 stack: new Error().stack.split('\n').slice(1, 4).join('\n')
             });
             
@@ -731,28 +796,39 @@ document.addEventListener('DOMContentLoaded', function() {
                 clearTimeout(window.viewDidMountTimeout);
             }
             
-            // Siempre intentar aplicar estilos cuando las celdas estén renderizadas
-            // Este es el momento ideal porque las celdas ya están en el DOM
-            console.log('[DEBUG viewDidMount] Programando aplicarEstilosCambios en 300ms');
-            window.viewDidMountTimeout = setTimeout(function() {
-                console.log('[DEBUG viewDidMount] Timeout ejecutado, verificando celdas y datos');
+            // Función helper para aplicar estilos con verificación de celdas
+            const intentarAplicarEstilos = () => {
                 const celdas = document.querySelectorAll('.fc-daygrid-day');
                 console.log(`[DEBUG viewDidMount] ${celdas.length} celdas encontradas en DOM`);
                 
-                if (Object.keys(turnosMes).length > 0 && celdas.length > 0) {
-                    console.log('[DEBUG viewDidMount] Hay datos y celdas, aplicando estilos');
+                if (celdas.length > 0) {
+                    console.log('[DEBUG viewDidMount] Celdas encontradas, aplicando estilos');
                     aplicarEstilosCambios();
-                } else if (celdas.length === 0) {
-                    console.log('[DEBUG viewDidMount] No hay celdas aún, reintentando...');
-                    setTimeout(function() {
-                        if (Object.keys(turnosMes).length > 0) {
-                            aplicarEstilosCambios();
-                        }
-                    }, 500);
+                    return true;
+                }
+                return false;
+            };
+            
+            // Siempre intentar aplicar estilos cuando las celdas estén renderizadas
+            console.log('[DEBUG viewDidMount] Programando aplicarEstilosCambios en 300ms');
+            window.viewDidMountTimeout = setTimeout(() => {
+                console.log('[DEBUG viewDidMount] Timeout ejecutado, verificando celdas y datos');
+                
+                // Intentar aplicar estilos si hay datos
+                if (datosDisponibles > 0) {
+                    if (!intentarAplicarEstilos()) {
+                        console.log('[DEBUG viewDidMount] Hay datos pero no hay celdas aún, reintentando...');
+                        // Reintentar con más tiempo
+                        setTimeout(() => {
+                            if (intentarAplicarEstilos()) {
+                                console.log('[DEBUG viewDidMount] Celdas encontradas en reintento, estilos aplicados');
+                            }
+                        }, 500);
+                    }
                 } else {
                     console.log('[DEBUG viewDidMount] No hay datos aún, pero las celdas ya están renderizadas');
                 }
-            }, 300); // Delay corto porque viewDidMount se dispara DESPUÉS de que las celdas están renderizadas
+            }, 300);
         },
         dateClick: function(info) {
             // Cuando hace click en un día, mostrar detalles
@@ -833,4 +909,90 @@ document.addEventListener('DOMContentLoaded', function() {
     // Hacer funciones disponibles globalmente
     window.calendar = calendar;
     window.cambiarMes = cambiarMes;
+    
+    // Redimensionar calendario cuando el sidebar cambia (AdminLTE events)
+    // Esto soluciona el problema de días ocultos cuando se expande/colapsa el sidebar
+    const redimensionarCalendario = (inmediato = false) => {
+        // Si es inmediato, redimensionar sin delay
+        if (inmediato) {
+            if (window.calendar && typeof window.calendar.updateSize === 'function') {
+                console.log('[DEBUG] Redimensionando calendario INMEDIATAMENTE después de cambio de sidebar');
+                window.calendar.updateSize();
+                // Re-aplicar estilos después de redimensionar
+                setTimeout(() => {
+                    aplicarEstilosCambios();
+                }, 50);
+            }
+            return;
+        }
+        
+        // Usar debounce para evitar múltiples llamadas
+        if (window.calendarResizeTimeout) {
+            clearTimeout(window.calendarResizeTimeout);
+        }
+        window.calendarResizeTimeout = setTimeout(() => {
+            if (window.calendar && typeof window.calendar.updateSize === 'function') {
+                console.log('[DEBUG] Redimensionando calendario después de cambio de sidebar');
+                window.calendar.updateSize();
+                // Re-aplicar estilos después de redimensionar
+                setTimeout(() => {
+                    aplicarEstilosCambios();
+                }, 100);
+            }
+        }, 400); // Delay para esperar que termine la animación del sidebar
+    };
+    
+    // Escuchar eventos de AdminLTE cuando el sidebar se colapsa/expande
+    // jQuery está disponible porque se carga antes en base.html
+    if (typeof $ !== 'undefined' && $.fn) {
+        // Escuchar cuando se colapsa (inmediato para que se vean todos los días)
+        $(document).on('collapsed.lte.pushmenu', '[data-widget="pushmenu"]', () => {
+            console.log('[DEBUG] Sidebar colapsado, redimensionando inmediatamente');
+            redimensionarCalendario(true);
+        });
+        
+        // Escuchar cuando termina la animación de colapsado
+        $(document).on('collapsed.lte.pushmenu.done', '[data-widget="pushmenu"]', () => {
+            console.log('[DEBUG] Animación de colapsado terminada, redimensionando');
+            redimensionarCalendario();
+        });
+        
+        // Escuchar cuando se expande
+        $(document).on('shown.lte.pushmenu', '[data-widget="pushmenu"]', () => {
+            console.log('[DEBUG] Sidebar expandido, redimensionando');
+            redimensionarCalendario();
+        });
+        
+        console.log('[DEBUG] Listeners de AdminLTE pushmenu registrados');
+    }
+    
+    // SIEMPRE usar MutationObserver como respaldo adicional
+    // Esto asegura que funcione incluso si los eventos de jQuery fallan
+    const observer = new MutationObserver(() => {
+        const isCollapsed = document.body.classList.contains('sidebar-collapse');
+        if (isCollapsed !== window.sidebarWasCollapsed) {
+            console.log('[DEBUG] MutationObserver detectó cambio en sidebar-collapse:', isCollapsed);
+            window.sidebarWasCollapsed = isCollapsed;
+            // Si se colapsa, redimensionar inmediatamente para que se vean todos los días
+            // Si se expande, usar delay normal
+            redimensionarCalendario(isCollapsed);
+        }
+    });
+    observer.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class']
+    });
+    window.sidebarWasCollapsed = document.body.classList.contains('sidebar-collapse');
+    
+    // También escuchar cambios en el tamaño de ventana
+    window.addEventListener('resize', () => {
+        if (window.calendarResizeTimeout) {
+            clearTimeout(window.calendarResizeTimeout);
+        }
+        window.calendarResizeTimeout = setTimeout(() => {
+            if (window.calendar && typeof window.calendar.updateSize === 'function') {
+                window.calendar.updateSize();
+            }
+        }, 300);
+    });
 });

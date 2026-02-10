@@ -6,6 +6,7 @@ from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
 class Notificacion(models.Model):
+    """Modelo para representar notificaciones del sistema."""
     TIPOS_CHOICES = [
         ('solicitud_cambio', 'Solicitud de Cambio'),
         ('solicitud_doblada', 'Solicitud de Doblada'),
@@ -24,12 +25,20 @@ class Notificacion(models.Model):
     solicitud = models.ForeignKey('SolicitudCambio', on_delete=models.CASCADE, null=True, blank=True)
     
     class Meta:
+        verbose_name = 'Notificación'
+        verbose_name_plural = 'Notificaciones'
         ordering = ['-fecha_creacion']
+        indexes = [
+            models.Index(fields=['destinatario', 'leida'], name='notif_dest_leida_idx'),
+            models.Index(fields=['tipo'], name='notif_tipo_idx'),
+            models.Index(fields=['fecha_creacion'], name='notif_fecha_creacion_idx'),
+        ]
     
     def __str__(self):
         return f"{self.titulo} - {self.destinatario.nombre} {self.destinatario.apellido}"
 
 class TipoSolicitudCambio(models.Model):
+    """Modelo para representar los tipos de solicitudes de cambio de turno."""
     nombre = models.CharField(max_length=50)
     codigo_estrategia = models.CharField(
         max_length=50, 
@@ -41,6 +50,14 @@ class TipoSolicitudCambio(models.Model):
     genera_deuda = models.BooleanField(default=False, help_text='¿Este tipo de solicitud genera deuda de horas?')
     historial = HistoricalRecords()
 
+    class Meta:
+        verbose_name = 'Tipo de Solicitud de Cambio'
+        verbose_name_plural = 'Tipos de Solicitudes de Cambio'
+        ordering = ['nombre']
+        indexes = [
+            models.Index(fields=['activo'], name='tipo_sol_activo_idx'),
+        ]
+    
     def __str__(self):
         return self.nombre
 
@@ -114,13 +131,28 @@ class SolicitudCambio(models.Model):
         return f"{self.tipo_cambio.nombre} - {self.explorador_solicitante} a {self.explorador_receptor} ({self.fecha_cambio_turno})"
 
 class CambioPermanenteDetalle(models.Model):
+    """Modelo para almacenar detalles de cambios permanentes de turno."""
     solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='cambio_permanente')
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField(null=True, blank=True)
     historial = HistoricalRecords()
 
+    class Meta:
+        verbose_name = 'Detalle de Cambio Permanente'
+        verbose_name_plural = 'Detalles de Cambios Permanentes'
+        ordering = ['-fecha_inicio', 'solicitud']
+        indexes = [
+            models.Index(fields=['solicitud'], name='camb_perm_solicitud_idx'),
+            models.Index(fields=['fecha_inicio'], name='camb_perm_fecha_inicio_idx'),
+        ]
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.fecha_fin and self.fecha_fin < self.fecha_inicio:
+            raise ValidationError('La fecha de fin debe ser posterior a la fecha de inicio.')
+
     def __str__(self):
-        return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud} - horas: {self.horas_solicitadas}" #type:ignore
+        return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud}" #type:ignore
 
 
 class CambioPermanenteDia(models.Model):
@@ -219,6 +251,7 @@ class CambioPermanenteDia(models.Model):
         return f"Día de cambio permanente (ID: {self.id})"
 
 class DobladaDetalle(models.Model):
+    """Modelo para almacenar detalles de solicitudes de doblada."""
     TIPO_CESION_CHOICES = [
         ('cesion_completa', 'Cesión Completa'),
         ('cesion_parcial_am', 'Cesión Parcial AM'),
@@ -264,6 +297,16 @@ class DobladaDetalle(models.Model):
         help_text='Explorador que cubre la doblada (redundante con SolicitudCambio.explorador_receptor, pero útil para consultas directas)'
     )
     historial = HistoricalRecords(excluded_fields=['jornada_pago_sabado'])
+    
+    class Meta:
+        verbose_name = 'Detalle de Doblada'
+        verbose_name_plural = 'Detalles de Dobladas'
+        ordering = ['-fecha_pago', 'solicitud']
+        indexes = [
+            models.Index(fields=['solicitud'], name='doblada_solicitud_idx'),
+            models.Index(fields=['fecha_pago'], name='doblada_fecha_pago_idx'),
+            models.Index(fields=['empleado_receptor', 'fecha_pago'], name='doblada_receptor_fecha_idx'),
+        ]
     
     def __str__(self):
         return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud}" #type:ignore

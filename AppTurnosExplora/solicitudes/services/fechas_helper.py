@@ -237,3 +237,4 @@ def obtener_informacion_fecha_para_detalle(
 
 
 
+

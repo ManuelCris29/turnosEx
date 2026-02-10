@@ -106,3 +106,4 @@ Si en el futuro necesitas el historial completo, puedes:
 **Para el futuro:** Si necesitas auditoría completa, puedes implementar la solución alternativa cuando sea necesario.
 
 
+

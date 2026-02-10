@@ -476,9 +476,9 @@
                                 <input type="number" 
                                        id="anio-personalizado-input" 
                                        class="form-control mt-2" 
-                                       placeholder="O ingrese un año personalizado (2000-2100)" 
+                                       placeholder="O ingrese un año personalizado (mínimo 2000)" 
                                        min="2000" 
-                                       max="2100" 
+                                       max="9999" 
                                        style="display: none;">
                             </div>
                             <div class="col-12 col-md-8 text-center text-md-right mt-3 mt-md-4">
@@ -567,20 +567,20 @@
             inputAnioPersonalizado.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     const anio = parseInt(this.value);
-                    if (anio >= 2000 && anio <= 2100) {
+                    if (anio >= 2000) {
                         window.location.href = '{% url "dias_especiales_temporadas_anual" %}?anio=' + anio;
                     } else {
-                        alert('Por favor, ingrese un año entre 2000 y 2100');
+                        alert('Por favor, ingrese un año mayor o igual a 2000');
                     }
                 }
             });
             
             inputAnioPersonalizado.addEventListener('blur', function() {
                 const anio = parseInt(this.value);
-                if (anio >= 2000 && anio <= 2100) {
+                if (anio >= 2000) {
                     window.location.href = '{% url "dias_especiales_temporadas_anual" %}?anio=' + anio;
                 } else if (this.value) {
-                    alert('Por favor, ingrese un año entre 2000 y 2100');
+                    alert('Por favor, ingrese un año mayor o igual a 2000');
                     this.value = '';
                 }
             });

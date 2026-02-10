@@ -111,3 +111,4 @@ Si en el futuro se necesita el historial completo de `jornada_pago_sabado`, las 
 - **Estado:** Solución temporal funcional, pendiente de investigación futura
 
 
+

@@ -45,13 +45,41 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
             context['has_empleado'] = True
         except Exception:
             context['has_empleado'] = False
-        # Agregar jornadas actuales de cada empleado
+        
+        # OPTIMIZACIÓN: Pre-cargar todas las jornadas en una sola consulta (evita N+1)
         empleados = context.get('empleados', [])
         empleados_jornadas = []
-        for empleado in empleados:
-            asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado).order_by('-fecha_inicio').first()
-            jornada = asignacion.jornada.nombre if asignacion else "-"
-            empleados_jornadas.append((empleado, jornada))
+        
+        if empleados:
+            # Obtener IDs de empleados
+            empleado_ids = [e.id for e in empleados]
+            
+            # Pre-cargar todas las asignaciones de jornada más recientes en una consulta
+            # Usar subquery para obtener la asignación más reciente por empleado
+            from django.db.models import OuterRef, Subquery
+            asignaciones_recientes = AsignarJornadaExplorador.objects.filter(
+                explorador_id=OuterRef('explorador_id')
+            ).order_by('-fecha_inicio')[:1]
+            
+            # Obtener todas las asignaciones con select_related
+            asignaciones = (
+                AsignarJornadaExplorador.objects
+                .filter(explorador_id__in=empleado_ids)
+                .select_related('jornada', 'explorador')
+                .order_by('explorador', '-fecha_inicio')
+            )
+            
+            # Agrupar por explorador y tomar la más reciente
+            jornadas_por_empleado = {}
+            for asignacion in asignaciones:
+                if asignacion.explorador_id not in jornadas_por_empleado:
+                    jornadas_por_empleado[asignacion.explorador_id] = asignacion.jornada.nombre
+            
+            # Crear lista de tuplas (empleado, jornada)
+            for empleado in empleados:
+                jornada = jornadas_por_empleado.get(empleado.id, "-")
+                empleados_jornadas.append((empleado, jornada))
+        
         context['empleados_jornadas'] = empleados_jornadas
         return context
     
@@ -59,10 +87,13 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
         user = self.request.user
 
         if user.is_superuser or user.is_staff:
-            return Empleado.objects.all()
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            return Empleado.objects.select_related('supervisor', 'user').all()
         
         if user.is_supervisor:
-            return Empleado.objects.filter(empleadorole_set__role__nombre__icontains='supervisor')
+            return Empleado.objects.filter(
+                empleadorole_set__role__nombre__icontains='supervisor'
+            ).select_related('supervisor', 'user').distinct()
         
         
         try:
@@ -75,13 +106,14 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
             query = self.request.GET.get('q', '')
             if query:
                 return EmpleadoService.buscar_empleados(query)
-            return Empleado.objects.all()
+            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+            return Empleado.objects.select_related('supervisor', 'user').all()
 
         # Si no es admin/supervisor, filtrar por sala o mostrar ninguno
         sala_id = self.request.GET.get('sala')
         if sala_id:
             return EmpleadoService.get_empleados_by_sala(sala_id)
-        competencia = empleado.competenciaempleado_set.first()
+        competencia = empleado.competenciaempleado_set.select_related('sala').first()
         if competencia:
             return EmpleadoService.get_empleados_by_sala(competencia.sala_id)
         return Empleado.objects.none()

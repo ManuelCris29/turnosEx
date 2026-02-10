@@ -613,9 +613,9 @@
                     cargarExploradoresDisponibles(fecha, 'AM', empleadoReceptorAM);
                     cargarExploradoresDisponibles(fecha, 'PM', empleadoReceptorPM);
                 } else {
-                    // Cesión parcial: usar fecha de pago si está elegida (el receptor trabaja ese día)
-                    const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fecha;
-                    cargarExploradoresDisponibles(fechaParaLista);
+                    // Cesión parcial: SIEMPRE usar la fecha de cesión para calcular compañeros.
+                    // La fecha de pago (sábado) solo se usa para validar alternancia, no para cambiar el grupo.
+                    cargarExploradoresDisponibles(fecha);
                 }
             }
         }).then(instance => {
@@ -627,8 +627,8 @@
             if (fechaInicial) {
                 verificarDobladaExistente(fechaInicial);
                 cargarJornadaSolicitante(fechaInicial);
-                const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fechaInicial;
-                cargarExploradoresDisponibles(fechaParaLista);
+                // Al cargar la página, la lista de compañeros se basa en la fecha de cesión.
+                cargarExploradoresDisponibles(fechaInicial);
             }
         }).catch(error => {
             console.error('Error inicializando datepicker de cesión:', error);
@@ -707,11 +707,15 @@
                     cargarJornadaReceptorPago(empleadoReceptorId, fecha);
                 }
                 
-                // Cesión parcial: recargar "Compañero que te cubrirá" con la fecha de pago
-                // (si es sábado, el backend devuelve solo quienes trabajan ese sábado)
-                if (receptorParcial && receptorParcial.style.display !== 'none' && fechaCesionInput.value) {
-                    cargarExploradoresDisponibles(fecha);
+                // ✅ NUEVA VALIDACIÓN: Si es sábado y hay receptor, validar que el sábado corresponda a la jornada del receptor
+                if (esSabado(fecha) && empleadoReceptorId && fechaCesionInput?.value) {
+                    validarSabadoCorrespondeReceptor(fecha, empleadoReceptorId, fechaCesionInput.value);
                 }
+                
+                // NOTA IMPORTANTE:
+                // Ya NO recargamos la lista de \"Compañero que te cubrirá\" con la fecha de pago.
+                // La lista de compañeros para cesión parcial SIEMPRE se calcula con la fecha de cesión
+                // (día de semana). La fecha de pago (sábado) solo se usa para validaciones de alternancia.
                 
                 // Actualizar vista previa
                 actualizarVistaPrevia();
@@ -813,13 +817,19 @@
         })
         .then(response => response.json())
         .then(data => {
+            console.log('[DEBUG] Respuesta obtener-turno-explorador:', data);
             if (data.success && data.turno) {
+                // ✅ CORRECCIÓN: Solo es doblada si hay TURNOS REALES asignados (AM+PM)
+                // No considerar jornada predeterminada como doblada
+                const esDobladaReal = data.es_doblada === true && data.jornadas && data.jornadas.length >= 2;
+                console.log('[DEBUG] es_doblada:', data.es_doblada, 'jornadas:', data.jornadas, 'esDobladaReal:', esDobladaReal);
+                
                 // CORRECCIÓN: Pasar información de doblada
                 renderTurnoYSalas(
                     data.turno, 
                     turnoSolicitanteDetalles, 
                     salasSolicitanteDetalles,
-                    data.es_doblada || false,
+                    esDobladaReal,
                     data.jornadas || []
                 );
             } else {
@@ -1201,6 +1211,7 @@
     function verificarDobladaExistente(fecha) {
         if (!fecha) return;
         
+        console.log('[DEBUG] Verificando doblada existente para fecha:', fecha);
         fetch(`/solicitudes/verificar-doblada-existente/?fecha=${fecha}`)
             .then(response => {
                 if (!response.ok) {
@@ -1209,12 +1220,15 @@
                 return response.json();
             })
             .then(data => {
+                console.log('[DEBUG] Respuesta verificar-doblada-existente:', data);
                 if (data.success) {
                     // El endpoint retorna: {success: true, tiene_doblada, esta_descansando, puede_ceder, jornadas, mensaje}
                     tieneDobladaExistente = data.tiene_doblada || false;
                     jornadasDobladaExistente = data.jornadas || [];
                     const estaDescansando = data.esta_descansando || false;
                     const puedeCeder = data.puede_ceder !== false; // Default true
+                    
+                    console.log('[DEBUG] tieneDobladaExistente:', tieneDobladaExistente, 'jornadas:', jornadasDobladaExistente, 'estaDescansando:', estaDescansando);
                     
                     // CASO 1: Usuario está descansando (cedió su jornada)
                     if (estaDescansando) {
@@ -1248,23 +1262,27 @@
                         const alertDiv = dobladaExistenteInfo.querySelector('.alert');
                         if (alertDiv && tieneInconsistencia) {
                             alertDiv.className = 'alert alert-warning';
-                            alertDiv.innerHTML = `
-                                <i class="fas fa-exclamation-triangle mr-2"></i>
-                                <strong>Doblada con Datos Inconsistentes</strong>
-                                <p class="mb-0">${data.mensaje}</p>
-                                <hr>
-                                <p class="mb-0">
-                                    <i class="fas fa-tools mr-1"></i>
-                                    <strong>Acción requerida:</strong> Esta solicitud requiere atención del administrador.
-                                    Puedes intentar <a href="/solicitudes/mis-solicitudes/" class="alert-link">cancelar la solicitud existente</a> 
-                                    y crear una nueva.
-                                </p>
-                            `;
+                            // Solo actualizar el contenido del alert, preservando la estructura
+                            const alertHeading = alertDiv.querySelector('.alert-heading');
+                            const alertMessage = alertDiv.querySelector('p');
+                            
+                            if (alertHeading) {
+                                alertHeading.innerHTML = '<i class="fas fa-exclamation-triangle mr-2"></i>Doblada con Datos Inconsistentes';
+                            }
+                            if (alertMessage) {
+                                alertMessage.innerHTML = `${data.mensaje || 'Datos inconsistentes detectados.'}<hr><p class="mb-0"><i class="fas fa-tools mr-1"></i><strong>Acción requerida:</strong> Esta solicitud requiere atención del administrador. Puedes intentar <a href="/solicitudes/mis-solicitudes/" class="alert-link">cancelar la solicitud existente</a> y crear una nueva.</p>`;
+                            }
+                            
+                            // Ocultar opciones de cesión si hay inconsistencia
+                            const opcionesParcial = document.getElementById('opciones_cesion_parcial');
+                            const opcionesTotal = document.getElementById('opciones_cesion_total');
+                            if (opcionesParcial) opcionesParcial.style.display = 'none';
+                            if (opcionesTotal) opcionesTotal.style.display = 'none';
                             
                             // Deshabilitar formulario si hay inconsistencia
                             deshabilitarFormularioDoblada();
                         } else if (alertDiv) {
-                            // Sin inconsistencia: Actualizar mensaje normal
+                            // Sin inconsistencia: Actualizar mensaje normal SIN borrar las opciones
                             const alertHeading = alertDiv.querySelector('.alert-heading');
                             const alertMessage = alertDiv.querySelector('p');
                             
@@ -1273,6 +1291,12 @@
                             }
                             if (alertMessage) {
                                 alertMessage.textContent = data.mensaje || 'Ya tienes una doblada aprobada para esta fecha. Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).';
+                            }
+                            
+                            // Asegurar que las opciones de cesión parcial estén visibles
+                            const opcionesParcial = document.getElementById('opciones_cesion_parcial');
+                            if (opcionesParcial) {
+                                opcionesParcial.style.display = 'block';
                             }
                             
                             // Habilitar controles
@@ -1286,15 +1310,26 @@
                                     radioJornada.checked = true;
                                     tipoCesionHidden.value = `cesion_parcial_${jornada.toLowerCase()}`;
                                 }
+                            } else if (jornadasDobladaExistente.length === 2) {
+                                // Si tiene ambas jornadas (AM y PM), seleccionar AM por defecto
+                                const radioAM = document.getElementById('jornada_am');
+                                if (radioAM) {
+                                    radioAM.checked = true;
+                                    tipoCesionHidden.value = 'cesion_parcial_am';
+                                }
                             }
                         }
                         
-                        tipoCesionHidden.value = 'cesion_parcial_am'; // Default
+                        // Si no se seleccionó ninguna jornada, usar AM como default
+                        const jornadaSeleccionada = document.querySelector('input[name="jornada_cedida"]:checked');
+                        if (!jornadaSeleccionada) {
+                            tipoCesionHidden.value = 'cesion_parcial_am';
+                        }
                     } 
                     // CASO 3: No hay doblada (usuario normal)
                     else {
-                        dobladaExistenteInfo.style.display = 'none';
-                        tipoCesionHidden.value = 'cesion_completa';
+                        // Limpiar estado de doblada: ocultar información y opciones de cesión parcial
+                        limpiarEstadoDoblada();
                         habilitarFormularioDoblada();
                     }
                     
@@ -1307,6 +1342,47 @@
             .catch(error => {
                 console.error('Error verificando doblada existente:', error);
             });
+    }
+    
+    /**
+     * Limpiar estado de doblada cuando se cambia a una fecha sin doblada
+     * Aplica patrones modernos: optional chaining, nullish coalescing, arrow functions
+     */
+    function limpiarEstadoDoblada() {
+        // Ocultar información de doblada existente usando optional chaining
+        dobladaExistenteInfo?.style.setProperty('display', 'none');
+        
+        // Limpiar y ocultar opciones de cesión parcial usando optional chaining
+        const opcionesParcial = document.getElementById('opciones_cesion_parcial');
+        opcionesParcial?.style.setProperty('display', 'none');
+        
+        // Limpiar selección de radio buttons de jornada cedida usando forEach con arrow function
+        jornadaCedidaRadios?.forEach(radio => {
+            radio.checked = false;
+        });
+        
+        // Asegurar que se muestre solo cesión completa (normal)
+        if (tipoCesionHidden) {
+            tipoCesionHidden.value = 'cesion_completa';
+        }
+        
+        // Seleccionar "cesión completa" usando optional chaining
+        const radioCesionCompleta = document.querySelector('input[name="tipo_cesion_opcion"][value="completa"]');
+        radioCesionCompleta && (radioCesionCompleta.checked = true);
+        
+        // Asegurar que se muestren los campos de cesión completa (no parcial)
+        // Usando optional chaining y operador de asignación lógica
+        opcionesCesionTotal?.style.setProperty('display', 'none');
+        receptoresTotal?.style.setProperty('display', 'none');
+        fechasPagoTotal?.style.setProperty('display', 'none');
+        receptorParcial?.style.setProperty('display', 'block');
+        fechaPagoParcial?.style.setProperty('display', 'block');
+        
+        // Limpiar campos de cesión total usando optional chaining y operador lógico
+        empleadoReceptorAM && (empleadoReceptorAM.value = '');
+        empleadoReceptorPM && (empleadoReceptorPM.value = '');
+        fechaPagoAM && (fechaPagoAM.value = '');
+        fechaPagoPM && (fechaPagoPM.value = '');
     }
     
     /**
@@ -1487,12 +1563,14 @@
                 const fechaCesionFormateada = formatearFecha(fechaCesion);
                 const fechaPagoFormateada = formatearFecha(fechaPago);
                 
-                // Construir mensaje según el plan
+                // Construir mensaje según el plan de doblada:
+                // - En la fecha de cesión: el compañero se dobla por ti (tú descansas).
+                // - En la fecha de pago: tú trabajas por el compañero (cubres una de sus jornadas).
                 resumenAcuerdo.innerHTML = `
                     <div class="alert alert-info mb-0">
                         <strong>Resumen del Acuerdo:</strong><br>
-                        El día <strong>${fechaCesionFormateada}</strong> cedes <strong>${jornadaCedidaTexto}</strong> a <strong>${empleadoReceptorNombre}</strong>.<br>
-                        <strong>${empleadoReceptorNombre}</strong> te cubrirá el día <strong>${fechaPagoFormateada}</strong>.
+                        El día <strong>${fechaCesionFormateada}</strong> cedes <strong>${jornadaCedidaTexto}</strong> a <strong>${empleadoReceptorNombre}</strong> (él se dobla por ti y tú descansas).<br>
+                        El día <strong>${fechaPagoFormateada}</strong> <strong>tú</strong> cubrirás una de las jornadas de <strong>${empleadoReceptorNombre}</strong> como pago de la doblada.
                     </div>
                 `;
                 
@@ -1611,8 +1689,9 @@
         radio.addEventListener('change', function() {
             if (this.checked) {
                 tipoCesionHidden.value = `cesion_parcial_${this.value.toLowerCase()}`;
-                // Recargar exploradores disponibles (fecha de pago si existe, sino fecha de cesión)
-                const fechaParaLista = (fechaPagoInput && fechaPagoInput.value) ? fechaPagoInput.value : fechaCesionInput.value;
+                // Recargar exploradores disponibles SIEMPRE con la fecha de cesión.
+                // La fecha de pago sábado no debe cambiar el grupo de compañeros.
+                const fechaParaLista = fechaCesionInput.value;
                 if (fechaParaLista) {
                     cargarExploradoresDisponibles(fechaParaLista);
                 }
@@ -1620,6 +1699,89 @@
             }
         });
     });
+    
+    /**
+     * Validar que el sábado de pago corresponda a la jornada del receptor (quien hizo el doble turno)
+     * Regla de negocio:
+     * - Si cedes jornada AM → receptor es PM → sábado de pago debe ser para PM
+     * - Si cedes jornada PM → receptor es AM → sábado de pago debe ser para AM
+     * Aplica patrones modernos: async/await, optional chaining, destructuring
+     */
+    async function validarSabadoCorrespondeReceptor(fechaPago, receptorId, fechaCesion) {
+        if (!fechaPago || !receptorId || !fechaCesion) return;
+        
+        try {
+            // Obtener jornada del receptor en fecha de cesión (quien hizo el doble turno)
+            const [responseReceptor, responsePago] = await Promise.all([
+                fetch(`/solicitudes/obtener-turno-explorador/?explorador_id=${receptorId}&fecha=${fechaCesion}`),
+                fetch(`/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fechaPago}`)
+            ]);
+            
+            const [dataReceptor, dataPago] = await Promise.all([
+                responseReceptor.json(),
+                responsePago.json()
+            ]);
+            
+            if (!dataReceptor.success || !dataReceptor.turno) {
+                return; // No validar si no hay datos del receptor
+            }
+            
+            // Obtener jornada del receptor en fecha de cesión
+            const jornadaReceptorCesion = dataReceptor.turno.jornada?.toUpperCase();
+            if (!jornadaReceptorCesion || !['AM', 'PM'].includes(jornadaReceptorCesion)) {
+                return; // No validar si no hay jornada válida
+            }
+            
+            // Obtener jornada que trabaja ese sábado (alternancia)
+            const jornadaTrabajaSabado = dataPago.jornada_trabaja_sabado?.toUpperCase();
+            if (!jornadaTrabajaSabado) {
+                return; // No validar si no se puede determinar alternancia
+            }
+            
+            // Validar que el sábado corresponda a la jornada del receptor
+            if (jornadaReceptorCesion !== jornadaTrabajaSabado) {
+                // Obtener jornada que se está cediendo para el mensaje
+                let jornadaCedida = null;
+                if (tieneDobladaExistente) {
+                    const radioJornada = document.querySelector('input[name="jornada_cedida"]:checked');
+                    if (radioJornada) {
+                        jornadaCedida = radioJornada.value.toUpperCase();
+                    }
+                } else {
+                    // Obtener jornada del solicitante en fecha de cesión
+                    const responseSolicitante = await fetch(
+                        `/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fechaCesion}`
+                    );
+                    const dataSolicitante = await responseSolicitante.json();
+                    if (dataSolicitante.success && dataSolicitante.turno) {
+                        jornadaCedida = dataSolicitante.turno.jornada?.toUpperCase();
+                    }
+                }
+                
+                const fechaPagoFormateada = formatearFecha(fechaPago);
+                const mensaje = jornadaCedida 
+                    ? `No se puede realizar esta solicitud. El sábado ${fechaPagoFormateada} corresponde al turno ${jornadaTrabajaSabado}, pero el compañero que cubrirá tu jornada ${jornadaCedida} tiene jornada ${jornadaReceptorCesion}. El sábado de pago siempre debe coincidir con el turno de la persona que realizó el doble turno. Por favor, selecciona otro sábado que corresponda al turno ${jornadaReceptorCesion}.`
+                    : `No se puede realizar esta solicitud. El sábado ${fechaPagoFormateada} corresponde al turno ${jornadaTrabajaSabado}, pero el compañero que cubrirá tu jornada tiene jornada ${jornadaReceptorCesion}. El sábado de pago siempre debe coincidir con el turno de la persona que realizó el doble turno. Por favor, selecciona otro sábado que corresponda al turno ${jornadaReceptorCesion}.`;
+                
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Sábado No Válido',
+                    html: `<div class="text-left"><p>${mensaje}</p></div>`,
+                    confirmButtonText: 'Entendido',
+                    confirmButtonColor: '#d33',
+                    width: '600px'
+                });
+                
+                // Limpiar fecha de pago
+                fechaPagoInput.value = '';
+                mostrarOpcionesPagoSabado(false);
+                mostrarMensajeNoNecesarioPagoSabado(false);
+            }
+        } catch (error) {
+            console.error('Error validando sábado corresponde receptor:', error);
+            // No mostrar error al usuario si falla la validación (el backend validará)
+        }
+    }
     
     /**
      * Manejar cambio en empleado receptor
@@ -1645,6 +1807,11 @@
             if (turnoReceptorPagoInfo) {
                 turnoReceptorPagoInfo.style.display = 'none';
             }
+        }
+        
+        // ✅ NUEVA VALIDACIÓN: Si hay fecha de pago sábado, validar que corresponda a la jornada del receptor
+        if (empleadoId && fechaPago && esSabado(fechaPago) && fechaCesion) {
+            validarSabadoCorrespondeReceptor(fechaPago, empleadoId, fechaCesion);
         }
         
         actualizarVistaPrevia();

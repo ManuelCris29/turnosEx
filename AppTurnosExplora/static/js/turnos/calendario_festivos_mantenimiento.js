@@ -87,7 +87,10 @@ function construirTooltip(dia, mes, anio, esSeleccionado) {
     }
     
     // Verificar si es mantenimiento (seleccionado)
-    if (esSeleccionado) {
+    // Regla de negocio: un día NO puede ser a la vez festivo y mantenimiento.
+    // Solo consideramos \"Mantenimiento\" cuando el tipo actual es mantenimiento.
+    const tipoActual = (typeof window !== 'undefined' && window.tipoDiasEspeciales) ? window.tipoDiasEspeciales : 'festivo';
+    if (esSeleccionado && tipoActual === 'mantenimiento') {
         tipos.push('Mantenimiento');
     }
     
@@ -149,6 +152,10 @@ function renderizarCalendarioMes(mes, anio, diasIniciales = []) {
         contenedor.appendChild(celdaVacia);
     }
     
+    // Determinar tipo actual (festivo o mantenimiento) para aplicar estilos adecuados
+    const tipoSelect = document.getElementById('id_tipo');
+    const tipoActual = tipoSelect ? tipoSelect.value : (typeof window !== 'undefined' && window.tipoDiasEspeciales ? window.tipoDiasEspeciales : 'festivo');
+    
     // Agregar días del mes
     for (let dia = 1; dia <= totalDias; dia++) {
         const celdaDia = document.createElement('div');
@@ -170,8 +177,9 @@ function renderizarCalendarioMes(mes, anio, diasIniciales = []) {
             celdaDia.classList.add('temporada');
         }
         
-        // Marcar como seleccionado si está en la lista (después de festivo/temporada para mantener estilos)
-        if (esSeleccionado) {
+        // Marcar como seleccionado si está en la lista (solo aplica para mantenimiento).
+        // Para festivos, el estilo principal es la clase 'festivo', no 'seleccionado'.
+        if (esSeleccionado && tipoActual === 'mantenimiento') {
             celdaDia.classList.add('seleccionado');
         }
         
@@ -201,6 +209,19 @@ function toggleDia(mes, dia) {
         diasSeleccionadosPorMes[mes] = [];
     }
     
+    // Determinar tipo actual (festivo o mantenimiento)
+    const tipoSelect = document.getElementById('id_tipo');
+    const tipoActual = tipoSelect ? tipoSelect.value : (typeof window !== 'undefined' && window.tipoDiasEspeciales ? window.tipoDiasEspeciales : 'festivo');
+    
+    // Regla: si estamos configurando mantenimiento, NO permitir seleccionar días festivos
+    if (tipoActual === 'mantenimiento') {
+        if (festivosPorMes[mes] && Array.isArray(festivosPorMes[mes]) && festivosPorMes[mes].includes(dia)) {
+            // Día festivo: no se puede marcar como mantenimiento
+            console.warn(`Día ${dia}/${mes} es festivo. No se puede marcar como mantenimiento.`);
+            return;
+        }
+    }
+    
     const index = diasSeleccionadosPorMes[mes].indexOf(dia);
     const celda = document.querySelector(`#calendario-${mes} .calendario-dia[data-dia="${dia}"]`);
     
@@ -211,8 +232,21 @@ function toggleDia(mes, dia) {
     if (index > -1) {
         // Deseleccionar
         diasSeleccionadosPorMes[mes].splice(index, 1);
+        
+        if (tipoActual === 'festivo') {
+            // Quitar del mapa de festivos en memoria y de la clase visual
+            if (festivosPorMes[mes]) {
+                festivosPorMes[mes] = festivosPorMes[mes].filter(d => d !== dia);
+            }
+            if (celda) {
+                celda.classList.remove('festivo');
+            }
+        }
+        
         if (celda) {
+            // Quitar siempre 'seleccionado' al desmarcar (por seguridad)
             celda.classList.remove('seleccionado');
+            
             // Actualizar tooltip
             const esSeleccionado = false;
             const tooltip = construirTooltip(dia, mes, anio, esSeleccionado);
@@ -222,8 +256,25 @@ function toggleDia(mes, dia) {
         // Seleccionar
         diasSeleccionadosPorMes[mes].push(dia);
         diasSeleccionadosPorMes[mes].sort((a, b) => a - b);
+        
+        if (tipoActual === 'festivo') {
+            // Añadir al mapa de festivos en memoria y marcar en rojo inmediatamente
+            if (!festivosPorMes[mes]) {
+                festivosPorMes[mes] = [];
+            }
+            if (!festivosPorMes[mes].includes(dia)) {
+                festivosPorMes[mes].push(dia);
+            }
+            if (celda) {
+                celda.classList.add('festivo');
+            }
+        }
+        
         if (celda) {
-            celda.classList.add('seleccionado');
+            // Solo resaltar en azul cuando el tipo es mantenimiento.
+            if (tipoActual === 'mantenimiento') {
+                celda.classList.add('seleccionado');
+            }
             // Actualizar tooltip
             const esSeleccionado = true;
             const tooltip = construirTooltip(dia, mes, anio, esSeleccionado);

@@ -22,12 +22,26 @@ class AsignarJornadaExplorador(models.Model):
         return f"{self.explorador.user.username} - {self.jornada.nombre}" #type:ignore
 
 class AsignarSalaExplorador(models.Model):
+    """Modelo para asignar salas a exploradores por períodos."""
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
     sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField(null=True, blank=True)
     historial = HistoricalRecords()
     
+    class Meta:
+        verbose_name = 'Asignación de Sala a Explorador'
+        verbose_name_plural = 'Asignaciones de Sala a Exploradores'
+        ordering = ['-fecha_inicio', 'explorador']
+        indexes = [
+            models.Index(fields=['explorador', 'fecha_inicio'], name='asig_sala_exp_fecha_idx'),
+            models.Index(fields=['sala'], name='asig_sala_sala_idx'),
+        ]
+    
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.fecha_fin and self.fecha_fin < self.fecha_inicio:
+            raise ValidationError('La fecha de fin debe ser posterior a la fecha de inicio.')
 
     def __str__(self):
         return f"{self.explorador.user.username} - {self.sala.nombre}" #type:ignore

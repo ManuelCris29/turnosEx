@@ -140,6 +140,55 @@ class DobladaStrategy(SolicitudStrategy):
                         f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')}, el receptor debe ser del grupo "
                         f"que trabaja ese sábado ({jornada_trabaja_sabado}). El receptor tiene {jornada_receptor_pago.nombre.upper()}."
                     )
+                
+                # ===========================
+                # NUEVA REGLA: Validar que sábado de pago corresponda a jornada del receptor (quien hizo doble turno)
+                # ===========================
+                # Regla de negocio:
+                # - Si cedes jornada AM → receptor es PM → sábado de pago debe ser para PM
+                # - Si cedes jornada PM → receptor es AM → sábado de pago debe ser para AM
+                # El sábado siempre debe coincidir con el turno de la persona que realizó el doble turno
+                # Obtener jornada que se está cediendo
+                jornada_a_ceder = None
+                if jornada_cedida:
+                    jornada_a_ceder = jornada_cedida.upper()
+                else:
+                    # Si no hay jornada_cedida, obtener jornada del solicitante
+                    jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
+                        explorador_solicitante.id, fecha_cesion
+                    )
+                    if jornada_solicitante:
+                        jornada_a_ceder = jornada_solicitante.nombre.upper()
+                
+                if jornada_a_ceder:
+                    # Obtener jornada del receptor en fecha de cesión (quien hizo el doble turno)
+                    jornada_receptor_cesion = JornadaService.get_jornada_explorador_fecha(
+                        explorador_receptor.id, fecha_cesion
+                    )
+                    if not jornada_receptor_cesion:
+                        logger.warning(
+                            f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_cesion}"
+                        )
+                        return False, "El receptor no tiene jornada asignada para la fecha de cesión."
+                    
+                    jornada_receptor_nombre = jornada_receptor_cesion.nombre.upper()
+                    
+                    # Validar que el sábado corresponda a la jornada del receptor
+                    # Si receptor es PM (hizo doble turno), el sábado debe ser para PM
+                    # Si receptor es AM (hizo doble turno), el sábado debe ser para AM
+                    if jornada_receptor_nombre != jornada_trabaja_sabado:
+                        logger.warning(
+                            f"Validación fallida: receptor {explorador_receptor.id} tiene jornada {jornada_receptor_nombre} "
+                            f"pero el sábado {fecha_pago_obj} es para {jornada_trabaja_sabado}. "
+                            f"El sábado debe corresponder a la jornada del receptor (quien hizo el doble turno)."
+                        )
+                        return False, (
+                            f"No se puede realizar esta solicitud. El sábado {fecha_pago_obj.strftime('%d/%m/%Y')} "
+                            f"corresponde al turno {jornada_trabaja_sabado}, pero el compañero que cubrirá tu jornada "
+                            f"({jornada_a_ceder}) tiene jornada {jornada_receptor_nombre}. "
+                            f"El sábado de pago siempre debe coincidir con el turno de la persona que realizó el doble turno. "
+                            f"Por favor, selecciona otro sábado que corresponda al turno {jornada_receptor_nombre}."
+                        )
 
             # Validar jornadas contrarias
             SolicitudValidator.validar_jornadas_contrarias_doblada(

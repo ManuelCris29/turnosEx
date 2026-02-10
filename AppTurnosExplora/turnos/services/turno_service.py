@@ -20,29 +20,83 @@ logger = logging.getLogger(__name__)
 class TurnoService(ITurnoService):
     @staticmethod
     def get_exploradores_por_jornada(fecha):
+        """
+        Obtiene exploradores agrupados por jornada (AM/PM) para una fecha específica.
+        
+        OPTIMIZACIÓN: Pre-carga todos los turnos y asignaciones en consultas batch
+        para evitar N+1 queries.
+        
+        Args:
+            fecha: Fecha en formato string 'YYYY-MM-DD'
+        
+        Returns:
+            Diccionario con listas de exploradores por jornada: {'am': [...], 'pm': [...]}
+        """
         fecha_str = re.match(r"\d{4}-\d{2}-\d{2}", fecha).group(0)
         fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
-        exploradores = Empleado.objects.filter(activo=True)
+        
+        # OPTIMIZACIÓN: Pre-cargar todos los exploradores activos con relaciones
+        exploradores = Empleado.objects.filter(activo=True).select_related('supervisor')
+        explorador_ids = list(exploradores.values_list('id', flat=True))
+        
+        # OPTIMIZACIÓN: Pre-cargar todos los turnos de la fecha en una sola consulta
+        turnos_fecha = (
+            Turno.objects
+            .filter(explorador_id__in=explorador_ids, fecha=fecha_obj)
+            .select_related('jornada', 'explorador')
+        )
+        
+        # Crear diccionario para acceso rápido: {explorador_id: turno}
+        turnos_por_explorador = {
+            turno.explorador_id: turno
+            for turno in turnos_fecha
+        }
+        
+        # OPTIMIZACIÓN: Pre-cargar todas las asignaciones de jornada relevantes
+        asignaciones = (
+            AsignarJornadaExplorador.objects
+            .filter(explorador_id__in=explorador_ids, fecha_inicio__lte=fecha_obj)
+            .select_related('jornada', 'explorador')
+            .order_by('explorador', '-fecha_inicio')
+        )
+        
+        # Agrupar por explorador y tomar la más reciente
+        asignaciones_por_explorador = {}
+        for asignacion in asignaciones:
+            if asignacion.explorador_id not in asignaciones_por_explorador:
+                asignaciones_por_explorador[asignacion.explorador_id] = asignacion
+        
+        # Procesar en memoria usando datos pre-cargados
         am, pm = [], []
         for explorador in exploradores:
-            turno = Turno.objects.filter(explorador=explorador, fecha=fecha_obj).first()
+            jornada = None
+            tipo = None
+            
+            # 1. Buscar primero en Turnos (cambios aprobados tienen prioridad)
+            turno = turnos_por_explorador.get(explorador.id)
             if turno:
                 jornada = turno.jornada
                 tipo = 'cambio'
             else:
-                # Las jornadas son indefinidas por defecto (sin fecha_fin)
-                asignacion = AsignarJornadaExplorador.objects.filter(
-                    explorador=explorador,
-                    fecha_inicio__lte=fecha_obj
-                ).order_by('-fecha_inicio').first()
-                jornada = asignacion.jornada if asignacion else None
-                tipo = 'oficial' if jornada else None
+                # 2. Si no hay turno, buscar en asignaciones fijas
+                asignacion = asignaciones_por_explorador.get(explorador.id)
+                if asignacion:
+                    jornada = asignacion.jornada
+                    tipo = 'oficial'
+            
             if jornada:
-                item = {'id': explorador.id, 'nombre': explorador.nombre, 'apellido': explorador.apellido, 'tipo': tipo}
-                if jornada.nombre.strip().lower() == 'am':
+                item = {
+                    'id': explorador.id,
+                    'nombre': explorador.nombre,
+                    'apellido': explorador.apellido,
+                    'tipo': tipo
+                }
+                jornada_nombre = jornada.nombre.strip().lower()
+                if jornada_nombre == 'am':
                     am.append(item)
-                elif jornada.nombre.strip().lower() == 'pm':
+                elif jornada_nombre == 'pm':
                     pm.append(item)
+        
         return {'am': am, 'pm': pm}
 
     @staticmethod
@@ -289,7 +343,25 @@ class TurnoService(ITurnoService):
             )
             if jornada_predeterminada:
                 try:
-                    # Usar JornadaUtils para calcular jornada real del día (considera alternancia)
+                    # REGLA DE NEGOCIO: Para sábados y domingos, la jornada predeterminada es DOBLADA si corresponde trabajar
+                    if fecha_obj.weekday() == 5:  # Sábado
+                        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                        jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                        if jornada_trabaja_sabado and jornada_predeterminada.nombre.upper() == jornada_trabaja_sabado.upper():
+                            # Le corresponde trabajar ese sábado → jornada predeterminada es DOBLADA (AM+PM)
+                            return 'DOBLADA'
+                        # Si no corresponde trabajar, está en descanso
+                        return None
+                    elif fecha_obj.weekday() == 6:  # Domingo
+                        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                        jornada_trabaja_domingo = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha_obj)
+                        if jornada_trabaja_domingo and jornada_predeterminada.nombre.upper() == jornada_trabaja_domingo.upper():
+                            # Le corresponde trabajar ese domingo → jornada predeterminada es DOBLADA (AM+PM)
+                            return 'DOBLADA'
+                        # Si no corresponde trabajar, está en descanso
+                        return None
+                    
+                    # Para otros días (lunes-viernes), usar JornadaUtils
                     jornada_dia_calculada = JornadaUtils.calcular_jornada_dia(
                         jornada_predeterminada.nombre, fecha_obj
                     )

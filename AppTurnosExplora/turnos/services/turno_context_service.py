@@ -176,16 +176,37 @@ class TurnoContextService:
                 }
         
         # Crear estructura de datos para la semana actual (resumen semanal)
+        # Usar siempre TurnoService.obtener_jornada_display para respetar:
+        # - Dobladas ASIGNADAS (AM+PM en cualquier día)
+        # - Dobladas PREDETERMINADAS en sábados/domingos según alternancia
+        from turnos.services.turno_service import TurnoService
+
         semana_turnos = {}
         for i in range(7):
             fecha = inicio_semana + timedelta(days=i)
+
+            # Calcular jornada efectiva con la misma lógica que el resto del sistema
+            jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
+            jornada_nombre = jornada_display if jornada_display else 'Descanso'
+
             if fecha in turnos_mes_dict:
-                semana_turnos[fecha] = turnos_mes_dict[fecha]
+                # Partir de la información mensual pero forzar la jornada a la calculada
+                info_dia = dict(turnos_mes_dict[fecha])
+                info_dia['jornada'] = jornada_nombre
+
+                # Si jornada_display es None, considerar como día predeterminado de descanso
+                if not jornada_display:
+                    info_dia['tipo'] = 'predeterminado'
+
+                # Actualizar campos de predeterminada/coincidencia para el resumen
+                info_dia['jornada_predeterminada'] = jornada_nombre
+                info_dia['coincide_con_predeterminada'] = (
+                    info_dia['jornada'] == info_dia.get('jornada_predeterminada', info_dia['jornada'])
+                )
+
+                semana_turnos[fecha] = info_dia
             else:
-                # Si la fecha no está en el mes actual, usar regla predeterminada
-                from core.utils.jornada_utils import JornadaUtils
-                jornada_nombre = JornadaUtils.calcular_jornada_dia(jornada_base, fecha)
-                
+                # Si la fecha no está en el mes actual, usar la jornada calculada
                 semana_turnos[fecha] = {
                     'turno': None,
                     'jornada': jornada_nombre,

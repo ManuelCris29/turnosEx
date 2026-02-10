@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from typing import List, Dict, Optional, Set
 import logging
 from turnos.services.temporada_service import TemporadaService
+from core.utils.festivos_colombia import CalculadoraFestivos
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +117,9 @@ class DiaEspecialService:
             if tipo not in ['festivo', 'mantenimiento']:
                 return False, f"Tipo inválido: {tipo}. Debe ser 'festivo' o 'mantenimiento'."
             
-            # Validar año
-            if anio < 2000 or anio > 2100:
-                return False, f"Año inválido: {anio}. Debe estar entre 2000 y 2100."
+            # Validar año (solo mínimo para evitar años históricos muy antiguos)
+            if anio < 2000:
+                return False, f"Año inválido: {anio}. Debe ser mayor o igual a 2000."
             
             # Eliminar todos los días existentes del tipo y año
             DiaEspecialService.eliminar_dias_por_tipo_anio(tipo, anio)
@@ -339,6 +340,93 @@ class DiaEspecialService:
             activo=True,
             es_temporada=False
         ).exists()
+
+    @staticmethod
+    @transaction.atomic
+    def generar_festivos_automaticos(anio: int) -> Dict[int, List[int]]:
+        """
+        Genera automáticamente los festivos colombianos para un año dado y
+        los persiste en la tabla DiaEspecial (tipo = 'festivo').
+
+        - Usa CalculadoraFestivos (Ley Emiliani) como fuente principal.
+        - No elimina festivos existentes: solo asegura que todos los festivos
+          calculados existan como registros activos.
+        - Respeta días de temporada (no los sobreescribe).
+
+        Returns:
+            Diccionario {mes: [dias]} para usar directamente en el calendario.
+        """
+        # Validar año mínimo (solo para evitar años históricos muy antiguos)
+        if anio < 2000:
+            error_msg = f"Año inválido: {anio}. Debe ser mayor o igual a 2000."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+        
+        logger.info(f"Generando festivos automáticos para el año {anio}")
+
+        # Obtener festivos calculados (lista de {'fecha': date, 'descripcion': str})
+        festivos_calculados = CalculadoraFestivos.calcular_festivos(anio)
+
+        # Cargar festivos ya existentes de BD para este año
+        festivos_existentes = DiaEspecialService.obtener_dias_por_tipo_anio('festivo', anio)
+        fechas_existentes: Set[date] = {f.fecha for f in festivos_existentes}
+
+        resultado: Dict[int, List[int]] = {}
+
+        for festivo in festivos_calculados:
+            fecha_festivo: date = festivo['fecha']
+            descripcion: str = festivo.get('descripcion') or 'Día festivo'
+
+            # Solo procesar fechas del año solicitado (por seguridad)
+            if fecha_festivo.year != anio:
+                continue
+
+            mes = fecha_festivo.month
+            dia = fecha_festivo.day
+
+            # Construir resultado agrupado por mes
+            if mes not in resultado:
+                resultado[mes] = []
+            if dia not in resultado[mes]:
+                resultado[mes].append(dia)
+
+            # Si ya existe un DiaEspecial para esa fecha y año, no duplicar
+            if fecha_festivo in fechas_existentes:
+                continue
+
+            # Verificar si hay un registro existente (otro tipo o temporada)
+            dia_existente = DiaEspecial.objects.filter(fecha=fecha_festivo).first()
+
+            # Si es día de temporada, NO lo tocamos ni creamos un nuevo festivo separado,
+            # para no mezclar conceptos en la misma fecha.
+            if dia_existente and dia_existente.es_temporada:
+                logger.info(
+                    f"Fecha {fecha_festivo} es temporada; se omite creación de festivo automático."
+                )
+                continue
+
+            # Crear nuevo registro de festivo
+            DiaEspecial.objects.create(
+                fecha=fecha_festivo,
+                tipo='festivo',
+                descripcion=descripcion,
+                es_temporada=False,
+                año_planificacion=anio,
+                mes=mes,
+                activo=True,
+                recurrente=False,
+            )
+
+        # Ordenar días de cada mes
+        for mes in resultado:
+            resultado[mes].sort()
+
+        logger.info(
+            f"Generación automática de festivos para {anio} completada. "
+            f"Meses con festivos: {list(resultado.keys())}"
+        )
+
+        return resultado
 
     @staticmethod
     def calcular_dias_mantenimiento_automatico(anio: int) -> Dict[int, List[int]]:

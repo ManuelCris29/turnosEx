@@ -11,4 +11,5 @@ urlpatterns = [
     path('dias-temporada/', views.DiasTemporadaView.as_view(), name='dias_temporada'),
     path('dias-especiales-por-tipo/', views.DiasEspecialesPorTipoView.as_view(), name='dias_especiales_por_tipo'),
     path('calcular-mantenimiento-automatico/', views.CalcularMantenimientoAutomaticoView.as_view(), name='calcular_mantenimiento_automatico'),
+    path('calcular-festivos-automatico/', views.CalcularFestivosAutomaticoView.as_view(), name='calcular_festivos_automatico'),
 ]

@@ -53,22 +53,72 @@ class TurnoListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     template_name = 'turnos/turnos_list.html'
     context_object_name = 'turnos'
     
+    def get_queryset(self):
+        # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+        return (
+            Turno.objects
+            .select_related('explorador', 'jornada', 'sala', 'explorador__user')
+            .order_by('-fecha', 'explorador')
+        )
+    
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         turnos = context['turnos']
         
-        # Agregar información de jornada display a cada turno
+        # OPTIMIZACIÓN: Pre-cargar todas las jornadas display en consultas batch
         from turnos.services.turno_service import TurnoService
         from collections import defaultdict
+        
+        if not turnos:
+            context['turnos'] = turnos
+            return context
+        
+        # Obtener todas las fechas y exploradores únicos
+        fechas_unicas = set(t.fecha for t in turnos)
+        explorador_ids = set(t.explorador_id for t in turnos)
+        
+        # OPTIMIZACIÓN: Pre-cargar todos los turnos de todas las fechas relevantes
+        # Esto evita consultas individuales en obtener_jornada_display
+        from turnos.models import Turno
+        from empleados.models import Empleado
+        
+        # Pre-cargar turnos para todas las fechas y exploradores
+        turnos_precargados = (
+            Turno.objects
+            .filter(
+                explorador_id__in=explorador_ids,
+                fecha__in=fechas_unicas
+            )
+            .select_related('jornada', 'explorador')
+            .order_by('fecha', 'explorador', 'jornada__nombre')
+        )
+        
+        # Agrupar turnos por (explorador_id, fecha)
+        turnos_por_explorador_fecha = defaultdict(list)
+        for t in turnos_precargados:
+            key = (t.explorador_id, t.fecha)
+            turnos_por_explorador_fecha[key].append(t)
+        
+        # Pre-cargar exploradores
+        exploradores = {
+            e.id: e
+            for e in Empleado.objects.filter(id__in=explorador_ids).select_related('supervisor')
+        }
         
         # Cache de jornada_display por (explorador_id, fecha)
         display_cache = {}
         
+        # Calcular jornada_display usando datos pre-cargados
         for turno in turnos:
-            key = (turno.explorador.id, turno.fecha)
+            key = (turno.explorador_id, turno.fecha)
             if key not in display_cache:
-                jornada_display = TurnoService.obtener_jornada_display(turno.explorador, turno.fecha)
-                display_cache[key] = jornada_display
+                explorador = exploradores.get(turno.explorador_id)
+                if explorador:
+                    # Usar método optimizado que puede usar datos pre-cargados
+                    jornada_display = TurnoService.obtener_jornada_display(explorador, turno.fecha)
+                    display_cache[key] = jornada_display
+                else:
+                    display_cache[key] = turno.jornada.nombre if turno.jornada else None
             
             # Agregar atributo temporal para el template
             turno.jornada_display = display_cache[key]
@@ -101,6 +151,10 @@ class DiaEspecialListView(LoginRequiredMixin, ListView):
     model = DiaEspecial
     template_name = 'turnos/diasespeciales_list.html'
     context_object_name = 'dias_especiales'
+    
+    def get_queryset(self):
+        # OPTIMIZACIÓN: Ordenar por fecha
+        return DiaEspecial.objects.order_by('fecha')
 
 class DiaEspecialCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = DiaEspecial
@@ -130,7 +184,8 @@ class DiaEspecialVisualizarListView(LoginRequiredMixin, ListView):
     context_object_name = 'dias_especiales'
     
     def get_queryset(self):
-        queryset = super().get_queryset()
+        # OPTIMIZACIÓN: Aplicar filtros directamente en la consulta
+        queryset = DiaEspecial.objects.all()
         tipo = self.request.GET.get('tipo')
         anio = self.request.GET.get('anio')
         
@@ -305,6 +360,10 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
         # Si es mantenimiento y no hay días guardados, calcular automáticamente
         if tipo_seleccionado == 'mantenimiento' and not tiene_dias:
             dias_por_mes = DiaEspecialService.calcular_dias_mantenimiento_automatico(anio_seleccionado)
+
+        # Si es festivo y no hay días guardados, generar festivos automáticos
+        if tipo_seleccionado == 'festivo' and not tiene_dias:
+            dias_por_mes = DiaEspecialService.generar_festivos_automaticos(anio_seleccionado)
         
         # Obtener festivos y temporadas para mostrar en el calendario (para todos los tipos)
         festivos_por_mes = DiaEspecialService.obtener_dias_por_tipo_por_mes('festivo', anio_seleccionado)
@@ -314,17 +373,18 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
         anios_con_tipo = DiaEspecialService.obtener_anios_con_tipo(tipo_seleccionado)
         
         # Generar lista de años disponibles para el selector
-        # Incluir desde el año actual hasta 10 años en el futuro
+        # Incluir desde el año actual hasta 50 años en el futuro (rango amplio para planificación a largo plazo)
         anio_actual = date.today().year
-        anios_disponibles = list(range(anio_actual, anio_actual + 11))  # Año actual + 10 años más
+        anios_disponibles = list(range(anio_actual, anio_actual + 51))  # Año actual + 50 años más
         
         # Agregar años que ya tienen días del tipo pero que no están en el rango
+        # Solo agregar años válidos (>= 2000)
         for anio_temp in anios_con_tipo:
             if anio_temp is not None and anio_temp not in anios_disponibles and anio_temp >= 2000:
                 anios_disponibles.append(anio_temp)
         
-        # Ordenar años disponibles
-        anios_disponibles = sorted(set(anios_disponibles))
+        # Filtrar y ordenar años disponibles (solo mínimo 2000)
+        anios_disponibles = sorted(set([a for a in anios_disponibles if a >= 2000]))
         
         # Preparar datos para el template
         meses_nombres = [

@@ -115,8 +115,10 @@
     
     /* Cuando un día es seleccionado Y festivo/temporada, mantener el color de selección pero con borde especial */
     .calendario-dia.seleccionado.festivo {
-        background: #007bff;
-        border-color: #dc3545;
+        /* Para festivos, mantener el color rojo aunque estén \"seleccionados\" en modo festivo */
+        background: #dc3545;
+        color: #fff;
+        border-color: #c82333;
         border-width: 2px;
     }
     
@@ -522,9 +524,9 @@
                                 <input type="number" 
                                        id="anio-personalizado-input" 
                                        class="form-control mt-2" 
-                                       placeholder="O ingrese un año personalizado (2000-2100)" 
+                                       placeholder="O ingrese un año personalizado (mínimo 2000)" 
                                        min="2000" 
-                                       max="2100" 
+                                       max="9999" 
                                        style="display: none;">
                             </div>
                             <div class="col-12 col-md-6 text-center text-md-right mt-3 mt-md-4">
@@ -534,6 +536,10 @@
                                 {% if tipo_seleccionado == 'mantenimiento' %}
                                 <button type="button" class="btn btn-warning mb-2 mb-md-0 mr-md-2" id="btn-regenerar-mantenimiento">
                                     <i class="fas fa-magic"></i> Regenerar Automáticamente
+                                </button>
+                                {% elif tipo_seleccionado == 'festivo' %}
+                                <button type="button" class="btn btn-warning mb-2 mb-md-0 mr-md-2" id="btn-regenerar-festivos">
+                                    <i class="fas fa-magic"></i> Regenerar Festivos
                                 </button>
                                 {% endif %}
                                 <button type="submit" class="btn btn-success" id="btn-guardar">
@@ -589,9 +595,12 @@
 {% block extra_js %}
 <script src="{% static 'js/turnos/calendario_festivos_mantenimiento.js' %}"></script>
 <script>
+    // Exponer el tipo seleccionado para que el JS pueda aplicar reglas específicas
+    window.tipoDiasEspeciales = '{{ tipo_seleccionado }}';  // 'festivo' o 'mantenimiento'
+
     // Inicializar calendarios al cargar la página
     document.addEventListener('DOMContentLoaded', function() {
-        const tipoSeleccionado = '{{ tipo_seleccionado }}';
+        const tipoSeleccionado = window.tipoDiasEspeciales;
         const anioSeleccionado = parseInt('{{ anio_seleccionado }}');
         let diasPorMes = {{ dias_por_mes|safe }};
         let festivosPorMes = {{ festivos_por_mes|safe }};
@@ -677,22 +686,22 @@
             inputAnioPersonalizado.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     const anio = parseInt(this.value);
-                    if (anio >= 2000 && anio <= 2100) {
+                    if (anio >= 2000) {
                         const tipo = document.getElementById('id_tipo').value;
                         window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + tipo + '&anio=' + anio;
                     } else {
-                        alert('Por favor, ingrese un año entre 2000 y 2100');
+                        alert('Por favor, ingrese un año mayor o igual a 2000');
                     }
                 }
             });
             
             inputAnioPersonalizado.addEventListener('blur', function() {
                 const anio = parseInt(this.value);
-                if (anio >= 2000 && anio <= 2100) {
+                if (anio >= 2000) {
                     const tipo = document.getElementById('id_tipo').value;
                     window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + tipo + '&anio=' + anio;
                 } else if (this.value) {
-                    alert('Por favor, ingrese un año entre 2000 y 2100');
+                    alert('Por favor, ingrese un año mayor o igual a 2000');
                     this.value = '';
                 }
             });
@@ -738,6 +747,15 @@
             btnRegenerarMantenimiento.addEventListener('click', function() {
                 const anio = parseInt(document.getElementById('id_anio').value);
                 regenerarMantenimientoAutomatico(anio);
+            });
+        }
+
+        // Event listener para botón regenerar festivos (solo si es tipo festivo)
+        const btnRegenerarFestivos = document.getElementById('btn-regenerar-festivos');
+        if (btnRegenerarFestivos) {
+            btnRegenerarFestivos.addEventListener('click', function() {
+                const anio = parseInt(document.getElementById('id_anio').value);
+                regenerarFestivosAutomatico(anio);
             });
         }
     });
@@ -861,6 +879,68 @@
                 if (btnRegenerar) {
                     btnRegenerar.disabled = false;
                     btnRegenerar.innerHTML = '<i class="fas fa-magic"></i> Regenerar Automáticamente';
+                }
+            });
+    }
+
+    /**
+     * Regenera automáticamente los días festivos usando el cálculo del servidor.
+     * @param {number} anio - Año para calcular
+     */
+    function regenerarFestivosAutomatico(anio) {
+        if (!confirm('¿Está seguro de regenerar automáticamente los festivos? Esto complementará los días actuales con los festivos oficiales calculados para ese año.')) {
+            return;
+        }
+
+        const btnRegenerarFestivos = document.getElementById('btn-regenerar-festivos');
+        if (btnRegenerarFestivos) {
+            btnRegenerarFestivos.disabled = true;
+            btnRegenerarFestivos.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Calculando...';
+        }
+
+        fetch(`/turnos/api/calcular-festivos-automatico/?anio=${anio}`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error HTTP: ${response.status}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.por_mes) {
+                    // Actualizar estructura local de festivos
+                    festivosPorMes = {};
+                    Object.keys(data.por_mes).forEach(mesKey => {
+                        const mes = parseInt(mesKey);
+                        festivosPorMes[mes] = data.por_mes[mesKey].map(d => parseInt(d));
+                    });
+
+                    // Volver a aplicar festivos y temporadas al calendario
+                    if (typeof establecerFestivosYTemporadas === 'function') {
+                        establecerFestivosYTemporadas(festivosPorMes, temporadasPorMes);
+                    }
+
+                    // Si el tipo actual es festivo, también actualizar el resumen
+                    if (window.tipoDiasEspeciales === 'festivo') {
+                        // Sincronizar selección visual con los festivos generados
+                        Object.keys(festivosPorMes).forEach(mesKey => {
+                            const mes = parseInt(mesKey);
+                            renderizarCalendarioMes(mes, anio, diasSeleccionadosPorMes[mes] || []);
+                        });
+                    }
+
+                    alert(`Se generaron/actualizaron automáticamente festivos para el año ${anio}.`);
+                } else {
+                    alert('No se pudieron calcular los festivos automáticamente.');
+                }
+            })
+            .catch(error => {
+                console.error('Error al regenerar festivos:', error);
+                alert('Error al calcular los festivos automáticamente. Por favor, intente nuevamente.');
+            })
+            .finally(() => {
+                if (btnRegenerarFestivos) {
+                    btnRegenerarFestivos.disabled = false;
+                    btnRegenerarFestivos.innerHTML = '<i class="fas fa-magic"></i> Regenerar Festivos';
                 }
             });
     }
