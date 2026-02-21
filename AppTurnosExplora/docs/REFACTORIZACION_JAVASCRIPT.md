@@ -347,3 +347,5 @@ const nuevoObjeto = { ...obj1, ...obj2 };
 4. Agregar tests unitarios para módulos críticos
 5. Considerar migración a TypeScript para mejor tipado
 
+
+

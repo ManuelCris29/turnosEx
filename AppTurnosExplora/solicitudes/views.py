@@ -616,6 +616,107 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                         # Para domingos, la jornada predeterminada es DOBLADA, no AM o PM
                         es_fin_semana_doblada_predeterminada = True
             
+            # Detectar caso especial: está descansando por una doblada aprobada (no hay turnos en BD)
+            esta_descansando = False
+            descanso_info = None
+            # Detectar descanso por DOBLADA para cualquier tipo de solicitud (CT, CT permanente, DOBLADA, etc.)
+            # Solo aplicamos esta lógica cuando NO hay turnos reales en BD para esa fecha.
+            if not turnos_en_fecha:
+                from solicitudes.models import SolicitudCambio
+                
+                # Caso 1: Es SOLICITANTE y cede su jornada en esta fecha (cesión)
+                doblada_como_solicitante = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_solicitante_id=explorador_id,
+                        tipo_cambio__nombre='DOBLADA',
+                        fecha_cambio_turno=fecha_obj,
+                        estado='aprobada'
+                    )
+                    .select_related('doblada', 'explorador_receptor')
+                    .first()
+                )
+                
+                # Caso 2: Es RECEPTOR y descansa en fecha de pago de una doblada
+                doblada_como_receptor = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_receptor_id=explorador_id,
+                        tipo_cambio__nombre='DOBLADA',
+                        estado='aprobada',
+                        doblada__fecha_pago=fecha_obj
+                    )
+                    .select_related('doblada', 'explorador_solicitante')
+                    .first()
+                )
+                
+                if doblada_como_solicitante or doblada_como_receptor:
+                    esta_descansando = True
+                    
+                    if doblada_como_solicitante:
+                        sol = doblada_como_solicitante
+                        rol_descanso = 'cedio'
+                        companero = sol.explorador_receptor
+                    else:
+                        sol = doblada_como_receptor
+                        rol_descanso = 'pago'
+                        companero = sol.explorador_solicitante
+                    
+                    detalle = getattr(sol, 'doblada', None)
+                    fecha_cesion_str = (
+                        sol.fecha_cambio_turno.strftime('%d/%m/%Y')
+                        if sol.fecha_cambio_turno else None
+                    )
+                    fecha_pago_str = (
+                        detalle.fecha_pago.strftime('%d/%m/%Y')
+                        if detalle and detalle.fecha_pago else None
+                    )
+                    
+                    descanso_info = {
+                        'tipo': rol_descanso,  # 'cedio' o 'pago'
+                        'companero_nombre': f"{companero.nombre} {getattr(companero, 'apellido', '')}".strip(),
+                        'companero_id': companero.id,
+                        'solicitud_id': sol.id,
+                        'fecha_cesion': fecha_cesion_str,
+                        'fecha_pago': fecha_pago_str,
+                    }
+                    
+                    # Si está descansando por doblada, no queremos mostrar jornada base
+                    turno_dict = None
+                    turnos_list = []
+            
+            # Regla adicional para festivos de lunes a viernes:
+            # - Solo mostrar DOBLADA (AM+PM) si en BD tiene realmente ambos turnos.
+            #   Si ya hizo cesión parcial y solo tiene una jornada, mostrar esa jornada, no doblada.
+            # - Si NO es el grupo que dobla y la solicitud es de DOBLADA → tratar como día de descanso.
+            if not es_doblada and not es_fin_semana_doblada_predeterminada:
+                try:
+                    from solicitudes.services.solicitud_validator import SolicitudValidator
+                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
+
+                    es_festivo_semana = SolicitudValidator.es_festivo_semana(fecha_obj)
+                    if es_festivo_semana:
+                        grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                        jornada_turno = (turno_dict.get('jornada') or '').upper() if turno_dict else None
+                        if not jornada_turno and not turnos_list:
+                            from turnos.services.jornada_service import JornadaService
+                            pred = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
+                            jornada_turno = pred.nombre.upper() if pred else None
+                        tiene_doblada_real_bd = set(turnos_list) == {'AM', 'PM'}
+                        # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
+                        if not turnos_list and jornada_turno and jornada_turno == grupo_que_dobla.upper():
+                            es_doblada = True
+                            turnos_list = ['AM', 'PM']
+                        elif tiene_doblada_real_bd and turno_dict and jornada_turno and jornada_turno == grupo_que_dobla.upper():
+                            es_doblada = True
+                            turnos_list = ['AM', 'PM']
+                        elif not tiene_doblada_real_bd and tipo_solicitud and tipo_solicitud.nombre == 'DOBLADA' and jornada_turno and jornada_turno != grupo_que_dobla.upper():
+                            # Festivo donde el solicitante DESCANSA por rotación: no mostrar jornada base
+                            turno_dict = None
+                            turnos_list = []
+                except Exception:
+                    pass
+
             # Solo convertir DOBLADA a jornada simple si:
             # 1. NO es doblada real (no hay turnos AM+PM en BD)
             # 2. Y NO es sábado/domingo con doblada predeterminada (porque para fines de semana la predeterminada ES doblada)
@@ -630,12 +731,13 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                     if jornada_real.hora_inicio and jornada_real.hora_fin:
                         turno_dict['hora_inicio'] = jornada_real.hora_inicio.strftime('%H:%M')
                         turno_dict['hora_fin'] = jornada_real.hora_fin.strftime('%H:%M')
-            
             response_data = {
                 'turno': turno_dict,
                 'tiene_turno': turno_dict is not None,
                 'es_doblada': es_doblada,
-                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict and turno_dict['jornada'] != 'DOBLADA' else [])
+                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict and turno_dict['jornada'] != 'DOBLADA' else []),
+                'esta_descansando': esta_descansando,
+                'descanso_info': descanso_info,
             }
             
             # Si la fecha es sábado, incluir qué jornada trabaja ese sábado por alternancia (para doblada: ocultar selector si el solicitante ya corresponde trabajar)
@@ -946,6 +1048,36 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     # Cesión parcial o completa normal
                     if not empleado_receptor_id:
                         return json_error('Debe seleccionar un compañero para cubrir la doblada', status=400, code='missing_fields')
+                    
+                    # Validación adicional: el compañero receptor no puede tener ya una DOBLADA (AM+PM)
+                    # en la fecha de cesión (fecha_solicitud). Usamos Turno como fuente de verdad.
+                    try:
+                        from datetime import datetime as _dt_datetime
+                        from turnos.models import Turno as _Turno
+
+                        fecha_cesion_obj = _dt_datetime.strptime(fecha_solicitud, '%Y-%m-%d').date()
+                        turnos_receptor = (
+                            _Turno.objects
+                            .filter(explorador_id=empleado_receptor_id, fecha=fecha_cesion_obj)
+                            .select_related('jornada')
+                        )
+                        jornadas_receptor = {
+                            t.jornada.nombre.upper()
+                            for t in turnos_receptor
+                            if t.jornada
+                        }
+                        if 'AM' in jornadas_receptor and 'PM' in jornadas_receptor:
+                            return json_error(
+                                'El compañero seleccionado ya tiene una doblada (AM+PM) en la fecha de cesión y no puede cubrirte.',
+                                status=400,
+                                code='doblada_receptor_existente',
+                            )
+                    except Exception:
+                        # Si algo falla en esta validación, no bloquear la solicitud por seguridad,
+                        # la lógica de negocio principal seguirá validando más adelante.
+                        logger.exception(
+                            "Error verificando doblada existente para el receptor en fecha de cesión"
+                        )
                     fecha_pago = request.POST.get('fecha_pago')
                     if not fecha_pago:
                         return json_error('La fecha de pago es obligatoria. No existen dobladas abiertas.', status=400, code='missing_fields')
@@ -1043,7 +1175,39 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                                   fecha_pago_am and fecha_pago_pm)
                 
                 if es_cesion_total:
-                    # Cesión Total: Crear 2 solicitudes independientes
+                    # Si el mismo receptor cubre AM y PM y la misma fecha de pago: una sola solicitud cesión completa
+                    mismo_receptor_y_misma_fecha = (
+                        str(empleado_receptor_am) == str(empleado_receptor_pm) and
+                        str(fecha_pago_am) == str(fecha_pago_pm)
+                    )
+                    if mismo_receptor_y_misma_fecha:
+                        receptor = Empleado.objects.get(id=empleado_receptor_am)
+                        datos_solicitud = datos_solicitud_base.copy()
+                        datos_solicitud.update({
+                            'explorador_receptor': receptor,
+                            'fecha_cambio_turno': fecha_solicitud,
+                            'fecha_pago': fecha_pago_am,
+                            'tipo_cesion': 'cesion_completa',
+                            'fecha_creacion_solicitud': timezone.now().date()
+                        })
+                        es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
+                        if not es_valida:
+                            return json_error(f'Error validando solicitud: {mensaje}', status=400, code='validation_error')
+                        solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud)
+                        if solicitud is None:
+                            return json_error(f'Error creando solicitud: {mensaje}', status=400, code='creation_failed')
+                        logger.info("Cesión total (un receptor, una fecha pago) creada: 1 solicitud cesion_completa", extra={
+                            'solicitud_id': solicitud.id,
+                            'solicitante_id': empleado_solicitante.id,
+                            'receptor_id': receptor.id
+                        })
+                        return json_ok({
+                            'message': 'Solicitud de cesión total enviada correctamente.',
+                            'solicitud_id': solicitud.id,
+                            'es_cesion_total': True,
+                            'una_solicitud': True
+                        }, status=201)
+                    # Cesión total con receptores o fechas distintas: 2 solicitudes independientes
                     # Solicitud 1: Cesión AM
                     datos_solicitud_am = datos_solicitud_base.copy()
                     datos_solicitud_am.update({
@@ -1386,21 +1550,8 @@ class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
     
     def get_queryset(self):
         if hasattr(self.request.user, 'empleado'):
-            print(f"DEBUG SOLICITUDES PENDIENTES - Usuario: {self.request.user.empleado.nombre}")
-            
-            from .services.solicitud_consulta_service import SolicitudConsultaService
-            # Obtener solicitudes como receptor
-            solicitudes_receptor = SolicitudConsultaService.get_solicitudes_por_receptor(self.request.user.empleado)
-            print(f"DEBUG SOLICITUDES PENDIENTES - Solicitudes como receptor: {solicitudes_receptor.count()}")
-            
-            # Obtener solicitudes como supervisor
-            solicitudes_supervisor = SolicitudConsultaService.get_solicitudes_por_supervisor(self.request.user.empleado)
-            print(f"DEBUG SOLICITUDES PENDIENTES - Solicitudes como supervisor: {solicitudes_supervisor.count()}")
-            
-            # Combinar ambas querysets (evitar duplicados) respetando flags de aprobaciÃ³n
-            # Solo receptor y supervisor (NO solicitante)
+            # OPTIMIZACIÓN: Una sola query combinada con select_related para evitar N+1
             from django.db.models import Q
-            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
             solicitudes_combined = (
                 SolicitudCambio.objects
                 .filter(
@@ -1423,18 +1574,7 @@ class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
                 .order_by('-fecha_solicitud')
             )
             
-            print(f"DEBUG SOLICITUDES PENDIENTES - Total combinado: {solicitudes_combined.count()}")
-            
-            # Debug detallado: Mostrar las solicitudes especÃ­ficas
-            print(f"DEBUG SOLICITUDES PENDIENTES - Solicitudes como receptor:")
-            for s in solicitudes_receptor:
-                print(f"  - ID: {s.id}, Solicitante: {s.explorador_solicitante.nombre}, Receptor: {s.explorador_receptor.nombre}, Fecha: {s.fecha_solicitud}")
-            
-            print(f"DEBUG SOLICITUDES PENDIENTES - Solicitudes como supervisor:")
-            for s in solicitudes_supervisor:
-                print(f"  - ID: {s.id}, Solicitante: {s.explorador_solicitante.nombre}, Receptor: {s.explorador_receptor.nombre}, Fecha: {s.fecha_solicitud}")
-            
-            # Agregar informaciÃ³n del rol a cada solicitud
+            # Agregar información del rol a cada solicitud (sin queries extra gracias a select_related)
             for solicitud in solicitudes_combined:
                 es_receptor = solicitud.explorador_receptor == self.request.user.empleado and not solicitud.aprobado_receptor
                 es_supervisor = solicitud.explorador_solicitante.supervisor == self.request.user.empleado and not solicitud.aprobado_supervisor
@@ -1528,6 +1668,8 @@ class RechazarSolicitudReceptorView(LoginRequiredMixin, View):
 
 @method_decorator(csrf_exempt, name='dispatch')
 class CancelarSolicitudView(LoginRequiredMixin, View):
+    VENTANA_CANCELACION_MINUTOS = 30
+
     def post(self, request, solicitud_id):
         try:
             # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
@@ -1536,25 +1678,74 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                 .select_related(
                     'explorador_solicitante',
                     'explorador_receptor',
-                    'explorador_solicitante__supervisor'
+                    'explorador_solicitante__supervisor',
+                    'tipo_cambio',
+                    'doblada',
                 )
                 .get(id=solicitud_id)
             )
-            
+
             # Solo el solicitante puede cancelar su propia solicitud
             if solicitud.explorador_solicitante != request.user.empleado:
                 return json_error('Solo puedes cancelar tus propias solicitudes', status=403, code='forbidden')
-            
-            # Verificar que la solicitud estÃ© pendiente
-            if solicitud.estado != 'pendiente':
-                return json_error('Solo se pueden cancelar solicitudes pendientes', status=400, code='invalid_state')
-            
-            # Cancelar la solicitud
-            solicitud.estado = 'cancelada'
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
-            solicitud.save()
-            
+
+            if solicitud.estado == 'pendiente':
+                # Cancelación normal: sin restricción de tiempo
+                solicitud.estado = 'cancelada'
+                solicitud.fecha_resolucion = timezone.now()
+                solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
+                solicitud.save()
+
+            elif solicitud.estado == 'aprobada':
+                # Cancelación de solicitud aprobada: solo dentro de la ventana de 30 minutos
+                if not solicitud.fecha_resolucion:
+                    return json_error(
+                        'No se puede cancelar: la solicitud no tiene fecha de aprobación registrada.',
+                        status=400, code='invalid_state'
+                    )
+
+                tiempo_transcurrido = timezone.now() - solicitud.fecha_resolucion
+                minutos_transcurridos = tiempo_transcurrido.total_seconds() / 60
+
+                if minutos_transcurridos > self.VENTANA_CANCELACION_MINUTOS:
+                    return json_error(
+                        f'Ya no es posible cancelar esta solicitud. Solo se puede cancelar dentro de los '
+                        f'{self.VENTANA_CANCELACION_MINUTOS} minutos posteriores a su aprobación '
+                        f'(han pasado {int(minutos_transcurridos)} minutos).',
+                        status=400, code='ventana_expirada'
+                    )
+
+                # Revertir cambios de la doblada si aplica
+                es_doblada = (
+                    solicitud.tipo_cambio and
+                    solicitud.tipo_cambio.nombre == 'DOBLADA' and
+                    hasattr(solicitud, 'doblada') and
+                    solicitud.doblada is not None
+                )
+                if es_doblada:
+                    from .services.doblada_aplicacion_service import DobladaAplicacionService
+                    DobladaAplicacionService.revertir_doblada_aplicada(solicitud)
+                    # Limpiar caché de turnos
+                    from core.services.cache_service import CacheService as CS
+                    detalle = solicitud.doblada
+                    for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
+                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
+                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+
+                solicitud.estado = 'cancelada'
+                solicitud.comentario = (
+                    f"{solicitud.comentario or ''}\n\n"
+                    f"Cancelada por el solicitante dentro de la ventana de "
+                    f"{self.VENTANA_CANCELACION_MINUTOS} minutos."
+                )
+                solicitud.save()
+
+            else:
+                return json_error(
+                    f'No se puede cancelar una solicitud en estado "{solicitud.estado}".',
+                    status=400, code='invalid_state'
+                )
+
             # Invalidar cache de contadores para todos los afectados
             from core.services.cache_service import CacheService
             cache_keys = [
@@ -1562,17 +1753,16 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                 f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{solicitud.explorador_receptor.id}",
             ]
-            # Si el solicitante tiene supervisor, también invalidar su caché
             if solicitud.explorador_solicitante.supervisor:
                 cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
             CacheService.delete_many(cache_keys)
-            
-            # Crear notificaciÃ³n de cancelaciÃ³n
+
+            # Crear notificación de cancelación
             from .services.notificacion_service import NotificacionService
             NotificacionService.crear_notificacion_cancelacion(solicitud)
-            
+
             return json_ok({'message': 'Solicitud cancelada correctamente'})
-            
+
         except SolicitudCambio.DoesNotExist:
             return json_error('Solicitud no encontrada', status=404, code='not_found')
         except Exception as e:
@@ -1982,20 +2172,24 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             from datetime import datetime
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             
-            # ✅ OPTIMIZACIÓN: Usar Turno como fuente de verdad única
+            # ✅ PRIORIDAD ABSOLUTA: Usar Turno como fuente de verdad única
             # Si hay turnos AM+PM en Turno, significa que ya está aplicado (aprobado y ejecutado)
             # Esto simplifica la lógica y mejora el rendimiento (una sola consulta)
+            # IMPORTANTE: La presencia de turnos físicos tiene PRIORIDAD ABSOLUTA sobre cualquier solicitud aprobada
             from turnos.models import Turno
             turnos = Turno.objects.filter(
                 explorador=usuario_actual,
                 fecha=fecha_obj
             ).select_related('jornada')
             
-            jornadas = [t.jornada.nombre.upper() for t in turnos if t.jornada]
+            # Convertir a lista para evaluar múltiples veces si es necesario
+            turnos_list = list(turnos)
+            jornadas = [t.jornada.nombre.upper() for t in turnos_list if t.jornada]
             es_doblada_turnos = 'AM' in jornadas and 'PM' in jornadas
             
-            # CASO 1: Usuario tiene turnos AM+PM (doblada asignada)
-            # Puede ceder parte de su jornada (AM, PM o ambas)
+            # CASO 1: Usuario tiene turnos AM+PM (doblada asignada) - PRIORIDAD ABSOLUTA
+            # Si hay turnos AM+PM en BD, SIEMPRE retornar tiene_doblada: true
+            # Esto tiene prioridad sobre cualquier DOBLADA aprobada o regla de negocio
             if es_doblada_turnos:
                 # Opcional: Buscar solicitud relacionada solo para mostrar ID (si existe)
                 # Esto es opcional y no afecta la lógica principal
@@ -2028,48 +2222,280 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     'requiere_atencion_admin': False
                 })
             
+            # Variable para mensaje cuando es festivo pero el usuario descansa (no tiene doblada)
+            mensaje_festivo_descansa = None
+            # CASO 2.9 (PRIORIDAD): Usuario NO tiene turnos - verificar PRIMERO si descansa por DOBLADA aprobada
+            # Si no hay turnos en BD, puede ser porque cedió (solicitante) o porque es fecha de pago (receptor).
+            # Esto debe ejecutarse ANTES de la regla de festivo: en festivo, JornadaService puede devolver
+            # la jornada del grupo que trabaja ese día y marcar "tiene_doblada", cuando en realidad está descansando.
+            if not jornadas and len(turnos_list) == 0:
+                doblada_como_solicitante = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_solicitante=usuario_actual,
+                        tipo_cambio__nombre='DOBLADA',
+                        fecha_cambio_turno=fecha_obj,
+                        estado='aprobada'
+                    )
+                    .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor', 'doblada')
+                    .first()
+                )
+                doblada_como_receptor = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_receptor=usuario_actual,
+                        tipo_cambio__nombre='DOBLADA',
+                        estado='aprobada',
+                        doblada__fecha_pago=fecha_obj
+                    )
+                    .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor', 'doblada')
+                    .first()
+                )
+                if doblada_como_solicitante or doblada_como_receptor:
+                    sol = doblada_como_solicitante or doblada_como_receptor
+                    return json_ok({
+                        'tiene_doblada': False,
+                        'esta_descansando': True,
+                        'puede_ceder': False,
+                        'jornadas': [],
+                        'mensaje': 'Ya cediste tu jornada para esta fecha. Estás descansando este día.',
+                        'solicitud_id': sol.id
+                    })
+
+            # CASO 1.5: No hay turnos AM+PM en BD, pero es FESTIVO de semana y al usuario le corresponde doblar por rotación
+            # Aplica tanto si tiene 0 turnos como si tiene 1 turno (su grupo es el que dobla ese festivo).
+            from solicitudes.services.solicitud_validator import SolicitudValidator
+            es_festivo = SolicitudValidator.es_festivo_semana(fecha_obj)
+            logger.info(
+                "VerificarDobladaExistente CASO 1.5: es_doblada_turnos=%s es_festivo_semana=%s fecha=%s usuario_id=%s",
+                es_doblada_turnos, es_festivo, str(fecha_obj), usuario_actual.id
+            )
+            if not es_doblada_turnos and es_festivo:
+                try:
+                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                    from turnos.services.jornada_service import JornadaService
+                    grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                    jornada_usuario = None
+                    if jornadas:
+                        jornada_usuario = jornadas[0].upper()  # Un solo turno en BD
+                    else:
+                        pred = JornadaService.get_jornada_explorador_fecha(
+                            usuario_actual.id, fecha_obj.strftime('%Y-%m-%d')
+                        )
+                        jornada_usuario = pred.nombre.upper() if pred else None
+                    coincide = bool(jornada_usuario and jornada_usuario == grupo_que_dobla.upper())
+                    # #region agent log
+                    try:
+                        import json
+                        from time import time
+                        with open(r'c:\appTurnos\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                            _f.write(json.dumps({"hypothesisId":"H2,H3","location":"VerificarDobladaExistenteView.festivo","message":"grupo_y_jornada", "data":{"grupo_que_dobla":grupo_que_dobla,"jornada_usuario":jornada_usuario,"coincide":coincide},"timestamp":int(time()*1000)}) + "\n")
+                    except Exception:
+                        pass
+                    # #endregion
+                    logger.info(
+                        "VerificarDobladaExistente festivo: grupo_que_dobla=%s jornada_usuario=%s coincide=%s",
+                        grupo_que_dobla, jornada_usuario, coincide
+                    )
+                    if not coincide and jornada_usuario:
+                        mensaje_festivo_descansa = (
+                            f'Ese día festivo le corresponde trabajar al grupo {grupo_que_dobla}. '
+                            f'Tienes jornada {jornada_usuario}, por lo que descansas ese día. '
+                            'Las opciones de doblada solo aparecen cuando a tu grupo le corresponde trabajar el festivo.'
+                        )
+                    tiene_doblada_real_bd = set(jornadas) == {'AM', 'PM'}
+                    # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
+                    if not jornadas and jornada_usuario and jornada_usuario == grupo_que_dobla.upper():
+                        return json_ok({
+                            'tiene_doblada': True,
+                            'esta_descansando': False,
+                            'puede_ceder': True,
+                            'jornadas': ['AM', 'PM'],
+                            'mensaje': (
+                                f'Tienes jornada doblada (AM, PM) por regla de festivo. '
+                                f'Ese día festivo le corresponde trabajar al grupo {grupo_que_dobla}. '
+                                'Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).'
+                            ),
+                            'solicitud_id': None,
+                            'datos_inconsistentes': False,
+                            'requiere_atencion_admin': False
+                        })
+                    # Doblada real en BD (2 turnos AM+PM)
+                    if tiene_doblada_real_bd and jornada_usuario and jornada_usuario == grupo_que_dobla.upper():
+                        return json_ok({
+                            'tiene_doblada': True,
+                            'esta_descansando': False,
+                            'puede_ceder': True,
+                            'jornadas': ['AM', 'PM'],
+                            'mensaje': (
+                                f'Tienes jornada doblada (AM, PM) por regla de festivo. '
+                                f'Ese día festivo le corresponde trabajar al grupo {grupo_que_dobla}. '
+                                'Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).'
+                            ),
+                            'solicitud_id': None,
+                            'datos_inconsistentes': False,
+                            'requiere_atencion_admin': False
+                        })
+                except Exception as e:
+                    logger.warning(
+                        "VerificarDobladaExistente: error al evaluar doblada en festivo: %s",
+                        e,
+                        extra={'fecha': str(fecha_obj), 'usuario_id': usuario_actual.id},
+                        exc_info=True
+                    )
+            
             # CASO 2: Usuario tiene turnos pero NO es doblada (solo una jornada)
+            # IMPORTANTE: Verificar si estos turnos son resultado de un CT donde el usuario es solicitante
             if jornadas:
-                return json_ok({
-                    'tiene_doblada': False,
-                    'esta_descansando': False,
-                    'puede_ceder': True,
-                    'jornadas': jornadas,
-                    'solicitud_id': None
-                })
+                # Verificar si alguno de los turnos que tiene el usuario está relacionado con un CT donde él es solicitante
+                # turno_origen es el turno del solicitante (con jornada del receptor)
+                from django.db.models import Q
+                turnos_ids = [t.id for t in turnos]
+                ct_como_solicitante = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_solicitante=usuario_actual,
+                        tipo_cambio__nombre='CT',  # Cambio Turno sencillo
+                        fecha_cambio_turno=fecha_obj,
+                        estado='aprobada'
+                    )
+                    .filter(
+                        Q(turno_origen_id__in=turnos_ids) | Q(turno_destino_id__in=turnos_ids)
+                    )
+                    .select_related('turno_origen', 'turno_destino', 'explorador_receptor', 'tipo_cambio')
+                    .first()
+                )
+                
+                if ct_como_solicitante:
+                    p = {'tiene_doblada': False, 'esta_descansando': False, 'puede_ceder': False,
+                         'jornadas': jornadas, 'mensaje': 'Ya tienes un cambio de turno aprobado para esta fecha. No puedes solicitar doblada en la misma fecha.',
+                         'solicitud_id': ct_como_solicitante.id}
+                    if mensaje_festivo_descansa:
+                        p['mensaje_festivo_descansa'] = mensaje_festivo_descansa
+                    return json_ok(p)
+                p = {'tiene_doblada': False, 'esta_descansando': False, 'puede_ceder': True, 'jornadas': jornadas, 'solicitud_id': None}
+                if mensaje_festivo_descansa:
+                    p['mensaje_festivo_descansa'] = mensaje_festivo_descansa
+                return json_ok(p)
             
             # CASO 3: Usuario NO tiene turnos - verificar si cedió su jornada (está descansando)
-            # Solo en este caso necesitamos verificar SolicitudCambio porque no hay turnos
-            doblada_como_solicitante = (
-                SolicitudCambio.objects
-                .filter(
-                    explorador_solicitante=usuario_actual,
-                    tipo_cambio__nombre='DOBLADA',
-                    fecha_cambio_turno=fecha_obj,
-                    estado='aprobada'
+            # IMPORTANTE: Este caso SOLO se ejecuta si NO hay turnos físicos en BD
+            # Si hay turnos AM+PM, el CASO 1 ya retornó y este código NO se ejecuta
+            # PRIORIDAD: Verificar descanso por DOBLADA aprobada ANTES de cualquier regla de negocio
+            # Esto tiene prioridad sobre la regla de doblada en sábados y sobre CT
+            # VALIDACIÓN CRÍTICA: Asegurar que no hay turnos antes de verificar descanso
+            if not jornadas and len(turnos_list) == 0:
+                # Verificar si está descansando por DOBLADA aprobada (como solicitante o receptor)
+                doblada_como_solicitante = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_solicitante=usuario_actual,
+                        tipo_cambio__nombre='DOBLADA',
+                        fecha_cambio_turno=fecha_obj,
+                        estado='aprobada'
+                    )
+                    .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor', 'doblada')
+                    .first()
                 )
-                .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor')
-                .first()
-            )
+                
+                doblada_como_receptor = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_receptor=usuario_actual,
+                        tipo_cambio__nombre='DOBLADA',
+                        estado='aprobada',
+                        doblada__fecha_pago=fecha_obj
+                    )
+                    .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor', 'doblada')
+                    .first()
+                )
+                
+                if doblada_como_solicitante or doblada_como_receptor:
+                    # Usuario está descansando por DOBLADA aprobada - PRIORIDAD ABSOLUTA
+                    sol = doblada_como_solicitante or doblada_como_receptor
+                    return json_ok({
+                        'tiene_doblada': False,
+                        'esta_descansando': True,
+                        'puede_ceder': False,
+                        'jornadas': [],
+                        'mensaje': 'Ya cediste tu jornada para esta fecha. Estás descansando este día.',
+                        'solicitud_id': sol.id
+                    })
             
-            if doblada_como_solicitante:
-                return json_ok({
-                    'tiene_doblada': False,
-                    'esta_descansando': True,
-                    'puede_ceder': False,
-                    'jornadas': [],
-                    'mensaje': 'Ya cediste tu jornada para esta fecha. Estás descansando este día.',
-                    'solicitud_id': doblada_como_solicitante.id
-                })
+            # CASO 2.6: Verificar si tiene cambio de turno (CT) aprobado ANTES de verificar doblada por regla de negocio
+            # Esto tiene prioridad sobre la regla de doblada en sábados
+            # Solo se ejecuta si NO hay turnos físicos en BD y NO está descansando por DOBLADA
+            # VALIDACIÓN CRÍTICA: Asegurar que no hay turnos antes de verificar CT
+            if not jornadas and len(turnos_list) == 0:
+                ct_como_solicitante = (
+                    SolicitudCambio.objects
+                    .filter(
+                        explorador_solicitante=usuario_actual,
+                        tipo_cambio__nombre='CT',  # Cambio Turno sencillo
+                        fecha_cambio_turno=fecha_obj,
+                        estado='aprobada'
+                    )
+                    .select_related('turno_origen', 'turno_destino', 'explorador_receptor', 'tipo_cambio')
+                    .first()
+                )
+                
+                if ct_como_solicitante:
+                    # Usuario tiene un CT aprobado para esta fecha
+                    # No puede solicitar doblada porque ya hizo un cambio de turno
+                    return json_ok({
+                        'tiene_doblada': False,
+                        'esta_descansando': False,  # Técnicamente no está descansando, está trabajando con jornada diferente
+                        'puede_ceder': False,
+                        'jornadas': [],
+                        'mensaje': 'Ya tienes un cambio de turno aprobado para esta fecha. No puedes solicitar doblada en la misma fecha.',
+                        'solicitud_id': ct_como_solicitante.id
+                    })
+            
+            # CASO 2.5: No hay turnos físicos, pero es sábado y debería tener DOBLADA por regla de negocio
+            # Esto es necesario porque en sábados, según la alternancia, algunos exploradores trabajan
+            # y tienen DOBLADA (AM+PM) aunque no haya turnos físicos creados en BD todavía
+            # SOLO se aplica si NO está descansando por DOBLADA aprobada y NO tiene CT aprobado
+            # VALIDACIÓN CRÍTICA: Asegurar que no hay turnos antes de aplicar regla de sábado
+            if not jornadas and len(turnos_list) == 0 and fecha_obj.weekday() == 5:  # Sábado (weekday 5)
+                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                from turnos.services.jornada_service import JornadaService
+                
+                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                if jornada_trabaja_sabado:
+                    jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(
+                        usuario_actual.id, fecha_obj.strftime('%Y-%m-%d')
+                    )
+                    if jornada_predeterminada and jornada_predeterminada.nombre.upper() == jornada_trabaja_sabado.upper():
+                        # Le corresponde trabajar ese sábado → jornada predeterminada es DOBLADA (AM+PM)
+                        return json_ok({
+                            'tiene_doblada': True,
+                            'esta_descansando': False,
+                            'puede_ceder': True,
+                            'jornadas': ['AM', 'PM'],  # DOBLADA por regla de negocio
+                            'mensaje': 'Tienes jornada doblada (AM, PM) por regla de negocio (sábado). Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).',
+                            'solicitud_id': None,
+                            'datos_inconsistentes': False,
+                            'requiere_atencion_admin': False
+                        })
             
             # CASO 4: No hay turnos ni solicitud - puede solicitar doblada normalmente
-            return json_ok({
+            payload = {
                 'tiene_doblada': False,
                 'esta_descansando': False,
                 'puede_ceder': True,
                 'jornadas': [],
                 'solicitud_id': None
-            })
+            }
+            if mensaje_festivo_descansa:
+                payload['mensaje_festivo_descansa'] = mensaje_festivo_descansa
+            try:
+                import json
+                from time import time
+                with open(r'c:\appTurnos\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                    _f.write(json.dumps({"hypothesisId":"H4","location":"VerificarDobladaExistenteView.CASO4","message":"payload", "data":{"mensaje_festivo_descansa_in_payload": "mensaje_festivo_descansa" in payload},"timestamp":int(time()*1000)}) + "\n")
+            except Exception:
+                pass
+            return json_ok(payload)
             
         except Exception as e:
             logger.exception("Error verificando doblada existente")

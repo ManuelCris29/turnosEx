@@ -1,0 +1,91 @@
+- cuando se pasa del mes también se esta  enviando el formulario
+- sábado con un día de semana.(esto es doblada permanente)
+- si hay una cuenta ya creada y voy a crear una repetida. Que no aparezca un error, sino un error controlado. no mostrando código 
+- quiero que exista esta opción. Que el usuario tenga un tiempo de 30 minutos para que una vez aprobada la doblada, exista la opción de que el la quiere cancelar y sea cancelada 
+- Estoy seleccionando una fecha donde el explorador tiene una jornada normal y aparece 
+- Valida. sí una persona tiene doblada para un dia determinado y la persona que va solicitar que le doblan busca a alguien, los que ya tienen dobladas para ese día no pueden aparecer en el filtro de doblada existente
+-si yo tengo una doblada para el 10 de enero y necesito que alguien me haga los dos turno pero el día que voy a hacer el pago también tengo una doblada, ahí que ? 
+- La doblada se esta haciendo para sábados también se puede ? ejemplo cambie con alguien para que me haga doblada y se la pago un sábado 
+- para las dobladas que se puede un día de la semana por un sábado. Los exploradores que están en Am descansa los sábados. Estos exploradores no podrían hacer esa solicitud o un explorador que hace esa solicitud no podría poder realizar la solicitud con alguien que este descansando los sábados 
+
+-explicame esto 2. Regla de Negocio: Dobladas en Sábados
+Requisito: Los exploradores AM descansan los sábados. Se debe permitir doblar un día de semana por un sábado (solo AM → PM), tanto en fecha de cesión como en fecha de pago. El supervisor debe poder habilitar/deshabilitar esta opción desde una vista en roles y permisos.. no entendí. Como los explorador que tienen asignada jornada am ellos descansan los sabados por lo tanto los unicos que pueden realizar dobladas de un dia de la semana por un sabado son los que tienen turno pm asignado ya que ellos trabajan los sabados pero descansan los domingos 
+
+- jhon no le están cargando la lista de las solicitudes pendientes
+
+- yo voy a cambiar una jornada de un día de la semana por una jornada de un compañero que trabaje un sábado. Se tiene en cuenta que si yo elijo cambiar una jornada de un día de la semana pues a mi no me corresponde trabajar ese sábado, pues no tendría sentido. Esto se valida por la regla de trabajo de los fines de semana que se intercambia por grupo am y pm . tiene que ser un compañero que le corresponde trabajar ese fin de semana y pues que a mi ese sábado por la regla no me corresponde trabajar
+
+- pasa lo siguiente. Ejemplo, jhon.areiza el día viernes 13 de febrero quiere hacer una cesión(que alguien se doble por el) y el compañero que eligió para cubrir fue a MArco.castillo(pm). esto porque el ese día es am y para realizar el cambio debe buscar a alguien que trabaje ese día pero en jornada contraria para que cubra su jornada, ese día esa persona(Marco.castillo (pm)) doblara ya que trabaja la jornada de jhon.areiza y la de el. Lo que pasa a continuación es lo siguiente. Jhon.areiza va a pagar esa media jornada  el sabado pero resulta que la persona(marco.castillo) que le realiza ese cambio no le corresponde trabajar ese sabado porque ese sabado no trabajan los pm, si no los am. En ese caso que ?  
+
+- una opción donde el administrador pueda cambir la alternancia de fines de semana
+- las dobladas de los fines de semana también generan deuda de 30 minutos 
+- tener en cuenta que si yo tengo una doblada el sábado pero después no la trabajo porque alguien trabaja  media jornada de mi doblada por algún cambio que hicimos. tener en cuenta que ya no debo esos 30 minutos de la doblada porque eso solo lo paga quien tienen doblada y la realiza el dia que le compete. si tengo una doblada pero se cambia el turno por alguna x solicitud y quedo con media jornada pues ya no debo esos treinta minutos porque esos treinta minutos solo lo debe quien hace una dobla una jornada totalmente completa que es (am + pm) 
+- el día en que se genera la deuda debe ser ese día. Ayudame con esto como organizo esto porque una doblada ouede ser aprobada pero si alguien tene una doblada y hace la solicitud para trabajar solo media jornada x días en ese x días ya no debe 30 minutos porque solo trabaja una jornada am o pm. solo se genera si la doblada se hace efectiva el día que alguien la trabaja. como solucionamos esto porque no siempre que una doblada sea aprobada, automáticamente se va generar los 30 minutos de deuda. solo se genera si se hace efectiva si se trabaja ese día esa doblada 
+
+--------------------------------------------------------------------------------------------------------------
+{
+
+Por ejemplo, Jhon Areiza el viernes 13 de febrero quiere hacer una cesión (que otro compañero se doble por él). Ese día Jhon trabaja en jornada AM, por lo que para realizar el cambio debe buscar a alguien que trabaje ese mismo día en jornada PM, para que pueda cubrir su turno.
+
+El compañero elegido es Marco Castillo (PM). En este caso, el viernes Marco doblaría turno, ya que trabajaría tanto su jornada (PM) como la jornada de Jhon (AM).
+
+Lo que sucede después es lo siguiente:
+Jhon debe pagar esa media jornada el sábado. Sin embargo, el sábado no trabajan los del turno PM, sino únicamente los del turno AM. Por lo tanto, Marco no tiene turno asignado ese día.
+
+En ese caso, ¿cómo se debe manejar la compensación si el compañero que realizó el doble turno no labora el sábado?
+
+[Tiene que ser de la siguiente forma. Si yo quiero cambiar un día de la semana por un sabado. si yo el día de la semana tengo Am pues debo buscar alguien con jornada opuesta ese día para que haga mi turno, asi esa persona dobla porque hace el turno de el y el truno que yo le cedí., en ese caso ese sábado le debe corresponder a los que trabajan en pm porque si les toca a los am pues no se puede realizar esa solicitud de igual forma si el día de la semana es pm pues ese sábado debe ser el turno de los am porque o si no no se puede realizar ese tipo de solicitud]
+{Debe funcionar de la siguiente manera:
+
+Si una persona quiere cambiar un día de la semana por un sábado, se debe tener en cuenta lo siguiente:
+
+Si el día que desea ceder es jornada AM, debe buscar a alguien que ese mismo día trabaje en jornada PM, para que pueda cubrir su turno. En ese caso, la persona que cubre doblaría turno (haría su jornada PM y también la AM cedida).
+
+Para que la compensación del sábado sea válida, ese sábado debe corresponder al turno PM.
+Si ese sábado trabajan los AM, no se puede realizar la solicitud, porque la persona que hizo el doble turno (PM) no estaría programada ese día.
+
+De igual forma, si el día que se quiere ceder es jornada PM, el compañero que cubra debe ser AM. Y en ese caso, el sábado de compensación debe corresponder al turno AM.
+Si ese sábado trabajan los PM, tampoco se podría realizar la solicitud.
+
+En resumen:
+El sábado siempre debe coincidir con el turno de la persona que realizó el doble turno. Si no coincide, no se puede aprobar ese tipo de cambio.}
+
+}
+------------------------------------------------------------------------------------------------------------
+
+El cambio de un dia de la semana por un sábado. Existe varias opciones. Yo puedo tener en semana, tanto una doblada como un una sola jornada. Que posibles cambios puedo hacer ? 
+
+existen dos tipos: 
+
+si tengo una jornada. puedo cambiarlo por otra jornada - cambio sencillo 
+también puedo solicitar que me doblen
+
+si yo realizo un cambio sencillo, no puedo solicitarlo para el sábado. pues no tiene sentido ya que esta solicitud solo cambia por el mismo día 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+para que exista el cambio de doblada de un día de la semana por un sábado, pasa lo siguiente: 
+Ejemplo El martes Manuel esta en jornada Am y el miércoles yesika esta en jornada pm. Yo no quiero ir el martes y voy a buscar a alguien que este trabajando el sábado para que esa persona trabaje el martes por mí y yo le pago el sábado. EN ese caso seria yesika. Entonces el martes yesika trabaja am y pm porque ese día ella esta en pm. entonces el martes ella trabajara am y pm y el sábado yesika solo trabajara pm porque yo le cubrire la jornada am. y eso pasaría con. 
+Esto quiere decir que si yo el martes hubiese tenido la jornada pm pues debería buscar a los que tienen el martes jornada am , medio turno que seria jornada am y que trabaje el sábado para realizar el cambio. En ese caso esa persona el martes trabaja su jornada am y pm y yo trabajaría el sábado la jornada pm de esa persona en ese caso esa persona el sábado solo trabajaría media jornada que seria am 
+
+
+Si cambio el turno, debo saber que horario tiene persona X el martes porque si quiero cambiar PM pues ella ese día, deberá tener Am para que pueda doblar. Si tengo Am pues ese día ella deberá tener un turno Pm para que me doble.
+
+En ese caso, esto esta condicionado si quiero cambiar(Solicitar doblada) pues debo buscar a una persona que trabaje el sábado y que además tenga el turno contrario al que yo tengo ese día que quiero, que me hagan la cesión de turno

@@ -48,14 +48,17 @@ class TurnoContextService:
         # Calcular inicio y fin de la semana actual para el resumen semanal
         inicio_semana = fecha_actual - timedelta(days=fecha_actual.weekday())
         fin_semana = inicio_semana + timedelta(days=6)
+        # Rango ampliado para cubrir semana cuando cruza dos meses
+        fecha_desde = min(inicio_semana, inicio_mes)
+        fecha_hasta = max(fin_semana, fin_mes)
         
-        # Obtener turnos asignados solo para el mes actual (optimizado, evitando N+1)
+        # Obtener turnos para mes + semana en una sola consulta (optimizado, evitando N+1)
         turnos_mes = (
             Turno.objects
             .filter(
                 explorador=empleado,
-                fecha__gte=inicio_mes,
-                fecha__lte=fin_mes
+                fecha__gte=fecha_desde,
+                fecha__lte=fecha_hasta
             )
             .select_related('jornada', 'sala')
             .order_by('fecha', 'jornada__nombre')
@@ -69,12 +72,12 @@ class TurnoContextService:
                 turnos_por_fecha[t.fecha] = []
             turnos_por_fecha[t.fecha].append(t)
         
-        # Obtener asignaciones de sala activas
+        # Obtener asignaciones de sala activas (select_related para evitar consulta extra)
         asignaciones_activas = AsignarSalaExplorador.objects.filter(
             explorador=empleado,
             fecha_inicio__lte=fecha_actual,
             fecha_fin__gte=fecha_actual
-        ).first()
+        ).select_related('sala').first()
         
         # Obtener jornada predeterminada vigente
         jornada_predeterminada = (
@@ -112,11 +115,18 @@ class TurnoContextService:
             
             if turnos_dia:
                 # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
-                # Usar helper para detectar dobladas (AM+PM en misma fecha)
-                from turnos.services.turno_service import TurnoService
-                jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
-                
+                # OPTIMIZACIÓN: Calcular jornada_display desde turnos_dia sin consultas extra
                 from core.utils.jornada_utils import JornadaUtils
+                jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
+                if 'AM' in jornadas_turnos and 'PM' in jornadas_turnos:
+                    jornada_display = 'DOBLADA'
+                elif 'AM' in jornadas_turnos:
+                    jornada_display = 'AM'
+                elif 'PM' in jornadas_turnos:
+                    jornada_display = 'PM'
+                else:
+                    jornada_display = JornadaUtils.calcular_jornada_dia(jornada_base, fecha) or ''
+                
                 jornada_predeterminada = JornadaUtils.calcular_jornada_dia(jornada_base, fecha)
                 
                 # Detectar si es doblada
@@ -176,17 +186,39 @@ class TurnoContextService:
                 }
         
         # Crear estructura de datos para la semana actual (resumen semanal)
-        # Usar siempre TurnoService.obtener_jornada_display para respetar:
-        # - Dobladas ASIGNADAS (AM+PM en cualquier día)
-        # - Dobladas PREDETERMINADAS en sábados/domingos según alternancia
-        from turnos.services.turno_service import TurnoService
+        # OPTIMIZACIÓN: Reutilizar turnos_por_fecha y turnos_mes_dict sin consultas extra
+        from core.utils.jornada_utils import JornadaUtils
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+
+        def _jornada_para_fecha(fecha):
+            turnos_dia = turnos_por_fecha.get(fecha, [])
+            if turnos_dia:
+                jornadas = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
+                if 'AM' in jornadas and 'PM' in jornadas:
+                    return 'DOBLADA'
+                if 'AM' in jornadas:
+                    return 'AM'
+                if 'PM' in jornadas:
+                    return 'PM'
+            j = JornadaUtils.calcular_jornada_dia(jornada_base, fecha)
+            if j == 'Descanso':
+                return None
+            if fecha.weekday() == 5:
+                trabaja = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha)
+                if trabaja and jornada_base.upper() == trabaja.upper():
+                    return 'DOBLADA'
+                return None
+            if fecha.weekday() == 6:
+                trabaja = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha)
+                if trabaja and jornada_base.upper() == trabaja.upper():
+                    return 'DOBLADA'
+                return None
+            return j
 
         semana_turnos = {}
         for i in range(7):
             fecha = inicio_semana + timedelta(days=i)
-
-            # Calcular jornada efectiva con la misma lógica que el resto del sistema
-            jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
+            jornada_display = _jornada_para_fecha(fecha)
             jornada_nombre = jornada_display if jornada_display else 'Descanso'
 
             if fecha in turnos_mes_dict:

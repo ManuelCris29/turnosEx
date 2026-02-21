@@ -292,3 +292,5 @@ turnos/
 3. Admin no configurado
 4. Validaciones faltantes
 
+
+

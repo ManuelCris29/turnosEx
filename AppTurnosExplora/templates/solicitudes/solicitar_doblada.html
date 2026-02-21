@@ -233,16 +233,16 @@
                            placeholder="Selecciona la fecha en que cederás tu jornada" readonly
                            data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
                     <small class="form-text text-muted">
-                        Selecciona la fecha en que quieres que te cubran. <strong>No se permiten domingos, festivos ni días de mantenimiento.</strong>
+                        Selecciona la fecha en que quieres que te cubran. No se permiten domingos ni días de mantenimiento. <strong>Los festivos están permitidos; la fecha de pago debe ser otro festivo del mismo mes.</strong>
                     </small>
-                    <!-- Indicador de día festivo -->
+                    <!-- Indicador de día festivo (informativo: festivos permitidos con regla mismo mes) -->
                     <div id="indicador_festivo_cesion" class="mt-2" style="display: none;">
-                        <div class="alert alert-danger mb-0 py-2">
-                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                        <div class="alert alert-info mb-0 py-2">
+                            <i class="fas fa-info-circle mr-2"></i>
                             <strong>Día Festivo:</strong> <span id="descripcion_festivo_cesion"></span>
                             <br>
-                            <small class="text-danger mt-1 d-block">
-                                <strong>No se pueden realizar dobladas en días festivos.</strong>
+                            <small class="text-muted mt-1 d-block">
+                                La fecha de pago debe ser otro día festivo del <strong>mismo mes</strong>.
                             </small>
                         </div>
                     </div>
@@ -412,7 +412,7 @@
                            placeholder="Selecciona la fecha en que devolverás la doblada" readonly
                            data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
                     <small class="form-text text-muted">
-                        <strong>Obligatorio:</strong> Fecha en que devolverás la doblada. Debe ser posterior a la fecha de creación de la solicitud. <strong>No se permiten domingos, festivos ni días de mantenimiento.</strong>
+                        <strong>Obligatorio:</strong> Fecha en que devolverás la doblada. Debe ser posterior a la fecha de creación. No se permiten domingos ni mantenimiento. <strong>Festivos permitidos solo si la cesión es también en festivo del mismo mes.</strong>
                     </small>
 
                     <!-- Aviso cuando el sábado de pago ya te corresponde trabajar por alternancia (no hay que elegir jornada) -->
@@ -441,14 +441,14 @@
                         </div>
                     </div>
 
-                    <!-- Indicador de día festivo -->
+                    <!-- Indicador de día festivo (informativo: festivos permitidos con regla mismo mes) -->
                     <div id="indicador_festivo_pago" class="mt-2" style="display: none;">
-                        <div class="alert alert-danger mb-0 py-2">
-                            <i class="fas fa-exclamation-triangle mr-2"></i>
+                        <div class="alert alert-info mb-0 py-2">
+                            <i class="fas fa-info-circle mr-2"></i>
                             <strong>Día Festivo:</strong> <span id="descripcion_festivo_pago"></span>
                             <br>
-                            <small class="text-danger mt-1 d-block">
-                                <strong>No se pueden realizar dobladas en días festivos.</strong>
+                            <small class="text-muted mt-1 d-block">
+                                La fecha de cesión debe ser otro día festivo del <strong>mismo mes</strong>.
                             </small>
                         </div>
                     </div>
@@ -628,15 +628,17 @@
                 <!-- Comentarios -->
                 <div class="form-group">
                     <label for="comentarios">
-                        <i class="fas fa-comment mr-1"></i>Comentarios (Opcional)
+                        <i class="fas fa-comment mr-1"></i>Comentarios <span class="text-danger">*</span>
                     </label>
                     <textarea class="form-control" 
                               id="comentarios" 
                               name="comentarios" 
                               rows="4" 
+                              maxlength="1000"
+                              required
                               placeholder="Explica el motivo de la doblada..."></textarea>
                     <small class="form-text text-muted">
-                        Proporciona detalles adicionales sobre tu solicitud
+                        Este campo es obligatorio. Proporciona detalles adicionales sobre tu solicitud.
                     </small>
                 </div>
 

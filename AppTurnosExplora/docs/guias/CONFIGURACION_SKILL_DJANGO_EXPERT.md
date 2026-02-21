@@ -94,3 +94,5 @@ Simplemente trabaja normalmente en el proyecto. Cuando hagas preguntas o solicit
 **Última actualización**: Configuración automática activada para todas las consultas Django en AppTurnosExplora.
 
 
+
+

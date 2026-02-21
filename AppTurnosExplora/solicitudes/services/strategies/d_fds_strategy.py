@@ -44,6 +44,7 @@ class DFDSStrategy(SolicitudStrategy):
             explorador_solicitante = datos.get('explorador_solicitante')
             fecha = datos.get('fecha_cambio_turno')
             minutos_deuda = datos.get('minutos_deuda', 30)
+            comentario = datos.get('comentario') or ''
             
             # Validaciones básicas de campos requeridos
             if not explorador_solicitante:
@@ -57,6 +58,8 @@ class DFDSStrategy(SolicitudStrategy):
             
             # Validar empleado activo usando validador centralizado
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
+            # Comentario obligatorio
+            SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de D FDS')
             
             # Validar formato de fecha y que sea fin de semana
             try:
@@ -146,6 +149,22 @@ class DFDSStrategy(SolicitudStrategy):
             # - Add weekend extra hours to empleado's record
             # - Update deuda tracking with weekend bonus
             # - Send confirmation notifications
+            
+            # Invalidar caché para que Mis Turnos refleje los cambios
+            from core.services.cache_service import CacheService
+            fecha_cambio = solicitud.fecha_cambio_turno
+            if fecha_cambio:
+                CacheService.invalidar_cache_turnos_empleado(
+                    solicitud.explorador_solicitante.id, 
+                    fecha_cambio.month, 
+                    fecha_cambio.year
+                )
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(
+                    f"D FDS: Caché invalidado para solicitante (ID: {solicitud.explorador_solicitante.id}) "
+                    f"en {fecha_cambio.month}/{fecha_cambio.year}"
+                )
             
             return True, "D FDS aplicada correctamente"
             

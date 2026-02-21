@@ -294,19 +294,34 @@ class NotificacionService:
         supervisor = solicitud.explorador_solicitante.supervisor
         if not supervisor:
             return
-        
-        titulo = f"Nueva solicitud de cambio de turno"
+
+        fecha_cesion = NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno)
+
+        # Caso E: detectar si la fecha de cesión cae en temporada
+        aviso_temporada = ''
+        try:
+            from solicitudes.services.solicitud_validator import SolicitudValidator
+            if SolicitudValidator.es_dia_temporada(fecha_cesion):
+                aviso_temporada = (
+                    '\n\n        ⚠️ AVISO DE TEMPORADA: La fecha de cesión '
+                    f'({fecha_cesion.strftime("%d/%m/%Y")}) cae en un día de temporada. '
+                    'Tenga en cuenta las necesidades de personal antes de aprobar.'
+                )
+        except Exception:
+            pass
+
+        titulo = 'Nueva solicitud de cambio de turno'
         mensaje = f"""
         {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} 
         ha solicitado un cambio de turno con {solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido}
-        para el día {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')}.
+        para el día {fecha_cesion.strftime('%d/%m/%Y')}.
         
         Tipo de solicitud: {solicitud.tipo_cambio.nombre}
-        Estado: Pendiente de aprobación
+        Estado: Pendiente de aprobación{aviso_temporada}
         """
-        
+
         print(f"DEBUG: Creando notificación para supervisor {supervisor.nombre}")
-        
+
         Notificacion.objects.create(
             destinatario=supervisor,
             tipo='solicitud_cambio',
@@ -314,7 +329,7 @@ class NotificacionService:
             mensaje=mensaje,
             solicitud=solicitud
         )
-        
+
         print(f"DEBUG: Notificación creada para supervisor {supervisor.nombre}")
     
     @staticmethod
@@ -345,17 +360,32 @@ class NotificacionService:
     def _crear_notificacion_supervisor_receptor(solicitud):
         """Crea notificación combinada para cuando supervisor = receptor"""
         supervisor_receptor = solicitud.explorador_receptor
-        
-        titulo = f"Solicitud de cambio de turno - Rol Doble (Supervisor + Receptor)"
+
+        fecha_cesion = NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno)
+
+        # Caso E: detectar si la fecha de cesión cae en temporada
+        aviso_temporada = ''
+        try:
+            from solicitudes.services.solicitud_validator import SolicitudValidator
+            if SolicitudValidator.es_dia_temporada(fecha_cesion):
+                aviso_temporada = (
+                    '\n\n        ⚠️ AVISO DE TEMPORADA: La fecha de cesión '
+                    f'({fecha_cesion.strftime("%d/%m/%Y")}) cae en un día de temporada. '
+                    'Tenga en cuenta las necesidades de personal antes de aprobar.'
+                )
+        except Exception:
+            pass
+
+        titulo = 'Solicitud de cambio de turno - Rol Doble (Supervisor + Receptor)'
         mensaje = f"""
         {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} 
-        te ha enviado una solicitud de cambio de turno para el día {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')}.
+        te ha enviado una solicitud de cambio de turno para el día {fecha_cesion.strftime('%d/%m/%Y')}.
         
         Tipo de solicitud: {solicitud.tipo_cambio.nombre}
         Estado: Pendiente de aprobación
         
         IMPORTANTE: Como eres tanto su supervisor como el receptor de la solicitud, 
-        necesitas aprobar esta solicitud en ambos roles.
+        necesitas aprobar esta solicitud en ambos roles.{aviso_temporada}
         """
         
         print(f"DEBUG: Creando notificación combinada para {supervisor_receptor.nombre}")
@@ -597,7 +627,16 @@ class NotificacionService:
         """
         Obtiene todas las notificaciones de un empleado
         """
-        return Notificacion.objects.filter(destinatario=empleado).order_by('-fecha_creacion')
+        # OPTIMIZACIÓN: evitar N+1 al acceder a notificacion.solicitud en la vista de notificaciones
+        return (
+            Notificacion.objects
+            .filter(destinatario=empleado)
+            .select_related(
+                'solicitud',
+                'solicitud__tipo_cambio',
+            )
+            .order_by('-fecha_creacion')
+        )
 
     @staticmethod
     def crear_notificacion_aprobacion(solicitud, aprobador, comentario_respuesta=None):

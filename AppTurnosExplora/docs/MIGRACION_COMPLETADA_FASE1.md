@@ -135,3 +135,5 @@ Refactorizar funciones pequeñas en `solicitar_cambio_turno.js`:
 
 Los módulos modernos están listos para usar. El código existente sigue funcionando igual, y ahora tienes herramientas modernas disponibles para mejorar el código gradualmente.
 
+
+

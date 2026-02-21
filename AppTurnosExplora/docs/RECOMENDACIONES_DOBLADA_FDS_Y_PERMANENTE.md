@@ -621,3 +621,46 @@ deuda = DeudaExplorador.objects.create(
 - Fase 3: 5-7 días
 - **Total**: ~10-14 días de desarrollo
 
+---
+
+## 🔧 SOLUCIÓN: Script de Reaplicación de Dobladas Fallidas
+
+### Problema Identificado (Caso: Mariana → Vanesa)
+Una solicitud de doblada se aprobó correctamente, pero debido a un error en `DobladaTurnoService`, los turnos AM+PM no se crearon en la base de datos. Por eso:
+- ✅ La solicitud aparece como aprobada
+- ✅ Los descansos se ven correctamente
+- ❌ **Las dobladas NO aparecen en "Mis Turnos"** (falta AM+PM en BD)
+
+### Solución Implementada
+Se crearon **dos management commands de Django** para diagnosticar y corregir este tipo de errores:
+
+#### 1. `verificar_doblada` - Diagnóstico Completo
+Verifica el estado de una doblada (turnos, deudas, visualización).
+
+```bash
+python manage.py verificar_doblada <ID_SOLICITUD>
+```
+
+#### 2. `reaplicar_doblada` - Corrección Automática
+Reaplica una doblada que no se aplicó correctamente, recreando los turnos faltantes.
+
+```bash
+# Ver qué haría (sin hacer cambios)
+python manage.py reaplicar_doblada <ID_SOLICITUD> --dry-run
+
+# Aplicar corrección
+python manage.py reaplicar_doblada <ID_SOLICITUD>
+```
+
+### Documentación Completa
+Para instrucciones detalladas de uso, consulta:
+- **📖 Guía Rápida**: `GUIA_RAPIDA_REAPLICAR_DOBLADA.md` (5 minutos de lectura)
+- **📚 Documentación Completa**: `SOLUCION_DOBLADA_FALLIDA_MARIANA_VANESA.md` (referencia completa con SQL, troubleshooting, etc.)
+
+### Ubicación de los Scripts
+- `AppTurnosExplora/solicitudes/management/commands/verificar_doblada.py`
+- `AppTurnosExplora/solicitudes/management/commands/reaplicar_doblada.py`
+
+---
+
+

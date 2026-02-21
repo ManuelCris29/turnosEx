@@ -59,7 +59,19 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
         if not mes or not anio:
             return JsonResponse({'error': 'Debe enviar mes y anio'}, status=400)
         
-        # FASE 3.5: Generar clave de caché única para este empleado y mes
+        # Validación y normalización de mes/año
+        try:
+            mes_int = int(mes)
+            anio_int = int(anio)
+            if not (1 <= mes_int <= 12):
+                return JsonResponse({'error': 'Mes invalido'}, status=400)
+            # Normalizar representaciones
+            mes = f"{mes_int:02d}"
+            anio = str(anio_int)
+        except ValueError:
+            return JsonResponse({'error': 'anio/mes deben ser numéricos'}, status=400)
+        
+        # FASE 3.5: Generar clave de caché única para este empleado y mes (normalizados)
         from core.services.cache_service import CacheService
         
         cache_key = f'turnos_mes_{empleado.id}_{anio}_{mes}'
@@ -68,15 +80,6 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
         cached_data = CacheService.get(cache_key)
         if cached_data is not None:
             return JsonResponse(cached_data)
-        # Validación y normalización de mes/año
-        try:
-            mes_int = int(mes)
-            anio_int = int(anio)
-            if not (1 <= mes_int <= 12):
-                return JsonResponse({'error': 'Mes invalido'}, status=400)
-            mes = f"{mes_int:02d}"
-        except ValueError:
-            return JsonResponse({'error': 'anio/mes deben ser numéricos'}, status=400)
         
         try:
             # Calcular inicio y fin del mes solicitado
@@ -124,13 +127,38 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             def calcular_jornada_dia(j_base, fecha):
                 return JornadaUtils.calcular_jornada_dia(j_base, fecha)
             
-            # Obtener asignaciones de sala activas para el mes
+            # Obtener asignaciones de sala activas para el mes (select_related para evitar consultas extra)
             asignaciones_activas = AsignarSalaExplorador.objects.filter(
                 explorador=empleado,
                 fecha_inicio__lte=fecha_fin
             ).filter(
                 Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio)
-            ).first()
+            ).select_related('sala').first()
+            
+            # OPTIMIZACIÓN: Precargar dobladas donde el empleado descansa (solicitante o receptor)
+            # Evita 2 consultas por cada día sin turnos
+            from solicitudes.models import SolicitudCambio
+            solicitudes_descanso_solicitante = {
+                s.fecha_cambio_turno: s
+                for s in SolicitudCambio.objects.filter(
+                    explorador_solicitante=empleado,
+                    tipo_cambio__nombre='DOBLADA',
+                    fecha_cambio_turno__gte=fecha_inicio,
+                    fecha_cambio_turno__lte=fecha_fin,
+                    estado='aprobada'
+                ).select_related('explorador_receptor', 'doblada')
+            }
+            solicitudes_descanso_receptor = {}
+            for s in SolicitudCambio.objects.filter(
+                explorador_receptor=empleado,
+                tipo_cambio__nombre='DOBLADA',
+                estado='aprobada',
+                doblada__fecha_pago__gte=fecha_inicio,
+                doblada__fecha_pago__lte=fecha_fin
+            ).select_related('explorador_solicitante', 'doblada'):
+                fp = s.doblada.fecha_pago if s.doblada else None
+                if fp:
+                    solicitudes_descanso_receptor[fp] = s
             
             # Crear estructura de datos para el mes
             turnos_mes_dict = {}
@@ -141,9 +169,16 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 
                 if turnos_dia:
                     # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
-                    # Usar helper para detectar dobladas (AM+PM en misma fecha)
-                    from turnos.services.turno_service import TurnoService
-                    jornada_display = TurnoService.obtener_jornada_display(empleado, fecha)
+                    # OPTIMIZACIÓN: Calcular jornada_display desde turnos_dia sin consultas extra
+                    jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
+                    if 'AM' in jornadas_turnos and 'PM' in jornadas_turnos:
+                        jornada_display = 'DOBLADA'
+                    elif 'AM' in jornadas_turnos:
+                        jornada_display = 'AM'
+                    elif 'PM' in jornadas_turnos:
+                        jornada_display = 'PM'
+                    else:
+                        jornada_display = calcular_jornada_dia(jornada_base, fecha) or ''
                     
                     jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
                     
@@ -166,6 +201,12 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
                     es_cambio = len(tipos_cambio) > 0
                     tipo_cambio_principal = tipos_cambio[0] if tipos_cambio else None
+
+                    # #region agent log
+                    import json as _jav, time as _tav
+                    with open(r'c:\appTurnos\.cursor\debug.log', 'a', encoding='utf-8') as _fav:
+                        _fav.write(_jav.dumps({'hypothesisId':'H-TIPO','location':'api/views.py:MisTurnosPorMesView','message':'Datos turno en BD','data':{'fecha':str(fecha),'turnos_count':len(turnos_dia),'tipos_cambio':tipos_cambio,'es_cambio':es_cambio,'jornada_display':jornada_display,'coincide':jornada_display==calcular_jornada_dia(jornada_base,fecha)},'timestamp':int(_tav.time()*1000)}) + '\n')
+                    # #endregion
                     
                     # Determinar sala(s)
                     salas = [t.sala.nombre for t in turnos_dia if t.sala]
@@ -184,7 +225,9 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                         'jornada': jornada_display,  # Usar jornada_display (puede ser 'DOBLADA')
                         'sala': sala_display,
-                        'tipo': 'asignado',
+                        # 'asignado' solo cuando fue creado por CT/DOBLADA (tipo_cambio != null).
+                        # 'predeterminado' cuando el turno existe en BD pero sin tipo_cambio (horario importado).
+                        'tipo': 'asignado' if es_cambio else 'predeterminado',
                         'es_cambio': es_cambio,
                         'es_doblada': es_doblada,  # Flag para frontend
                         'jornada_predeterminada': jornada_predeterminada,
@@ -193,25 +236,9 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     }
                 else:
                     # No hay turno asignado
-                    # Verificar si está descansando por doblada (dos casos posibles):
-                    from solicitudes.models import SolicitudCambio, DobladaDetalle
-                    
-                    # CASO 1: Usuario es SOLICITANTE (cedió su jornada) en fecha de cesión
-                    solicitud_como_solicitante = SolicitudCambio.objects.filter(
-                        explorador_solicitante=empleado,  # Es solicitante (quien cedió)
-                        tipo_cambio__nombre='DOBLADA',
-                        fecha_cambio_turno=fecha,  # La fecha de cesión es esta fecha (él descansa)
-                        estado='aprobada'
-                    ).select_related('explorador_receptor').first()
-                    
-                    # CASO 2: Usuario es RECEPTOR (quien cubrió) en fecha de pago
-                    solicitud_como_receptor = SolicitudCambio.objects.filter(
-                        explorador_receptor=empleado,  # Es receptor (quien cubrió)
-                        tipo_cambio__nombre='DOBLADA',
-                        estado='aprobada',
-                        doblada__fecha_pago=fecha  # La fecha de pago es esta fecha (él descansa)
-                    ).select_related('explorador_solicitante', 'doblada').first()
-                    
+                    # OPTIMIZACIÓN: Usar dicts precargados en vez de 2 consultas por día
+                    solicitud_como_solicitante = solicitudes_descanso_solicitante.get(fecha)
+                    solicitud_como_receptor = solicitudes_descanso_receptor.get(fecha)
                     esta_descansando = solicitud_como_solicitante is not None or solicitud_como_receptor is not None
                     
                     if esta_descansando:

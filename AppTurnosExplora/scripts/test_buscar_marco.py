@@ -30,3 +30,5 @@ for emp in empleados:
     if hasattr(emp, 'user'):
         print(f"    Username: {emp.user.username}")
 
+
+

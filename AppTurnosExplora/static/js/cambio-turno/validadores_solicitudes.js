@@ -127,6 +127,20 @@ const REGLAS_VALIDACION = {
                     }
                     return null;
                 }
+            },
+            {
+                nombre: 'fecha_pago_diferente_a_cesion',
+                validar: (form) => {
+                    const fechaCesionInput = form.querySelector('#fecha_cesion') || form.querySelector('#fecha_solicitud');
+                    const fechaPagoInput = form.querySelector('#fecha_pago');
+                    if (!fechaCesionInput || !fechaPagoInput) return null;
+                    const fechaCesion = fechaCesionInput.value;
+                    const fechaPago = fechaPagoInput.value;
+                    if (fechaCesion && fechaPago && fechaPago === fechaCesion) {
+                        return `La fecha de pago (${fechaPago}) no puede ser la misma que la fecha de cesión. Si cedes tu jornada ese día, no puedes trabajar y descansar al mismo tiempo.`;
+                    }
+                    return null;
+                }
             }
         ]
     },

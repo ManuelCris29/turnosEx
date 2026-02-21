@@ -131,3 +131,5 @@ if es_doblada_turnos:
 
 **Beneficio**: Los usuarios pueden ceder parte de su jornada doblada incluso si no tienen una solicitud aprobada (por ejemplo, si tienen jornada fija doblada).
 
+
+

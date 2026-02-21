@@ -91,6 +91,15 @@
                                                 <i class="fas fa-ban"></i>
                                                 Cancelar
                                             </button>
+                                            {% elif solicitud.estado == 'aprobada' and solicitud.fecha_resolucion %}
+                                            <button class="btn btn-action btn-cancelar btn-cancelar-aprobada"
+                                                    onclick="cancelarSolicitudAprobada({{ solicitud.id }}, '{{ solicitud.fecha_resolucion|date:"c" }}')"
+                                                    data-solicitud-id="{{ solicitud.id }}"
+                                                    data-fecha-resolucion="{{ solicitud.fecha_resolucion|date:'U' }}"
+                                                    title="Cancelar (solo disponible 30 min tras aprobación)">
+                                                <i class="fas fa-clock"></i>
+                                                <span class="countdown-cancelar" id="countdown-{{ solicitud.id }}">Cancelar</span>
+                                            </button>
                                             {% endif %}
                                             <button class="btn btn-action btn-ver" onclick="verDetalleSolicitud({{ solicitud.id }})">
                                                 <i class="fas fa-eye"></i>
@@ -543,5 +552,111 @@ function cancelarSolicitud(solicitudId) {
         }
     });
 }
+
+// ============================================================
+// Cancelación de solicitudes APROBADAS (ventana de 30 minutos)
+// ============================================================
+const VENTANA_CANCELACION_MS = 30 * 60 * 1000; // 30 minutos en milisegundos
+
+function cancelarSolicitudAprobada(solicitudId, fechaResolucionIso) {
+    const fechaResolucion = new Date(fechaResolucionIso);
+    const ahora = new Date();
+    const transcurrido = ahora - fechaResolucion;
+
+    if (transcurrido > VENTANA_CANCELACION_MS) {
+        Swal.fire({
+            icon: 'warning',
+            title: 'Ventana de cancelación expirada',
+            text: 'Solo puedes cancelar una solicitud aprobada dentro de los 30 minutos posteriores a su aprobación. Este tiempo ya venció.',
+        });
+        return;
+    }
+
+    const minutosRestantes = Math.floor((VENTANA_CANCELACION_MS - transcurrido) / 60000);
+    const segundosRestantes = Math.floor(((VENTANA_CANCELACION_MS - transcurrido) % 60000) / 1000);
+
+    Swal.fire({
+        title: '¿Cancelar solicitud aprobada?',
+        html: `Esta acción revertirá todos los cambios de turno y deudas generados por esta solicitud.<br><br>
+               <strong>Tiempo restante para cancelar: ${minutosRestantes}m ${segundosRestantes}s</strong><br><br>
+               Esta operación no se puede deshacer.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc3545',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Sí, cancelar y revertir',
+        cancelButtonText: 'No, mantener'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const formData = new FormData();
+            formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+
+            fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
+                method: 'POST',
+                body: formData,
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Solicitud cancelada y cambios revertidos!',
+                        text: data.message,
+                        timer: 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: false,
+                        position: 'top-end',
+                        toast: true
+                    }).then(() => { location.reload(); });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message || 'No se pudo cancelar la solicitud.',
+                        timer: 5000,
+                        timerProgressBar: true,
+                        showConfirmButton: true
+                    });
+                }
+            })
+            .catch(() => {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Error de conexión',
+                    text: 'No se pudo cancelar la solicitud. Inténtalo de nuevo.',
+                });
+            });
+        }
+    });
+}
+
+// Actualizar contadores en botones de cancelar aprobadas
+function actualizarContadoresCancelacion() {
+    const botones = document.querySelectorAll('.btn-cancelar-aprobada');
+    botones.forEach(btn => {
+        const fechaUnix = parseInt(btn.dataset.fechaResolucion) * 1000;
+        const fechaResolucion = new Date(fechaUnix);
+        const ahora = new Date();
+        const transcurrido = ahora - fechaResolucion;
+        const restante = VENTANA_CANCELACION_MS - transcurrido;
+        const span = btn.querySelector('.countdown-cancelar');
+
+        if (restante <= 0) {
+            btn.disabled = true;
+            btn.title = 'Ventana de cancelación expirada (30 min)';
+            if (span) span.textContent = 'Expirado';
+        } else {
+            const mins = Math.floor(restante / 60000);
+            const segs = Math.floor((restante % 60000) / 1000);
+            if (span) span.textContent = `Cancelar (${mins}:${String(segs).padStart(2, '0')})`;
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    actualizarContadoresCancelacion();
+    setInterval(actualizarContadoresCancelacion, 1000);
+});
 </script>
 {% endblock %} 

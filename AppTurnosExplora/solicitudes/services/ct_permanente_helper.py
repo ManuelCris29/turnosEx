@@ -298,5 +298,3 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
             fechas_aplicables.append(fecha_dia)
     
     return fechas_aplicables, fechas_excluidas
-
-

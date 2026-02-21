@@ -391,15 +391,17 @@
                 <!-- Comentarios -->
                 <div class="form-group">
                     <label for="comentarios">
-                        <i class="fas fa-comment mr-1"></i>Comentarios (Opcional)
+                        <i class="fas fa-comment mr-1"></i>Comentarios <span class="text-danger">*</span>
                     </label>
                     <textarea class="form-control" 
                               id="comentarios" 
                               name="comentarios" 
                               rows="4" 
+                              maxlength="1000"
+                              required
                               placeholder="Explica el motivo del cambio permanente de turno...">{{ comentarios }}</textarea>
                     <small class="form-text text-muted">
-                        Proporciona detalles adicionales sobre tu solicitud de cambio permanente
+                        Este campo es obligatorio. Proporciona detalles adicionales sobre tu solicitud de cambio permanente.
                     </small>
                 </div>
 

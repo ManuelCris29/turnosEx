@@ -114,6 +114,34 @@ class CacheService:
         logger.debug(f"Cache delete_many - keys: {len(keys)}")
     
     @staticmethod
+    def invalidar_cache_turnos_empleado(empleado_id: int, mes: int | str, anio: int | str) -> None:
+        """
+        Invalida el caché de turnos por mes para un empleado específico.
+        
+        Clave utilizada por MisTurnosPorMesView:
+            turnos_mes_{empleado_id}_{anio}_{mes}
+        
+        Donde:
+            - anio: string del año (ej: '2026')
+            - mes: string con dos dígitos (ej: '02')
+        
+        Este helper normaliza mes/año para mantener un formato consistente.
+        """
+        try:
+            mes_int = int(mes)
+            anio_int = int(anio)
+        except (TypeError, ValueError):
+            logger.error(f"No se pudo invalidar caché de turnos: mes/anio inválidos (mes={mes!r}, anio={anio!r})")
+            return
+        
+        mes_str = f"{mes_int:02d}"
+        anio_str = str(anio_int)
+        
+        cache_key = f"turnos_mes_{empleado_id}_{anio_str}_{mes_str}"
+        CacheService.delete(cache_key)
+        logger.info(f"Caché de turnos invalidado para empleado={empleado_id}, anio={anio_str}, mes={mes_str} (key={cache_key})")
+    
+    @staticmethod
     def invalidate_pattern(pattern: str) -> None:
         """
         Invalida todas las claves que coincidan con un patrón.
@@ -135,4 +163,4 @@ class CacheService:
         # else:
         #     logger.warning(f"Cache backend does not support pattern deletion: {pattern}")
         logger.warning(f"Pattern invalidation not fully implemented for: {pattern}")
-
+        

@@ -152,3 +152,5 @@ Archivos de configuración principales:
 - Actualizar este README cuando se agreguen nuevas categorías
 
 
+
+

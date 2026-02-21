@@ -317,6 +317,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
         }
+
+        // Validar comentario obligatorio
+        const comentariosInput = document.getElementById('comentarios');
+        const comentarioValor = comentariosInput ? comentariosInput.value.trim() : '';
+        if (!comentarioValor) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Comentario requerido',
+                text: 'Debes ingresar un comentario para enviar la solicitud de cambio permanente.',
+                confirmButtonText: 'Entendido'
+            }).then(() => {
+                if (comentariosInput) {
+                    comentariosInput.focus();
+                }
+            });
+            return;
+        }
         
         // Validar que haya al menos un día seleccionado (validación específica de CT PERMANENTE)
         // Primero verificar si hay override activo (compatibilidad parcial)
@@ -647,9 +664,11 @@ function cargarJornadaActual(fecha) {
     const infoDiv = document.getElementById('turno_actual_info');
     
     // Si hay rango, usar jornada_base=true para obtener la jornada base (no la del día específico)
+    const tipoSolicitudInput = document.getElementById('tipo_solicitud_id');
+    const tipoSolicitudId = tipoSolicitudInput ? tipoSolicitudInput.value : '';
     const url = esRango 
-        ? `/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fecha}&jornada_base=true`
-        : `/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fecha}`;
+        ? `/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fecha}&jornada_base=true${tipoSolicitudId ? `&tipo_solicitud_id=${tipoSolicitudId}` : ''}`
+        : `/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fecha}${tipoSolicitudId ? `&tipo_solicitud_id=${tipoSolicitudId}` : ''}`;
     
     fetch(url)
         .then(response => {

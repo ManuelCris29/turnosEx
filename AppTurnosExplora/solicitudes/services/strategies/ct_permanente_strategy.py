@@ -47,6 +47,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             fecha_inicio = datos.get('fecha_inicio')
             fecha_fin = datos.get('fecha_fin')
             dias_seleccionados = datos.get('dias_seleccionados', {})
+            comentario = datos.get('comentario') or ''
             
             # Validar datos básicos
             if not all([explorador_solicitante, explorador_receptor, fecha_inicio, fecha_fin]):
@@ -56,6 +57,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
             SolicitudValidator.validar_empleado_activo(explorador_receptor)
             SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
+            # Comentario obligatorio
+            SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de cambio de turno permanente')
             
             # Validaciones específicas de CT PERMANENTE
             SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
@@ -359,6 +362,28 @@ class CTPermanenteStrategy(SolicitudStrategy):
             solicitud.estado = 'aprobada'
             solicitud.fecha_resolucion = timezone.now()
             solicitud.save()
+            
+            # 5. Invalidar caché para todos los meses afectados por el cambio permanente
+            from core.services.cache_service import CacheService
+            # Calcular meses únicos en el rango
+            meses_afectados = set()
+            fecha_actual = detalle.fecha_inicio
+            while fecha_actual <= fecha_fin_cambio:
+                meses_afectados.add((fecha_actual.year, fecha_actual.month))
+                # Avanzar al primer día del siguiente mes
+                if fecha_actual.month == 12:
+                    fecha_actual = date(fecha_actual.year + 1, 1, 1)
+                else:
+                    fecha_actual = date(fecha_actual.year, fecha_actual.month + 1, 1)
+            
+            # Invalidar caché para cada mes afectado
+            for anio, mes in meses_afectados:
+                CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, mes, anio)
+                CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, mes, anio)
+                logger.info(
+                    f"CT PERMANENTE: Caché invalidado para solicitante (ID: {solicitud.explorador_solicitante.id}) "
+                    f"y receptor (ID: {solicitud.explorador_receptor.id}) en {mes}/{anio}"
+                )
             
             # Construir mensaje informativo
             mensaje = f"Cambio permanente aplicado para {dias_procesados} días"

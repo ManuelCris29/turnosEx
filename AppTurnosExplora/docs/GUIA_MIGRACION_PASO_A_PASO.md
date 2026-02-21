@@ -367,3 +367,5 @@ const fetchData = async (url, params) => {
 
 **Siguiente paso**: Empezar con Paso 1 (cargar módulos en templates) - **Riesgo mínimo** 🟢
 
+
+

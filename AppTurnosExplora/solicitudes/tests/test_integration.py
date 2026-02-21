@@ -99,4 +99,17 @@ class SolicitudFlowIntegrationTest(TestCase):
         solicitud_db = SolicitudCambio.objects.get(id=solicitud.id)
         self.assertEqual(solicitud_db, solicitud)
 
+    def test_creacion_solicitud_sin_comentario_falla(self):
+        """No debe permitir crear una solicitud de cambio sin comentario."""
+        solicitud, mensaje = SolicitudService.crear_solicitud_cambio(
+            explorador_solicitante=self.empleado1,
+            explorador_receptor=self.empleado2,
+            tipo_cambio=self.tipo,
+            fecha_cambio_turno=self.fecha_cambio,
+            comentario=''  # comentario vacío
+        )
+        self.assertIsNone(solicitud)
+        self.assertIsInstance(mensaje, str)
+        self.assertNotEqual(mensaje, '')
+
 

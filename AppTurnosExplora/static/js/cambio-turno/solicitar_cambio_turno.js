@@ -143,9 +143,11 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
             return;
         }
-        const esJornadaFija = turno.es_turno_virtual;
-        const badgeClass = esJornadaFija ? 'badge-info' : 'badge-success';
-        const badgeText = esJornadaFija ? 'Jornada Fija' : 'Turno Asignado';
+        // Un turno es "predeterminado" si es virtual (sin registro en BD) o si el registro
+        // no fue creado por ningún tipo de cambio (tipo_cambio=null → turno del horario importado).
+        const esJornadaPredeterminada = turno.es_turno_virtual || (!turno.tipo_cambio && turno.id !== null);
+        const badgeClass = esJornadaPredeterminada ? 'badge-info' : 'badge-success';
+        const badgeText = esJornadaPredeterminada ? 'Jornada Predeterminada' : 'Turno Asignado';
         detallesElem.innerHTML = `
             <div class="card mb-3">
                 <div class="card-body">
@@ -200,7 +202,11 @@ document.addEventListener('DOMContentLoaded', function() {
         salasDetalles.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Cargando información...</div>';
         turnoInfo.style.display = 'block';
         // Eliminado: salasInfo.style.display = 'block';
-        fetch(`/solicitudes/obtener-turno-explorador/?fecha=${fecha}&explorador_id=${exploradorId}`, {
+        // Incluir tipo_solicitud_id para que el backend pueda aplicar reglas específicas (ej: descanso por doblada)
+        const tipoSolicitudInput = document.getElementById('tipo_solicitud_id');
+        const tipoSolicitudId = tipoSolicitudInput ? tipoSolicitudInput.value : '';
+        const urlExplorador = `/solicitudes/obtener-turno-explorador/?fecha=${fecha}&explorador_id=${exploradorId}${tipoSolicitudId ? `&tipo_solicitud_id=${tipoSolicitudId}` : ''}`;
+        fetch(urlExplorador, {
             method: 'GET',
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
@@ -238,7 +244,11 @@ document.addEventListener('DOMContentLoaded', function() {
         turnoSolicitanteDetalles.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Cargando información...</div>';
         salasSolicitanteDetalles.innerHTML = '<div class="text-center"><i class="fas fa-spinner fa-spin"></i> Cargando información...</div>';
         turnoSolicitanteInfo.style.display = 'block';
-        fetch(`/solicitudes/obtener-turno-explorador/?fecha=${fecha}&explorador_id=${solicitanteId}`, {
+        // Incluir tipo_solicitud_id para que el backend pueda aplicar reglas específicas (ej: descanso por doblada)
+        const tipoSolicitudInput = document.getElementById('tipo_solicitud_id');
+        const tipoSolicitudId = tipoSolicitudInput ? tipoSolicitudInput.value : '';
+        const urlSolicitante = `/solicitudes/obtener-turno-explorador/?fecha=${fecha}&explorador_id=${solicitanteId}${tipoSolicitudId ? `&tipo_solicitud_id=${tipoSolicitudId}` : ''}`;
+        fetch(urlSolicitante, {
             method: 'GET',
             headers: {
                 'X-Requested-With': 'XMLHttpRequest',
@@ -246,7 +256,27 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .then(response => response.json())
         .then(data => {
-            renderTurnoYSalas(data.turno, turnoSolicitanteDetalles, salasSolicitanteDetalles);
+            if (data.esta_descansando && data.descanso_info) {
+                const info = data.descanso_info;
+                const razon = info.tipo === 'cedio'
+                    ? `Cediste tu jornada del ${info.fecha_cesion || ''} a ${info.companero_nombre}.`
+                    : `Estás en descanso como pago de la doblada realizada por ${info.companero_nombre}.`;
+                turnoSolicitanteDetalles.innerHTML = `
+                    <div class="alert alert-info mb-0">
+                        <i class="fas fa-bed mr-2"></i>
+                        <strong>Estás Descansando</strong>
+                        <p class="mb-1 mt-1">${razon}</p>
+                        <small class="text-muted">
+                            <i class="fas fa-info-circle"></i>
+                            No puedes solicitar un cambio de turno para esta fecha mientras estés en descanso.
+                        </small>
+                    </div>`;
+                salasSolicitanteDetalles.innerHTML = '';
+                empleadoSelect.innerHTML = '<option value="">No disponible — estás en descanso</option>';
+                empleadoSelect.disabled = true;
+            } else {
+                renderTurnoYSalas(data.turno, turnoSolicitanteDetalles, salasSolicitanteDetalles);
+            }
         })
         .catch(error => {
             console.error('Error al cargar información del solicitante:', error);
@@ -290,13 +320,30 @@ document.addEventListener('DOMContentLoaded', function() {
             const tipoNombre = window.ValidadoresSolicitudes.obtenerTipoSolicitud(form) || 
                               document.querySelector('[data-tipo-nombre]')?.getAttribute('data-tipo-nombre');
             
-            if (tipoNombre) {
+        if (tipoNombre) {
                 const validacion = window.ValidadoresSolicitudes.validarFormularioSolicitud(form, tipoNombre);
                 if (!validacion.valido) {
                     window.ValidadoresSolicitudes.mostrarErroresValidacion(validacion.errores);
                     return;
                 }
             }
+
+        // Validar comentario obligatorio
+        const comentariosInput = document.getElementById('comentarios');
+        const comentarioValor = comentariosInput ? comentariosInput.value.trim() : '';
+        if (!comentarioValor) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Comentario requerido',
+                text: 'Debes ingresar un comentario para enviar la solicitud.',
+                confirmButtonText: 'Entendido'
+            }).then(() => {
+                if (comentariosInput) {
+                    comentariosInput.focus();
+                }
+            });
+            return;
+        }
         }
         
         // Validar que no sea día de mantenimiento antes de enviar
@@ -367,22 +414,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             } else {
                 // Mostrar error
+                const mensajeError = data.error || 'Ocurrió un error al procesar la solicitud';
+
+                // Detectar errores relacionados con jornada doblada / uso incorrecto de CT
+                const errorDoblada = mensajeError.toLowerCase().includes('doblada') &&
+                                     mensajeError.toLowerCase().includes('solicitud de dobladas');
+
                 // Si el error es sobre día de mantenimiento, destacarlo
-                const esErrorMantenimiento = data.error && data.error.toLowerCase().includes('mantenimiento');
-                
-                Swal.fire({
-                    icon: 'error',
-                    title: esErrorMantenimiento ? 'Día de Mantenimiento' : 'Error al enviar solicitud',
-                    text: data.error || 'Ocurrió un error al procesar la solicitud',
-                    confirmButtonText: 'Entendido',
-                    timer: esErrorMantenimiento ? 6000 : 4000,
-                    timerProgressBar: true,
-                    showConfirmButton: true,
-                    position: 'center',
-                    customClass: {
-                        popup: 'swal2-error-popup'
-                    }
-                });
+                const esErrorMantenimiento = !errorDoblada &&
+                    mensajeError.toLowerCase().includes('mantenimiento');
+
+                if (errorDoblada) {
+                    Swal.fire({
+                        icon: 'info',
+                        title: 'Solicitud de Doblada requerida',
+                        text: mensajeError,
+                        confirmButtonText: 'Entendido',
+                        timer: 8000,
+                        timerProgressBar: true,
+                        showConfirmButton: true,
+                        position: 'center',
+                        customClass: {
+                            popup: 'swal2-error-popup'
+                        }
+                    });
+                } else {
+                    Swal.fire({
+                        icon: 'error',
+                        title: esErrorMantenimiento ? 'Día de Mantenimiento' : 'Error al enviar solicitud',
+                        text: mensajeError,
+                        confirmButtonText: 'Entendido',
+                        timer: esErrorMantenimiento ? 6000 : 4000,
+                        timerProgressBar: true,
+                        showConfirmButton: true,
+                        position: 'center',
+                        customClass: {
+                            popup: 'swal2-error-popup'
+                        }
+                    });
+                }
             }
         })
         .catch(error => {
@@ -499,13 +569,16 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
         
-        // Usar módulo común para inicializar datepicker (bloquea domingos, sábados, festivos, mantenimiento y temporada)
+        // Usar módulo común para inicializar datepicker
+        // Permitir festivos y temporada; bloquear domingos, sábados y mantenimiento
         window.DatepickerFestivos.inicializar({
             input: fechaInput,
             indicadorFestivo: indicadorFestivo,
             descripcionFestivo: descripcionFestivo,
             bloquearDiasEspeciales: true,
             bloquearSabados: true, // Para CT Sencillo, también bloquear sábados
+            permitirFestivos: true,
+            permitirTemporada: true, // En temporada sí se pueden hacer cambios de turno sencillos
             onDateChange: function(fecha) {
                 // Verificar si es día de mantenimiento
                 if (fecha && window.DatepickerFestivos && window.DatepickerFestivos.verificarDiaMantenimiento) {

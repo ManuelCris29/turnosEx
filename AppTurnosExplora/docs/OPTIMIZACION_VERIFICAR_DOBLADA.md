@@ -165,3 +165,5 @@ Esta optimización sigue el principio de Django de **usar la fuente de verdad ú
 - ✅ Menos puntos de fallo
 - ✅ Más fácil de mantener
 
+
+

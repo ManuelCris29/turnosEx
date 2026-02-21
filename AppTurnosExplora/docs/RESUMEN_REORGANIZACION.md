@@ -181,3 +181,5 @@ Todos los tests están en carpetas `tests/`:
 **Reorganización completada exitosamente** ✅
 
 
+
+

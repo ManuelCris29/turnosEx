@@ -764,11 +764,113 @@ class SolicitudValidator:
         
         jornadas = [t.jornada.nombre.upper() for t in turnos]
         
-        # Si tiene AM + PM, es una doblada
+        # Si tiene AM + PM, es una doblada real (jornada completa)
         if 'AM' in jornadas and 'PM' in jornadas:
             raise ValidationError(
-                f'No se puede realizar cambio de turno. El explorador ya tiene una doblada (AM + PM) '
-                f'para el {fecha_obj.strftime("%d/%m/%Y")}. No puede agregar más cambios a esta fecha.'
+                (
+                    'No se puede realizar un Cambio de Turno Sencillo porque el explorador ya tiene '
+                    'una jornada doblada (AM + PM) para el '
+                    f'{fecha_obj.strftime("%d/%m/%Y")}. '
+                    'Este tipo de caso debe gestionarse mediante la Solicitud de Dobladas.'
+                )
+            )
+    
+    # ===== VALIDACIONES ESPECÍFICAS PARA FESTIVOS Y ROTACIÓN =====
+    
+    @staticmethod
+    def es_festivo_semana(fecha):
+        """
+        Verifica si una fecha es un festivo activo de lunes a viernes.
+        
+        Args:
+            fecha: Fecha a verificar (date o string YYYY-MM-DD)
+            
+        Returns:
+            bool: True si es festivo de lunes a viernes, False en caso contrario
+        """
+        from datetime import datetime
+        from turnos.models import DiaEspecial
+        
+        if isinstance(fecha, str):
+            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        else:
+            fecha_obj = fecha
+        
+        # Verificar que sea lunes a viernes (weekday 0-4)
+        if fecha_obj.weekday() > 4:
+            return False
+        
+        return DiaEspecial.objects.filter(
+            fecha=fecha_obj,
+            tipo__iexact='festivo',
+            activo=True
+        ).exists()
+
+    # ===== VALIDACIONES DE CAMPOS DE TEXTO =====
+    
+    @staticmethod
+    def validar_comentario_obligatorio(comentario: str, contexto: str = 'la solicitud'):
+        """
+        Valida que el comentario no esté vacío.
+        
+        Args:
+            comentario: Texto recibido desde el formulario.
+            contexto: Texto descriptivo para el mensaje de error.
+        
+        Raises:
+            ValidationError: Si el comentario está vacío o solo tiene espacios.
+        """
+        from django.core.exceptions import ValidationError
+        
+        if not comentario or not str(comentario).strip():
+            raise ValidationError(f'Debes ingresar un comentario para {contexto}.')
+    
+    @staticmethod
+    def validar_festivos_mismo_mes(fecha1, fecha2):
+        """
+        Valida que dos fechas festivas sean del mismo mes calendario.
+        Se usa para restringir cambios/pagos de dobladas entre festivos.
+        
+        Regla de negocio:
+        - Los cambios de turno y pagos de dobladas entre festivos solo se permiten
+          cuando ambas fechas festivas pertenecen al mismo mes calendario.
+        
+        Args:
+            fecha1: Primera fecha (date o string YYYY-MM-DD)
+            fecha2: Segunda fecha (date o string YYYY-MM-DD)
+            
+        Raises:
+            ValidationError: Si alguna fecha no es festivo de semana o si no son del mismo mes
+        """
+        from datetime import datetime
+        
+        if isinstance(fecha1, str):
+            fecha1_obj = datetime.strptime(fecha1, '%Y-%m-%d').date()
+        else:
+            fecha1_obj = fecha1
+            
+        if isinstance(fecha2, str):
+            fecha2_obj = datetime.strptime(fecha2, '%Y-%m-%d').date()
+        else:
+            fecha2_obj = fecha2
+        
+        # Verificar que ambas sean festivos de semana
+        if not SolicitudValidator.es_festivo_semana(fecha1_obj):
+            raise ValidationError(
+                f'La fecha {fecha1_obj.strftime("%d/%m/%Y")} no es un festivo de lunes a viernes.'
+            )
+        
+        if not SolicitudValidator.es_festivo_semana(fecha2_obj):
+            raise ValidationError(
+                f'La fecha {fecha2_obj.strftime("%d/%m/%Y")} no es un festivo de lunes a viernes.'
+            )
+        
+        # Validar que sean del mismo mes calendario
+        if fecha1_obj.year != fecha2_obj.year or fecha1_obj.month != fecha2_obj.month:
+            raise ValidationError(
+                f'Los cambios y pagos de dobladas entre festivos solo se permiten cuando ambas fechas '
+                f'pertenecen al mismo mes. Las fechas {fecha1_obj.strftime("%d/%m/%Y")} y '
+                f'{fecha2_obj.strftime("%d/%m/%Y")} están en meses diferentes.'
             )
     
     # ===== VALIDACIONES ESPECÍFICAS PARA DOBLADA =====
@@ -811,6 +913,31 @@ class SolicitudValidator:
                 f'La fecha de pago ({fecha_pago_obj.strftime("%d/%m/%Y")}) debe ser posterior a la fecha de creación de la solicitud ({fecha_creacion_obj.strftime("%d/%m/%Y")})'
             )
     
+    @staticmethod
+    def validar_fecha_pago_diferente_cesion(fecha_cesion, fecha_pago):
+        """
+        Validar que fecha_pago sea diferente a fecha_cesion.
+
+        Regla: No se puede pagar el mismo día que se cede la jornada.
+        El pago puede ser ANTES o DESPUÉS de la cesión, pero nunca el mismo día.
+
+        Ejemplo válido: cedo el 28/02, pago el 20/02 (antes está permitido).
+        Ejemplo inválido: cedo el 20/02, pago el 20/02 (mismo día → bloqueado).
+
+        Raises:
+            ValidationError: Si fecha_pago == fecha_cesion
+        """
+        from core.utils.date_utils import DateUtils
+        fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
+        fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+
+        if fecha_pago_obj == fecha_cesion_obj:
+            raise ValidationError(
+                f'La fecha de pago ({fecha_pago_obj.strftime("%d/%m/%Y")}) no puede ser '
+                f'la misma que la fecha de cesión ({fecha_cesion_obj.strftime("%d/%m/%Y")}). '
+                'Si cedes tu jornada ese día, no puedes trabajar y descansar al mismo tiempo.'
+            )
+
     @staticmethod
     def validar_jornadas_contrarias_doblada(solicitante: Empleado, receptor: Empleado, fecha, jornada_cedida=None):
         """
@@ -898,17 +1025,20 @@ class SolicitudValidator:
     @staticmethod
     def validar_dias_especiales_doblada(fecha):
         """
-        Validar que la fecha no sea domingo, festivo, mantenimiento ni temporada.
+        Validar que la fecha no sea domingo ni mantenimiento.
+        
+        Los festivos de lunes a viernes y los días de temporada están permitidos
+        (se pueden realizar solicitudes de doblada en temporada).
 
         Reglas:
-        - No doblada en domingos, festivos, mantenimiento ni temporada.
-        - Solo días hábiles (lunes a sábado, excluyendo festivos, mantenimiento y temporada).
+        - No doblada en domingos ni mantenimiento.
+        - Festivos (lunes a viernes) y temporada: permitidos.
 
         Args:
             fecha: Fecha a validar
 
         Raises:
-            ValidationError: Si la fecha es domingo, festivo, mantenimiento o temporada
+            ValidationError: Si la fecha es domingo o mantenimiento
         """
         from core.utils.date_utils import DateUtils
         from turnos.models import DiaEspecial
@@ -920,27 +1050,187 @@ class SolicitudValidator:
 
         if DiaEspecial.objects.filter(
             fecha=fecha_obj,
-            tipo='Festivo',
-            activo=True
-        ).exists():
-            raise ValidationError('No se puede realizar doblada en días festivos')
-
-        if DiaEspecial.objects.filter(
-            fecha=fecha_obj,
-            tipo='Mantenimiento',
+            tipo='mantenimiento',
             activo=True
         ).exists():
             raise ValidationError('No se puede realizar doblada en días de mantenimiento')
 
-        dia_temporada = DiaEspecial.objects.filter(
-            fecha=fecha_obj,
-            es_temporada=True,
-            activo=True
-        ).first()
-        if dia_temporada:
-            descripcion = dia_temporada.descripcion or 'Día de temporada'
-            raise ValidationError(f'No se puede realizar doblada en días de temporada. {descripcion}')
+        # NOTA: Días de temporada y festivos de semana están permitidos para doblada
     
+    @staticmethod
+    def validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion):
+        """
+        Caso A: La fecha de pago debe estar dentro del mismo mes calendario
+        que la fecha de cesión.
+
+        Regla de negocio: El pago puede ser antes o después de la cesión,
+        pero siempre dentro del mismo mes. No se puede pagar en un mes diferente
+        al mes en que se cede la jornada.
+
+        Ejemplos:
+        - Cesión 20/03/2026 → Pago 05/03/2026 ✓ (ambos en marzo, pago anticipado)
+        - Cesión 20/03/2026 → Pago 28/02/2026 ✗ (febrero ≠ marzo)
+        - Cesión 20/03/2026 → Pago 25/03/2026 ✓ (ambos en marzo)
+
+        Args:
+            fecha_pago: Fecha de pago (string o date)
+            fecha_cesion: Fecha de cesión de la jornada (string o date)
+
+        Raises:
+            ValidationError: Si la fecha de pago está en un mes diferente al de la cesión
+        """
+        from core.utils.date_utils import DateUtils
+
+        fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+        fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
+
+        if fecha_pago_obj.year != fecha_cesion_obj.year or fecha_pago_obj.month != fecha_cesion_obj.month:
+            raise ValidationError(
+                f'La fecha de pago ({fecha_pago_obj.strftime("%d/%m/%Y")}) debe estar en el mismo mes '
+                f'que la fecha de cesión ({fecha_cesion_obj.strftime("%d/%m/%Y")}). '
+                f'Ambas fechas deben pertenecer al mes {fecha_cesion_obj.strftime("%m/%Y")}.'
+            )
+
+    @staticmethod
+    def validar_receptor_sin_solicitud_pendiente_en_fecha(receptor: Empleado, fecha_cesion):
+        """
+        Caso C: El receptor no puede tener ninguna solicitud pendiente (sin aprobar ni cancelar)
+        para la misma fecha de cesión.
+
+        Regla de negocio: Una solicitud pendiente puede aprobarse o cancelarse después.
+        Mientras esté pendiente, no se puede enviar otra solicitud que involucre al receptor
+        para esa misma fecha, ya que podría generar conflictos al aprobarse ambas.
+
+        Args:
+            receptor: Empleado receptor de la doblada
+            fecha_cesion: Fecha de cesión (string o date)
+
+        Raises:
+            ValidationError: Si el receptor ya tiene una solicitud pendiente en esa fecha
+        """
+        from datetime import datetime
+        from django.db import models as db_models
+        from solicitudes.models import SolicitudCambio
+
+        if isinstance(fecha_cesion, str):
+            fecha_cesion_obj = datetime.strptime(fecha_cesion, '%Y-%m-%d').date()
+        else:
+            fecha_cesion_obj = fecha_cesion
+
+        tiene_pendiente = SolicitudCambio.objects.filter(
+            db_models.Q(explorador_solicitante=receptor) | db_models.Q(explorador_receptor=receptor),
+            estado='pendiente',
+            fecha_cambio_turno=fecha_cesion_obj
+        ).exists()
+
+        if tiene_pendiente:
+            raise ValidationError(
+                f'El compañero receptor ya tiene una solicitud pendiente para el '
+                f'{fecha_cesion_obj.strftime("%d/%m/%Y")}. '
+                'Debe esperar a que esa solicitud sea aprobada o cancelada antes de '
+                'enviar una nueva para esa misma fecha.'
+            )
+
+    @staticmethod
+    def validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante: Empleado, fecha_cesion):
+        """
+        Caso D: El solicitante no puede tener ninguna solicitud pendiente para la misma
+        fecha de cesión.
+
+        Regla de negocio: Una solicitud pendiente puede aprobarse después y generar
+        conflictos si simultáneamente otra solicitud para la misma fecha se aprueba.
+
+        Args:
+            solicitante: Empleado solicitante de la doblada
+            fecha_cesion: Fecha de cesión (string o date)
+
+        Raises:
+            ValidationError: Si el solicitante ya tiene una solicitud pendiente en esa fecha
+        """
+        from datetime import datetime
+        from django.db import models as db_models
+        from solicitudes.models import SolicitudCambio
+
+        if isinstance(fecha_cesion, str):
+            fecha_cesion_obj = datetime.strptime(fecha_cesion, '%Y-%m-%d').date()
+        else:
+            fecha_cesion_obj = fecha_cesion
+
+        tiene_pendiente = SolicitudCambio.objects.filter(
+            db_models.Q(explorador_solicitante=solicitante) | db_models.Q(explorador_receptor=solicitante),
+            estado='pendiente',
+            fecha_cambio_turno=fecha_cesion_obj
+        ).exists()
+
+        if tiene_pendiente:
+            raise ValidationError(
+                f'Ya tienes una solicitud pendiente para el {fecha_cesion_obj.strftime("%d/%m/%Y")}. '
+                'Debes esperar a que sea aprobada o cancelada antes de enviar '
+                'una nueva solicitud para esa misma fecha.'
+            )
+
+    @staticmethod
+    def es_dia_temporada(fecha) -> bool:
+        """
+        Helper: verifica si una fecha es día de temporada activo.
+
+        Args:
+            fecha: Fecha a verificar (string o date)
+
+        Returns:
+            True si es temporada, False en caso contrario
+        """
+        from datetime import datetime
+        try:
+            from turnos.models import DiaEspecial
+            if isinstance(fecha, str):
+                fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+            return DiaEspecial.objects.filter(
+                fecha=fecha,
+                es_temporada=True,
+                activo=True
+            ).exists()
+        except Exception:
+            return False
+
+    @staticmethod
+    def validar_receptor_no_descansa_por_doblada_en_pago(receptor: Empleado, fecha_pago):
+        """
+        Caso F: El receptor no puede estar descansando en la fecha de pago por
+        haber cedido su propia jornada (doblada aprobada como solicitante).
+
+        Regla de negocio: Si el receptor ya cedió su jornada ese día (doblada aprobada),
+        está descansando y no puede trabajar para pagar otra doblada.
+
+        Args:
+            receptor: Empleado que sería el receptor del pago
+            fecha_pago: Fecha de pago (string o date)
+
+        Raises:
+            ValidationError: Si el receptor ya descansa por una doblada aprobada en fecha_pago
+        """
+        from datetime import datetime
+        from solicitudes.models import SolicitudCambio
+
+        if isinstance(fecha_pago, str):
+            fecha_pago_obj = datetime.strptime(fecha_pago, '%Y-%m-%d').date()
+        else:
+            fecha_pago_obj = fecha_pago
+
+        descansa_por_doblada = SolicitudCambio.objects.filter(
+            explorador_solicitante=receptor,
+            tipo_cambio__nombre='DOBLADA',
+            estado='aprobada',
+            fecha_cambio_turno=fecha_pago_obj
+        ).exists()
+
+        if descansa_por_doblada:
+            raise ValidationError(
+                f'El compañero receptor ya cedió su jornada el {fecha_pago_obj.strftime("%d/%m/%Y")} '
+                '(tiene una doblada aprobada como solicitante en esa fecha) y estará descansando. '
+                'No puede trabajar para pagar otra doblada el mismo día que está descansando.'
+            )
+
     @staticmethod
     def validar_coincidencia_jornadas_pago(deudor: Empleado, acreedor: Empleado, fecha_pago):
         """

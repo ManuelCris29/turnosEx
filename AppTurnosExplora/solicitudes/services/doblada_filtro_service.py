@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from django.db.models import QuerySet
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
+from turnos.models import Turno
 from datetime import date, datetime
 import logging
 
@@ -45,30 +46,71 @@ class DobladaFiltroService:
         else:
             fecha_obj = fecha
         
-        # Obtener IDs de empleados con doblada activa
-        empleados_con_doblada = SolicitudCambio.objects.filter(
-            tipo_cambio__nombre='DOBLADA',
-            fecha_cambio_turno=fecha_obj,
-            estado='aprobada'
-        ).values_list('explorador_solicitante_id', flat=True)
+        # -------------------------------
+        # 1) Empleados con doblada por SolicitudCambio (solicitantes)
+        # -------------------------------
+        empleados_con_doblada_solicitante = set(
+            SolicitudCambio.objects.filter(
+                tipo_cambio__nombre='DOBLADA',
+                fecha_cambio_turno=fecha_obj,
+                estado='aprobada'
+            ).values_list('explorador_solicitante_id', flat=True)
+        )
         
         # Convertir QuerySet a lista si es necesario
         if isinstance(empleados, QuerySet):
             empleados_list = list(empleados)
         else:
             empleados_list = empleados
-        
-        # Filtrar empleados sin doblada activa
+
+        if not empleados_list:
+            return []
+
+        # -------------------------------
+        # 2) Empleados con DOBLADA real en Turno (AM + PM en la misma fecha)
+        # -------------------------------
+        turnos = (
+            Turno.objects
+            .filter(explorador__in=empleados_list, fecha=fecha_obj)
+            .select_related('jornada', 'explorador')
+        )
+
+        jornadas_por_empleado: Dict[int, set] = {}
+        for turno in turnos:
+            if not turno.jornada:
+                continue
+            jornadas_por_empleado.setdefault(turno.explorador_id, set()).add(
+                turno.jornada.nombre.upper()
+            )
+
+        empleados_con_doblada_turno = {
+            emp_id
+            for emp_id, jornadas in jornadas_por_empleado.items()
+            if 'AM' in jornadas and 'PM' in jornadas
+        }
+
+        # -------------------------------
+        # 3) Unir todas las fuentes de doblada
+        # -------------------------------
+        empleados_con_doblada = empleados_con_doblada_solicitante.union(
+            empleados_con_doblada_turno
+        )
+
+        # -------------------------------
+        # 4) Filtrar empleados sin doblada activa
+        # -------------------------------
         empleados_disponibles = [
             emp for emp in empleados_list
             if emp.id not in empleados_con_doblada
         ]
-        
+
         logger.debug(
             f"Filtrados {len(empleados_list) - len(empleados_disponibles)} empleados "
-            f"con doblada activa en {fecha_obj}"
+            f"con doblada activa en {fecha_obj} "
+            f"(solicitudes={len(empleados_con_doblada_solicitante)}, "
+            f"turnos={len(empleados_con_doblada_turno)})"
         )
-        
+
         return empleados_disponibles
     
     @staticmethod
@@ -135,6 +177,7 @@ class DobladaFiltroService:
             })
         
         return resultado
+
 
 
 

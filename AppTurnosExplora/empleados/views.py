@@ -85,15 +85,25 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
     
     def get_queryset(self):
         user = self.request.user
+        
+        # OPTIMIZACIÓN: Pre-cargar relaciones ManyToMany para evitar N+1 en el template
+        # El template accede a: empleado.competenciaempleado_set.all y empleado.empleadorole_set.all
+        base_queryset = (
+            Empleado.objects
+            .select_related('supervisor', 'user')
+            .prefetch_related(
+                'competenciaempleado_set__sala',  # Para acceder a competencia.sala.nombre
+                'empleadorole_set__role',         # Para acceder a empleado_rol.role.nombre
+            )
+        )
 
         if user.is_superuser or user.is_staff:
-            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
-            return Empleado.objects.select_related('supervisor', 'user').all()
+            return base_queryset.all()
         
         if user.is_supervisor:
-            return Empleado.objects.filter(
+            return base_queryset.filter(
                 empleadorole_set__role__nombre__icontains='supervisor'
-            ).select_related('supervisor', 'user').distinct()
+            ).distinct()
         
         
         try:
@@ -105,16 +115,18 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
         if self.request.user.is_staff or empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists():
             query = self.request.GET.get('q', '')
             if query:
+                # El servicio ya retorna queryset optimizado
                 return EmpleadoService.buscar_empleados(query)
-            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
-            return Empleado.objects.select_related('supervisor', 'user').all()
+            return base_queryset.all()
 
         # Si no es admin/supervisor, filtrar por sala o mostrar ninguno
         sala_id = self.request.GET.get('sala')
         if sala_id:
+            # El servicio ya retorna queryset optimizado
             return EmpleadoService.get_empleados_by_sala(sala_id)
         competencia = empleado.competenciaempleado_set.select_related('sala').first()
         if competencia:
+            # El servicio ya retorna queryset optimizado
             return EmpleadoService.get_empleados_by_sala(competencia.sala_id)
         return Empleado.objects.none()
 

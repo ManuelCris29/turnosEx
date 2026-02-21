@@ -42,19 +42,29 @@ class CambioTurnoStrategy(SolicitudStrategy):
         """
         try:
             # Import here to avoid circular imports
+            from django.core.exceptions import ValidationError
             from ..solicitud_validator import SolicitudValidator
             
             explorador_solicitante = datos.get('explorador_solicitante')
             explorador_receptor = datos.get('explorador_receptor')
             fecha = datos.get('fecha_cambio_turno')
+            comentario = datos.get('comentario') or ''
             
             if not all([explorador_solicitante, explorador_receptor, fecha]):
                 return False, "Faltan datos requeridos para la validación"
-            
+
+            # Caso A: Validar que la fecha no sea pasada
+            from datetime import date as _date, datetime as _datetime
+            _fecha_obj = _datetime.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+            if _fecha_obj < _date.today():
+                return False, "No se puede solicitar un cambio de turno para una fecha pasada."
+
             # Validaciones básicas
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
             SolicitudValidator.validar_empleado_activo(explorador_receptor)
             SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
+            # Comentario obligatorio
+            SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de cambio de turno')
             
             # OPTIMIZACIÓN: Obtener jornadas una sola vez y reutilizarlas
             from turnos.services.jornada_service import JornadaService
@@ -68,7 +78,19 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 return False, 'El receptor no tiene jornada asignada para esa fecha'
             
             SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
-            
+
+            # Caso C: una solicitud pendiente a la vez — bloquear si el receptor ya tiene
+            # cualquier solicitud pendiente para esta fecha (como solicitante o receptor).
+            # Solo puede enviarse una nueva cuando la pendiente sea aprobada o cancelada.
+            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(
+                explorador_receptor, fecha
+            )
+            # Mismo principio para el solicitante: no puede tener otra solicitud pendiente
+            # para la misma fecha (ni como solicitante ni como receptor).
+            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
+                explorador_solicitante, fecha
+            )
+
             # Validaciones específicas de Cambio Turno (CT)
             # 1. Validar jornada contraria (AM ↔ PM) - Reutilizando jornadas ya obtenidas
             SolicitudValidator.validar_jornada_contraria(
@@ -87,17 +109,112 @@ class CambioTurnoStrategy(SolicitudStrategy):
             
             # 3.1. Validar que no sea sábado (no se puede cambiar sábado por día de semana)
             SolicitudValidator.validar_no_sabado_ct_sencillo(fecha)
-            
-            # 4. Validar que el solicitante no tenga doblada activa para esa fecha
-            SolicitudValidator.validar_no_doblada_activa(explorador_solicitante, fecha)
-            
-            # 5. Validar que el receptor no tenga doblada activa para esa fecha
-            SolicitudValidator.validar_no_doblada_activa(explorador_receptor, fecha)
+
+            # 3.2. Validar rotación de festivos si la fecha es festivo de semana
+            # Los festivos ahora están permitidos, pero debemos verificar la rotación
+            if SolicitudValidator.es_festivo_semana(fecha):
+                try:
+                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                    from datetime import datetime
+                    
+                    if isinstance(fecha, str):
+                        fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+                    else:
+                        fecha_obj = fecha
+                    
+                    # Obtener qué grupo debe doblar ese festivo según la rotación global
+                    grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                    
+                    # Log para debugging (opcional)
+                    logger.info(
+                        f"CambioTurnoStrategy: Fecha festiva {fecha_obj} - Grupo que debe doblar: {grupo_que_dobla}",
+                        extra={
+                            'fecha': str(fecha_obj),
+                            'grupo_que_dobla': grupo_que_dobla,
+                            'solicitante_id': explorador_solicitante.id,
+                            'receptor_id': explorador_receptor.id
+                        }
+                    )
+                    
+                    # Nota: La validación de rotación se puede usar para:
+                    # - Verificar que el cambio respeta la rotación (si aplica)
+                    # - Por ahora solo registramos la información, las reglas específicas
+                    #   de qué cambios se permiten en festivos se pueden agregar después
+                    
+                except Exception as e:
+                    # Si hay error al obtener rotación, no bloquear la solicitud
+                    # pero registrar el error para debugging
+                    logger.warning(
+                        f"Error al obtener rotación de festivo para {fecha}: {str(e)}",
+                        exc_info=True
+                    )
+
+            # 4. Validar que ni solicitante ni receptor tengan doblada activa para esa fecha
+            error_doblada_solicitante = None
+            error_doblada_receptor = None
+
+            try:
+                SolicitudValidator.validar_no_doblada_activa(explorador_solicitante, fecha)
+            except ValidationError as e:
+                error_doblada_solicitante = str(e)
+
+            try:
+                SolicitudValidator.validar_no_doblada_activa(explorador_receptor, fecha)
+            except ValidationError as e:
+                error_doblada_receptor = str(e)
+
+            if error_doblada_solicitante or error_doblada_receptor:
+                # Construir mensajes claros según quién tiene la doblada
+                if error_doblada_solicitante and error_doblada_receptor:
+                    return False, (
+                        'Tanto tú como el compañero seleccionado tienen jornada doblada en esta fecha. '
+                        'Los casos donde ambos tienen doblada deben gestionarse únicamente desde la '
+                        'Solicitud de Dobladas.'
+                    )
+                if error_doblada_solicitante:
+                    return False, (
+                        'Tienes jornada doblada (AM + PM) en esta fecha. '
+                        'Este tipo de cambio no se puede realizar como Cambio de Turno Sencillo; '
+                        'debes usar la Solicitud de Dobladas.'
+                    )
+                if error_doblada_receptor:
+                    return False, (
+                        'El compañero seleccionado tiene jornada doblada (AM + PM) en esta fecha. '
+                        'Este cambio no se puede hacer como Cambio de Turno Sencillo; '
+                        'debe gestionarse mediante la Solicitud de Dobladas.'
+                    )
             
             # NOTA: Para festivos, el sistema ya filtra correctamente en get_empleados_jornada_contraria
             # para mostrar solo exploradores que tienen jornada en esa fecha (incluyendo festivos).
             # La validación de existencia de jornada se realiza centralizadamente en las líneas 64-67.
-            
+
+            # Caso B: Verificar límite de cambios aprobados al CREAR (no solo al aprobar).
+            # Evita que se creen solicitudes que el supervisor no podrá aprobar por límite alcanzado.
+            LIMITE_CAMBIOS_POR_FECHA = 3
+            from ..solicitud_consulta_service import SolicitudConsultaService
+            from datetime import datetime as _dt_b
+            _fecha_b = _dt_b.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+
+            cambios_solicitante = SolicitudConsultaService.contar_cambios_explorador_fecha(
+                explorador_solicitante.id, _fecha_b
+            )
+            if cambios_solicitante >= LIMITE_CAMBIOS_POR_FECHA:
+                return False, (
+                    f'No puedes crear esta solicitud. Ya tienes {cambios_solicitante} cambio(s) de turno '
+                    f'aprobado(s) para el {_fecha_b.strftime("%d/%m/%Y")}. '
+                    f'El límite máximo es {LIMITE_CAMBIOS_POR_FECHA} cambio(s) por fecha.'
+                )
+
+            cambios_receptor = SolicitudConsultaService.contar_cambios_explorador_fecha(
+                explorador_receptor.id, _fecha_b
+            )
+            if cambios_receptor >= LIMITE_CAMBIOS_POR_FECHA:
+                return False, (
+                    f'No se puede crear esta solicitud. El compañero seleccionado ya tiene '
+                    f'{cambios_receptor} cambio(s) de turno aprobado(s) para el {_fecha_b.strftime("%d/%m/%Y")}. '
+                    f'El límite máximo es {LIMITE_CAMBIOS_POR_FECHA} cambio(s) por fecha.'
+                )
+
             return True, "Solicitud válida"
             
         except Exception as e:
@@ -411,21 +528,20 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 solicitud.turno_destino = turno_receptor    # Turno resultante del receptor
                 solicitud.save()
                 
-                # FASE 3.5: Invalidar caché de turnos para ambos exploradores
-                from django.core.cache import cache
+                # FASE 3.5: Invalidar caché de turnos para ambos exploradores usando helper centralizado
+                from core.services.cache_service import CacheService
                 if fecha_cambio:
                     anio = fecha_cambio.year
                     mes = fecha_cambio.month
-                    # Invalidar caché para el solicitante
-                    cache_key_solicitante = f'turnos_mes_{solicitud.explorador_solicitante.id}_{anio}_{mes}'
-                    cache.delete(cache_key_solicitante)
-                    # Invalidar caché para el receptor
-                    cache_key_receptor = f'turnos_mes_{solicitud.explorador_receptor.id}_{anio}_{mes}'
-                    cache.delete(cache_key_receptor)
+                    # Invalidar caché para el solicitante y receptor usando helper que normaliza formato
+                    CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, mes, anio)
+                    CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, mes, anio)
                     logger.info(
-                        "FASE 3.5: Caché invalidado para solicitante (key: %s) y receptor (key: %s)",
-                        cache_key_solicitante,
-                        cache_key_receptor
+                        "FASE 3.5: Caché invalidado para solicitante (ID: %d) y receptor (ID: %d) en %d/%d",
+                        solicitud.explorador_solicitante.id,
+                        solicitud.explorador_receptor.id,
+                        mes,
+                        anio
                     )
                 
                 # FASE 1.14: FIRST-COME, FIRST-SERVED - Rechazar automáticamente otras solicitudes pendientes

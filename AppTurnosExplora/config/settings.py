@@ -51,10 +51,12 @@ INSTALLED_APPS = [
     'solicitudes',
     'permisos',
     'turnos',
+    "debug_toolbar",
 
 ]
 
 MIDDLEWARE = [
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -64,6 +66,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     #otros middlewares
     'simple_history.middleware.HistoryRequestMiddleware',
+     
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -191,6 +194,13 @@ CACHES = {
         }
     }
 }
+
+INTERNAL_IPS = [
+    "127.0.0.1",
+    "0.0.0.0",
+    "192.168.2.102",
+    "localhost",
+]
 
 # FASE 3.4: Configuración para Redis (descomentar en producción)
 # Requiere: pip install django-redis

@@ -8,6 +8,7 @@ creating a debt that must be paid back later.
 
 import logging
 import json
+import time
 from typing import Dict, Any, Tuple, Optional
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -56,6 +57,7 @@ class DobladaStrategy(SolicitudStrategy):
             Tuple of (is_valid, error_message)
         """
         try:
+            from ..solicitud_validator import SolicitudValidator
             explorador_solicitante = datos.get('explorador_solicitante')
             explorador_receptor = datos.get('explorador_receptor')
             fecha_cesion = datos.get('fecha_cambio_turno')
@@ -63,6 +65,7 @@ class DobladaStrategy(SolicitudStrategy):
             jornada_cedida = datos.get('jornada_cedida')
             jornada_pago_sabado = datos.get('jornada_pago_sabado')
             fecha_creacion_solicitud = datos.get('fecha_creacion_solicitud')
+            comentario = datos.get('comentario') or ''
             
             # Validaciones básicas de campos requeridos
             if not explorador_solicitante:
@@ -76,6 +79,9 @@ class DobladaStrategy(SolicitudStrategy):
             
             if not fecha_pago:
                 return False, "Fecha de pago es obligatoria. No existen dobladas abiertas."
+            
+            # Comentario obligatorio
+            SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de doblada')
             
             # Validar que fecha_cesion no sea en el pasado
             fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
@@ -96,12 +102,71 @@ class DobladaStrategy(SolicitudStrategy):
                 fecha_pago,
                 fecha_creacion_solicitud
             )
+
+            # Caso A: fecha_pago debe estar en el mismo mes que fecha_cesion
+            SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
+
+            # Caso C: receptor sin solicitud pendiente en fecha_cesion
+            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(
+                explorador_receptor, fecha_cesion
+            )
+
+            # Caso D: solicitante sin solicitud pendiente en fecha_cesion
+            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
+                explorador_solicitante, fecha_cesion
+            )
+
+            # Caso F: receptor no descansa por doblada en fecha_pago
+            SolicitudValidator.validar_receptor_no_descansa_por_doblada_en_pago(
+                explorador_receptor, fecha_pago
+            )
+
+            # Validar que fecha_pago no sea el mismo día que fecha_cesion
+            SolicitudValidator.validar_fecha_pago_diferente_cesion(fecha_cesion, fecha_pago)
             
             # Validar días especiales para fecha de cesión
             SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
             
             # Validar días especiales para fecha de pago
             SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
+            
+            # Validar reglas de festivos: si ambas fechas son festivos de semana, deben ser del mismo mes
+            fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
+            fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+            
+            es_cesion_festivo = SolicitudValidator.es_festivo_semana(fecha_cesion_obj)
+            es_pago_festivo = SolicitudValidator.es_festivo_semana(fecha_pago_obj)
+            
+            if es_cesion_festivo and es_pago_festivo:
+                # Ambas son festivos: validar que sean del mismo mes
+                SolicitudValidator.validar_festivos_mismo_mes(fecha_cesion_obj, fecha_pago_obj)
+                
+                # Obtener rotación para ambos festivos (para logging y posibles validaciones futuras)
+                try:
+                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                    grupo_cesion = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_cesion_obj)
+                    grupo_pago = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_pago_obj)
+                    
+                    logger.info(
+                        f"DobladaStrategy: Cesión festiva {fecha_cesion_obj} (grupo {grupo_cesion}) "
+                        f"<-> Pago festivo {fecha_pago_obj} (grupo {grupo_pago})",
+                        extra={
+                            'fecha_cesion': str(fecha_cesion_obj),
+                            'fecha_pago': str(fecha_pago_obj),
+                            'grupo_cesion': grupo_cesion,
+                            'grupo_pago': grupo_pago
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Error al obtener rotación de festivos: {str(e)}",
+                        exc_info=True
+                    )
+            elif es_cesion_festivo or es_pago_festivo:
+                # Solo una es festivo: registrar pero no bloquear (puede ser válido)
+                logger.info(
+                    f"DobladaStrategy: Una fecha es festivo (cesión: {es_cesion_festivo}, pago: {es_pago_festivo})"
+                )
             
             # ===========================
             # Regla especial: pago en sábado (día de semana ↔ sábado)
@@ -348,10 +413,46 @@ class DobladaStrategy(SolicitudStrategy):
             Tuple of (success, message)
         """
         try:
+            # #region agent log
+            import json
+            log_data = {
+                'location': 'doblada_strategy.py:aplicar_cambios',
+                'message': 'Iniciando aplicar_cambios para doblada',
+                'data': {
+                    'solicitud_id': solicitud.id,
+                    'estado': solicitud.estado,
+                    'aprobado_receptor': solicitud.aprobado_receptor,
+                    'aprobado_supervisor': solicitud.aprobado_supervisor,
+                    'solicitante_id': solicitud.explorador_solicitante.id,
+                    'receptor_id': solicitud.explorador_receptor.id,
+                    'fecha_cesion': str(solicitud.fecha_cambio_turno),
+                },
+                'timestamp': int(time.time() * 1000)
+            }
+            with open('c:\\appTurnos\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
+                f.write(json.dumps(log_data) + '\n')
+            # #endregion
+            
             from ..doblada_aplicacion_service import DobladaAplicacionService
             
             with transaction.atomic():
                 detalle = solicitud.doblada
+                
+                # #region agent log
+                log_data = {
+                    'location': 'doblada_strategy.py:aplicar_cambios',
+                    'message': 'Detalle obtenido, aplicando cesión y pago',
+                    'data': {
+                        'solicitud_id': solicitud.id,
+                        'fecha_pago': str(detalle.fecha_pago),
+                        'tipo_cesion': detalle.tipo_cesion,
+                        'jornada_cedida': detalle.jornada_cedida,
+                    },
+                    'timestamp': int(time.time() * 1000)
+                }
+                with open('c:\\appTurnos\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(log_data) + '\n')
+                # #endregion
                 
                 # Aplicar doblada en fecha de cesión
                 DobladaAplicacionService.aplicar_doblada_cesion(solicitud, detalle)
@@ -372,21 +473,15 @@ class DobladaStrategy(SolicitudStrategy):
             fecha_cesion = solicitud.fecha_cambio_turno
             fecha_pago = detalle.fecha_pago
             
-            # Limpiar caché para solicitante (mes de cesión y mes de pago)
+            # Limpiar caché para solicitante y receptor (mes de cesión y mes de pago)
+            # Usar helper centralizado que normaliza el formato de la clave de caché
             for fecha in [fecha_cesion, fecha_pago]:
-                anio = fecha.year
-                mes = fecha.month
-                cache_key_solicitante = f'turnos_mes_{solicitante.id}_{anio}_{mes:02d}'
-                CacheService.delete(cache_key_solicitante)
-                logger.info(f"Caché limpiado para solicitante: {cache_key_solicitante}")
-            
-            # Limpiar caché para receptor (mes de cesión y mes de pago)
-            for fecha in [fecha_cesion, fecha_pago]:
-                anio = fecha.year
-                mes = fecha.month
-                cache_key_receptor = f'turnos_mes_{receptor.id}_{anio}_{mes:02d}'
-                CacheService.delete(cache_key_receptor)
-                logger.info(f"Caché limpiado para receptor: {cache_key_receptor}")
+                CacheService.invalidar_cache_turnos_empleado(solicitante.id, fecha.month, fecha.year)
+                CacheService.invalidar_cache_turnos_empleado(receptor.id, fecha.month, fecha.year)
+                logger.info(
+                    f"Caché invalidado para solicitante (ID: {solicitante.id}) y receptor (ID: {receptor.id}) "
+                    f"en {fecha.month}/{fecha.year}"
+                )
             
             return True, "Doblada aplicada correctamente. Ambas dobladas (cesión y pago) fueron aplicadas inmediatamente."
                 
@@ -422,50 +517,167 @@ class DobladaStrategy(SolicitudStrategy):
             fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
             es_sabado = fecha_obj.weekday() == 5
             
+            # #region agent log
+            try:
+                import json
+                from time import time
+                with open(r'c:\appTurnos\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                    _f.write(json.dumps({
+                        "hypothesisId": "F1",
+                        "location": "DobladaStrategy.get_empleados_disponibles",
+                        "message": "entry",
+                        "data": {
+                            "fecha": fecha,
+                            "weekday": fecha_obj.weekday(),
+                            "jornada_cedida_param": kwargs.get('jornada_cedida')
+                        },
+                        "timestamp": int(time()*1000)
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+
             if es_sabado:
-                # Fecha de pago (o cesión) es sábado: mostrar solo quienes TRABAJAN ese sábado (alternancia)
+                # Fecha de pago (o cesión) es sábado
                 jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
                 if not jornada_trabaja_sabado:
                     return []
-                
-                empleados_activos = (
-                    Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id).select_related('supervisor')
-                )
-                empleados_contrarios = []
-                for empleado in empleados_activos:
-                    jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)
-                    if jornada_empleado and jornada_empleado.nombre.upper() == jornada_trabaja_sabado:
-                        empleados_contrarios.append(empleado)
-                
-                logger.info(
-                    f"get_empleados_disponibles sábado: {fecha} jornada trabaja={jornada_trabaja_sabado} "
-                    f"→ {len(empleados_contrarios)} empleados"
-                )
-            else:
-                # Día entre semana: lógica por jornada contraria
+
                 jornada_cedida = kwargs.get('jornada_cedida')
-                jornada_a_ceder = DobladaFiltroService.obtener_jornada_a_ceder(
-                    usuario_actual, fecha, jornada_cedida
-                )
-                
-                if not jornada_a_ceder:
-                    logger.warning(
-                        f"No se pudo determinar jornada a ceder para {usuario_actual.nombre} en {fecha}"
-                    )
-                    return []
-                
-                servicio = get_empleado_disponibilidad_service()
-                
                 if jornada_cedida:
-                    jornada_contraria = 'PM' if jornada_a_ceder == 'AM' else 'AM'
+                    # REGLA ESPECIAL SÁBADOS:
+                    # - El grupo que TRABAJA el sábado (según alternancia) hace la DOBLADA.
+                    # - El grupo que DESCANSA ese sábado es el que puede recibir la cesión.
+                    #   Ejemplo 14/02: trabajan AM → descansa PM → compañeros deben ser PM,
+                    #   tanto si se cede AM como si se cede PM.
+                    grupo_descansa = 'PM' if jornada_trabaja_sabado.upper() == 'AM' else 'AM'
+
+                    empleados_activos = (
+                        Empleado.objects.filter(activo=True)
+                        .exclude(id=usuario_actual.id)
+                        .select_related('supervisor')
+                    )
+                    empleados_contrarios = []
+
+                    # Obtener jornadas base directamente de AsignarJornadaExplorador
+                    from turnos.models import AsignarJornadaExplorador
+                    asignaciones = AsignarJornadaExplorador.objects.filter(
+                        explorador__in=empleados_activos,
+                        fecha_inicio__lte=fecha_obj
+                    ).select_related('jornada', 'explorador').order_by('explorador_id', '-fecha_inicio')
+
+                    # Crear diccionario de jornadas base por empleado
+                    jornadas_base = {}
+                    for asignacion in asignaciones:
+                        if asignacion.explorador_id not in jornadas_base:
+                            jornadas_base[asignacion.explorador_id] = asignacion.jornada.nombre.upper()
+
+                    for empleado in empleados_activos:
+                        # Usar jornada base del empleado (no la alternancia del sábado)
+                        jornada_base_empleado = jornadas_base.get(empleado.id)
+                        # Solo empleados del grupo que DESCANSA ese sábado
+                        if jornada_base_empleado and jornada_base_empleado == grupo_descansa:
+                            empleados_contrarios.append(empleado)
+
+                    logger.info(
+                        f"get_empleados_disponibles sábado: {fecha} jornada_cedida={jornada_cedida} "
+                        f"grupo_descansa={grupo_descansa} jornada_trabaja={jornada_trabaja_sabado} "
+                        f"→ {len(empleados_contrarios)} empleados"
+                    )
+                else:
+                    # Sin jornada_cedida específica: mantener lógica original:
+                    # mostrar quienes TRABAJAN ese sábado según alternancia.
+                    empleados_activos = (
+                        Empleado.objects.filter(activo=True)
+                        .exclude(id=usuario_actual.id)
+                        .select_related('supervisor')
+                    )
+                    empleados_contrarios = []
+                    for empleado in empleados_activos:
+                        jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)
+                        if jornada_empleado and jornada_empleado.nombre.upper() == jornada_trabaja_sabado.upper():
+                            empleados_contrarios.append(empleado)
+
+                    logger.info(
+                        f"get_empleados_disponibles sábado: {fecha} jornada_trabaja={jornada_trabaja_sabado} "
+                        f"→ {len(empleados_contrarios)} empleados"
+                    )
+            else:
+                # Día entre semana: lógica por jornada contraria + regla especial festivos de semana
+                jornada_cedida = kwargs.get('jornada_cedida')
+
+                # Detectar si es festivo de lunes a viernes y si al solicitante le toca doblar por rotación global
+                es_festivo_semana = SolicitudValidator.es_festivo_semana(fecha_obj)
+                grupo_que_dobla = None
+                jornada_solicitante = None
+                if es_festivo_semana:
+                    try:
+                        from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                        grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                        js = JornadaService.get_jornada_explorador_fecha(usuario_actual.id, fecha)
+                        jornada_solicitante = js.nombre.upper() if js else None
+                    except Exception:
+                        grupo_que_dobla = None
+                        jornada_solicitante = None
+
+                # #region agent log
+                try:
+                    import json
+                    from time import time
+                    with open(r'c:\appTurnos\.cursor\debug.log', 'a', encoding='utf-8') as _f:
+                        _f.write(json.dumps({
+                            "hypothesisId": "F1",
+                            "location": "DobladaStrategy.get_empleados_disponibles.weekday",
+                            "message": "weekday_context",
+                            "data": {
+                                "fecha": fecha,
+                                "es_festivo_semana": es_festivo_semana,
+                                "grupo_que_dobla": grupo_que_dobla,
+                                "jornada_solicitante": jornada_solicitante,
+                                "jornada_cedida": jornada_cedida
+                            },
+                            "timestamp": int(time()*1000)
+                        }) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+
+                # Regla especial festivos entre semana:
+                # Cuando al solicitante le corresponde doblar por festivo (grupo_que_dobla),
+                # solo pueden cubrir compañeros del grupo CONTRARIO al que dobla,
+                # independientemente de si cede AM o PM.
+                if es_festivo_semana and grupo_que_dobla and jornada_solicitante and jornada_solicitante == grupo_que_dobla.upper():
+                    grupo_descansa = 'PM' if grupo_que_dobla.upper() == 'AM' else 'AM'
                     empleados_activos = Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id)
                     empleados_contrarios = []
                     for empleado in empleados_activos:
                         jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)
-                        if jornada_empleado and jornada_empleado.nombre.upper() == jornada_contraria:
+                        if jornada_empleado and jornada_empleado.nombre.upper() == grupo_descansa:
                             empleados_contrarios.append(empleado)
                 else:
-                    empleados_contrarios = list(servicio.get_empleados_jornada_contraria(fecha, usuario_actual))
+                    # Lógica original para días de semana no festivos
+                    jornada_a_ceder = DobladaFiltroService.obtener_jornada_a_ceder(
+                        usuario_actual, fecha, jornada_cedida
+                    )
+                    
+                    if not jornada_a_ceder:
+                        logger.warning(
+                            f"No se pudo determinar jornada a ceder para {usuario_actual.nombre} en {fecha}"
+                        )
+                        return []
+                    
+                    servicio = get_empleado_disponibilidad_service()
+                    
+                    if jornada_cedida:
+                        jornada_contraria = 'PM' if jornada_a_ceder == 'AM' else 'AM'
+                        empleados_activos = Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id)
+                        empleados_contrarios = []
+                        for empleado in empleados_activos:
+                            jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)
+                            if jornada_empleado and jornada_empleado.nombre.upper() == jornada_contraria:
+                                empleados_contrarios.append(empleado)
+                    else:
+                        empleados_contrarios = list(servicio.get_empleados_jornada_contraria(fecha, usuario_actual))
             
             # Filtrar empleados con doblada activa
             empleados_sin_doblada = DobladaFiltroService.filtrar_empleados_sin_doblada_activa(

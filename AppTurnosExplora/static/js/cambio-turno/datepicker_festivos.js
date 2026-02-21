@@ -21,9 +21,33 @@
 
 // Cache global de festivos (compartido entre todas las instancias)
 let festivosCacheGlobal = null;
+// Promesa de carga en curso para evitar peticiones duplicadas simultáneas
+let festivosCargaEnCurso = null;
 
 // Cache global de días de mantenimiento (compartido entre todas las instancias)
 let mantenimientoCacheGlobal = null;
+// Promesa de carga en curso para evitar peticiones duplicadas simultáneas
+let mantenimientoCargaEnCurso = null;
+
+// Cache global de días de temporada (compartido entre todas las instancias)
+// Estructura: Map con clave "año" -> Map de fechas
+let temporadaCacheGlobal = new Map();
+// Promesas de carga en curso por año para evitar peticiones duplicadas simultáneas
+let temporadaCargaEnCurso = new Map();
+
+/**
+ * Incrementa una fecha en formato YYYY-MM-DD en un día
+ * @param {string} fecha - Fecha en formato YYYY-MM-DD
+ * @returns {string} Fecha incrementada en un día
+ */
+function incrementarFecha(fecha) {
+    const fechaObj = new Date(fecha + 'T00:00:00');
+    fechaObj.setDate(fechaObj.getDate() + 1);
+    const año = fechaObj.getFullYear();
+    const mes = String(fechaObj.getMonth() + 1).padStart(2, '0');
+    const dia = String(fechaObj.getDate()).padStart(2, '0');
+    return `${año}-${mes}-${dia}`;
+}
 
 // Forzar lunes como primer día de la semana en el locale español de Flatpickr.
 // Sin esto, la cuadrícula (domingo primero) y las cabeceras Lun–Dom quedan desalineadas.
@@ -57,9 +81,44 @@ function cargarDiasFestivos(añoEspecifico = null) {
         return Promise.resolve(festivosCacheGlobal);
     }
     
+    // Si hay una carga en curso, esperar a que termine en lugar de iniciar otra
+    if (festivosCargaEnCurso !== null && añoEspecifico === null) {
+        return festivosCargaEnCurso.then(() => festivosCacheGlobal);
+    }
+    
+    // Si se solicita un año específico y ya está en caché, verificar antes de cargar
+    if (festivosCacheGlobal !== null && añoEspecifico !== null) {
+        // Verificar si tenemos al menos un festivo para ese año en el caché
+        // (no necesitamos verificar todos los días, solo verificar si hay alguno)
+        const fechaInicioAño = `${añoEspecifico}-01-01`;
+        const fechaFinAño = `${añoEspecifico}-12-31`;
+        let tieneDatosParaAño = false;
+        
+        // Verificar si tenemos datos para ese año en el caché (muestreo cada 30 días para eficiencia)
+        for (let fecha = fechaInicioAño; fecha <= fechaFinAño; ) {
+            if (festivosCacheGlobal.has(fecha)) {
+                tieneDatosParaAño = true;
+                break;
+            }
+            // Incrementar 30 días para muestreo eficiente
+            const fechaObj = new Date(fecha + 'T00:00:00');
+            fechaObj.setDate(fechaObj.getDate() + 30);
+            const año = fechaObj.getFullYear();
+            const mes = String(fechaObj.getMonth() + 1).padStart(2, '0');
+            const dia = String(fechaObj.getDate()).padStart(2, '0');
+            fecha = `${año}-${mes}-${dia}`;
+            if (fecha > fechaFinAño) break;
+        }
+        
+        // Si tenemos datos para ese año, retornar caché sin recargar
+        if (tieneDatosParaAño) {
+            return Promise.resolve(festivosCacheGlobal);
+        }
+    }
+    
     const añoActual = new Date().getFullYear();
-    const añoInicio = añoActual - 1; // Incluir año anterior
-    const añoFin = añoActual + 10;   // Incluir 10 años futuros
+    const añoInicio = añoActual;      // Solo año actual
+    const añoFin = añoActual + 2;     // Solo 2 años futuros (suficiente para planificación)
     
     // Calcular festivos de Colombia
     let festivosCalculados;
@@ -76,8 +135,8 @@ function cargarDiasFestivos(añoEspecifico = null) {
         festivosCalculados = obtenerFestivosRango(añoInicio, añoFin);
     }
     
-    // Cargar festivos adicionales de la BD
-    return fetch('/turnos/api/dias-festivos/', {
+    // Marcar que hay una carga en curso
+    festivosCargaEnCurso = fetch('/turnos/api/dias-festivos/', {
         method: 'GET',
         headers: {
             'X-Requested-With': 'XMLHttpRequest',
@@ -102,6 +161,8 @@ function cargarDiasFestivos(añoEspecifico = null) {
             });
         }
         
+        // Limpiar la promesa de carga en curso
+        festivosCargaEnCurso = null;
         return festivosCacheGlobal;
     })
     .catch(error => {
@@ -114,8 +175,12 @@ function cargarDiasFestivos(añoEspecifico = null) {
                 festivosCacheGlobal.set(fecha, descripcion);
             });
         }
+        // Limpiar la promesa de carga en curso incluso en caso de error
+        festivosCargaEnCurso = null;
         return festivosCacheGlobal;
     });
+    
+    return festivosCargaEnCurso;
 }
 
 /**
@@ -130,15 +195,59 @@ function cargarDiasMantenimiento(añoEspecifico = null) {
         return Promise.resolve(mantenimientoCacheGlobal);
     }
     
+    // Si hay una carga en curso, esperar a que termine en lugar de iniciar otra
+    if (mantenimientoCargaEnCurso !== null && añoEspecifico === null) {
+        return mantenimientoCargaEnCurso.then(() => mantenimientoCacheGlobal);
+    }
+    
+    // Si se solicita un año específico y ya está en caché, verificar antes de cargar
+    if (mantenimientoCacheGlobal !== null && añoEspecifico !== null) {
+        // Verificar si tenemos al menos un día de mantenimiento para ese año en el caché
+        // (no necesitamos verificar todos los días, solo verificar si hay alguno)
+        const fechaInicioAño = `${añoEspecifico}-01-01`;
+        const fechaFinAño = `${añoEspecifico}-12-31`;
+        let tieneDatosParaAño = false;
+        
+        // Verificar si tenemos datos para ese año en el caché (muestreo cada 30 días para eficiencia)
+        for (let fecha = fechaInicioAño; fecha <= fechaFinAño; ) {
+            if (mantenimientoCacheGlobal.has(fecha)) {
+                tieneDatosParaAño = true;
+                break;
+            }
+            // Incrementar 30 días para muestreo eficiente
+            const fechaObj = new Date(fecha + 'T00:00:00');
+            fechaObj.setDate(fechaObj.getDate() + 30);
+            const año = fechaObj.getFullYear();
+            const mes = String(fechaObj.getMonth() + 1).padStart(2, '0');
+            const dia = String(fechaObj.getDate()).padStart(2, '0');
+            fecha = `${año}-${mes}-${dia}`;
+            if (fecha > fechaFinAño) break;
+        }
+        
+        // Si tenemos datos para ese año, retornar caché sin recargar
+        if (tieneDatosParaAño) {
+            return Promise.resolve(mantenimientoCacheGlobal);
+        }
+    }
+    
     const añoActual = new Date().getFullYear();
-    const añoInicio = añoActual - 1; // Incluir año anterior
-    const añoFin = añoActual + 10;   // Incluir 10 años futuros
+    const añoInicio = añoActual;      // Solo año actual
+    const añoFin = añoActual + 2;     // Solo 2 años futuros (suficiente para planificación)
     
     // Cargar días de mantenimiento de la BD para el rango de años
     const añosACargar = [];
     if (añoEspecifico !== null) {
-        añosACargar.push(añoEspecifico);
+        // Si se solicita un año específico fuera del rango inicial, cargar solo ese año
+        if (añoEspecifico < añoInicio || añoEspecifico > añoFin) {
+            añosACargar.push(añoEspecifico);
+        } else {
+            // Si está dentro del rango, cargar el rango completo para tener datos consistentes
+            for (let año = añoInicio; año <= añoFin; año++) {
+                añosACargar.push(año);
+            }
+        }
     } else {
+        // Cargar rango inicial reducido
         for (let año = añoInicio; año <= añoFin; año++) {
             añosACargar.push(año);
         }
@@ -168,7 +277,8 @@ function cargarDiasMantenimiento(añoEspecifico = null) {
         });
     });
     
-    return Promise.all(promesas).then(maps => {
+    // Marcar que hay una carga en curso
+    mantenimientoCargaEnCurso = Promise.all(promesas).then(maps => {
         // Combinar todos los Maps en uno solo
         if (mantenimientoCacheGlobal === null) {
             mantenimientoCacheGlobal = new Map();
@@ -180,8 +290,17 @@ function cargarDiasMantenimiento(añoEspecifico = null) {
             });
         });
         
+        // Limpiar la promesa de carga en curso
+        mantenimientoCargaEnCurso = null;
         return mantenimientoCacheGlobal;
+    }).catch(error => {
+        console.error('Error al cargar días de mantenimiento:', error);
+        // Limpiar la promesa de carga en curso incluso en caso de error
+        mantenimientoCargaEnCurso = null;
+        return mantenimientoCacheGlobal || new Map();
     });
+    
+    return mantenimientoCargaEnCurso;
 }
 
 /**
@@ -331,7 +450,18 @@ function cargarDiasTemporada(anio = null) {
         anio = new Date().getFullYear();
     }
     
-    return fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
+    // Si ya tenemos el caché para este año, retornar caché
+    if (temporadaCacheGlobal.has(anio)) {
+        return Promise.resolve(temporadaCacheGlobal.get(anio));
+    }
+    
+    // Si hay una carga en curso para este año, esperar a que termine
+    if (temporadaCargaEnCurso.has(anio)) {
+        return temporadaCargaEnCurso.get(anio).then(() => temporadaCacheGlobal.get(anio));
+    }
+    
+    // Marcar que hay una carga en curso para este año
+    const promesaCarga = fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
         .then(response => response.json())
         .then(data => {
             const temporadaMap = new Map();
@@ -357,12 +487,27 @@ function cargarDiasTemporada(anio = null) {
                 });
             }
             
+            // Guardar en caché
+            temporadaCacheGlobal.set(anio, temporadaMap);
+            
+            // Limpiar la promesa de carga en curso
+            temporadaCargaEnCurso.delete(anio);
+            
             return temporadaMap;
         })
         .catch(error => {
             console.error('Error cargando días de temporada:', error);
-            return new Map();
+            // Limpiar la promesa de carga en curso incluso en caso de error
+            temporadaCargaEnCurso.delete(anio);
+            const mapaVacio = new Map();
+            temporadaCacheGlobal.set(anio, mapaVacio);
+            return mapaVacio;
         });
+    
+    // Guardar la promesa de carga en curso
+    temporadaCargaEnCurso.set(anio, promesaCarga);
+    
+    return promesaCarga;
 }
 
 /**
@@ -613,7 +758,9 @@ function inicializarDatepickerFestivos(config) {
         descripcionFestivo = null,
         flatpickrOptions = {},
         bloquearDiasEspeciales = false,
-        bloquearSabados = false
+        bloquearSabados = false,
+        permitirFestivos = false,  // Si true, permite seleccionar festivos
+        permitirTemporada = false  // Si true, permite seleccionar días de temporada (solo CT Permanente los bloquea)
     } = config;
     
     if (!input) {
@@ -685,11 +832,17 @@ function inicializarDatepickerFestivos(config) {
                         marcarMantenimientoEnCalendario(instance, mantenimientoMapActual);
                         marcarTemporadaEnCalendario(instance, temporadaMapActual);
                     }
+                    
+                    // Si permitirFestivos es true, marcar festivos incluso si están habilitados
+                    if (permitirFestivos && !bloquearDiasEspeciales) {
+                        marcarFestivosEnCalendario(instance, festivosMapActual);
+                    }
                 }
             }, 100);
         };
         
         // Si bloquearDiasEspeciales es true, configurar disable: domingos, festivos, mantenimiento y temporada
+        // permitirFestivos: no bloquear festivos. permitirTemporada: no bloquear temporada (CT Permanente sí bloquea)
         if (bloquearDiasEspeciales) {
             const fechasFestivos = Array.from(festivosMap.keys());
             const fechasMantenimiento = Array.from(mantenimientoMap.keys());
@@ -704,18 +857,19 @@ function inicializarDatepickerFestivos(config) {
 
             opcionesBase.disable.push(
                 function(date) { return date.getDay() === 0; }, // Domingo
-                function(date) {
+                ...(permitirFestivos ? [] : [function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasFestivos.includes(fechaStr);
-                },
+                }]),
                 function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasMantenimiento.includes(fechaStr);
                 },
-                function(date) {
+                // Temporada: solo bloquear si NO se permite seleccionarlos (CT Permanente no permite)
+                ...(permitirTemporada ? [] : [function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
                     return fechasTemporada.includes(fechaStr);
-                }
+                }])
             );
             
             // Si bloquearSabados es true, también deshabilitar sábados (para CT Sencillo)
@@ -791,12 +945,23 @@ function inicializarDatepickerFestivos(config) {
         opcionesBase.onMonthChange = function(selectedDates, dateStr, instance) {
             // Verificar si el año cambió al cambiar el mes (ej: diciembre 2025 -> enero 2026)
             const añoVisible = instance.currentYear;
+            const añoActual = new Date().getFullYear();
             const añoCargado = temporadaMapActual && temporadaMapActual.size > 0 ? 
                 parseInt(Array.from(temporadaMapActual.keys())[0].split('-')[0]) : añoActual;
             
-            // Si el año visible es diferente al año cargado, recargar temporadas
+            // Si el año visible es diferente al año cargado, cargar bajo demanda festivos, mantenimiento y temporadas
             if (añoVisible !== añoCargado) {
-                cargarDiasTemporada(añoVisible).then(nuevaTemporada => {
+                Promise.all([
+                    cargarDiasFestivos(añoVisible),
+                    cargarDiasMantenimiento(añoVisible),
+                    cargarDiasTemporada(añoVisible)
+                ]).then(([nuevosFestivos, nuevoMantenimiento, nuevaTemporada]) => {
+                    // Actualizar los Maps locales
+                    festivosMap = nuevosFestivos;
+                    mantenimientoMap = nuevoMantenimiento;
+                    temporadaMap = nuevaTemporada;
+                    festivosMapActual = nuevosFestivos;
+                    mantenimientoMapActual = nuevoMantenimiento;
                     temporadaMapActual = nuevaTemporada;
                     marcarTodosLosDiasEspeciales(instance);
                 });
@@ -814,36 +979,24 @@ function inicializarDatepickerFestivos(config) {
             const nuevoAño = instance.currentYear;
             const añoActual = new Date().getFullYear();
             
-            // Si el año está fuera del rango cargado, cargar festivos, mantenimiento y temporadas para ese año
-            if (nuevoAño < añoActual - 1 || nuevoAño > añoActual + 10) {
-                Promise.all([
-                    cargarDiasFestivos(nuevoAño),
-                    cargarDiasMantenimiento(nuevoAño),
-                    cargarDiasTemporada(nuevoAño)
-                ]).then(([nuevosFestivos, nuevoMantenimiento, nuevaTemporada]) => {
-                    // Actualizar los Maps (tanto locales como actuales)
-                    festivosMap = nuevosFestivos;
-                    mantenimientoMap = nuevoMantenimiento;
-                    temporadaMap = nuevaTemporada;
-                    festivosMapActual = nuevosFestivos;
-                    mantenimientoMapActual = nuevoMantenimiento;
-                    temporadaMapActual = nuevaTemporada;
-                    
-                    // Re-marcar todos los días especiales
-                    marcarTodosLosDiasEspeciales(instance);
-                });
-            } else {
-                // Cargar temporadas para el nuevo año si cambió
-                if (nuevoAño !== añoActual) {
-                    cargarDiasTemporada(nuevoAño).then(nuevaTemporada => {
-                        temporadaMapActual = nuevaTemporada;
-                        marcarTodosLosDiasEspeciales(instance);
-                    });
-                } else {
-                    // Re-marcar días especiales del año actual
-                    marcarTodosLosDiasEspeciales(instance);
-                }
-            }
+            // Cargar bajo demanda festivos, mantenimiento y temporadas para el nuevo año
+            // La función cargarDiasFestivos/cargarDiasMantenimiento verifica el caché antes de hacer petición
+            Promise.all([
+                cargarDiasFestivos(nuevoAño),
+                cargarDiasMantenimiento(nuevoAño),
+                cargarDiasTemporada(nuevoAño)
+            ]).then(([nuevosFestivos, nuevoMantenimiento, nuevaTemporada]) => {
+                // Actualizar los Maps (tanto locales como actuales)
+                festivosMap = nuevosFestivos;
+                mantenimientoMap = nuevoMantenimiento;
+                temporadaMap = nuevaTemporada;
+                festivosMapActual = nuevosFestivos;
+                mantenimientoMapActual = nuevoMantenimiento;
+                temporadaMapActual = nuevaTemporada;
+                
+                // Re-marcar todos los días especiales
+                marcarTodosLosDiasEspeciales(instance);
+            });
             
             // Ejecutar callback personalizado si existe
             if (flatpickrOptions.onYearChange) {

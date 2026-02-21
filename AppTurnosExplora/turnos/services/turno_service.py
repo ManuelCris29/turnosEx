@@ -164,6 +164,7 @@ class TurnoService(ITurnoService):
                     'hora_inicio': hora_inicio,
                     'hora_fin': hora_fin,
                     'es_turno_virtual': False,
+                    'tipo_cambio': turno.tipo_cambio,
                     'tipo_sala': 'turno',
                     'es_doblada': jornada_display == 'DOBLADA'
                 }

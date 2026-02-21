@@ -120,6 +120,21 @@ Este es un proyecto Django para gestión de turnos de exploradores en Parque Exp
 
 ---
 
+### 5. Reglas de Negocio de Solicitudes
+
+**Archivo de referencia:** `docs/REGLAS_NEGOCIO_SOLICITUDES.md`
+
+Este archivo documenta todas las reglas de negocio y casos límite implementados para cada tipo de solicitud: CT Sencillo, Doblada, CT Permanente y D-FDS.
+
+**SIEMPRE que se trabaje con solicitudes (CT, Doblada, CT Permanente, D-FDS):**
+- Leer `docs/REGLAS_NEGOCIO_SOLICITUDES.md` antes de implementar cualquier validación nueva
+- Verificar que la nueva regla no entre en conflicto con las ya existentes
+- Actualizar el documento inmediatamente después de implementar una nueva regla o modificar una existente
+- Documentar si la validación es solo backend, solo frontend, o ambas capas
+- Registrar el caso en la tabla de "Convenciones de nomenclatura de casos" si corresponde a un caso letrado (A, B, C...)
+
+---
+
 **Nota**: Los skills están ubicados en `.agents/skills/` y deben ser consultados automáticamente según el contexto de la tarea.
 
 

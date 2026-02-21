@@ -128,3 +128,5 @@ C:\appTurnos\
 4. Considerar crear un índice general en `docs/README.md` con enlaces a todas las categorías
 
 
+
+

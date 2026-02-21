@@ -273,3 +273,5 @@ if (confirmed) {
 - Migración gradual posible
 - No requiere build process (funciona directamente en navegador)
 
+
+
