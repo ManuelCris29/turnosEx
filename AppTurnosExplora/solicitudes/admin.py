@@ -70,7 +70,10 @@ class CambioPermanenteDiaAdmin(admin.ModelAdmin):
 
 @admin.register(DobladaDetalle)
 class DobladaDetalleAdmin(admin.ModelAdmin):
-    list_display = ['solicitud', 'fecha_pago', 'tipo_cesion', 'jornada_cedida', 'minutos_deuda']
+    list_display = [
+        'solicitud', 'fecha_pago', 'tipo_cesion', 'jornada_cedida',
+        'jornada_cubre_en_pago', 'jornada_pago_sabado', 'minutos_deuda',
+    ]
     list_filter = ['tipo_cesion', 'fecha_pago']
     search_fields = ['solicitud__id', 'empleado_receptor__nombre', 'empleado_receptor__apellido']
     date_hierarchy = 'fecha_pago'

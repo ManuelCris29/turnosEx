@@ -138,11 +138,13 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # OPTIMIZACIÓN: Precargar dobladas donde el empleado descansa (solicitante o receptor)
             # Evita 2 consultas por cada día sin turnos
             from solicitudes.models import SolicitudCambio
+            # Incluye DOBLADA y D FDS: en ambas el solicitante descansa en fecha de
+            # cesión y el receptor descansa en fecha de pago (D FDS reutiliza DobladaDetalle).
             solicitudes_descanso_solicitante = {
                 s.fecha_cambio_turno: s
                 for s in SolicitudCambio.objects.filter(
                     explorador_solicitante=empleado,
-                    tipo_cambio__nombre='DOBLADA',
+                    tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                     fecha_cambio_turno__gte=fecha_inicio,
                     fecha_cambio_turno__lte=fecha_fin,
                     estado='aprobada'
@@ -151,7 +153,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             solicitudes_descanso_receptor = {}
             for s in SolicitudCambio.objects.filter(
                 explorador_receptor=empleado,
-                tipo_cambio__nombre='DOBLADA',
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                 estado='aprobada',
                 doblada__fecha_pago__gte=fecha_inicio,
                 doblada__fecha_pago__lte=fecha_fin
@@ -201,12 +203,6 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
                     es_cambio = len(tipos_cambio) > 0
                     tipo_cambio_principal = tipos_cambio[0] if tipos_cambio else None
-
-                    # #region agent log
-                    import json as _jav, time as _tav
-                    with open(r'c:\appTurnos\.cursor\debug.log', 'a', encoding='utf-8') as _fav:
-                        _fav.write(_jav.dumps({'hypothesisId':'H-TIPO','location':'api/views.py:MisTurnosPorMesView','message':'Datos turno en BD','data':{'fecha':str(fecha),'turnos_count':len(turnos_dia),'tipos_cambio':tipos_cambio,'es_cambio':es_cambio,'jornada_display':jornada_display,'coincide':jornada_display==calcular_jornada_dia(jornada_base,fecha)},'timestamp':int(_tav.time()*1000)}) + '\n')
-                    # #endregion
                     
                     # Determinar sala(s)
                     salas = [t.sala.nombre for t in turnos_dia if t.sala]

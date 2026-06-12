@@ -1,70 +1,66 @@
 {% extends 'base.html' %}
+{% load static %}
 
-{% block title %}PDH - AppTurnos{% endblock %}
-{% block page_title %}PDH{% endblock %}
+{% block title %}PDH - Pago de Horas{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12">
-            <div class="card shadow">
-                <div class="card-header bg-warning text-dark">
-                    <h4 class="mb-0"><i class="fas fa-coins"></i> Lista de PDH (Pago de Horas)</h4>
-                </div>
-                <div class="card-body">
-                    {% if user.is_staff %}
-                    <a href="{% url 'pdh_create' %}" class="btn btn-success mb-3">
-                        <i class="fas fa-plus"></i> Nuevo PDH
-                    </a>
-                    {% endif %}
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped table-bordered">
-                            <thead class="thead-dark">
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Empleado</th>
-                                    <th>Fecha</th>
-                                    <th>Horas</th>
-                                    <th>Monto</th>
-                                    <th>Estado</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for pdh in pdhs %}
-                                <tr>
-                                    <td>{{ pdh.id }}</td>
-                                    <td>{{ pdh.empleado.nombre }} {{ pdh.empleado.apellido }}</td>
-                                    <td>{{ pdh.fecha }}</td>
-                                    <td>{{ pdh.horas }}</td>
-                                    <td>${{ pdh.monto }}</td>
-                                    <td>
-                                        <span class="badge badge-{% if pdh.estado == 'PENDIENTE' %}warning{% elif pdh.estado == 'PAGADO' %}success{% else %}secondary{% endif %}">
-                                            {{ pdh.estado }}
-                                        </span>
-                                    </td>
-                                    <td>
-                                    {% if user.is_staff %}
-                                        <a href="{% url 'pdh_edit' pdh.id %}" class="btn btn-primary btn-sm" title="Editar">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="{% url 'pdh_delete' pdh.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este PDH?');">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </a>
-                                    {% endif %}
-                                    </td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="7">No hay registros de PDH.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-coins"></i> Pago de Horas (PDH)</h1>
+      <p class="pg-subtitle">Registra los pagos de horas de los exploradores — se descuentan de su consolidado</p>
     </div>
+
+    {% if messages %}
+      {% for m in messages %}<div class="alert alert-success shadow-sm">{{ m }}</div>{% endfor %}
+    {% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head amber">
+        <h3><i class="fas fa-list-ul"></i> Pagos registrados</h3>
+        <div class="pg-actions">
+          <a href="{% url 'pdh_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Registrar pago</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th>Explorador</th>
+                <th>Fecha de pago</th>
+                <th>Horas</th>
+                <th>Líder que autoriza</th>
+                <th>Nota</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for pdh in pdhs %}
+              <tr>
+                <td>{{ pdh.explorador.nombre }} {{ pdh.explorador.apellido }}</td>
+                <td>{{ pdh.fecha|date:"d/m/Y" }}</td>
+                <td><span class="pg-chip pg-chip-no">−{{ pdh.horas }} h</span></td>
+                <td>{{ pdh.supervisor.nombre }} {{ pdh.supervisor.apellido }}</td>
+                <td>{{ pdh.comentario|default:"—" }}</td>
+                <td style="white-space:nowrap;">
+                  <a href="{% url 'pdh_edit' pdh.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                  <a href="{% url 'pdh_delete' pdh.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar"
+                     onclick="return confirm('¿Eliminar este pago? Las horas volverán al consolidado del explorador.');"><i class="fas fa-trash-alt"></i></a>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="6"><div class="pg-empty"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>No hay pagos de horas registrados.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

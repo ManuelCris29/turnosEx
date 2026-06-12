@@ -1,14 +1,30 @@
 {% extends 'base.html' %}
-{% block title %}Eliminar PDH{% endblock %}
-{% block page_title %}Eliminar PDH{% endblock %}
+{% load static %}
+
+{% block title %}Eliminar Pago de Horas{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <h2>¿Eliminar PDH?</h2>
-    <p>¿Estás seguro de que deseas eliminar el PDH de <strong>{{ object.empleado }}</strong> del {{ object.fecha }}?</p>
-    <form method="post">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-danger">Eliminar</button>
-        <a href="{% url 'pdh_list' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="pg-container">
+  <div class="pg-content" style="max-width:560px;">
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#ef4444,#f97316);">
+        <h3><i class="fas fa-exclamation-triangle"></i> Eliminar pago de horas</h3>
+      </div>
+      <div class="pg-card-body">
+        <p>¿Eliminar el pago de <strong>{{ object.horas }} h</strong> de
+           <strong>{{ object.explorador.nombre }} {{ object.explorador.apellido }}</strong>
+           del {{ object.fecha|date:"d/m/Y" }}? Las horas volverán a su consolidado.</p>
+        <form method="post" class="d-flex gap-2 mt-3">
+          {% csrf_token %}
+          <button type="submit" class="pg-btn pg-btn-danger"><i class="fas fa-trash-alt"></i> Eliminar</button>
+          <a href="{% url 'pdh_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

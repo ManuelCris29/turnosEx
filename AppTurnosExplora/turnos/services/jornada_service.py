@@ -62,21 +62,11 @@ class JornadaService:
                 return turno_especifico.jornada  # Jornada del cambio
             
             # 2. Si no hay turno específico, usar la jornada fija del explorador
-            # Las jornadas son indefinidas por defecto (sin fecha_fin)
-            # Cache para jornada predeterminada
-            cache_key = f"jornada_pred_{explorador.id}_{fecha_obj}"
-            
-            def obtener_asignacion():
-                return AsignarJornadaExplorador.objects.select_related('jornada').filter(
-                    explorador=explorador,
-                    fecha_inicio__lte=fecha_obj
-                ).order_by('-fecha_inicio').first()
-            
-            asignacion_jornada = CacheService.get_or_set(
-                cache_key,
-                obtener_asignacion,
-                ttl=CACHE_TTL_LONG
-            )
+            #    (sin caché, para reflejar inmediatamente cambios en AsignarJornadaExplorador)
+            asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
+                explorador=explorador,
+                fecha_inicio__lte=fecha_obj
+            ).order_by('-fecha_inicio').first()
             
             if asignacion_jornada:
                 logger.info("JornadaService.get_jornada_explorador_fecha - Jornada obtenida de Asignación", extra={

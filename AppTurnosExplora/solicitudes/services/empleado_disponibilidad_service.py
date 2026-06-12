@@ -36,17 +36,24 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         if solo_jornada_contraria:
             return EmpleadoDisponibilidadService.get_empleados_jornada_contraria(fecha, usuario_actual)
         
-        # Lógica original: todos los empleados activos
-        # Optimización: solo los campos necesarios y relaciones frecuentes
+        # Lógica original: todos los empleados activos (no administradores)
+        # El modelo Empleado tiene relación 'user' (OneToOneField a User), no 'usuario'
         empleados = (
             Empleado.objects
-            .filter(activo=True)
+            .filter(
+                activo=True,
+                user__is_staff=False,
+                user__is_superuser=False
+            )
             .select_related('supervisor')
         )
         
-        # Excluir al usuario actual si se proporciona
-        if usuario_actual and hasattr(usuario_actual, 'empleado'):
-            empleados = empleados.exclude(id=usuario_actual.empleado.id)
+        # Excluir al usuario actual si se proporciona (Empleado o User con .empleado)
+        if usuario_actual:
+            if isinstance(usuario_actual, Empleado):
+                empleados = empleados.exclude(id=usuario_actual.id)
+            elif hasattr(usuario_actual, 'empleado') and usuario_actual.empleado:
+                empleados = empleados.exclude(id=usuario_actual.empleado.id)
         
         return empleados
 

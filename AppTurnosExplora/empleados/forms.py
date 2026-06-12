@@ -69,6 +69,34 @@ class JornadaForm(forms.ModelForm):
             'hora_fin': forms.TimeInput(attrs={'class': 'form-control', 'type': 'time'}),
         }
 
+class PDHForm(forms.ModelForm):
+    """Formulario para que un supervisor registre un Pago de Horas de un explorador."""
+    fecha = forms.DateField(
+        label='Fecha de pago',
+        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+    )
+
+    class Meta:
+        from permisos.models import PDH
+        model = PDH
+        fields = ['explorador', 'fecha', 'horas', 'comentario']
+        labels = {
+            'horas': 'Horas a pagar (se descuentan del consolidado)',
+            'comentario': 'Nota (p. ej. el día que se está pagando)',
+        }
+        widgets = {
+            'explorador': forms.Select(attrs={'class': 'form-control'}),
+            'horas': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.5', 'min': '0.5'}),
+            'comentario': forms.Textarea(attrs={'class': 'form-control', 'rows': 2,
+                                                'placeholder': 'Ej: paga la doblada del 15/01/2026'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['explorador'].queryset = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+        self.fields['comentario'].required = False
+
+
 class EmpleadoUsuarioForm(forms.Form):
     usuario_existente = forms.ModelChoiceField(
         queryset=User.objects.all(),

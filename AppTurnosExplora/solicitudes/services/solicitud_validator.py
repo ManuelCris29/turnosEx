@@ -768,10 +768,10 @@ class SolicitudValidator:
         if 'AM' in jornadas and 'PM' in jornadas:
             raise ValidationError(
                 (
-                    'No se puede realizar un Cambio de Turno Sencillo porque el explorador ya tiene '
+                    'No se puede realizar esta solicitud porque el explorador ya tiene '
                     'una jornada doblada (AM + PM) para el '
                     f'{fecha_obj.strftime("%d/%m/%Y")}. '
-                    'Este tipo de caso debe gestionarse mediante la Solicitud de Dobladas.'
+                    'Este tipo de caso debe gestionarse mediante la Solicitud de Dobladas, no mediante otros tipos de cambio.'
                 )
             )
     
@@ -994,6 +994,10 @@ class SolicitudValidator:
         # Obtener jornada del receptor
         jornada_receptor = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_str)
         if not jornada_receptor:
+            # CASO 3 / 6: receptor en descanso (sin turno efectivo) en fecha de cesión;
+            # la cesión queda cubierta por el acuerdo de pago en otra fecha.
+            if jornada_a_ceder in ('AM', 'PM'):
+                return
             raise ValidationError('El receptor no tiene jornada asignada para esa fecha')
         
         jornada_receptor_nombre = jornada_receptor.nombre.upper()
@@ -1020,7 +1024,12 @@ class SolicitudValidator:
         Raises:
             ValidationError: Si el receptor ya tiene doblada activa
         """
-        SolicitudValidator.validar_no_doblada_activa(receptor, fecha)
+        try:
+            SolicitudValidator.validar_no_doblada_activa(receptor, fecha)
+        except ValidationError:
+            raise ValidationError(
+                'El receptor no puede tener doblada el día de la cesión.'
+            ) from None
     
     @staticmethod
     def validar_dias_especiales_doblada(fecha):
@@ -1194,6 +1203,56 @@ class SolicitudValidator:
             return False
 
     @staticmethod
+    def validar_ambos_descansando_fecha_pago(solicitante: Empleado, receptor: Empleado, fecha_pago):
+        """
+        Caso 1.2: Rechazar cuando deudor y acreedor están descansando en la fecha de pago.
+        Si ninguno tiene turno/jornada en fecha_pago, no se puede realizar el pago.
+
+        Args:
+            solicitante: Explorador deudor (emisor)
+            receptor: Explorador acreedor
+            fecha_pago: Fecha de pago (string o date)
+
+        Raises:
+            ValidationError: Si ambos están descansando en fecha_pago
+        """
+        from core.utils.date_utils import DateUtils
+        from turnos.services.jornada_service import JornadaService
+
+        fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+        fecha_pago_str = fecha_pago_obj.strftime('%Y-%m-%d')
+        jornada_sol = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha_pago_str)
+        jornada_rec = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_pago_str)
+        if not jornada_sol and not jornada_rec:
+            raise ValidationError(
+                'Los dos están descansando en la fecha de pago. No se puede realizar el pago en esa fecha.'
+            )
+
+    @staticmethod
+    def validar_receptor_tiene_jornada_en_fecha_pago(receptor: Empleado, fecha_pago):
+        """
+        Casos 1.5/1.8: Rechazar cuando el receptor (acreedor) no tiene turno/jornada en fecha de pago.
+        Si el receptor está descansando ese día, no se le puede pagar.
+
+        Args:
+            receptor: Explorador acreedor (receptor)
+            fecha_pago: Fecha de pago (string o date)
+
+        Raises:
+            ValidationError: Si el receptor no tiene jornada en fecha_pago
+        """
+        from core.utils.date_utils import DateUtils
+        from turnos.services.jornada_service import JornadaService
+
+        fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+        fecha_pago_str = fecha_pago_obj.strftime('%Y-%m-%d')
+        jornada = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_pago_str)
+        if not jornada:
+            raise ValidationError(
+                'El receptor no tiene jornada asignada para la fecha de pago. No puedes pagarle en esta fecha. Elige otra fecha de pago.'
+            )
+
+    @staticmethod
     def validar_receptor_no_descansa_por_doblada_en_pago(receptor: Empleado, fecha_pago):
         """
         Caso F: El receptor no puede estar descansando en la fecha de pago por
@@ -1267,11 +1326,24 @@ class SolicitudValidator:
         # Obtener todos los turnos del deudor en fecha de pago para detectar dobladas
         turnos_deudor = Turno.objects.filter(explorador=deudor, fecha=fecha_pago_obj).select_related('jornada')
         turnos_acreedor = Turno.objects.filter(explorador=acreedor, fecha=fecha_pago_obj).select_related('jornada')
-        
+
         # Verificar si el deudor tiene doblada (AM y PM en la misma fecha)
         jornadas_deudor = [t.jornada.nombre.upper() for t in turnos_deudor]
         tiene_doblada_deudor = 'AM' in jornadas_deudor and 'PM' in jornadas_deudor
-        
+
+        # Verificar si el acreedor tiene doblada en fecha de pago.
+        # Si es así, el deudor siempre puede pagar la jornada que debe (Casos 1.7, 3.7, 4.5, 6.7):
+        # no aplica validación de coincidencia porque el receptor cederá la jornada que el deudor le paga
+        # y se queda con la otra — nunca hay colisión.
+        jornadas_acreedor_lista = [t.jornada.nombre.upper() for t in turnos_acreedor]
+        tiene_doblada_acreedor = 'AM' in jornadas_acreedor_lista and 'PM' in jornadas_acreedor_lista
+        if tiene_doblada_acreedor:
+            return {
+                'coinciden': False,
+                'jornada_comun': None,
+                'requiere_cambio_turno': False
+            }
+
         # Si el deudor tiene doblada, puede pagar cualquier deuda (tiene ambas jornadas)
         if tiene_doblada_deudor:
             logger.info("Validación coincidencia jornadas pago - Deudor tiene doblada", extra={

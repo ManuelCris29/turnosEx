@@ -1,210 +1,270 @@
 """
-D FDS Strategy - Implementation for "D FDS" solicitud type
+D FDS Strategy - Doblada de Fin de Semana
 
-This strategy implements the specific logic for "D FDS" solicitudes,
-which are requests for weekend double shifts.
+Implementa la lógica de "D FDS": un explorador cede SU día de fin de semana
+(sábado o domingo, según alternancia) a un compañero del grupo contrario, que se
+dobla ese finde (trabaja su día + el día cedido). El solicitante devuelve el favor
+doblándose un finde futuro del mismo mes (fecha de pago).
+
+Reutiliza:
+- AlternanciaFinesSemanaService: qué grupo trabaja cada día del finde.
+- SolicitudValidator.validar_fecha_pago_mismo_mes_cesion: pago en el mismo mes.
+- DobladaDetalle: modelo de detalle (fecha_pago, minutos_deuda).
+- DFDSAplicacionService: aplicación de turnos y deudas al aprobar.
 """
 
 from typing import Dict, Any, Tuple, Optional
+from datetime import datetime
+
 from django.core.exceptions import ValidationError
+from django.db import transaction
+
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from core.services import get_empleado_disponibilidad_service, get_turno_service
+from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+from turnos.services.jornada_service import JornadaService
 
 
 class DFDSStrategy(SolicitudStrategy):
-    """
-    Strategy for "D FDS" (Doblada Fin de Semana) solicitudes.
-    
-    This implements the specific logic for weekend double shift requests,
-    including validation, creation, and application of changes.
-    """
-    
+    """Strategy para "D FDS" (Doblada de Fin de Semana)."""
+
     def __init__(self):
         super().__init__("D FDS")
-    
+
+    # ------------------------------------------------------------------ helpers
+    @staticmethod
+    def _parse(fecha) -> Optional[Any]:
+        if not fecha:
+            return None
+        if isinstance(fecha, str):
+            try:
+                return datetime.strptime(fecha, '%Y-%m-%d').date()
+            except ValueError:
+                return None
+        return fecha
+
+    @staticmethod
+    def _grupo_base(explorador: Empleado, fecha) -> Optional[str]:
+        """Jornada base (AM/PM) del explorador. En findes devuelve su grupo."""
+        j = JornadaService.get_jornada_explorador_fecha(
+            explorador.id, fecha.strftime('%Y-%m-%d')
+        )
+        return j.nombre.upper() if j else None
+
+    # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
-        """
-        Validate D FDS specific data.
-        
-        Args:
-            datos: Dictionary containing:
-                - explorador_solicitante: Empleado instance
-                - fecha_cambio_turno: Date string (must be weekend)
-                - minutos_deuda: Integer (optional, defaults to 30)
-                
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
         try:
             from ..solicitud_validator import SolicitudValidator
-            from datetime import datetime
-            
-            explorador_solicitante = datos.get('explorador_solicitante')
-            fecha = datos.get('fecha_cambio_turno')
-            minutos_deuda = datos.get('minutos_deuda', 30)
+
+            solicitante = datos.get('explorador_solicitante')
+            receptor = datos.get('explorador_receptor')
+            fecha_cesion_raw = datos.get('fecha_cambio_turno')
+            fecha_pago_raw = datos.get('fecha_pago')
             comentario = datos.get('comentario') or ''
-            
-            # Validaciones básicas de campos requeridos
-            if not explorador_solicitante:
+
+            # 1. Requeridos
+            if not solicitante:
                 return False, "Explorador solicitante es requerido"
-            
-            if not fecha:
-                return False, "Fecha es requerida"
-            
-            if not isinstance(minutos_deuda, int) or minutos_deuda <= 0:
-                return False, "Minutos de deuda debe ser un número positivo"
-            
-            # Validar empleado activo usando validador centralizado
-            SolicitudValidator.validar_empleado_activo(explorador_solicitante)
-            # Comentario obligatorio
-            SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de D FDS')
-            
-            # Validar formato de fecha y que sea fin de semana
-            try:
-                fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
-                # weekday() returns 0=Monday, 6=Sunday
-                if fecha_obj.weekday() not in [5, 6]:  # Saturday or Sunday
-                    return False, "D FDS solo se puede solicitar para fines de semana (sábado o domingo)"
-            except ValueError:
+            if not receptor:
+                return False, "Debe seleccionar el compañero que se doblará el fin de semana"
+            if not fecha_cesion_raw:
+                return False, "La fecha de fin de semana es requerida"
+            if not fecha_pago_raw:
+                return False, "La fecha de pago es obligatoria (otro fin de semana del mismo mes)"
+
+            fecha_cesion = self._parse(fecha_cesion_raw)
+            fecha_pago = self._parse(fecha_pago_raw)
+            if not fecha_cesion or not fecha_pago:
                 return False, "Formato de fecha inválido"
-            
-            # Validar que no sea día de mantenimiento
-            SolicitudValidator.validar_no_dia_mantenimiento(fecha)
-            
-            # Validar que el empleado tenga jornada en esa fecha
-            SolicitudValidator.validar_jornada_en_fecha(explorador_solicitante, fecha)
-            
-            # Validar que no tenga doblada activa para esa fecha
-            SolicitudValidator.validar_no_doblada_activa(explorador_solicitante, fecha)
-            
-            # TODO: Add more specific validations
-            # - Check if empleado already has a D FDS for that weekend
-            # - Check if empleado has permission for weekend shifts
-            # - Check if fecha is not in the past
-            
+
+            # 2. Empleados
+            SolicitudValidator.validar_empleado_activo(solicitante)
+            SolicitudValidator.validar_empleado_activo(receptor)
+            SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
+            SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de D FDS')
+
+            # 3. Ambas fechas deben ser fin de semana (sáb/dom)
+            if fecha_cesion.weekday() not in (5, 6):
+                return False, "La fecha de cesión debe ser un fin de semana (sábado o domingo)"
+            if fecha_pago.weekday() not in (5, 6):
+                return False, "La fecha de pago debe ser un fin de semana (sábado o domingo)"
+
+            # 4. Fechas no pasadas / coherencia
+            from django.utils import timezone
+            hoy = timezone.now().date()
+            if fecha_cesion < hoy:
+                return False, "No se puede solicitar D FDS para un fin de semana pasado"
+            if fecha_pago <= hoy:
+                return False, "La fecha de pago debe ser posterior a hoy"
+            if fecha_pago == fecha_cesion:
+                return False, "La fecha de pago no puede ser la misma que la fecha de cesión"
+
+            # 5. Pago en el mismo mes que la cesión (regla reutilizada de doblada)
+            SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
+
+            # 6. No mantenimiento en ninguna fecha
+            SolicitudValidator.validar_no_dia_mantenimiento(fecha_cesion.strftime('%Y-%m-%d'))
+            SolicitudValidator.validar_no_dia_mantenimiento(fecha_pago.strftime('%Y-%m-%d'))
+
+            # 7. Grupos: solicitante y receptor deben ser de grupos contrarios
+            grupo_sol = self._grupo_base(solicitante, fecha_cesion)
+            grupo_rec = self._grupo_base(receptor, fecha_cesion)
+            if not grupo_sol or not grupo_rec:
+                return False, "No se pudo determinar la jornada base de los exploradores"
+            if grupo_sol == grupo_rec:
+                return False, (
+                    "El compañero debe ser del grupo contrario (el que trabaja el otro día del "
+                    "fin de semana). No puedes doblarte con alguien de tu mismo grupo."
+                )
+
+            # 8. Al solicitante le corresponde trabajar SU día en la fecha de cesión
+            trabaja_cesion = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_cesion)
+            if not trabaja_cesion:
+                return False, "No se pudo determinar la alternancia del fin de semana de cesión"
+            if grupo_sol != trabaja_cesion:
+                return False, (
+                    f"Ese día ({fecha_cesion.strftime('%d/%m/%Y')}) no te corresponde trabajar por "
+                    f"alternancia (trabaja el grupo {trabaja_cesion}); no tienes un día que ceder. "
+                    "Elige el fin de semana en el que sí trabajas."
+                )
+
+            # 9. En la fecha de pago, el día a cubrir debe ser el del RECEPTOR
+            trabaja_pago = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_pago)
+            if not trabaja_pago:
+                return False, "No se pudo determinar la alternancia del fin de semana de pago"
+            if grupo_rec != trabaja_pago:
+                return False, (
+                    f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) debes cubrir el día "
+                    f"que trabaja tu compañero (grupo {grupo_rec}). Ese día por alternancia trabaja "
+                    f"el grupo {trabaja_pago}; elige el día del fin de semana que le corresponde a tu compañero."
+                )
+
+            # 10. Evitar triple turno: receptor sin doblada ya en cesión; solicitante sin doblada ya en pago
+            from turnos.models import Turno
+
+            def _ya_doblada(emp, fecha):
+                js = {t.jornada.nombre.upper() for t in Turno.objects.filter(explorador=emp, fecha=fecha).select_related('jornada')}
+                return 'AM' in js and 'PM' in js
+
+            if _ya_doblada(receptor, fecha_cesion):
+                return False, "El compañero ya tiene una doblada (AM+PM) en la fecha de cesión y no puede cubrirte."
+            if _ya_doblada(solicitante, fecha_pago):
+                return False, "Ya tienes una doblada (AM+PM) en la fecha de pago; no puedes doblarte de nuevo ese día."
+
             return True, "Solicitud de D FDS válida"
-            
+
         except ValidationError as e:
             return False, str(e)
         except Exception as e:
             return False, f"Error validando D FDS: {str(e)}"
-    
+
+    # ------------------------------------------------------------------- crear
     def crear_solicitud(self, datos: Dict[str, Any]) -> Tuple[Optional[SolicitudCambio], str]:
-        """
-        Create a D FDS solicitud.
-        
-        Args:
-            datos: Dictionary containing solicitud data
-            
-        Returns:
-            Tuple of (solicitud_instance, message)
-        """
         try:
-            from django.utils import timezone
-            
-            explorador_solicitante = datos.get('explorador_solicitante')
+            solicitante = datos.get('explorador_solicitante')
+            receptor = datos.get('explorador_receptor')
             tipo_cambio = datos.get('tipo_cambio')
             comentario = datos.get('comentario', '')
-            fecha_cambio_turno = datos.get('fecha_cambio_turno')
+            fecha_cesion = datos.get('fecha_cambio_turno')
+            fecha_pago = datos.get('fecha_pago')
             minutos_deuda = datos.get('minutos_deuda', 30)
-            
-            # Create the main solicitud
-            solicitud = SolicitudCambio.objects.create(
-                explorador_solicitante=explorador_solicitante,
-                explorador_receptor=explorador_solicitante,  # Self-request for D FDS
-                tipo_cambio=tipo_cambio,
-                comentario=comentario,
-                fecha_cambio_turno=fecha_cambio_turno,
-                estado='pendiente'
-            )
-            
-            # Create the D FDS detail (using DobladaDetalle model)
-            DobladaDetalle.objects.create(
-                solicitud=solicitud,
-                minutos_deuda=minutos_deuda
-            )
-            
-            # TODO: Send notifications
-            # This will be handled by the WorkflowEngine
-            
+
+            with transaction.atomic():
+                solicitud = SolicitudCambio.objects.create(
+                    explorador_solicitante=solicitante,
+                    explorador_receptor=receptor,
+                    tipo_cambio=tipo_cambio,
+                    comentario=comentario,
+                    fecha_cambio_turno=fecha_cesion,
+                    estado='pendiente',
+                )
+                DobladaDetalle.objects.create(
+                    solicitud=solicitud,
+                    fecha_pago=fecha_pago,
+                    minutos_deuda=minutos_deuda,
+                    tipo_cesion='cesion_completa',
+                    empleado_receptor=receptor,
+                )
+
             return solicitud, "Solicitud de D FDS creada correctamente"
-            
+
         except Exception as e:
             return None, f"Error creando solicitud de D FDS: {str(e)}"
-    
+
+    # ----------------------------------------------------------------- aplicar
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
-        """
-        Apply D FDS when solicitud is approved.
-        
-        Args:
-            solicitud: The approved solicitud instance
-            
-        Returns:
-            Tuple of (success, message)
-        """
         try:
-            # TODO: Implement D FDS application logic
-            # - Add weekend extra hours to empleado's record
-            # - Update deuda tracking with weekend bonus
-            # - Send confirmation notifications
-            
-            # Invalidar caché para que Mis Turnos refleje los cambios
+            from ..d_fds_aplicacion_service import DFDSAplicacionService
+            from ..doblada_aplicacion_service import DobladaAplicacionService
             from core.services.cache_service import CacheService
-            fecha_cambio = solicitud.fecha_cambio_turno
-            if fecha_cambio:
-                CacheService.invalidar_cache_turnos_empleado(
-                    solicitud.explorador_solicitante.id, 
-                    fecha_cambio.month, 
-                    fecha_cambio.year
-                )
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.info(
-                    f"D FDS: Caché invalidado para solicitante (ID: {solicitud.explorador_solicitante.id}) "
-                    f"en {fecha_cambio.month}/{fecha_cambio.year}"
-                )
-            
-            return True, "D FDS aplicada correctamente"
-            
+
+            with transaction.atomic():
+                detalle = solicitud.doblada
+
+                # Snapshot para poder revertir (cancelación de 30 min, igual que doblada)
+                snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(solicitud, detalle)
+                DobladaDetalle.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
+                detalle.snapshot_turnos_previos = snapshot
+
+                DFDSAplicacionService.aplicar(solicitud, detalle)
+                DFDSAplicacionService.generar_deudas(solicitud, detalle)
+
+            # Invalidar caché de ambos en ambos meses (cesión y pago)
+            solicitante = solicitud.explorador_solicitante
+            receptor = solicitud.explorador_receptor
+            for fecha in (solicitud.fecha_cambio_turno, detalle.fecha_pago):
+                if fecha:
+                    CacheService.invalidar_cache_turnos_empleado(solicitante.id, fecha.month, fecha.year)
+                    CacheService.invalidar_cache_turnos_empleado(receptor.id, fecha.month, fecha.year)
+
+            return True, "D FDS aplicada correctamente (favor y pago agendados)."
+
         except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Error aplicando D FDS")
             return False, f"Error aplicando D FDS: {str(e)}"
-    
+
+    # --------------------------------------------------- empleados disponibles
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
-        Get available employees for D FDS (all active employees).
-        
-        Args:
-            fecha: Date string in YYYY-MM-DD format
-            usuario_actual: Current user's empleado instance
-            
-        Returns:
-            List of available empleados
+        Compañeros válidos para D FDS: del grupo CONTRARIO al del solicitante en el
+        fin de semana de cesión (el grupo que trabaja el otro día del finde).
         """
         try:
-            servicio = get_empleado_disponibilidad_service()
-            return servicio.get_empleados_disponibles(
-                fecha,
-                usuario_actual,
-                solo_jornada_contraria=False
+            fecha_obj = self._parse(fecha)
+            if not fecha_obj or fecha_obj.weekday() not in (5, 6):
+                return []
+
+            grupo_sol = self._grupo_base(usuario_actual, fecha_obj)
+            if not grupo_sol:
+                return []
+            grupo_contrario = 'PM' if grupo_sol == 'AM' else 'AM'
+
+            from turnos.models import AsignarJornadaExplorador
+
+            empleados = (
+                Empleado.objects.filter(activo=True)
+                .exclude(id=usuario_actual.id)
+                .select_related('supervisor')
             )
+            # Jornada base de cada empleado (1 query)
+            bases = {}
+            for asg in (
+                AsignarJornadaExplorador.objects
+                .filter(explorador__in=empleados, fecha_inicio__lte=fecha_obj)
+                .select_related('jornada', 'explorador')
+                .order_by('explorador_id', '-fecha_inicio')
+            ):
+                bases.setdefault(asg.explorador_id, asg.jornada.nombre.upper())
+
+            return [e for e in empleados if bases.get(e.id) == grupo_contrario]
         except Exception:
             return []
-    
+
     def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
-        """
-        Get turn information for an explorer.
-        
-        Args:
-            explorador_id: ID of the empleado
-            fecha: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with turn information
-        """
         try:
-            turno_service = get_turno_service()
-            return turno_service.get_turno_explorador(explorador_id, fecha)
+            from core.services import get_turno_service
+            return get_turno_service().get_turno_explorador(explorador_id, fecha)
         except Exception:
             return {}

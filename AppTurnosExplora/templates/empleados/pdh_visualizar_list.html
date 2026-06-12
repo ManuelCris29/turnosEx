@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
 
 {% block title %}PDH - Consultas Rápidas{% endblock %}
-{% block page_title %}PDH (Solo Visualización){% endblock %}
+{% block page_title %}PDH (Pago de Horas){% endblock %}
 
 {% block content %}
 <div class="container mt-5">
@@ -9,39 +9,37 @@
         <div class="col-12">
             <div class="card shadow">
                 <div class="card-header bg-warning text-dark">
-                    <h4 class="mb-0"><i class="fas fa-coins"></i> Lista de PDH (Pago de Horas)</h4>
+                    <h4 class="mb-0"><i class="fas fa-coins"></i> Pagos de Horas
+                        {% if es_supervisor %}(todos los exploradores){% else %}(mis pagos){% endif %}
+                    </h4>
                 </div>
                 <div class="card-body">
+                    <p class="text-muted">
+                        Cada pago de horas es un <strong>descuento</strong> autorizado por un supervisor que se
+                        resta de las horas acumuladas en el <strong>Consolidado de Horas</strong>.
+                    </p>
                     <div class="table-responsive">
                         <table class="table table-hover table-striped table-bordered">
                             <thead class="thead-dark">
                                 <tr>
-                                    <th>ID</th>
-                                    <th>Empleado</th>
-                                    <th>Fecha</th>
+                                    {% if es_supervisor %}<th>Explorador</th>{% endif %}
+                                    <th>Fecha de pago</th>
                                     <th>Horas</th>
-                                    <th>Monto</th>
-                                    <th>Estado</th>
+                                    <th>Líder que autoriza</th>
+                                    <th>Nota</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {% for pdh in pdhs %}
                                 <tr>
-                                    <td>{{ pdh.id }}</td>
-                                    <td>{{ pdh.empleado.nombre }} {{ pdh.empleado.apellido }}</td>
-                                    <td>{{ pdh.fecha }}</td>
-                                    <td>{{ pdh.horas }}</td>
-                                    <td>${{ pdh.monto }}</td>
-                                    <td>
-                                        <span class="badge badge-{% if pdh.estado == 'PENDIENTE' %}warning{% elif pdh.estado == 'PAGADO' %}success{% else %}secondary{% endif %}">
-                                            {{ pdh.estado }}
-                                        </span>
-                                    </td>
+                                    {% if es_supervisor %}<td>{{ pdh.explorador.nombre }} {{ pdh.explorador.apellido }}</td>{% endif %}
+                                    <td>{{ pdh.fecha|date:"d/m/Y" }}</td>
+                                    <td><span class="badge badge-danger">-{{ pdh.horas }} h</span></td>
+                                    <td>{{ pdh.supervisor.nombre }} {{ pdh.supervisor.apellido }}</td>
+                                    <td>{{ pdh.comentario|default:"—" }}</td>
                                 </tr>
                                 {% empty %}
-                                <tr>
-                                    <td colspan="6">No hay registros de PDH.</td>
-                                </tr>
+                                <tr><td colspan="{% if es_supervisor %}5{% else %}4{% endif %}" class="text-muted">No hay pagos de horas registrados.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -51,4 +49,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

@@ -272,7 +272,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </small>
                     </div>`;
                 salasSolicitanteDetalles.innerHTML = '';
-                empleadoSelect.innerHTML = '<option value="">No disponible — estás en descanso</option>';
+                empleadoSelect.innerHTML = '<option value=\"\">No disponible — estás en descanso</option>';
                 empleadoSelect.disabled = true;
             } else {
                 renderTurnoYSalas(data.turno, turnoSolicitanteDetalles, salasSolicitanteDetalles);

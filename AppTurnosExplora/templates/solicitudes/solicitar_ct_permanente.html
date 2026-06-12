@@ -10,6 +10,79 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
 <style>
+    .solicitud-layout {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px 16px 40px;
+    }
+    .solicitud-card {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        overflow: hidden;
+    }
+    .solicitud-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 18px 24px;
+        background: linear-gradient(135deg, #0d6efd, #0b5ed7);
+        color: #f9fafb;
+    }
+    .solicitud-header-main {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+    .solicitud-header-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+    }
+    .solicitud-title {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin: 0 0 2px;
+    }
+    .solicitud-subtitle {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    .solicitud-header-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        font-size: 0.8rem;
+    }
+    .solicitud-badge {
+        padding: 4px 10px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.15);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 500;
+    }
+    .solicitud-user {
+        opacity: 0.9;
+    }
+    @media (max-width: 576px) {
+        .solicitud-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .solicitud-header-meta {
+            align-items: flex-start;
+        }
+    }
+
     /* Ocultar días de mes anterior/siguiente sin romper la cuadrícula (visibility, no display:none). */
     .flatpickr-day.prevMonthDay,
     .flatpickr-day.nextMonthDay,
@@ -156,11 +229,21 @@
 {% block content %}
 <div class="dashboard-container">
     <div class="dashboard-content">
-        <div class="solicitud-card">
-        <div class="solicitud-header">
-            <h2 class="mb-1">Solicitud de Cambio de Turno Permanente</h2>
-            <div class="text-light">Tipo: {{ tipo_solicitud.nombre }}</div>
-        </div>
+        <div class="solicitud-layout">
+            <div class="solicitud-card">
+                <div class="solicitud-header">
+                    <div class="solicitud-header-main">
+                        <div class="solicitud-header-icon">
+                            <i class="fas fa-sync-alt"></i>
+                        </div>
+                        <div>
+                            <h1 class="solicitud-title">Solicitud de Cambio de Turno Permanente</h1>
+                            <p class="solicitud-subtitle">Intercambia tu jornada de forma prolongada durante un período definido.</p>
+                        </div>
+                    </div>
+                    <div class="solicitud-header-meta">
+                    </div>
+                </div>
         <div class="p-4">
             {% if error_message %}
                 <div class="alert alert-danger">

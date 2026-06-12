@@ -1,14 +1,39 @@
 {% extends 'base.html' %}
-{% block title %}Nuevo Permiso Especial{% endblock %}
-{% block page_title %}Nuevo Permiso Especial{% endblock %}
+{% load static %}
+
+{% block title %}Solicitar Permiso Especial{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
+
 {% block content %}
-<div class="container mt-4">
-    <h2>Nuevo Permiso Especial</h2>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-success">Guardar</button>
-        <a href="{% url 'permisos_especiales_list' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="pg-container">
+  <div class="pg-content" style="max-width:720px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-check"></i> Solicitar Permiso Especial</h1>
+      <p class="pg-subtitle">Pides tiempo de tu jornada para uso personal. Solo en días que trabajas; se acumula al aprobar el supervisor.</p>
+    </div>
+    <div class="pg-card">
+      <div class="pg-card-head green"><h3><i class="fas fa-clock"></i> Permiso puntual (un día)</h3></div>
+      <div class="pg-card-body">
+        <form method="post" class="pg-form">
+          {% csrf_token %}
+          {% for field in form %}
+            <div class="form-group">
+              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}<small class="form-text">{{ field.help_text }}</small>{% endif %}
+              {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endfor %}
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-paper-plane"></i> Solicitar</button>
+            <a href="{% url 'permisos_especiales_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

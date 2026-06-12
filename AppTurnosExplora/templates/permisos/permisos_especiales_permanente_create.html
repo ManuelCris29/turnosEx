@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Solicitar Permiso Permanente{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<style>
+    /* Días de la semana como chips seleccionables */
+    .pg-form ul#id_dias { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+    .pg-form ul#id_dias li label { font-weight: 500; background: #f1f5f9; border: 1px solid #e2e8f0;
+        border-radius: 999px; padding: .35rem .8rem; cursor: pointer; display: inline-flex; align-items: center; gap: .4rem; }
+    .pg-form ul#id_dias li input { margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:720px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-week"></i> Permiso Especial Permanente</h1>
+      <p class="pg-subtitle">Se repite en días fijos de la semana dentro de un rango. Las horas se acumulan por cada ocurrencia.</p>
+    </div>
+    <div class="pg-card">
+      <div class="pg-card-head indigo"><h3><i class="fas fa-redo"></i> Permiso permanente</h3></div>
+      <div class="pg-card-body">
+        <form method="post" class="pg-form">
+          {% csrf_token %}
+          {% for field in form %}
+            <div class="form-group">
+              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}<small class="form-text">{{ field.help_text }}</small>{% endif %}
+              {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}
+            </div>
+          {% endfor %}
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-paper-plane"></i> Solicitar</button>
+            <a href="{% url 'permisos_especiales_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

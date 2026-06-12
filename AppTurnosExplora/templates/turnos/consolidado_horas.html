@@ -1,0 +1,232 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Consolidado de Horas{% endblock %}
+{% block page_title %}Consolidado de Horas{% endblock %}
+
+{% block extra_css %}
+<style>
+    .ch-wrap { max-width: 1100px; margin: 0 auto; }
+    .ch-header {
+        display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+        gap: 16px; background: linear-gradient(135deg, #0d6efd, #0b5ed7); color: #fff;
+        border-radius: 12px; padding: 18px 24px; margin-bottom: 20px;
+    }
+    .ch-header .nombre { font-size: 1.25rem; font-weight: 600; margin: 0; }
+    .ch-header .sub { margin: 0; opacity: .9; font-size: .9rem; }
+    .ch-horas {
+        background: #fff; color: #b91c1c; border-radius: 10px; padding: 8px 18px;
+        text-align: center; min-width: 120px; box-shadow: 0 2px 6px rgba(0,0,0,.12);
+    }
+    .ch-horas .val { font-size: 1.7rem; font-weight: 700; line-height: 1; }
+    .ch-horas .lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+    .ch-section { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); margin-bottom: 18px; overflow: hidden; }
+    .ch-section-title { padding: 12px 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+    .ch-section-title.solic { background: #eef2ff; color: #3730a3; }
+    .ch-section-title.reemp { background: #ecfdf5; color: #065f46; }
+    .ch-section-title.otras { background: #fff7ed; color: #9a3412; }
+    .ch-section table { margin: 0; }
+    .ch-section .badge-horas { background: rgba(0,0,0,.08); color: inherit; font-weight: 600; }
+    .ch-empty { padding: 16px 18px; color: #6b7280; font-style: italic; }
+    .ch-nota { background: #f8fafc; border-left: 4px solid #94a3b8; border-radius: 8px; padding: 12px 16px; color: #475569; font-size: .9rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+<div class="dashboard-content">
+<div class="ch-wrap">
+
+    {% if es_supervisor %}
+    <div class="ch-section" style="margin-bottom:20px;">
+        <div class="ch-section-title solic">
+            <span><i class="fas fa-user-shield mr-2"></i>Consultar consolidado de un explorador</span>
+        </div>
+        <div class="p-3">
+            <form method="get" class="form-inline" style="gap:10px;">
+                <label for="explorador_id" class="mr-2 mb-0 font-weight-bold">Explorador:</label>
+                <select name="explorador_id" id="explorador_id" class="form-control mr-2" style="min-width:280px;"
+                        onchange="this.form.submit()">
+                    <option value="">— Selecciona un explorador —</option>
+                    {% for e in exploradores %}
+                        <option value="{{ e.id }}" {% if explorador_id_sel == e.id|stringformat:'s' %}selected{% endif %}>
+                            {{ e.nombre }} {{ e.apellido }}
+                        </option>
+                    {% endfor %}
+                </select>
+                <button type="submit" class="btn btn-primary"><i class="fas fa-search mr-1"></i>Consultar</button>
+            </form>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if explorador_objetivo %}
+        <div class="ch-header">
+            <div>
+                <p class="nombre"><i class="fas fa-user-clock mr-2"></i>{{ explorador_objetivo.nombre }} {{ explorador_objetivo.apellido }}</p>
+                <p class="sub">Horas acumuladas por dobladas (cambios de turno)</p>
+            </div>
+            <div class="ch-horas">
+                <div class="lbl">Saldo (horas pendientes)</div>
+                <div class="val">{{ consolidado.total_horas }}</div>
+                <div style="font-size:.72rem;color:#6b7280;margin-top:4px;">
+                    Acumulado {{ consolidado.total_acumulado }} h − Pagado {{ consolidado.total_pagado }} h
+                </div>
+            </div>
+        </div>
+
+        {# --- Solicitante --- #}
+        <div class="ch-section">
+            <div class="ch-section-title solic">
+                <span><i class="fas fa-hand-paper mr-2"></i>Permisos (Solicitante)</span>
+                <span class="badge badge-horas">{{ consolidado.total_solicitante }} h</span>
+            </div>
+            {% if consolidado.solicitante %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Fecha</th><th>Horas</th><th>Compañero</th><th>Tipo</th></tr></thead>
+                    <tbody>
+                    {% for f in consolidado.solicitante %}
+                        <tr>
+                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.horas }}</td>
+                            <td>{{ f.contraparte }}</td>
+                            <td><span class="badge badge-light">{{ f.tipo }}</span></td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="ch-empty">Sin horas acumuladas como solicitante.</div>
+            {% endif %}
+        </div>
+
+        {# --- Reemplazante --- #}
+        <div class="ch-section">
+            <div class="ch-section-title reemp">
+                <span><i class="fas fa-people-arrows mr-2"></i>Permisos (Reemplazante)</span>
+                <span class="badge badge-horas">{{ consolidado.total_reemplazante }} h</span>
+            </div>
+            {% if consolidado.reemplazante %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Fecha</th><th>Horas</th><th>Compañero</th><th>Tipo</th></tr></thead>
+                    <tbody>
+                    {% for f in consolidado.reemplazante %}
+                        <tr>
+                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.horas }}</td>
+                            <td>{{ f.contraparte }}</td>
+                            <td><span class="badge badge-light">{{ f.tipo }}</span></td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="ch-empty">Sin horas acumuladas como reemplazante.</div>
+            {% endif %}
+        </div>
+
+        {# --- Otras (fin de semana predeterminado) --- #}
+        {% if consolidado.otras %}
+        <div class="ch-section">
+            <div class="ch-section-title otras">
+                <span><i class="fas fa-calendar-week mr-2"></i>Otras (fin de semana)</span>
+                <span class="badge badge-horas">{{ consolidado.total_otras }} h</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Fecha</th><th>Horas</th><th>Detalle</th></tr></thead>
+                    <tbody>
+                    {% for f in consolidado.otras %}
+                        <tr>
+                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.horas }}</td>
+                            <td>{{ f.comentario }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        {# --- Permisos Especiales (acumulan) --- #}
+        <div class="ch-section">
+            <div class="ch-section-title" style="background:#fefce8;color:#854d0e;">
+                <span><i class="fas fa-calendar-check mr-2"></i>Permisos Especiales</span>
+                <span class="badge badge-horas">{{ consolidado.total_permisos }} h</span>
+            </div>
+            {% if consolidado.permisos %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Fecha(s)</th><th>Horas</th><th>Tipo</th><th>Detalle</th><th>Motivo</th></tr></thead>
+                    <tbody>
+                    {% for f in consolidado.permisos %}
+                        <tr>
+                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.horas }}{% if f.es_permanente %} <span class="text-muted small">({{ f.tiempo }}×ocurr.)</span>{% endif %}</td>
+                            <td>{% if f.es_permanente %}<span class="badge badge-info">Permanente</span>{% else %}<span class="badge badge-light">Puntual</span>{% endif %} {{ f.tipo }}</td>
+                            <td>{{ f.detalle|default:"—" }}</td>
+                            <td>{{ f.motivo }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="ch-empty">Sin permisos especiales aprobados.</div>
+            {% endif %}
+        </div>
+
+        {# --- Pago de Horas (descuentos PDH) --- #}
+        <div class="ch-section">
+            <div class="ch-section-title" style="background:#fef2f2;color:#991b1b;">
+                <span><i class="fas fa-coins mr-2"></i>Pago de Horas (descuentos)</span>
+                <span class="badge badge-horas">− {{ consolidado.total_pagado }} h</span>
+            </div>
+            {% if consolidado.pagos %}
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Fecha de pago</th><th>Horas</th><th>Líder que autoriza</th><th>Nota</th></tr></thead>
+                    <tbody>
+                    {% for f in consolidado.pagos %}
+                        <tr>
+                            <td>{{ f.fecha_str }}</td>
+                            <td class="text-danger">−{{ f.horas }}</td>
+                            <td>{{ f.lider }}</td>
+                            <td>{{ f.comentario }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="ch-empty">Sin pagos de horas registrados. Los registra un supervisor en la sección PDH.</div>
+            {% endif %}
+        </div>
+
+        <div class="ch-nota">
+            <i class="fas fa-info-circle mr-1"></i>
+            El <strong>saldo</strong> = horas acumuladas (dobladas + permisos especiales aprobados) menos los
+            <strong>pagos de horas</strong> (PDH) autorizados por un supervisor.
+        </div>
+
+    {% elif es_supervisor %}
+        <div class="ch-nota">
+            <i class="fas fa-arrow-up mr-1"></i>
+            Selecciona un explorador arriba para ver su consolidado de horas.
+        </div>
+    {% else %}
+        <div class="ch-nota">
+            <i class="fas fa-exclamation-circle mr-1"></i>
+            Tu usuario no tiene un explorador asociado.
+        </div>
+    {% endif %}
+
+</div>
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,126 @@
+/*
+ * Estilo compartido para páginas de gestión/consulta (Permisos, PDH, etc.)
+ * Mantiene una identidad visual consistente con Notificaciones y Mis Turnos.
+ */
+:root {
+    --pg-radius: 16px;
+    --pg-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+}
+
+.pg-container {
+    min-height: calc(100vh - 160px);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    margin: -1rem -15px 0;       /* ocupa el ancho del content-wrapper */
+    padding: 2.2rem 1rem 3rem;
+}
+
+.pg-content {
+    max-width: 1180px;
+    margin: 0 auto;
+}
+
+/* Encabezado de la página (sobre el degradado) */
+.pg-header {
+    text-align: center;
+    color: #fff;
+    margin-bottom: 1.8rem;
+}
+.pg-header .pg-title {
+    font-size: 2.1rem;
+    font-weight: 700;
+    margin: 0 0 .35rem;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, .25);
+}
+.pg-header .pg-subtitle {
+    font-size: 1rem;
+    opacity: .92;
+    font-weight: 300;
+    margin: 0;
+}
+
+/* Tarjeta principal blanca */
+.pg-card {
+    background: #fff;
+    border-radius: var(--pg-radius);
+    box-shadow: var(--pg-shadow);
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+.pg-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    padding: 1.1rem 1.5rem;
+    color: #fff;
+    background: linear-gradient(135deg, #4f46e5, #7c3aed);
+}
+.pg-card-head.green  { background: linear-gradient(135deg, #16a34a, #22c55e); }
+.pg-card-head.amber  { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.pg-card-head.indigo { background: linear-gradient(135deg, #4f46e5, #7c3aed); }
+.pg-card-head h3 {
+    margin: 0;
+    font-size: 1.2rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+}
+.pg-card-head .pg-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+.pg-card-body { padding: 1.25rem 1.5rem; }
+.pg-card-body > .pg-intro { color: #6b7280; margin-bottom: 1rem; }
+
+/* Botones */
+.pg-btn {
+    border: none; border-radius: 10px; padding: .5rem .95rem; font-weight: 600;
+    font-size: .9rem; cursor: pointer; text-decoration: none; display: inline-flex;
+    align-items: center; gap: .4rem; transition: transform .08s ease, box-shadow .15s ease;
+}
+.pg-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,.15); text-decoration: none; }
+.pg-btn-light { background: rgba(255,255,255,.18); color: #fff; }
+.pg-btn-light:hover { background: rgba(255,255,255,.28); color: #fff; }
+.pg-btn-primary { background: #4f46e5; color: #fff; }
+.pg-btn-primary:hover { color: #fff; }
+.pg-btn-success { background: #16a34a; color: #fff; }
+.pg-btn-success:hover { color: #fff; }
+.pg-btn-secondary { background: #e5e7eb; color: #374151; }
+.pg-btn-danger { background: #ef4444; color: #fff; }
+.pg-btn-warn { background: #f59e0b; color: #fff; }
+.pg-btn-sm { padding: .35rem .55rem; font-size: .82rem; }
+
+/* Tablas */
+.pg-table-wrap { overflow-x: auto; }
+table.pg-table { width: 100%; border-collapse: separate; border-spacing: 0; margin: 0; }
+table.pg-table thead th {
+    background: #f8fafc; color: #475569; font-weight: 600; font-size: .82rem;
+    text-transform: uppercase; letter-spacing: .3px; padding: .7rem .9rem;
+    border-bottom: 2px solid #e2e8f0; white-space: nowrap;
+}
+table.pg-table tbody td { padding: .7rem .9rem; border-bottom: 1px solid #eef2f7; vertical-align: middle; font-size: .92rem; }
+table.pg-table tbody tr:hover { background: #f9fafb; }
+table.pg-table tbody tr:last-child td { border-bottom: none; }
+
+/* Chips de estado */
+.pg-chip { display: inline-block; padding: .2rem .6rem; border-radius: 999px; font-size: .75rem; font-weight: 600; }
+.pg-chip-pend { background: #fef3c7; color: #92400e; }
+.pg-chip-ok   { background: #dcfce7; color: #166534; }
+.pg-chip-no   { background: #fee2e2; color: #991b1b; }
+.pg-chip-gray { background: #e5e7eb; color: #374151; }
+.pg-chip-info { background: #e0e7ff; color: #3730a3; }
+
+.pg-empty { padding: 2rem 1rem; text-align: center; color: #94a3b8; font-style: italic; }
+
+/* Formularios dentro de la tarjeta */
+.pg-form .form-group { margin-bottom: 1.1rem; }
+.pg-form label { font-weight: 600; color: #1f2937; margin-bottom: .35rem; display: block; }
+.pg-form .form-control, .pg-form select, .pg-form textarea {
+    border-radius: 10px; border: 1px solid #d1d5db;
+}
+.pg-form .helptext, .pg-form .form-text { color: #6b7280; font-size: .82rem; }
+
+@media (max-width: 576px) {
+    .pg-header .pg-title { font-size: 1.6rem; }
+    .pg-card-head { flex-direction: column; align-items: flex-start; }
+}

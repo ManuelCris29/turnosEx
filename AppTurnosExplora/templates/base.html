@@ -117,12 +117,7 @@
                         
                         <!-- Ítems visibles para todos -->
                         <li class="nav-header">CONSULTAS RÁPIDAS</li>
-                        <li class="nav-item">
-                            <a href="{% url 'pdh_visualizar' %}" class="nav-link">
-                                <i class="nav-icon fas fa-dollar-sign"></i>
-                                <p>PDH</p>
-                            </a>
-                        </li>
+                        {# PDH se consulta desde "Consolidado de Horas" (explorador) y desde Administración → PDH (supervisor). #}
                         <li class="nav-item">
                             <a href="{% url 'sanciones_visualizar' %}" class="nav-link">
                                 <i class="nav-icon fas fa-gavel"></i>

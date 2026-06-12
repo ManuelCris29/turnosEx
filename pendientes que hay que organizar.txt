@@ -20,8 +20,40 @@ Requisito: Los exploradores AM descansan los sábados. Se debe permitir doblar u
 - una opción donde el administrador pueda cambir la alternancia de fines de semana
 - las dobladas de los fines de semana también generan deuda de 30 minutos 
 - tener en cuenta que si yo tengo una doblada el sábado pero después no la trabajo porque alguien trabaja  media jornada de mi doblada por algún cambio que hicimos. tener en cuenta que ya no debo esos 30 minutos de la doblada porque eso solo lo paga quien tienen doblada y la realiza el dia que le compete. si tengo una doblada pero se cambia el turno por alguna x solicitud y quedo con media jornada pues ya no debo esos treinta minutos porque esos treinta minutos solo lo debe quien hace una dobla una jornada totalmente completa que es (am + pm) 
-- el día en que se genera la deuda debe ser ese día. Ayudame con esto como organizo esto porque una doblada ouede ser aprobada pero si alguien tene una doblada y hace la solicitud para trabajar solo media jornada x días en ese x días ya no debe 30 minutos porque solo trabaja una jornada am o pm. solo se genera si la doblada se hace efectiva el día que alguien la trabaja. como solucionamos esto porque no siempre que una doblada sea aprobada, automáticamente se va generar los 30 minutos de deuda. solo se genera si se hace efectiva si se trabaja ese día esa doblada 
+- el día en que se genera la deuda el pago efectivo debe ser ese día que la persona realiza la doblada el turno completo. Ayudame con esto como organizo esto porque una doblada puede ser aprobada pero si alguien tiene una doblada y hace la solicitud para trabajar solo media jornada x días en ese x días ya no debe 30 minutos porque solo trabaja una jornada am o pm. solo se genera si la doblada se hace efectiva el día que alguien la trabaja. como solucionamos esto porque no siempre que una doblada sea aprobada, automáticamente se va generar los 30 minutos de deuda. solo se genera si se hace efectiva si se trabaja ese día esa doblada 
+-Qué queda pendiente (si más adelante quieres afinar)
+Si en el futuro agregas:
+Doblada FDS, permanente, o más tipos,
+O lógica de “anular” una doblada ya aplicada,
+El patrón ya está montado: siempre debes llamar al helper que mira la jornada real del día, en vez de sumar minutos “a ciegas”.
+Con este ajuste, ya estás alineando el sistema a tu idea: la deuda pertenece al día en que alguien efectivamente se dobla, no al papel de la solicitud.
+-Con ese cambio las solicitudes se tienen que hacer dentro del mismo mes ?
 
+-esta pendiente organizar lo del sábado. si yo no quiero trabajar el sábado y busco cambiar una jornada del sábado por un dia de semana 
+
+- Debemos organizar lo siguiente. Los festivos si se deben habilitar para que sean seleccionados en la solicitud. Estos días también se intercalan como los fines de semana, donde las jornadas trabajan ese día con jornada de doblada pero existen condiciones.  Se pueden hacer cambio de turnos cuando un día es festivo pero solo por un mismo festivo que este dentro de ese mismo mes. La rotación se puede basar de la siguiente forma. El lunes 1 de enero del 2026 le correspondió trabajar al grupo pm(ese día trabaja jornada am y pm que es doblada) y el 12 de enero le correspondió trabajar al grupo am(ese día trabaja am y pm que es doblada) y se va así consecutivamente, los días festivos que están en semana. Esto de lunes a viernes porque los fines de semana ya tienen su rotación, son independiente
+
+- Si yo el sábado estoy descansando, puedo realizar una solicitud para trabajar ese día, buscaría a alguien que trabaje el sábado y le doblo y luego esa persona me debe pagar la doblada. lo puede hacer ese domingo o cualquier día de la semana que tenga una doblada o cualquier dia del mes que tenga una doblada
+
+- en cambio de turno sencillos podrían realizar tantos cambios como quieran y asi podrían tener cambios de turnos temporales (validar)
+- si alguien hace le cambio de doblada el mismo día(validar si tiene sentido )
+- Si actualizo  en empleados/Exploradores la jornada predeterminada del explorador. En mis turnos/mi calendario también debe verse reflejado en días predeterminado esa jornada. por ejemplo acabo de pasar a mariana de jornada pm a am en jornada predeterminada pero en mis turnos no se ve reflejado eso. En el formulario de solicitudes si se ve, dice jornada fija am pero por ejemplo cuando voy a realizar una doblada entre marco.castillo y mariana.villa. aparece (Cambio de Turno Requerido
+No se puede realizar la doblada en este momento.
+
+Ya tienes jornada PM en la fecha de pago (13/03/2026). Debes primero realizar un cambio de turno sencillo para tener jornada contraria y poder pagar la doblada.
+
+Razón:
+
+En la fecha de pago (2026-03-13), ambos exploradores tienen PM.
+En la fecha de pago (2026-03-13), ambos exploradores tienen jornada PM.
+No se puede aplicar la doblada de pago trabajando dos veces la misma jornada.
+Solución:
+
+Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago.) esto porque creo que detecta el turno predetermiando de antes que era pm pero ahora es am porque se cambio. Quiero que hagas un analissi exhaustivo, depuración de alto nivel y te comportes como un ingeniero senior para resolver, con este solo prompt quiero que soluciones este problema y me digas porque ocurrió porque no se actualiza todo lo que este relacionado con jornada predeterminada al cambiar la jornada 
+
+- cuando hay dobladas hay bug y no esta cargando como debe ser, se encuentran confuciones 
+- cuando se pasa de cesion total a parcial o viceversa las tablas informativas no se actualizan y quedan cargadas. deben cargar las que van a corde a lo que se seleccione 
+- los casos de descansos si son validos proque en realidad este tipo de descanso son dias libres por "x" razon de algun cambio que hizo y el día le quedo libre. Entonces no es que sea un descanso, literalmente por lo tanto si pueden hacer cambios. Lo que pasa es que ese día se tiene que devolver como en una doblada 
 --------------------------------------------------------------------------------------------------------------
 {
 
@@ -89,3 +121,54 @@ Esto quiere decir que si yo el martes hubiese tenido la jornada pm pues debería
 Si cambio el turno, debo saber que horario tiene persona X el martes porque si quiero cambiar PM pues ella ese día, deberá tener Am para que pueda doblar. Si tengo Am pues ese día ella deberá tener un turno Pm para que me doble.
 
 En ese caso, esto esta condicionado si quiero cambiar(Solicitar doblada) pues debo buscar a una persona que trabaje el sábado y que además tenga el turno contrario al que yo tengo ese día que quiero, que me hagan la cesión de turno
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Cómo debería funcionar (y ya está diseñado así)
+En condiciones normales:
+Cuando la solicitud de doblada se aprueba sin errores y DobladaAplicacionService:
+crea/ajusta los Turno para la fecha de cesión y la fecha de pago,
+Entonces, en esas fechas:
+El explorador tiene AM + PM en la tabla Turno (o DOBLADA predeterminada según la regla),
+TurnoService.obtener_jornada_display devuelve 'DOBLADA',
+y Mis Turnos muestra el día como “DOBLADA (AM + PM)”, igual que lo que ya viste en otros casos.
+Es decir: sí se pueden ver las dobladas; de hecho, toda la lógica de “DOBLADA” en Mis Turnos ya está hecha justo para eso.
+Qué pasó en este caso concreto
+En esta solicitud Mariana → Vanesa hubo un error interno (DobladaTurnoService local) justo cuando el supervisor aprobó.
+La solicitud quedó marcada como aprobada, pero la parte que debía crear los turnos AM+PM para Vanesa (11) y Mariana (13) se rompió y se revirtió.
+Por eso ahora:
+Ves los descansos (que se calculan por la solicitud),
+pero no ves la DOBLADA, porque en BD no quedaron los turnos AM+PM que deberían haberse creado.
+Esto es un caso puntual causado por ese bug, no por el nuevo criterio de deuda.
+Qué te propongo
+Este caso: hacer un pequeño script de “reaplicar solicitud de doblada” para esa solicitud concreta (Mariana–Vanesa), que:
+vuelva a crear/ajustar los turnos de 11 y 13;
+con eso, Mis Turnos mostrará la doblada como corresponde.
+Probar una nueva doblada después de la corrección:
+hacemos otra solicitud sencilla;
+verificamos que:
+se crean los turnos AM+PM,
+Mis Turnos la muestra como DOBLADA,
+y la deuda corporativa se genera solo si realmente hay AM+PM.
+Si quieres, el siguiente paso lo dedicamos a definir (en diseño) ese script de reaplicación y un flujo de prueba sencillo para que verifiques visualmente que las próximas dobladas sí se ven correctamente.
+
+-Sucede lo siguiente. Cuando se realiza una solicitud y una vez aprobada , se reflejan los turno y se pueden ver esoso cambios en mis turnos/mi calendario pero una vez aprobados se puede cancelar, hay un rango de 30 minutos para hacerlo. Que pasa actualmente? y es que una vez cancelado no regresa el ultimo turno que tuvo ese explorador antes de aprobarse la ultima solicitud, quiero decir el penultimo porque el que se aprobó se cancela. En mis turnos esta apareciendo el turno que fue aprobado ósea como si no se hubiese cancelado y también puede pasar que ya no hay registro de ese día en mis turnos, aparece ccomo si fuere una jornada predeterminada y se debe validar si existio un turno ese día antes de ser aprobado y que no era predeterminada
+
+
+-Necesito lo siguiente. Cuando es sábado, sabes que hay un intercambio para los que les toca doblar de acuerdo a la regla de negocio que se intercala. En este caso que es 14 de febrero les corresponde trabajar al grupo am. Entonces. Si yo como solicitantes soy am y voy a realizar la solicitud para cambiar una o dos jornadas del sábado lo puedo hacer con la jornada contraria que es pm, ya que pm le corresponde descansar ese sabado. Como pm esta descansando el sábado yo puedo cederle una o las dos jornadas y ya elegir en semana cuando se las voy a pagar. Si llega el caso en que ese día de semana que le voy a pagar tenemos el mismo turno, se debe aplicar la regla de negocio que indica al solicitante “debes hacer un cambio de turno previo". Entonces cuando en la jornada a ceder uno selecciona PM(tarde) no debe cargar los compañeros Am de el 14 de febrero porque ellos están trabajando ese día en doblada. La intención para este caso es que tanto para am o pm carguen los compañeros de la jornada pm que son los que están descansando y pueden hacer el cambio  
+
+

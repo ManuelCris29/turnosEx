@@ -1,0 +1,153 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Solicitar Doblada de Fin de Semana{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<style>
+    .solicitud-layout { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
+    .solicitud-card {
+        background: #ffffff; border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); overflow: hidden;
+    }
+    .solicitud-header {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 18px 24px; background: linear-gradient(135deg, #0d6efd, #0b5ed7); color: #f9fafb;
+    }
+    .solicitud-header-main { display: flex; align-items: center; gap: 16px; }
+    .solicitud-header-icon {
+        width: 40px; height: 40px; border-radius: 999px; background: rgba(15, 23, 42, 0.15);
+        display: flex; align-items: center; justify-content: center; font-size: 20px;
+    }
+    .solicitud-title { font-size: 1.35rem; font-weight: 600; margin: 0 0 2px; }
+    .solicitud-subtitle { margin: 0; font-size: 0.9rem; opacity: 0.9; }
+    .solicitud-header-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; font-size: 0.8rem; }
+    .permanente-info {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white; padding: 15px; border-radius: 10px; margin-bottom: 20px;
+    }
+    .permanente-info h5 { margin: 0; font-weight: 600; }
+    .permanente-info p { margin: 5px 0 0 0; opacity: 0.9; }
+    @media (max-width: 576px) {
+        .solicitud-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+        .solicitud-header-meta { align-items: flex-start; }
+    }
+    /* Ocultar días de otros meses sin romper la cuadrícula */
+    .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay,
+    .flatpickr-day.flatpickr-prevMonth, .flatpickr-day.flatpickr-nextMonth {
+        visibility: hidden !important; pointer-events: none !important;
+    }
+    .flatpickr-day.flatpickr-disabled {
+        background-color: #f5f5f5 !important; color: #ccc !important; cursor: not-allowed !important;
+    }
+    /* Resumen del acuerdo (mismo patrón que la vista previa de doblada) */
+    #fds_resumen {
+        display: none; background-color: #f8f9fa; border-left: 4px solid #10b981;
+        padding: 12px 15px; margin-top: 12px; border-radius: 4px; color: #065f46;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+    <div class="dashboard-content">
+        <div class="solicitud-layout">
+            <div class="solicitud-card">
+                <div class="solicitud-header">
+                    <div class="solicitud-header-main">
+                        <div class="solicitud-header-icon">
+                            <i class="fas fa-calendar-week"></i>
+                        </div>
+                        <div>
+                            <h1 class="solicitud-title">Doblada de Fin de Semana</h1>
+                            <p class="solicitud-subtitle">Cede tu día del fin de semana a un compañero y devuélvelo en otro finde del mismo mes.</p>
+                        </div>
+                    </div>
+                    <div class="solicitud-header-meta"></div>
+                </div>
+        <div class="p-4">
+            <div class="permanente-info mb-3">
+                <h5 class="mb-1"><i class="fas fa-info-circle mr-2"></i>¿Qué es una Doblada de Fin de Semana?</h5>
+                <p class="mb-0">
+                    Si te toca trabajar este fin de semana y no puedes asistir, un compañero del grupo contrario
+                    se dobla ese finde (trabaja su día + el tuyo). Tú le devuelves el favor doblándote otro fin de
+                    semana del mismo mes (fecha de pago).
+                </p>
+            </div>
+
+            <form method="post" id="dfdsForm" class="solicitud-form">
+                {% csrf_token %}
+                <input type="hidden" id="tipo_solicitud_id" name="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
+                <input type="hidden" data-tipo-nombre="{{ tipo_solicitud.nombre }}" id="tipo_solicitud_nombre">
+
+                <!-- Fin de semana que cedes -->
+                <div class="form-group">
+                    <label for="fecha_solicitud">
+                        <i class="fas fa-calendar mr-1"></i>Fin de Semana que Cedes <span class="text-danger">*</span>
+                    </label>
+                    <input type="text" class="form-control" id="fecha_solicitud" name="fecha_solicitud" required
+                           placeholder="Selecciona un sábado o domingo" autocomplete="off" readonly>
+                    <small class="form-text text-muted">
+                        Solo se permiten fines de semana en los que te corresponde trabajar (según la alternancia).
+                    </small>
+                </div>
+
+                <!-- Compañero que se doblará -->
+                <div class="form-group">
+                    <label for="empleado_receptor">
+                        <i class="fas fa-user mr-1"></i>Compañero que se Doblará <span class="text-danger">*</span>
+                    </label>
+                    <select class="form-control" id="empleado_receptor" name="empleado_receptor" required disabled>
+                        <option value="">Primero selecciona el fin de semana...</option>
+                    </select>
+                    <small class="form-text text-muted">
+                        Solo se muestran compañeros del grupo contrario (los que trabajan el otro día del fin de semana).
+                    </small>
+                </div>
+
+                <!-- Fin de semana de devolución (pago) -->
+                <div class="form-group">
+                    <label for="fecha_pago">
+                        <i class="fas fa-calendar-check mr-1"></i>Fin de Semana de Devolución (Pago) <span class="text-danger">*</span>
+                    </label>
+                    <input type="text" class="form-control" id="fecha_pago" name="fecha_pago" required disabled
+                           placeholder="Otro fin de semana del mismo mes" autocomplete="off" readonly>
+                    <small class="form-text text-muted">
+                        Debe ser otro fin de semana del <strong>mismo mes</strong>, donde cubrirás el día de tu compañero.
+                    </small>
+                    <div id="fds_resumen"></div>
+                </div>
+
+                <!-- Comentarios -->
+                <div class="form-group">
+                    <label for="comentarios">
+                        <i class="fas fa-comment mr-1"></i>Comentarios <span class="text-danger">*</span>
+                    </label>
+                    <textarea class="form-control" id="comentarios" name="comentarios" rows="4" maxlength="1000" required
+                              placeholder="Explica el motivo de la doblada de fin de semana..."></textarea>
+                    <small class="form-text text-muted">
+                        Este campo es obligatorio. Proporciona detalles adicionales sobre tu solicitud.
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-lg btn-block" id="btnEnviarDfds">
+                        <i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud
+                    </button>
+                </div>
+            </form>
+        </div>
+        </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+<script src="{% static 'js/cambio-turno/solicitar_d_fds.js' %}"></script>
+{% endblock %}

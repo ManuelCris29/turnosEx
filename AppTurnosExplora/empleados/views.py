@@ -16,7 +16,7 @@ from django.contrib.auth.forms import SetPasswordForm
 from django.urls import reverse_lazy
 from turnos.models import AsignarJornadaExplorador
 from django.utils import timezone
-from .forms import SancionEmpleadoForm, RestriccionEmpleadoForm, JornadaForm, EmpleadoUsuarioForm
+from .forms import SancionEmpleadoForm, RestriccionEmpleadoForm, JornadaForm, EmpleadoUsuarioForm, PDHForm
 
 # Importar mixin común desde core
 from core.mixins import AdminRequiredMixin
@@ -176,6 +176,17 @@ class EmpleadoEditView(LoginRequiredMixin, UpdateView):
             jornada=jornada,
             fecha_inicio=timezone.now().date()
         )
+        
+        # Invalidar caché de MisTurnosPorMesView para este empleado
+        try:
+            from core.services.cache_service import CacheService
+            anio_actual = timezone.now().year
+            for anio in (anio_actual, anio_actual + 1):
+                for mes in range(1, 13):
+                    CacheService.invalidar_cache_turnos_empleado(empleado.id, mes, anio)
+        except Exception:
+            # Si algo falla al invalidar caché, no bloquear la actualización del empleado
+            pass
         
         messages.success(self.request, 'Empleado actualizado correctamente.')
         return super().form_valid(form)
@@ -484,22 +495,46 @@ class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     success_url = '/empleados/sanciones/'
 
 # CRUD de PDH (Pago de Horas)
-class PDHListView(LoginRequiredMixin, ListView):
+class PDHListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    """Administración: el supervisor/admin ve y gestiona todos los pagos de horas."""
     model = PDH
     template_name = 'empleados/pdh_list.html'
     context_object_name = 'pdhs'
 
+    def get_queryset(self):
+        return (
+            PDH.objects.filter(tipo_registro='pago_horas')
+            .select_related('explorador', 'supervisor')
+            .order_by('-fecha', '-id')
+        )
+
 class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = PDH
+    form_class = PDHForm
     template_name = 'empleados/pdh_create.html'
-    fields = ['empleado', 'fecha', 'horas', 'monto', 'estado']
     success_url = '/empleados/pdh/'
+
+    def form_valid(self, form):
+        # El supervisor que registra es quien autoriza el pago.
+        form.instance.supervisor = self.request.user.empleado
+        form.instance.tipo_registro = 'pago_horas'
+        messages.success(
+            self.request,
+            f'Pago de {form.instance.horas} h registrado para '
+            f'{form.instance.explorador.nombre} {form.instance.explorador.apellido}. '
+            'Se descuenta de su consolidado de horas.'
+        )
+        return super().form_valid(form)
 
 class PDHUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = PDH
+    form_class = PDHForm
     template_name = 'empleados/pdh_edit.html'
-    fields = ['empleado', 'fecha', 'horas', 'monto', 'estado']
     success_url = '/empleados/pdh/'
+
+    def form_valid(self, form):
+        form.instance.tipo_registro = 'pago_horas'
+        return super().form_valid(form)
 
 class PDHDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = PDH
@@ -534,9 +569,29 @@ class ChangePasswordView(LoginRequiredMixin, AdminRequiredMixin, View):
 
 # Vistas solo visualización para Consultas Rápidas
 class PDHVisualizarListView(LoginRequiredMixin, ListView):
+    """Consulta: admin/supervisor ve todos los pagos; el explorador solo los suyos."""
     model = PDH
     template_name = 'empleados/pdh_visualizar_list.html'
     context_object_name = 'pdhs'
+
+    def get_queryset(self):
+        from turnos.services.consolidado_horas_service import ConsolidadoHorasService
+        qs = (
+            PDH.objects.filter(tipo_registro='pago_horas')
+            .select_related('explorador', 'supervisor')
+            .order_by('-fecha', '-id')
+        )
+        user = self.request.user
+        if ConsolidadoHorasService.es_supervisor(user):
+            return qs
+        empleado = getattr(user, 'empleado', None)
+        return qs.filter(explorador=empleado) if empleado else qs.none()
+
+    def get_context_data(self, **kwargs):
+        from turnos.services.consolidado_horas_service import ConsolidadoHorasService
+        context = super().get_context_data(**kwargs)
+        context['es_supervisor'] = ConsolidadoHorasService.es_supervisor(self.request.user)
+        return context
 
 class SancionVisualizarListView(LoginRequiredMixin, ListView):
     model = SancionEmpleado

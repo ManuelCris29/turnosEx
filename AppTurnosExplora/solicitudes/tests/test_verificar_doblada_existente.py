@@ -8,7 +8,7 @@ from django.contrib.auth.models import User
 from django.urls import reverse
 from empleados.models import Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio, DobladaDetalle
-from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador
+from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador, Sala
 from datetime import date
 import json
 
@@ -61,7 +61,10 @@ class VerificarDobladaExistenteTest(TestCase):
             hora_inicio='14:00:00',
             hora_fin='22:00:00'
         )
-        
+
+        # Sala requerida por la FK NOT NULL de Turno
+        self.sala = Sala.objects.create(nombre='Sala Test', activo=True)
+
         # Fecha de prueba: 14 de febrero de 2026 (sábado)
         self.fecha_test = date(2026, 2, 14)
     
@@ -124,10 +127,12 @@ class VerificarDobladaExistenteTest(TestCase):
         self.assertEqual(data.get('solicitud_id'), solicitud_doblada.id,
                         "Debe retornar el ID de la solicitud de doblada")
         
-        # El mensaje debe indicar que está descansando
-        mensaje = data.get('mensaje', '')
-        self.assertIn('descansando', mensaje.lower() or 'cediste', mensaje.lower(),
-                     "El mensaje debe indicar que está descansando o que cedió su jornada")
+        # El mensaje debe indicar que está descansando o que cedió su jornada
+        mensaje = data.get('mensaje', '').lower()
+        self.assertTrue(
+            'descansando' in mensaje or 'cediste' in mensaje,
+            "El mensaje debe indicar que está descansando o que cedió su jornada"
+        )
     
     def test_verificar_doblada_con_ct_aprobado(self):
         """Test: Usuario con CT aprobado - NO debe poder solicitar doblada"""
@@ -153,6 +158,7 @@ class VerificarDobladaExistenteTest(TestCase):
             explorador=self.jeison,
             fecha=self.fecha_test,
             jornada=self.jornada_pm,  # Jornada del receptor
+            sala=self.sala,
             tipo_cambio='CT'
         )
         solicitud_ct.turno_origen = turno_jeison
@@ -179,21 +185,23 @@ class VerificarDobladaExistenteTest(TestCase):
             explorador=self.jeison,
             fecha=self.fecha_test,
             jornada=self.jornada_am,
+            sala=self.sala,
             tipo_cambio='DOBLADA'
         )
         Turno.objects.create(
             explorador=self.jeison,
             fecha=self.fecha_test,
             jornada=self.jornada_pm,
+            sala=self.sala,
             tipo_cambio='DOBLADA'
         )
-        
+
         url = reverse('solicitudes:verificar_doblada_existente')
         response = self.client.get(url, {'fecha': '2026-02-14'})
-        
+
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.content)
-        
+
         # Debe detectar que tiene doblada
         self.assertTrue(data.get('success', False))
         self.assertTrue(data.get('tiene_doblada', False),
@@ -214,12 +222,14 @@ class VerificarDobladaExistenteTest(TestCase):
             explorador=self.jeison,
             fecha=self.fecha_test,
             jornada=self.jornada_am,
+            sala=self.sala,
             tipo_cambio='DOBLADA'
         )
         Turno.objects.create(
             explorador=self.jeison,
             fecha=self.fecha_test,
             jornada=self.jornada_pm,
+            sala=self.sala,
             tipo_cambio='DOBLADA'
         )
         
@@ -302,3 +312,37 @@ class VerificarDobladaExistenteTest(TestCase):
         self.assertTrue(data.get('puede_ceder', False))
         self.assertIn('AM', data.get('jornadas', []))
         self.assertIn('PM', data.get('jornadas', []))
+
+    def test_verificar_doblada_festivo_semana_usuario_grupo_que_descansa(self):
+        """Festivo entre semana - usuario del grupo que DESCANSA ese día NO puede ceder.
+
+        Regla de negocio: si a tu grupo no le corresponde trabajar el festivo, no tienes
+        jornada que ceder, por lo que puede_ceder debe ser False (el frontend bloquea
+        compañero/fecha de pago/envío) y se entrega el mensaje explicativo.
+        """
+        # Misma rotación que el test anterior: idx 0 (01-ene) -> PM, idx 1 (03-abr) -> AM.
+        # El 3 de abril dobla el grupo AM, así que un usuario PM descansa.
+        DiaEspecial.objects.create(
+            fecha=date(2026, 1, 1), tipo='festivo', descripcion='Año Nuevo', activo=True
+        )
+        DiaEspecial.objects.create(
+            fecha=date(2026, 4, 3), tipo='festivo', descripcion='Día festivo', activo=True
+        )
+        # Jeison es PM (grupo que descansa el 03-abr)
+        AsignarJornadaExplorador.objects.create(
+            explorador=self.jeison,
+            jornada=self.jornada_pm,
+            fecha_inicio=date(2025, 1, 1)
+        )
+        self.client.login(username='jeison.mora', password='test123')
+        url = reverse('solicitudes:verificar_doblada_existente')
+        response = self.client.get(url, {'fecha': '2026-04-03'})
+        self.assertEqual(response.status_code, 200)
+        data = json.loads(response.content)
+        self.assertTrue(data.get('success', False), f"Response: {data}")
+        self.assertFalse(
+            data.get('puede_ceder', True),
+            f"Usuario PM NO debe poder ceder el 3-abr-2026 (festivo del grupo AM). Response: {data}"
+        )
+        self.assertFalse(data.get('tiene_doblada', True))
+        self.assertIn('descansas', data.get('mensaje', '').lower())

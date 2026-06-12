@@ -1,56 +1,101 @@
 {% extends 'base.html' %}
+{% load static %}
 
-{% block title %}Permisos Especiales - AppTurnos{% endblock %}
-{% block page_title %}Permisos Especiales{% endblock %}
+{% block title %}Permisos Especiales{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h2>Lista de Permisos Especiales</h2>
-    <a href="{% url 'permisos_especiales_create' %}" class="btn btn-success mb-3">
-        <i class="fas fa-plus"></i> Nuevo Permiso Especial
-    </a>
-    <table class="table table-bordered">
-        <thead>
-            <tr>
-                <th>ID</th>
-                <th>Empleado</th>
-                <th>Tipo</th>
-                <th>Fecha Inicio</th>
-                <th>Fecha Fin</th>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-check"></i> Permisos Especiales</h1>
+      <p class="pg-subtitle">Tiempo de tu jornada para uso personal — se acumula en las horas que debes una vez aprobado</p>
+    </div>
+
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head indigo">
+        <h3><i class="fas fa-list-ul"></i> {% if es_supervisor %}Todos los permisos{% else %}Mis permisos{% endif %}</h3>
+        <div class="pg-actions">
+          <a href="{% url 'permisos_especiales_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Solicitar permiso</a>
+          <a href="{% url 'permisos_especiales_permanente_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-calendar-week"></i> Permiso permanente</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                {% if es_supervisor %}<th>Explorador</th>{% endif %}
+                <th>Permiso</th>
+                <th>Fecha(s)</th>
+                <th>Horas</th>
+                <th>Especificación</th>
+                <th>Cubre</th>
                 <th>Estado</th>
                 <th>Supervisor</th>
-                <th>Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for permiso in permisos_especiales %}
-            <tr>
-                <td>{{ permiso.id }}</td>
-                <td>{{ permiso.empleado.nombre }} {{ permiso.empleado.apellido }}</td>
-                <td>{{ permiso.get_tipo_display }}</td>
-                <td>{{ permiso.fecha_inicio }}</td>
-                <td>{{ permiso.fecha_fin }}</td>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in permisos_especiales %}
+              <tr>
+                {% if es_supervisor %}<td>{{ p.empleado.nombre }} {{ p.empleado.apellido }}</td>{% endif %}
                 <td>
-                    <span class="badge badge-{% if permiso.estado == 'PENDIENTE' %}warning{% elif permiso.estado == 'APROBADO' %}success{% elif permiso.estado == 'RECHAZADO' %}danger{% else %}secondary{% endif %}">
-                        {{ permiso.get_estado_display }}
-                    </span>
+                  {% if p.es_permanente %}<span class="pg-chip pg-chip-info">Permanente</span>{% else %}<span class="pg-chip pg-chip-gray">Puntual</span>{% endif %}
+                  <div class="text-muted small">{{ p.get_tipo_display }}</div>
                 </td>
-                <td>{{ permiso.supervisor.nombre }} {{ permiso.supervisor.apellido }}</td>
                 <td>
-                    <a href="{% url 'permisos_especiales_edit' permiso.id %}" class="btn btn-primary btn-sm">
-                        <i class="fas fa-edit"></i>
-                    </a>
-                    <a href="{% url 'permisos_especiales_delete' permiso.id %}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este permiso especial?');">
-                        <i class="fas fa-trash-alt"></i>
-                    </a>
+                  {% if p.es_permanente %}
+                    {{ p.fecha_inicio|date:"d/m/Y" }} – {{ p.fecha_fin|date:"d/m/Y" }}
+                    <div class="text-muted small">{{ p.dias_semana_legible }}</div>
+                  {% else %}
+                    {{ p.fecha_inicio|date:"d/m/Y" }}
+                  {% endif %}
                 </td>
-            </tr>
-            {% empty %}
-            <tr>
-                <td colspan="8">No hay permisos especiales registrados.</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+                <td><strong>{{ p.horas_totales }} h</strong>{% if p.es_permanente %}<div class="text-muted small">{{ p.tiempo }}×ocurr.</div>{% endif %}</td>
+                <td>{{ p.especificacion|default:"—" }}</td>
+                <td>{% if p.cubre %}{{ p.cubre.nombre }} {{ p.cubre.apellido }}{% else %}—{% endif %}</td>
+                <td>
+                  {% if p.estado == 'PENDIENTE' %}<span class="pg-chip pg-chip-pend">Pendiente</span>
+                  {% elif p.estado == 'APROBADO' %}<span class="pg-chip pg-chip-ok">Aprobado</span>
+                  {% elif p.estado == 'RECHAZADO' %}<span class="pg-chip pg-chip-no">Rechazado</span>
+                  {% else %}<span class="pg-chip pg-chip-gray">{{ p.get_estado_display }}</span>{% endif %}
+                </td>
+                <td>{% if p.supervisor %}{{ p.supervisor.nombre }} {{ p.supervisor.apellido }}{% else %}—{% endif %}</td>
+                <td style="white-space:nowrap;">
+                  {% if es_supervisor and p.estado == 'PENDIENTE' %}
+                    <form method="post" action="{% url 'permisos_especiales_aprobar' p.id %}" class="d-inline">
+                      {% csrf_token %}<input type="hidden" name="accion" value="aprobar">
+                      <button class="pg-btn pg-btn-success pg-btn-sm" title="Aprobar"><i class="fas fa-check"></i></button>
+                    </form>
+                    <form method="post" action="{% url 'permisos_especiales_aprobar' p.id %}" class="d-inline">
+                      {% csrf_token %}<input type="hidden" name="accion" value="rechazar">
+                      <button class="pg-btn pg-btn-warn pg-btn-sm" title="Rechazar"><i class="fas fa-times"></i></button>
+                    </form>
+                  {% endif %}
+                  {% if es_supervisor or p.estado == 'PENDIENTE' %}
+                    <a href="{% url 'permisos_especiales_delete' p.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar"
+                       onclick="return confirm('¿Eliminar este permiso?');"><i class="fas fa-trash-alt"></i></a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="9"><div class="pg-empty"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>No hay permisos especiales registrados.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

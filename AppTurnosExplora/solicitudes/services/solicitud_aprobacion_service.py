@@ -12,13 +12,62 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class _AplicacionFallida(Exception):
+    """Sentinel interno: aplicar_cambios devolvió success=False.
+
+    Se usa para forzar el rollback de la transacción que marca la solicitud como
+    'aprobada', evitando dejarla aprobada sin turnos/deudas aplicados.
+    """
+    def __init__(self, message):
+        self.message = message
+        super().__init__(message)
+
+
 class SolicitudAprobacionService:
     """
     Servicio para procesar aprobaciones y rechazos de solicitudes.
-    
+
     Responsabilidad única: Gestionar el flujo de aprobación/rechazo.
     """
-    
+
+    @staticmethod
+    def _confirmar_aprobacion_y_aplicar(solicitud):
+        """
+        Marca la solicitud como 'aprobada' y aplica sus cambios de forma ATÓMICA.
+
+        El estado 'aprobada', las fechas de resolución y los turnos/deudas generados
+        por ``aplicar_cambios`` se confirman juntos o no se confirman: si la aplicación
+        falla, se revierte TODO (incluido el estado), dejando la solicitud en su estado
+        previo para poder reintentar. Antes, el estado se guardaba por separado y un
+        fallo en la aplicación dejaba la solicitud "aprobada" sin turnos ni deudas.
+
+        Returns:
+            Tupla (success: bool, message: str)
+        """
+        from django.db import transaction
+
+        solicitud.estado = 'aprobada'
+        solicitud.fecha_resolucion = timezone.now()
+        try:
+            with transaction.atomic():
+                # Guardar dentro de la transacción: aplicar_cambios recarga la solicitud
+                # y, al compartir conexión, ve el estado 'aprobada'.
+                solicitud.save()
+                logger.info("Solicitud guardada con estado 'aprobada' - ID: %d", solicitud.id)
+                logger.info("Llamando a aplicar_cambios para solicitud ID: %d", solicitud.id)
+                success, message = SolicitudFactory.aplicar_cambios(solicitud)
+                if not success:
+                    # Forzar rollback del estado 'aprobada' junto con cualquier cambio parcial.
+                    raise _AplicacionFallida(message)
+            logger.info("Cambios aplicados exitosamente para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+            return True, message
+        except _AplicacionFallida as e:
+            logger.error(
+                "ERROR aplicando cambios para solicitud ID: %d - Mensaje: %s. Estado revertido.",
+                solicitud.id, e.message
+            )
+            return False, f"Error aplicando cambios: {e.message}"
+
     @staticmethod
     def aprobar_solicitud_supervisor(solicitud_id, supervisor, comentario_respuesta=None):
         """
@@ -69,25 +118,14 @@ class SolicitudAprobacionService:
                     solicitud.explorador_solicitante.id
                 )
                 
-                solicitud.estado = 'aprobada'
-                solicitud.fecha_resolucion = timezone.now()
-                
-                # IMPORTANTE: Guardar primero para que aplicar_cambios pueda recargar el estado correcto
-                solicitud.save()
-                logger.info("Solicitud guardada con estado 'aprobada' - ID: %d", solicitud.id)
-                
-                # Aplicar los cambios usando el Factory
-                logger.info("Llamando a aplicar_cambios para solicitud ID: %d", solicitud.id)
-                success, message = SolicitudFactory.aplicar_cambios(solicitud)
+                # Confirmar estado y aplicar cambios atómicamente (revierte si falla)
+                success, message = SolicitudAprobacionService._confirmar_aprobacion_y_aplicar(solicitud)
                 if not success:
-                    logger.error("ERROR aplicando cambios para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
-                    return False, f"Error aplicando cambios: {message}"
-                else:
-                    logger.info("Cambios aplicados exitosamente para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+                    return False, message
             else:
                 # Si no está completamente aprobada, solo guardar
                 solicitud.save()
-            
+
             # Crear notificación de aprobación del supervisor
             NotificacionService.crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta)
             
@@ -158,25 +196,14 @@ class SolicitudAprobacionService:
                     solicitud.explorador_solicitante.id
                 )
                 
-                solicitud.estado = 'aprobada'
-                solicitud.fecha_resolucion = timezone.now()
-                
-                # IMPORTANTE: Guardar primero para que aplicar_cambios pueda recargar el estado correcto
-                solicitud.save()
-                logger.info("Solicitud guardada con estado 'aprobada' - ID: %d", solicitud.id)
-                
-                # Aplicar los cambios usando el Factory
-                logger.info("Llamando a aplicar_cambios para solicitud ID: %d", solicitud.id)
-                success, message = SolicitudFactory.aplicar_cambios(solicitud)
+                # Confirmar estado y aplicar cambios atómicamente (revierte si falla)
+                success, message = SolicitudAprobacionService._confirmar_aprobacion_y_aplicar(solicitud)
                 if not success:
-                    logger.error("ERROR aplicando cambios para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
-                    return False, f"Error aplicando cambios: {message}"
-                else:
-                    logger.info("Cambios aplicados exitosamente para solicitud ID: %d - Mensaje: %s", solicitud.id, message)
+                    return False, message
             else:
                 # Si no está completamente aprobada, solo guardar
                 solicitud.save()
-            
+
             # Crear notificación de aprobación del receptor
             NotificacionService.crear_notificacion_aprobacion_receptor(solicitud, receptor, comentario_respuesta)
             

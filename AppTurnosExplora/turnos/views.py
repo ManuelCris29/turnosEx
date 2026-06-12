@@ -45,7 +45,37 @@ class CambiosTurnoView(LoginRequiredMixin, TemplateView):
     template_name = 'turnos/placeholder.html'
 
 class ConsolidadoHorasView(LoginRequiredMixin, TemplateView):
-    template_name = 'turnos/placeholder.html'
+    template_name = 'turnos/consolidado_horas.html'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        from .services.consolidado_horas_service import ConsolidadoHorasService
+        from empleados.models import Empleado
+
+        user = self.request.user
+        es_supervisor = ConsolidadoHorasService.es_supervisor(user)
+        empleado_actual = getattr(user, 'empleado', None)
+
+        objetivo = None
+        if es_supervisor:
+            # El supervisor elige a quién consultar (?explorador_id=...)
+            context['exploradores'] = ConsolidadoHorasService.exploradores_disponibles()
+            eid = self.request.GET.get('explorador_id')
+            if eid:
+                objetivo = Empleado.objects.filter(id=eid, activo=True).first()
+            elif empleado_actual:
+                # Por defecto, el propio supervisor (si también es explorador)
+                objetivo = empleado_actual
+        else:
+            # Explorador: solo sus propios datos
+            objetivo = empleado_actual
+
+        context['es_supervisor'] = es_supervisor
+        context['explorador_objetivo'] = objetivo
+        context['explorador_id_sel'] = str(objetivo.id) if objetivo else ''
+        if objetivo:
+            context['consolidado'] = ConsolidadoHorasService.get_consolidado(objetivo)
+        return context
 
 # CRUD de Turnos
 class TurnoListView(LoginRequiredMixin, AdminRequiredMixin, ListView):

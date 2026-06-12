@@ -1,0 +1,160 @@
+"""
+Servicio para aplicar cambios de Doblada de Fin de Semana (D FDS).
+
+Responsabilidad única: aplicar los turnos y generar las deudas cuando una
+solicitud D FDS es aprobada.
+
+Modelo de negocio (acordado):
+- En un fin de semana, según la alternancia, UN grupo trabaja un día completo
+  (AM+PM) y el otro grupo trabaja el otro día. Cada explorador trabaja un solo
+  día del finde.
+- Favor (fecha de cesión): el solicitante NO puede asistir a SU día del finde y
+  lo cede. El receptor (grupo contrario, trabaja el otro día) se dobla: trabaja
+  su día propio + el día cedido. El solicitante descansa todo ese finde.
+- Pago (fecha de pago, mismo mes): espejo del favor. El solicitante cubre el día
+  del receptor en un finde futuro: trabaja su día propio + el día del receptor.
+  El receptor descansa su día.
+
+Unidad transferida = un día de finde completo (AM+PM), no medias jornadas.
+
+Deudas:
+- Corporativa (30 min) por CADA día con doblada efectiva AM+PM: el receptor en la
+  fecha de cesión y el solicitante en la fecha de pago.
+- Entre exploradores (DeudaExplorador): el solicitante (deudor) le debe el finde
+  al receptor (acreedor); se salda con la fecha de pago.
+"""
+from datetime import date
+import logging
+
+from django.db import transaction
+
+from solicitudes.models import SolicitudCambio, DobladaDetalle
+from turnos.models import Turno
+from turnos.services.jornada_service import JornadaService
+from turnos.services.doblada_turno_service import DobladaTurnoService
+from .deuda_service import DeudaService
+from .deuda_corporativa_service import DeudaCorporativaService
+
+logger = logging.getLogger(__name__)
+
+
+class DFDSAplicacionService:
+    """Aplica turnos y deudas de una Doblada de Fin de Semana aprobada."""
+
+    @staticmethod
+    def _jornadas_cache():
+        from turnos.models import Jornada
+        return {
+            'AM': Jornada.objects.get(nombre='AM'),
+            'PM': Jornada.objects.get(nombre='PM'),
+        }
+
+    @staticmethod
+    def _crear_doblada_dia(explorador, fecha: date, tipo_cambio: str = 'D FDS') -> None:
+        """
+        Deja al explorador con doblada completa AM+PM en `fecha` (un día de finde).
+        Borra cualquier turno previo de ese día y crea AM y PM.
+        """
+        jc = DFDSAplicacionService._jornadas_cache()
+        Turno.objects.filter(explorador=explorador, fecha=fecha).delete()
+        sala = DobladaTurnoService.obtener_sala_explorador_fecha(explorador, fecha)
+        for nombre in ('AM', 'PM'):
+            Turno.objects.create(
+                explorador=explorador,
+                fecha=fecha,
+                jornada=jc[nombre],
+                sala=sala,
+                tipo_cambio=tipo_cambio,
+            )
+        logger.info("D FDS: %s dobla (AM+PM) en %s", explorador.nombre, fecha)
+
+    @staticmethod
+    @transaction.atomic
+    def aplicar(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
+        """
+        Aplica el favor (fecha de cesión) y el pago (fecha de pago) de la D FDS.
+
+        - Cesión: receptor dobla su día cedido; solicitante descansa el finde.
+        - Pago: solicitante dobla el día del receptor; receptor descansa su día.
+        """
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        fecha_cesion = solicitud.fecha_cambio_turno
+        fecha_pago = detalle.fecha_pago
+
+        # --- Favor (fecha de cesión) ---
+        # El receptor cubre el día del solicitante (se dobla ese día).
+        DFDSAplicacionService._crear_doblada_dia(receptor, fecha_cesion)
+        # El solicitante descansa: sin turnos ese día (el mensaje de descanso lo
+        # provee la vista de Mis Turnos al detectar la solicitud como solicitante).
+        Turno.objects.filter(explorador=solicitante, fecha=fecha_cesion).delete()
+
+        # --- Pago (fecha de pago) ---
+        # El solicitante cubre el día del receptor (se dobla ese día).
+        DFDSAplicacionService._crear_doblada_dia(solicitante, fecha_pago)
+        # El receptor descansa su día.
+        Turno.objects.filter(explorador=receptor, fecha=fecha_pago).delete()
+
+        logger.info(
+            "D FDS aplicada: Solicitud %s - %s cede %s, %s paga %s",
+            solicitud.id, solicitante.nombre, fecha_cesion, solicitante.nombre, fecha_pago,
+        )
+
+    @staticmethod
+    @transaction.atomic
+    def generar_deudas(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
+        """
+        Genera la deuda entre exploradores y las deudas corporativas (30 min por
+        cada día con doblada efectiva AM+PM).
+        """
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        fecha_cesion = solicitud.fecha_cambio_turno
+        fecha_pago = detalle.fecha_pago
+
+        # Jornada base del solicitante (el día cedido era de su grupo)
+        jornada_base = JornadaService.get_jornada_explorador_fecha(
+            solicitante.id, fecha_cesion.strftime('%Y-%m-%d')
+        )
+        jornada_cedida_nombre = jornada_base.nombre.upper() if jornada_base else 'AM'
+
+        # Deuda entre exploradores: el solicitante le debe el finde al receptor,
+        # saldada con la fecha de pago (finde de devolución).
+        DeudaService.crear_deuda(
+            deudor=solicitante,
+            acreedor=receptor,
+            solicitud=solicitud,
+            fecha_generacion=fecha_cesion,
+            fecha_pago_pactada=fecha_pago,
+            fecha_pago_real=fecha_pago,
+            jornada_cedida=jornada_cedida_nombre,
+            media_jornada=False,  # se cede un día de finde completo
+        )
+
+        # Deudas corporativas: 30 min por cada doblada efectiva AM+PM.
+        from turnos.services.turno_service import TurnoService
+
+        def _deuda_corp_si_doblada(explorador, fecha_doblada, comentario):
+            display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
+            if display == 'DOBLADA':
+                DeudaCorporativaService.crear_deuda_corporativa(
+                    explorador=explorador,
+                    minutos=30,
+                    fecha_generacion=date.today(),
+                    fecha_doblada=fecha_doblada,
+                    solicitud=solicitud,
+                    comentario=comentario,
+                )
+                logger.info(
+                    "D FDS: deuda corporativa 30 min para %s en %s", explorador.nombre, fecha_doblada
+                )
+
+        # Receptor dobla el día cedido; solicitante dobla el día de pago.
+        _deuda_corp_si_doblada(
+            receptor, fecha_cesion, f'D FDS: doblada en día cedido ({fecha_cesion})'
+        )
+        _deuda_corp_si_doblada(
+            solicitante, fecha_pago, f'D FDS: doblada en día de pago ({fecha_pago})'
+        )
+
+        logger.info("D FDS deudas generadas: Solicitud %s", solicitud.id)

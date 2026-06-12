@@ -351,7 +351,13 @@ function validarFormularioSolicitud(form, tipoSolicitud) {
 function mostrarErroresValidacion(errores) {
     if (!errores || errores.length === 0) return;
 
-    const mensajes = errores.map(e => `• ${e.mensaje}`).join('\n');
+    // Tolerar tanto strings sueltos como objetos { campo, mensaje }.
+    // Algunos formularios (p. ej. doblada) pasan un arreglo de mensajes de texto;
+    // sin esta normalización aparecía "• undefined" al leer e.mensaje de un string.
+    const mensajes = errores.map(e => {
+        const texto = (typeof e === 'string') ? e : (e && e.mensaje ? e.mensaje : String(e));
+        return `• ${texto}`;
+    }).join('\n');
     
     Swal.fire({
         icon: 'warning',

@@ -288,6 +288,25 @@ class DobladaDetalle(models.Model):
         blank=True,
         help_text='Si la fecha de pago es sábado, jornada (AM/PM) que el solicitante elige trabajar ese sábado'
     )
+    JORNADA_CUBRE_PAGO_CHOICES = [
+        ('AM', 'AM'),
+        ('PM', 'PM'),
+        ('AMBAS', 'Ambas (receptor descansa el día completo)'),
+    ]
+    jornada_cubre_en_pago = models.CharField(
+        max_length=5,
+        choices=JORNADA_CUBRE_PAGO_CHOICES,
+        null=True,
+        blank=True,
+        help_text='Si el receptor tiene doblada (AM+PM) en fecha de pago: qué parte cubre el deudor, o ambas.'
+    )
+    snapshot_turnos_previos = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Turnos de solicitante/receptor en fechas de cesión y pago ANTES de aplicar la doblada. '
+        'Clave "explorador_id:YYYY-MM-DD", valor lista de {jornada_nombre, sala_id, tipo_cambio}. '
+        'Permite revertir la cancelación en 30 min restaurando CT sencillos u otros turnos previos.'
+    )
     empleado_receptor = models.ForeignKey(
         Empleado,
         on_delete=models.CASCADE,

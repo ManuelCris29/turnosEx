@@ -9,6 +9,83 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
 <style>
+    .solicitud-layout {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 24px 16px 40px;
+    }
+    .solicitud-card {
+        background: #ffffff;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+        overflow: hidden;
+    }
+    .solicitud-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 18px 24px;
+        background: linear-gradient(135deg, #0d6efd, #0b5ed7);
+        color: #f9fafb;
+    }
+    .solicitud-header-main {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+    }
+    .solicitud-header-icon {
+        width: 40px;
+        height: 40px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+    }
+    .solicitud-title {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin: 0 0 2px;
+    }
+    .solicitud-subtitle {
+        margin: 0;
+        font-size: 0.9rem;
+        opacity: 0.9;
+    }
+    .solicitud-header-meta {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 4px;
+        font-size: 0.8rem;
+    }
+    .permanente-info {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    .permanente-info h5 {
+        margin: 0;
+        font-weight: 600;
+    }
+    .permanente-info p {
+        margin: 5px 0 0 0;
+        opacity: 0.9;
+    }
+    @media (max-width: 576px) {
+        .solicitud-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+        }
+        .solicitud-header-meta {
+            align-items: flex-start;
+        }
+    }
+
     /* Ocultar días de mes anterior/siguiente SIN romper la cuadrícula.
        Usar visibility: hidden (no display: none) para que las celdas sigan ocupando
        espacio y Lun–Dom sigan alineados con las columnas. */
@@ -205,11 +282,21 @@
 {% block content %}
 <div class="dashboard-container">
     <div class="dashboard-content">
-        <div class="solicitud-card">
-        <div class="solicitud-header">
-            <h2 class="mb-1">Solicitud de Doblada</h2>
-            <div class="text-light">Tipo: {{ tipo_solicitud.nombre }}</div>
-        </div>
+        <div class="solicitud-layout">
+            <div class="solicitud-card">
+                <div class="solicitud-header">
+                    <div class="solicitud-header-main">
+                        <div class="solicitud-header-icon">
+                            <i class="fas fa-user-clock"></i>
+                        </div>
+                        <div>
+                            <h1 class="solicitud-title">Solicitud de Doblada</h1>
+                            <p class="solicitud-subtitle">Pide a un compañero que se doble por ti y define cómo le pagarás después.</p>
+                        </div>
+                    </div>
+                    <div class="solicitud-header-meta">
+                    </div>
+                </div>
         <div class="p-4">
             {% if error_message %}
                 <div class="alert alert-danger">
@@ -218,6 +305,14 @@
                 </div>
             {% endif %}
 
+            <div class="permanente-info mb-3">
+                <h5 class="mb-1"><i class="fas fa-info-circle mr-2"></i>¿Qué es una Doblada?</h5>
+                <p class="mb-0">
+                    Un compañero se dobla por ti en una fecha de cesión (trabaja dos jornadas para que tú descanses)
+                    y tú le devuelves esa deuda trabajando por él en otra fecha de pago acordada.
+                </p>
+            </div>
+        
             <form method="post" id="dobladaForm" class="solicitud-form">
                 {% csrf_token %}
                 <!-- Elemento oculto con el ID del tipo de solicitud -->
@@ -286,6 +381,15 @@
                                 <!-- Aquí se cargará la información de las salas del solicitante -->
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- CASO 7–9: emisor sin turno cedible en fecha de cesión (sin opciones de jornada a ceder) -->
+                <div id="aviso_sin_jornada_ceder_cesion" class="form-group" style="display: none;">
+                    <div class="alert alert-warning mb-0">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>
+                        <strong>No hay jornada a ceder.</strong>
+                        No tienes turno AM ni PM (ni doblada) en la fecha de cesión: no hay opciones para el paso «Jornada a ceder». Elige otra fecha de cesión.
                     </div>
                 </div>
 
@@ -358,28 +462,48 @@
                 
                 <!-- Receptores para Cesión Total -->
                 <div id="receptores_total" class="form-group" style="display: none;">
+                    <!-- Aviso: un solo compañero cubre las dos jornadas -->
+                    <div id="aviso_receptor_unico_total" class="alert alert-success" style="display: none;">
+                        <i class="fas fa-check-circle mr-2"></i>
+                        <strong>Un solo compañero cubrirá ambas jornadas (AM y PM).</strong>
+                        Se creará una sola solicitud.
+                    </div>
                     <div class="row">
                         <div class="col-md-6">
                             <label for="empleado_receptor_am">
                                 <i class="fas fa-user mr-1"></i>Compañero para AM (Mañana) <span class="text-danger">*</span>
                             </label>
                             <select class="form-control" id="empleado_receptor_am" name="empleado_receptor_am">
-                                <option value="">Selecciona un compañero PM...</option>
+                                <option value="">Selecciona un compañero...</option>
                             </select>
                             <small class="form-text text-muted">
-                                Debe tener jornada PM disponible
+                                Debe tener jornada PM disponible o estar en descanso
                             </small>
+                            <!-- Checkbox: cubrir doblada completa -->
+                            <div id="checkbox_cubre_completa_am" class="form-check mt-2" style="display: none;">
+                                <input class="form-check-input" type="checkbox" id="cubre_completa_am" name="cubre_completa_am" value="1">
+                                <label class="form-check-label text-success" for="cubre_completa_am">
+                                    <i class="fas fa-user-clock mr-1"></i>Este compañero está descansando. <strong>Que cubra la doblada completa (AM y PM)</strong>
+                                </label>
+                            </div>
                         </div>
-                        <div class="col-md-6">
+                        <div class="col-md-6" id="col_receptor_pm">
                             <label for="empleado_receptor_pm">
                                 <i class="fas fa-user mr-1"></i>Compañero para PM (Tarde) <span class="text-danger">*</span>
                             </label>
                             <select class="form-control" id="empleado_receptor_pm" name="empleado_receptor_pm">
-                                <option value="">Selecciona un compañero AM...</option>
+                                <option value="">Selecciona un compañero...</option>
                             </select>
                             <small class="form-text text-muted">
-                                Debe tener jornada AM disponible
+                                Debe tener jornada AM disponible o estar en descanso
                             </small>
+                            <!-- Checkbox: cubrir doblada completa -->
+                            <div id="checkbox_cubre_completa_pm" class="form-check mt-2" style="display: none;">
+                                <input class="form-check-input" type="checkbox" id="cubre_completa_pm" name="cubre_completa_pm" value="1">
+                                <label class="form-check-label text-success" for="cubre_completa_pm">
+                                    <i class="fas fa-user-clock mr-1"></i>Este compañero está descansando. <strong>Que cubra la doblada completa (AM y PM)</strong>
+                                </label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -438,6 +562,28 @@
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="jornada_pago_sabado" id="jornada_pago_sabado_pm" value="PM">
                             <label class="form-check-label" for="jornada_pago_sabado_pm">PM (Tarde)</label>
+                        </div>
+                    </div>
+
+                    <!-- Receptor en doblada (AM+PM) en fecha de pago: qué parte cubre el deudor (no aplica a sábado con regla especial) -->
+                    <div id="opciones_cubre_pago_receptor_doblada" class="mt-3" style="display: none;">
+                        <div class="alert alert-secondary mb-2">
+                            <strong>Compañero con doblada en la fecha de pago:</strong> indica si le devuelves solo una media jornada o la doblada entera.
+                        </div>
+                        <label class="mb-1">
+                            <i class="fas fa-exchange-alt mr-1"></i>¿Qué cubrirás ese día? <span class="text-danger">*</span>
+                        </label>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="jornada_cubre_en_pago" id="jornada_cubre_en_pago_am" value="AM">
+                            <label class="form-check-label" for="jornada_cubre_en_pago_am">Solo jornada AM (él conserva PM)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="jornada_cubre_en_pago" id="jornada_cubre_en_pago_pm" value="PM">
+                            <label class="form-check-label" for="jornada_cubre_en_pago_pm">Solo jornada PM (él conserva AM)</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="jornada_cubre_en_pago" id="jornada_cubre_en_pago_ambas" value="AMBAS">
+                            <label class="form-check-label" for="jornada_cubre_en_pago_ambas">Toda la doblada (AM y PM): él descansa el día completo</label>
                         </div>
                     </div>
 
@@ -531,7 +677,7 @@
                     <div class="card">
                         <div class="card-header">
                             <h6 class="mb-0">
-                                <i class="fas fa-user-friends mr-1"></i>Jornada del Explorador (Acreedor) en Fecha de Pago
+                                <i class="fas fa-user-friends mr-1"></i>Jornada del Compañero que te Cubrirá en Fecha de Pago
                             </h6>
                         </div>
                         <div class="card-body">
@@ -674,6 +820,7 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 <script src="{% static 'js/festivos_colombia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
+<script src="{% static 'js/cambio-turno/doblada/doblada_cesion_total_ui.js' %}"></script>
 <script src="{% static 'js/cambio-turno/solicitar_doblada.js' %}"></script>
 {% endblock %}
 

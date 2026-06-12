@@ -438,9 +438,6 @@ function mostrarDetallesDia(fechaStr) {
     }
 
     if (jornadaDiv) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b42d6aa4-60e5-456e-b2ef-83a8940b0ea5',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'mis_turnos.js:mostrarDetallesDia',message:'Info recibida para el día',data:{fechaStr:fechaStr,tipo:info?.tipo,es_cambio:info?.es_cambio,jornada:info?.jornada,coincide_con_predeterminada:info?.coincide_con_predeterminada,jornada_predeterminada:info?.jornada_predeterminada,turno_id:info?.turno_id},hypothesisId:'H-TIPO',runId:'post-fix',timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         // Verificar si hay información disponible (incluyendo descanso)
         if (info && (info.jornada || info.es_descanso || info.tipo === 'descanso')) {
             // Manejar caso de descanso

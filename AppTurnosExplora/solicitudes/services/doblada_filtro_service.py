@@ -178,6 +178,38 @@ class DobladaFiltroService:
         
         return resultado
 
+    @staticmethod
+    def obtener_empleados_en_descanso(fecha: str, excluir_id: int) -> List[Empleado]:
+        """
+        Obtiene empleados activos que están en descanso en la fecha dada.
+        Un empleado descansa si no tiene turnos y su jornada calculada es None/Descanso.
+        """
+        from turnos.services.jornada_service import JornadaService
+        from turnos.services.turno_service import TurnoService
+
+        fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+
+        empleados_activos = (
+            Empleado.objects.filter(activo=True)
+            .exclude(id=excluir_id)
+            .select_related('supervisor')
+        )
+
+        turnos_fecha = set(
+            Turno.objects.filter(explorador__in=empleados_activos, fecha=fecha_obj)
+            .values_list('explorador_id', flat=True)
+        )
+
+        en_descanso = []
+        for emp in empleados_activos:
+            if emp.id in turnos_fecha:
+                continue
+            jornada_display = TurnoService.obtener_jornada_display(emp, fecha_obj)
+            if jornada_display is None:
+                en_descanso.append(emp)
+
+        return en_descanso
+
 
 
 

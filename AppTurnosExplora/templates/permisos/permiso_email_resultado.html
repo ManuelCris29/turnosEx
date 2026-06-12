@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Permiso {{ accion }}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:560px;">
+    <div class="pg-card">
+      <div class="pg-card-head {% if permiso.estado == 'APROBADO' %}green{% else %}amber{% endif %}">
+        <h3>
+          {% if permiso.estado == 'APROBADO' %}<i class="fas fa-check-circle"></i> Permiso aprobado
+          {% else %}<i class="fas fa-times-circle"></i> Permiso rechazado{% endif %}
+        </h3>
+      </div>
+      <div class="pg-card-body">
+        {% if ya_resuelto %}
+          <p>Este permiso ya había sido resuelto. Estado actual: <strong>{{ accion }}</strong>.</p>
+        {% else %}
+          <p>Has <strong>{{ accion|lower }}</strong> el permiso de
+             <strong>{{ permiso.empleado.nombre }} {{ permiso.empleado.apellido }}</strong>.</p>
+        {% endif %}
+        <p class="text-muted">
+          Tiempo: <strong>{{ permiso.horas_totales }} h</strong>
+          {% if permiso.estado == 'APROBADO' %} — se acumularon en su consolidado de horas.{% endif %}
+        </p>
+        <a href="{% url 'permisos_especiales_list' %}" class="pg-btn pg-btn-primary mt-2"><i class="fas fa-list"></i> Ver permisos</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

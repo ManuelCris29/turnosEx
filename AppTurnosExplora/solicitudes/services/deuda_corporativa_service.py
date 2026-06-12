@@ -55,46 +55,10 @@ class DeudaCorporativaService:
         )
         
         logger.info(f"Deuda corporativa creada: {explorador.nombre} - {minutos} min - {fecha_doblada}")
-        
-        # CORRECCIÓN: También crear registro en PDH para visibilidad de supervisores
-        try:
-            from permisos.models import PDH
-            
-            # Determinar supervisor
-            supervisor = None
-            if solicitud:
-                # Intentar obtener supervisor que aprobó la solicitud
-                if hasattr(solicitud, 'aprobado_supervisor') and solicitud.aprobado_supervisor:
-                    supervisor = solicitud.aprobado_supervisor
-                # Si no, usar supervisor del solicitante
-                elif solicitud.explorador_solicitante:
-                    supervisor = getattr(solicitud.explorador_solicitante, 'supervisor', None)
-            
-            # Si aún no hay supervisor, usar supervisor del explorador
-            if not supervisor:
-                supervisor = getattr(explorador, 'supervisor', None)
-            
-            # Crear registro en PDH (convertir minutos a horas)
-            PDH.objects.create(
-                explorador=explorador,
-                solicitud=solicitud,
-                fecha=fecha_doblada,
-                horas=round(minutos / 60, 2),  # 30 min = 0.5 horas
-                supervisor=supervisor,
-                tipo_registro='deuda_corporativa',
-                comentario=comentario or f'Deuda corporativa acumulada: {minutos} minutos por doblada en {fecha_doblada}'
-            )
-            logger.info(
-                f"Registro PDH creado para deuda corporativa: {explorador.nombre} - "
-                f"{minutos} min ({round(minutos / 60, 2)} hrs) - Supervisor: {supervisor.nombre if supervisor else 'N/A'}"
-            )
-        except Exception as e:
-            logger.warning(
-                f"No se pudo crear registro en PDH para {explorador.nombre}: {str(e)}. "
-                f"DeudaCorporativa se creó correctamente (principal)."
-            )
-            # No fallar si PDH falla, DeudaCorporativa es la tabla principal
-        
+
+        # Nota: la ACUMULACIÓN de horas vive en DeudaCorporativa y se muestra en el
+        # Consolidado de Horas. El modelo PDH se reserva para los PAGOS de horas
+        # (descuentos autorizados por un supervisor), que son un ledger aparte.
         return deuda
     
     @staticmethod

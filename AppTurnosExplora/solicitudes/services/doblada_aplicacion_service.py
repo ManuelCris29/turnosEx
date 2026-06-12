@@ -49,6 +49,90 @@ class DobladaAplicacionService:
     Responsabilidad única: Aplicar cambios de turnos y generar deudas.
     Incluye validación post-aplicación para garantizar integridad de datos.
     """
+
+    @staticmethod
+    def capturar_snapshot_turnos_previos(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> dict:
+        """
+        Copia el estado real de Turno en BD para solicitante y receptor en fecha de cesión y de pago,
+        antes de aplicar la doblada. Así la cancelación en 30 min puede restaurar cambios de turno
+        sencillos u otras asignaciones que no son solo jornada predeterminada.
+        """
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        fecha_cesion = solicitud.fecha_cambio_turno
+        fecha_pago = detalle.fecha_pago
+        pairs = [
+            (solicitante.id, fecha_cesion),
+            (receptor.id, fecha_cesion),
+            (solicitante.id, fecha_pago),
+            (receptor.id, fecha_pago),
+        ]
+        snapshot: dict = {}
+        for emp_id, fecha in pairs:
+            key = f"{emp_id}:{fecha.isoformat()}"
+            turnos_qs = (
+                Turno.objects.filter(explorador_id=emp_id, fecha=fecha)
+                .select_related('jornada')
+                .order_by('jornada_id')
+            )
+            snapshot[key] = [
+                {
+                    'jornada_nombre': t.jornada.nombre.upper(),
+                    'sala_id': t.sala_id,
+                    'tipo_cambio': t.tipo_cambio,
+                }
+                for t in turnos_qs
+            ]
+        return snapshot
+
+    @staticmethod
+    def restaurar_turnos_desde_snapshot(snapshot: dict) -> None:
+        """Reemplaza turnos en las fechas del snapshot por el contenido guardado."""
+        if not snapshot:
+            return
+        jornadas_cache = _obtener_jornadas_cache()
+        from turnos.models import Jornada as JornadaModel
+
+        for key, rows in snapshot.items():
+            try:
+                emp_str, fecha_str = key.split(':', 1)
+                emp_id = int(emp_str)
+                fecha = date.fromisoformat(fecha_str)
+            except (ValueError, TypeError):
+                logger.warning('Snapshot doblada: clave inválida %r', key)
+                continue
+
+            Turno.objects.filter(explorador_id=emp_id, fecha=fecha).delete()
+
+            for row in rows or []:
+                jn = (row.get('jornada_nombre') or '').upper()
+                jornada_obj = jornadas_cache.get(jn)
+                if not jornada_obj:
+                    jornada_obj = JornadaModel.objects.filter(nombre__iexact=jn).first()
+                if not jornada_obj:
+                    logger.warning(
+                        'Snapshot doblada: jornada %r no encontrada para %s en %s',
+                        jn, emp_id, fecha,
+                    )
+                    continue
+                sala_id = row.get('sala_id')
+                if not sala_id:
+                    empleado = Empleado.objects.filter(pk=emp_id).first()
+                    if not empleado:
+                        continue
+                    sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha)
+                    sala_id = sala.id if sala else None
+                if not sala_id:
+                    logger.warning('Snapshot doblada: sin sala para %s en %s', emp_id, fecha)
+                    continue
+                Turno.objects.create(
+                    explorador_id=emp_id,
+                    fecha=fecha,
+                    jornada=jornada_obj,
+                    sala_id=sala_id,
+                    tipo_cambio=row.get('tipo_cambio'),
+                )
+                logger.info('Turno restaurado desde snapshot: explorador %s, %s, %s', emp_id, fecha, jn)
     
     @staticmethod
     def validar_turnos_doblada_cesion(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> dict:
@@ -178,9 +262,25 @@ class DobladaAplicacionService:
                         receptor, fecha_cesion, jornada_cedida_obj, 'DOBLADA'
                     )
             else:
-                DobladaTurnoService.crear_doblada_completa(
-                    receptor, fecha_cesion, jornada_receptor, jornada_cedida_obj, 'DOBLADA'
-                )
+                # El receptor no tiene turno natural en esta fecha.
+                # En festivos donde el receptor descansa (su grupo no trabaja ese día),
+                # su "jornada base" devuelta por JornadaService no corresponde a trabajo real:
+                # solo asignarle la jornada cedida, no crear una doblada con su base inexistente.
+                from solicitudes.services.solicitud_validator import SolicitudValidator as _SV
+                _es_cesion_festivo = _SV.es_festivo_semana(fecha_cesion)
+                if _es_cesion_festivo:
+                    sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_cesion)
+                    Turno.objects.create(
+                        explorador=receptor,
+                        fecha=fecha_cesion,
+                        jornada=jornada_cedida_obj,
+                        sala=sala_receptor,
+                        tipo_cambio='DOBLADA'
+                    )
+                else:
+                    DobladaTurnoService.crear_doblada_completa(
+                        receptor, fecha_cesion, jornada_receptor, jornada_cedida_obj, 'DOBLADA'
+                    )
         
         # Solicitante: Eliminar turnos según tipo de cesión
         # Si es cesión parcial, eliminar solo la jornada cedida y asegurar que tenga la otra
@@ -236,32 +336,6 @@ class DobladaAplicacionService:
                 f"Solicitante {solicitante.nombre} descansa"
             )
         
-        # #region agent log
-        import json
-        import time
-        from turnos.models import Turno as TurnoModel
-        turnos_receptor_despues = list(TurnoModel.objects.filter(explorador=receptor, fecha=fecha_cesion).values('id', 'jornada__nombre'))
-        turnos_solicitante_despues = list(TurnoModel.objects.filter(explorador=solicitante, fecha=fecha_cesion).values('id', 'jornada__nombre'))
-        log_data = {
-            'location': 'doblada_aplicacion_service.py:aplicar_doblada_cesion',
-            'message': 'Cesión aplicada - turnos después',
-            'data': {
-                'solicitud_id': solicitud.id,
-                'fecha_cesion': str(fecha_cesion),
-                'tipo_cesion': detalle.tipo_cesion,
-                'receptor_id': receptor.id,
-                'receptor_nombre': receptor.nombre,
-                'turnos_receptor': turnos_receptor_despues,
-                'solicitante_id': solicitante.id,
-                'solicitante_nombre': solicitante.nombre,
-                'turnos_solicitante': turnos_solicitante_despues,
-            },
-            'timestamp': int(time.time() * 1000)
-        }
-        with open('c:\\appTurnos\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps(log_data) + '\n')
-        # #endregion
-        
         # VALIDACIÓN POST-APLICACIÓN (Integridad de datos)
         try:
             from django.core.exceptions import ValidationError as DjangoValidationError
@@ -295,9 +369,13 @@ class DobladaAplicacionService:
         """
         Aplica la doblada en la fecha de pago.
         
-        Reglas:
-        - Deudor (solicitante) dobla (trabaja su jornada + jornada del acreedor)
-        - Acreedor (receptor) descansa (no tiene turno)
+        Orden de prioridad:
+        1. Sábado con jornada_pago_sabado → reparto sábado.
+        2. jornada_cubre_en_pago AM/PM → deudor SOLO esa media jornada, acreedor la otra.
+        3. jornada_cubre_en_pago AMBAS  → deudor AM+PM, acreedor sin turnos.
+        4. Cesión parcial sin jcp        → deudor la jornada cedida, acreedor la otra.
+        5. jornada_cedida (quirúrgico)   → doblada completa en deudor.
+        6. Fallback (legacy)             → doblada completa en deudor.
         
         Args:
             solicitud: Solicitud de doblada aprobada
@@ -369,77 +447,224 @@ class DobladaAplicacionService:
             return
 
         # ===========================
-        # Cesión parcial: pago = la misma jornada que se cedió (jornada_cedida)
+        # jornada_cubre_en_pago: elección explícita del deudor (AM / PM / AMBAS)
         # ===========================
-        # Regla: El deudor paga trabajando la jornada que cedió (si cedió AM, trabaja AM el día de pago).
-        # El acreedor ese día hace la otra jornada (o descansa si solo tenía esa).
-        if detalle.tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm'):
-            # Cesión parcial: deudor paga con la jornada cedida; acreedor trabaja la otra (media jornada)
-            if detalle.jornada_cedida:
-                jornada_pago_nombre = detalle.jornada_cedida.upper()
-            else:
-                jornada_pago_nombre = 'AM' if detalle.tipo_cesion == 'cesion_parcial_am' else 'PM'
-            if jornada_pago_nombre not in ('AM', 'PM'):
-                raise ValidationError("jornada_cedida inválida en cesión parcial. Debe ser AM o PM.")
-            jornada_otra_nombre = 'PM' if jornada_pago_nombre == 'AM' else 'AM'
+        # TIENE PRIORIDAD sobre tipo_cesion, jornada_cedida y fallback.
+        # Si el deudor eligió "solo AM", queda solo AM; si eligió "AMBAS", queda AM+PM.
+        jcp = (getattr(detalle, 'jornada_cubre_en_pago', None) or '').strip().upper()
+
+        if jcp == 'AMBAS':
             jornadas_cache = _obtener_jornadas_cache()
-            jornada_pago_obj = jornadas_cache[jornada_pago_nombre]
-            jornada_otra_obj = jornadas_cache[jornada_otra_nombre]
-            # Solicitante: solo la jornada que paga (la cedida)
-            Turno.objects.filter(explorador=solicitante, fecha=fecha_pago).delete()
-            sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
-            Turno.objects.create(
+            Turno.objects.filter(explorador=receptor, fecha=fecha_pago).delete()
+            for jn in ('AM', 'PM'):
+                j_obj = jornadas_cache[jn]
+                if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, j_obj):
+                    sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(
+                        solicitante, fecha_pago
+                    )
+                    Turno.objects.create(
+                        explorador=solicitante,
+                        fecha=fecha_pago,
+                        jornada=j_obj,
+                        sala=sala_solicitante,
+                        tipo_cambio="DOBLADA",
+                    )
+            logger.info(
+                f"Doblada pago (jcp=AMBAS): {solicitante.nombre} AM+PM en {fecha_pago}, "
+                f"{receptor.nombre} descansa"
+            )
+            return
+
+        if jcp in ('AM', 'PM'):
+            j_deudor_trabaja = jcp
+            j_acreedor_conserva = 'PM' if j_deudor_trabaja == 'AM' else 'AM'
+            jornadas_cache = _obtener_jornadas_cache()
+            j_deudor_obj = jornadas_cache[j_deudor_trabaja]
+            j_acr_cons_obj = jornadas_cache[j_acreedor_conserva]
+
+            if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, j_deudor_obj):
+                sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
+                Turno.objects.create(
+                    explorador=solicitante,
+                    fecha=fecha_pago,
+                    jornada=j_deudor_obj,
+                    sala=sala_solicitante,
+                    tipo_cambio="DOBLADA",
+                )
+            Turno.objects.filter(
                 explorador=solicitante,
                 fecha=fecha_pago,
-                jornada=jornada_pago_obj,
-                sala=sala_solicitante,
-                tipo_cambio="DOBLADA"
-            )
-            # Receptor: solo la otra jornada (media jornada), no descansa
-            Turno.objects.filter(explorador=receptor, fecha=fecha_pago).delete()
-            sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_pago)
-            Turno.objects.create(
-                explorador=receptor,
-                fecha=fecha_pago,
-                jornada=jornada_otra_obj,
-                sala=sala_receptor,
-                tipo_cambio="DOBLADA"
-            )
+                jornada=j_acr_cons_obj,
+            ).delete()
+            Turno.objects.filter(
+                explorador=receptor, fecha=fecha_pago, jornada=j_deudor_obj
+            ).delete()
+            if not DobladaTurnoService.tiene_jornada_en_fecha(receptor, fecha_pago, j_acr_cons_obj):
+                sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_pago)
+                Turno.objects.create(
+                    explorador=receptor,
+                    fecha=fecha_pago,
+                    jornada=j_acr_cons_obj,
+                    sala=sala_receptor,
+                    tipo_cambio="DOBLADA",
+                )
+
             logger.info(
-                f"Doblada pago (cesión parcial) aplicada: {solicitante.nombre} trabaja {jornada_pago_nombre}, "
-                f"{receptor.nombre} trabaja {jornada_otra_nombre} en {fecha_pago}"
+                f"Doblada pago (jcp={j_deudor_trabaja}): deudor solo {j_deudor_trabaja}, "
+                f"acreedor conserva {j_acreedor_conserva}; {solicitante.nombre} / {receptor.nombre} en {fecha_pago}"
             )
-            # #region agent log
-            import json
-            import time
-            from turnos.models import Turno as TurnoModel
-            turnos_solicitante_pago = list(TurnoModel.objects.filter(explorador=solicitante, fecha=fecha_pago).values('id', 'jornada__nombre'))
-            turnos_receptor_pago = list(TurnoModel.objects.filter(explorador=receptor, fecha=fecha_pago).values('id', 'jornada__nombre'))
-            log_data = {
-                'location': 'doblada_aplicacion_service.py:aplicar_doblada_pago',
-                'message': 'Pago parcial aplicado - turnos después',
-                'data': {
-                    'solicitud_id': solicitud.id,
-                    'fecha_pago': str(fecha_pago),
-                    'tipo_cesion': detalle.tipo_cesion,
-                    'solicitante_id': solicitante.id,
-                    'solicitante_nombre': solicitante.nombre,
-                    'turnos_solicitante': turnos_solicitante_pago,
-                    'receptor_id': receptor.id,
-                    'receptor_nombre': receptor.nombre,
-                    'turnos_receptor': turnos_receptor_pago,
-                },
-                'timestamp': int(time.time() * 1000)
-            }
-            with open('c:\\appTurnos\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps(log_data) + '\n')
-            # #endregion
             return
 
         # ===========================
-        # Caso normal: Pago (no sábado, cesión completa)
+        # Cesión parcial SIN jornada_cubre_en_pago (acreedor sin doblada en fecha de pago)
         # ===========================
-        # Obtener jornadas
+        if detalle.tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm'):
+            if detalle.jornada_cedida:
+                j_deudor_trabaja = detalle.jornada_cedida.upper()
+            else:
+                j_deudor_trabaja = 'AM' if detalle.tipo_cesion == 'cesion_parcial_am' else 'PM'
+            if j_deudor_trabaja not in ('AM', 'PM'):
+                raise ValidationError("jornada_cedida inválida en cesión parcial. Debe ser AM o PM.")
+            j_acreedor_conserva = 'PM' if j_deudor_trabaja == 'AM' else 'AM'
+            jornadas_cache = _obtener_jornadas_cache()
+            j_deudor_obj = jornadas_cache[j_deudor_trabaja]
+            j_acr_cons_obj = jornadas_cache[j_acreedor_conserva]
+
+            if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, j_deudor_obj):
+                sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
+                Turno.objects.create(
+                    explorador=solicitante,
+                    fecha=fecha_pago,
+                    jornada=j_deudor_obj,
+                    sala=sala_solicitante,
+                    tipo_cambio="DOBLADA",
+                )
+            Turno.objects.filter(
+                explorador=solicitante,
+                fecha=fecha_pago,
+                jornada=j_acr_cons_obj,
+            ).delete()
+            Turno.objects.filter(
+                explorador=receptor, fecha=fecha_pago, jornada=j_deudor_obj
+            ).delete()
+            if not DobladaTurnoService.tiene_jornada_en_fecha(receptor, fecha_pago, j_acr_cons_obj):
+                sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_pago)
+                Turno.objects.create(
+                    explorador=receptor,
+                    fecha=fecha_pago,
+                    jornada=j_acr_cons_obj,
+                    sala=sala_receptor,
+                    tipo_cambio="DOBLADA",
+                )
+
+            logger.info(
+                f"Doblada pago (cesión parcial sin jcp): deudor solo {j_deudor_trabaja}, "
+                f"acreedor conserva {j_acreedor_conserva}; {solicitante.nombre} / {receptor.nombre} en {fecha_pago}"
+            )
+            return
+
+        # ===========================
+        # Pago con jornada_cedida conocida (quirúrgico: unión de jornadas del deudor)
+        # ===========================
+        # Cuando jornada_cedida está definida y no es sábado ni festivo especial,
+        # el deudor (solicitante) debe terminar trabajando su jornada natural del día
+        # MÁS la jornada cedida (doblada completa), y el acreedor descansa o pierde
+        # solo la jornada cedida según su configuración.
+        if detalle.jornada_cedida:
+            _jc_nombre = detalle.jornada_cedida.upper()
+            _jcache = _obtener_jornadas_cache()
+            _jc_obj = _jcache[_jc_nombre]
+
+            turnos_deudor_antes = list(
+                Turno.objects.filter(explorador=solicitante, fecha=fecha_pago)
+                .select_related('jornada')
+                .values('id', 'jornada__nombre', 'tipo_cambio')
+            )
+
+            if not turnos_deudor_antes:
+                jornada_base_deudor = JornadaService.get_jornada_explorador_fecha(
+                    solicitante.id, fecha_pago_str
+                )
+                if jornada_base_deudor:
+                    _jb_nombre = jornada_base_deudor.nombre.upper()
+                    if _jb_nombre != _jc_nombre:
+                        _jb_obj = _jcache.get(_jb_nombre)
+                        if _jb_obj and not DobladaTurnoService.tiene_jornada_en_fecha(
+                            solicitante, fecha_pago, _jb_obj
+                        ):
+                            sala_sol_base = DobladaTurnoService.obtener_sala_explorador_fecha(
+                                solicitante, fecha_pago
+                            )
+                            Turno.objects.create(
+                                explorador=solicitante,
+                                fecha=fecha_pago,
+                                jornada=_jb_obj,
+                                sala=sala_sol_base,
+                                tipo_cambio="DOBLADA",
+                            )
+
+            if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, _jc_obj):
+                sala_sol = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
+                Turno.objects.create(
+                    explorador=solicitante,
+                    fecha=fecha_pago,
+                    jornada=_jc_obj,
+                    sala=sala_sol,
+                    tipo_cambio="DOBLADA",
+                )
+
+            jornada_acreedor = JornadaService.get_jornada_explorador_fecha(
+                receptor.id, fecha_pago_str
+            )
+            if jornada_acreedor:
+                _ja_nombre = jornada_acreedor.nombre.upper()
+                if _ja_nombre != _jc_nombre:
+                    _ja_obj = _jcache.get(_ja_nombre)
+                    if _ja_obj and not DobladaTurnoService.tiene_jornada_en_fecha(
+                        solicitante, fecha_pago, _ja_obj
+                    ):
+                        sala_sol_acre = DobladaTurnoService.obtener_sala_explorador_fecha(
+                            solicitante, fecha_pago
+                        )
+                        Turno.objects.create(
+                            explorador=solicitante,
+                            fecha=fecha_pago,
+                            jornada=_ja_obj,
+                            sala=sala_sol_acre,
+                            tipo_cambio="DOBLADA",
+                        )
+
+            if getattr(detalle, 'tipo_cesion', None) == 'cesion_completa':
+                DobladaTurnoService.eliminar_turnos_explorador(receptor, fecha_pago)
+            else:
+                Turno.objects.filter(
+                    explorador=receptor,
+                    fecha=fecha_pago,
+                    jornada=_jc_obj,
+                ).delete()
+                _jo_nombre = 'PM' if _jc_nombre == 'AM' else 'AM'
+                _jo_obj = _jcache.get(_jo_nombre)
+                if _jo_obj and not DobladaTurnoService.tiene_jornada_en_fecha(
+                    receptor, fecha_pago, _jo_obj
+                ):
+                    sala_rec = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_pago)
+                    Turno.objects.create(
+                        explorador=receptor,
+                        fecha=fecha_pago,
+                        jornada=_jo_obj,
+                        sala=sala_rec,
+                        tipo_cambio="DOBLADA",
+                    )
+
+            logger.info(
+                f"Doblada pago (quirúrgico) aplicada: {solicitante.nombre} gana {_jc_nombre}, "
+                f"{receptor.nombre} pierde {_jc_nombre} en {fecha_pago}"
+            )
+            return
+        
+        # ===========================
+        # Caso fallback: Pago sin jornada_cedida (legacy)
+        # ===========================
         jornada_deudor = JornadaService.get_jornada_explorador_fecha(
             solicitante.id, fecha_pago_str
         )
@@ -447,17 +672,14 @@ class DobladaAplicacionService:
             receptor.id, fecha_pago_str
         )
         
-        # Obtener jornada con cache
         jornadas_cache = _obtener_jornadas_cache()
         jornada_acreedor_obj = jornadas_cache[jornada_acreedor.nombre.upper()]
         
-        # Verificar si deudor ya tiene turno en fecha de pago
         turno_deudor_existente = DobladaTurnoService.tiene_jornada_en_fecha(
             solicitante, fecha_pago, jornada_deudor
         )
         
         if turno_deudor_existente:
-            # Ya tiene turno, agregar jornada del acreedor si no la tiene
             jornadas_deudor = DobladaTurnoService.obtener_jornadas_en_fecha(solicitante, fecha_pago)
             jornada_acreedor_nombre = jornada_acreedor.nombre.upper()
             
@@ -466,44 +688,16 @@ class DobladaAplicacionService:
                     solicitante, fecha_pago, jornada_acreedor_obj, 'DOBLADA'
                 )
         else:
-            # No tiene turno, crear doblada completa
             DobladaTurnoService.crear_doblada_completa(
                 solicitante, fecha_pago, jornada_deudor, jornada_acreedor_obj, 'DOBLADA'
             )
         
-        # Acreedor descansa (eliminar turnos)
         DobladaTurnoService.eliminar_turnos_explorador(receptor, fecha_pago)
         
         logger.info(
-            f"Doblada pago aplicada: Deudor {solicitante.nombre} dobla en {fecha_pago}, "
+            f"Doblada pago (legacy) aplicada: Deudor {solicitante.nombre} dobla en {fecha_pago}, "
             f"Acreedor {receptor.nombre} descansa"
         )
-        
-        # #region agent log
-        import json
-        import time
-        from turnos.models import Turno as TurnoModel
-        turnos_solicitante_pago = list(TurnoModel.objects.filter(explorador=solicitante, fecha=fecha_pago).values('id', 'jornada__nombre'))
-        turnos_receptor_pago = list(TurnoModel.objects.filter(explorador=receptor, fecha=fecha_pago).values('id', 'jornada__nombre'))
-        log_data = {
-            'location': 'doblada_aplicacion_service.py:aplicar_doblada_pago',
-            'message': 'Pago aplicado - turnos después',
-            'data': {
-                'solicitud_id': solicitud.id,
-                'fecha_pago': str(fecha_pago),
-                'tipo_cesion': detalle.tipo_cesion,
-                'solicitante_id': solicitante.id,
-                'solicitante_nombre': solicitante.nombre,
-                'turnos_solicitante': turnos_solicitante_pago,
-                'receptor_id': receptor.id,
-                'receptor_nombre': receptor.nombre,
-                'turnos_receptor': turnos_receptor_pago,
-            },
-            'timestamp': int(time.time() * 1000)
-        }
-        with open('c:\\appTurnos\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
-            f.write(json.dumps(log_data) + '\n')
-        # #endregion
     
     @staticmethod
     @transaction.atomic
@@ -610,8 +804,11 @@ class DobladaAplicacionService:
         Revierte los cambios de una doblada ya aprobada.
 
         Utilizado dentro de la ventana de cancelación de 30 minutos.
-        Elimina los turnos tipo DOBLADA creados para ambos empleados en ambas fechas
-        y restaura sus turnos base según la jornada asignada.
+        Si existe ``snapshot_turnos_previos`` (guardado al aprobar), restaura exactamente
+        los turnos que había en cesión y pago para ambos exploradores (incl. cambios de
+        turno sencillo previos). Si no hay snapshot (dobladas antiguas), elimina turnos
+        con tipo_cambio DOBLADA y reconstruye según jornada predeterminada (comportamiento
+        anterior, limitado).
         Cancela las deudas asociadas a esta solicitud.
 
         Args:
@@ -628,6 +825,17 @@ class DobladaAplicacionService:
         receptor = solicitud.explorador_receptor
         fecha_cesion = solicitud.fecha_cambio_turno
         fecha_pago = detalle.fecha_pago
+
+        snapshot = getattr(detalle, 'snapshot_turnos_previos', None)
+        if snapshot:
+            DobladaAplicacionService.restaurar_turnos_desde_snapshot(snapshot)
+            DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+            DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+            logger.info(
+                f"Doblada revertida (desde snapshot): Solicitud {solicitud.id} - "
+                f"{solicitante.nombre} <-> {receptor.nombre}"
+            )
+            return
 
         jornadas_cache = _obtener_jornadas_cache()
 
@@ -675,7 +883,6 @@ class DobladaAplicacionService:
 
         # --- Cancelar deudas corporativas ---
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
-
         logger.info(
             f"Doblada revertida: Solicitud {solicitud.id} - "
             f"{solicitante.nombre} <-> {receptor.nombre}"
