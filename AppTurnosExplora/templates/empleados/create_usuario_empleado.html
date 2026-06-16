@@ -1,96 +1,107 @@
 {% extends 'base.html' %}
 {% load widget_tweaks %}
 {% load static %}
+
 {% block title %}Nuevo Usuario + Empleado{% endblock %}
-{% block page_title %}Nuevo Usuario + Empleado{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12 col-md-10 col-lg-8">
-            <div class="card shadow">
-                <div class="card-header bg-success text-white">
-                    <h4 class="mb-0"><i class="fas fa-user-plus"></i> Crear Usuario + Empleado</h4>
-                </div>
-                <div class="card-body">
-                    <form method="post" id="usuario-empleado-form">
-                        {% csrf_token %}
-                        <div class="alert alert-info">
-                            <strong>Nota:</strong> Puedes asociar un <b>usuario existente</b> o crear uno nuevo. <br>
-                            <span class="text-danger">No llenes ambos bloques: si seleccionas un usuario existente, deja los campos de usuario nuevo vacíos.</span>
-                        </div>
-                        <div class="form-group">
-                            <label for="id_usuario_existente"><i class="fas fa-user"></i> <strong>Usuario existente:</strong></label>
-                            {{ form.usuario_existente|add_class:'form-control' }}
-                        </div>
-                        <div class="text-center my-2"><span class="badge badge-secondary">O</span></div>
-                        <div class="form-row">
-                            <div class="form-group col-md-4">
-                                <label for="id_username"><i class="fas fa-user-plus"></i> <strong>Usuario nuevo:</strong></label>
-                                {{ form.username|add_class:'form-control' }}
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label for="id_password"><i class="fas fa-key"></i> <strong>Contraseña:</strong></label>
-                                {{ form.password|add_class:'form-control' }}
-                            </div>
-                            <div class="form-group col-md-4">
-                                <label for="id_email"><i class="fas fa-envelope"></i> <strong>Email:</strong></label>
-                                {{ form.email|add_class:'form-control' }}
-                            </div>
-                        </div>
-                        <hr>
-                        <div class="form-row">
-                            <div class="form-group col-md-6">
-                                <label for="id_nombre"><i class="fas fa-id-badge"></i> <strong>Nombre:</strong></label>
-                                {{ form.nombre|add_class:'form-control' }}
-                            </div>
-                            <div class="form-group col-md-6">
-                                <label for="id_apellido"><i class="fas fa-id-badge"></i> <strong>Apellido:</strong></label>
-                                {{ form.apellido|add_class:'form-control' }}
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group col-md-6">
-                                <label for="id_cedula"><i class="fas fa-id-card"></i> <strong>Cédula:</strong></label>
-                                {{ form.cedula|add_class:'form-control' }}
-                            </div>
-                            <div class="form-group col-md-6 form-check mt-4">
-                                {{ form.activo|add_class:'form-check-input' }}
-                                <label class="form-check-label" for="id_activo"><strong>Activo</strong></label>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label for="id_roles"><i class="fas fa-user-tag"></i> <strong>Roles:</strong></label>
-                            {{ form.roles|add_class:'form-control' }}
-                        </div>
-                        <div class="form-group">
-                            <label for="id_salas"><i class="fas fa-door-open"></i> <strong>Salas:</strong></label>
-                            {{ form.salas|add_class:'form-control' }}
-                        </div>
-                        <div class="form-group">
-                            <label for="id_jornada"><i class="fas fa-clock"></i> <strong>Jornada:</strong></label>
-                            {{ form.jornada|add_class:'form-control' }}
-                        </div>
-                        <div class="form-group">
-                            <label for="id_supervisor"><i class="fas fa-user-tie"></i> <strong>Supervisor:</strong></label>
-                            {{ form.supervisor|add_class:'form-control' }}
-                            {% if form.supervisor.help_text %}
-                                <small class="form-text text-muted">{{ form.supervisor.help_text }}</small>
-                            {% endif %}
-                        </div>
-                        <div class="form-group text-center mt-4">
-                            <button type="submit" class="btn btn-success px-4">
-                                <i class="fas fa-save"></i> Guardar
-                            </button>
-                            <a href="{% url 'empleados' %}" class="btn btn-secondary px-4">
-                                <i class="fas fa-arrow-left"></i> Cancelar
-                            </a>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content" style="max-width:880px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-user-plus"></i> Nuevo Usuario + Empleado</h1>
+      <p class="pg-subtitle">Crea un explorador y asócialo a un usuario nuevo o existente</p>
     </div>
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#16a34a,#22c55e);">
+        <h3><i class="fas fa-user-plus"></i> Datos del usuario y empleado</h3>
+      </div>
+      <div class="pg-card-body">
+        <form method="post" id="usuario-empleado-form" class="pg-form">
+          {% csrf_token %}
+          <div class="alert alert-info">
+            <strong>Nota:</strong> Puedes asociar un <b>usuario existente</b> o crear uno nuevo.<br>
+            <span class="text-danger">No llenes ambos bloques: si seleccionas un usuario existente, deja los campos de usuario nuevo vacíos.</span>
+          </div>
+
+          <div class="form-group">
+            <label for="id_usuario_existente"><i class="fas fa-user"></i> Usuario existente</label>
+            {{ form.usuario_existente|add_class:'form-control' }}
+          </div>
+
+          <div class="text-center my-2"><span class="pg-chip pg-chip-gray">O</span></div>
+
+          <div class="form-row">
+            <div class="form-group col-md-4">
+              <label for="id_username"><i class="fas fa-user-plus"></i> Usuario nuevo</label>
+              {{ form.username|add_class:'form-control' }}
+            </div>
+            <div class="form-group col-md-4">
+              <label for="id_password"><i class="fas fa-key"></i> Contraseña</label>
+              {{ form.password|add_class:'form-control' }}
+            </div>
+            <div class="form-group col-md-4">
+              <label for="id_email"><i class="fas fa-envelope"></i> Email</label>
+              {{ form.email|add_class:'form-control' }}
+            </div>
+          </div>
+
+          <hr>
+
+          <div class="form-row">
+            <div class="form-group col-md-6">
+              <label for="id_nombre"><i class="fas fa-id-badge"></i> Nombre</label>
+              {{ form.nombre|add_class:'form-control' }}
+            </div>
+            <div class="form-group col-md-6">
+              <label for="id_apellido"><i class="fas fa-id-badge"></i> Apellido</label>
+              {{ form.apellido|add_class:'form-control' }}
+            </div>
+          </div>
+
+          <div class="form-row align-items-center">
+            <div class="form-group col-md-6">
+              <label for="id_cedula"><i class="fas fa-id-card"></i> Cédula</label>
+              {{ form.cedula|add_class:'form-control' }}
+            </div>
+            <div class="form-group col-md-6">
+              <div class="form-check mt-4">
+                {{ form.activo|add_class:'form-check-input' }}
+                <label class="form-check-label" for="id_activo"><strong>Activo</strong></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="id_roles"><i class="fas fa-user-tag"></i> Roles</label>
+            {{ form.roles|add_class:'form-control' }}
+          </div>
+          <div class="form-group">
+            <label for="id_salas"><i class="fas fa-door-open"></i> Salas</label>
+            {{ form.salas|add_class:'form-control' }}
+          </div>
+          <div class="form-group">
+            <label for="id_jornada"><i class="fas fa-clock"></i> Jornada</label>
+            {{ form.jornada|add_class:'form-control' }}
+          </div>
+          <div class="form-group">
+            <label for="id_supervisor"><i class="fas fa-user-tie"></i> Supervisor</label>
+            {{ form.supervisor|add_class:'form-control' }}
+            {% if form.supervisor.help_text %}<small class="form-text text-muted">{{ form.supervisor.help_text }}</small>{% endif %}
+          </div>
+
+          <div class="d-flex justify-content-end" style="gap:.5rem; margin-top:1.25rem;">
+            <a href="{% url 'empleados' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
+            <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 

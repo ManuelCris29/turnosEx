@@ -76,6 +76,7 @@ class SolicitudFactory:
             'CAMBIO TURNO': 'CT',
             'CAMBIO': 'CT',
             'CT': 'CT',  # Exact match for CT
+            'DOBLADA PERMANENTE': 'DOBLADA PERMANENTE',  # antes que 'DOBLADA' (match exacto primero)
             'DOBLADA': 'DOBLADA',
             'D FDS': 'D FDS',
             'DIA FIN DE SEMANA': 'D FDS',
@@ -393,14 +394,18 @@ def _auto_register_strategies():
     """
     try:
         # Step 1: Manual registration (backward compatibility)
-        from .strategies import CambioTurnoStrategy, DobladaStrategy, CTPermanenteStrategy, DFDSStrategy
-        
+        from .strategies import (
+            CambioTurnoStrategy, DobladaStrategy, CTPermanenteStrategy, DFDSStrategy,
+            DobladaPermanenteStrategy,
+        )
+
         SolicitudFactory.register_strategy("CT", CambioTurnoStrategy)
         SolicitudFactory.register_strategy("DOBLADA", DobladaStrategy)
         SolicitudFactory.register_strategy("CT PERMANENTE", CTPermanenteStrategy)
         SolicitudFactory.register_strategy("D FDS", DFDSStrategy)
-        
-        logger.info("Estrategias manuales registradas: CT, DOBLADA, CT PERMANENTE, D FDS")
+        SolicitudFactory.register_strategy("DOBLADA PERMANENTE", DobladaPermanenteStrategy)
+
+        logger.info("Estrategias manuales registradas: CT, DOBLADA, CT PERMANENTE, D FDS, DOBLADA PERMANENTE")
         
         # Step 2: Dynamic registration from database
         try:
@@ -457,14 +462,15 @@ def _find_strategy_by_code(codigo: str):
     """
     try:
         from .strategies import (
-            CambioTurnoStrategy, DobladaStrategy, 
-            CTPermanenteStrategy, DFDSStrategy
+            CambioTurnoStrategy, DobladaStrategy,
+            CTPermanenteStrategy, DFDSStrategy, DobladaPermanenteStrategy
         )
-        
+
         # Mapping of codes to strategy classes
         code_mapping = {
             'CT': CambioTurnoStrategy,
             'DOBLADA': DobladaStrategy,
+            'DOBLADA PERMANENTE': DobladaPermanenteStrategy,
             'CT PERMANENTE': CTPermanenteStrategy,
             'CAMBIO PERMANENTE': CTPermanenteStrategy,
             'D FDS': DFDSStrategy,

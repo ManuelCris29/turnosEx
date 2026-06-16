@@ -1,0 +1,226 @@
+/*
+ * Estilos de las pantallas de autenticación (login).
+ * Layout split-screen: panel visual con banner + panel de formulario.
+ */
+:root {
+    --auth-indigo: #4f46e5;
+    --auth-violet: #7c3aed;
+    --auth-blue:   #667eea;
+    --auth-purple: #764ba2;
+}
+
+* { box-sizing: border-box; }
+
+body.auth-body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: 'Source Sans Pro', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: #1f2937;
+    background: #f5f6fb;
+}
+
+.auth-wrap {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* ---------- Panel visual (banner) ---------- */
+.auth-visual {
+    position: relative;
+    flex: 1.15;
+    /* Degradado de respaldo por si la imagen no existe todavía */
+    background:
+        linear-gradient(135deg, var(--auth-blue) 0%, var(--auth-purple) 100%);
+    overflow: hidden;
+}
+.auth-visual__img {
+    position: absolute;
+    inset: 0;
+    background: url("../img/auth/bannerAuth.jpg") center/cover no-repeat;
+}
+.auth-visual__overlay {
+    position: absolute;
+    inset: 0;
+    /* Tinte suave: deja ver la imagen y solo oscurece abajo para que el texto
+       blanco siga siendo legible sobre la foto. */
+    background: linear-gradient(
+        to bottom,
+        rgba(79, 70, 229, .08) 0%,
+        rgba(118, 75, 162, .12) 45%,
+        rgba(55, 38, 85, .72) 100%
+    );
+}
+.auth-visual__content {
+    position: relative;
+    z-index: 2;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 3.5rem;
+    color: #fff;
+}
+.auth-visual__brand {
+    position: absolute;
+    top: 2.4rem;
+    left: 3.5rem;
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    font-weight: 800;
+    letter-spacing: .5px;
+    font-size: 1.15rem;
+}
+.auth-visual__brand img { height: 42px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.25)); }
+.auth-visual__content h2 {
+    font-size: 2.4rem;
+    font-weight: 800;
+    line-height: 1.15;
+    margin: 0 0 .8rem;
+    text-shadow: 0 2px 10px rgba(0,0,0,.25);
+    max-width: 520px;
+}
+.auth-visual__content p {
+    font-size: 1.05rem;
+    opacity: .95;
+    max-width: 460px;
+    margin: 0;
+    font-weight: 300;
+}
+
+/* ---------- Panel de formulario ---------- */
+.auth-panel {
+    flex: .85;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2.5rem 1.5rem;
+}
+.auth-card {
+    width: 100%;
+    max-width: 410px;
+}
+.auth-title {
+    text-align: center;
+    font-size: 1.7rem;
+    font-weight: 800;
+    margin: 0 0 .25rem;
+    color: #111827;
+}
+.auth-subtitle {
+    text-align: center;
+    color: #6b7280;
+    margin: 0 0 1.8rem;
+    font-size: .98rem;
+}
+
+/* Campos con icono dentro del input */
+.auth-field { position: relative; margin-bottom: 1.05rem; }
+.auth-field .auth-icon {
+    position: absolute;
+    left: 15px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #9ca3af;
+    font-size: .95rem;
+    pointer-events: none;
+}
+.auth-field .form-control {
+    height: 52px;
+    border-radius: 13px;
+    border: 1.5px solid #e2e8f0;
+    background: #fff;
+    padding: 0 44px 0 42px;
+    font-size: .98rem;
+    transition: border-color .15s ease, box-shadow .15s ease;
+    width: 100%;
+}
+.auth-field .form-control:focus {
+    outline: none;
+    border-color: var(--auth-indigo);
+    box-shadow: 0 0 0 4px rgba(79, 70, 229, .12);
+}
+.auth-field .auth-toggle {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 4px;
+    font-size: .95rem;
+}
+.auth-field .auth-toggle:hover { color: var(--auth-indigo); }
+
+.auth-btn {
+    height: 52px;
+    width: 100%;
+    border: none;
+    border-radius: 13px;
+    background: linear-gradient(135deg, var(--auth-indigo), var(--auth-violet));
+    color: #fff;
+    font-weight: 700;
+    font-size: 1rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .5rem;
+    margin-top: .4rem;
+    transition: transform .08s ease, box-shadow .2s ease, opacity .2s ease;
+}
+.auth-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 24px rgba(79, 70, 229, .35); }
+.auth-btn:active { transform: translateY(0); }
+
+.auth-alert {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    color: #991b1b;
+    border-radius: 12px;
+    padding: .75rem 1rem;
+    font-size: .9rem;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: flex-start;
+    gap: .55rem;
+}
+.auth-foot {
+    text-align: center;
+    color: #9ca3af;
+    font-size: .82rem;
+    margin-top: 2rem;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 860px) {
+    /* En lugar de ocultar el banner, lo apilamos arriba como hero
+       para que la imagen siga siendo protagonista también en móvil. */
+    .auth-wrap { flex-direction: column; min-height: 100vh; }
+
+    .auth-visual {
+        flex: none;
+        min-height: 230px;
+    }
+    .auth-visual__overlay {
+        background: linear-gradient(
+            to bottom,
+            rgba(79, 70, 229, .12) 0%,
+            rgba(118, 75, 162, .18) 40%,
+            rgba(55, 38, 85, .78) 100%
+        );
+    }
+    .auth-visual__brand { top: 1.3rem; left: 1.5rem; font-size: 1rem; }
+    .auth-visual__brand img { height: 34px; }
+    .auth-visual__content { padding: 1.6rem 1.6rem 1.8rem; }
+    .auth-visual__content h2 { font-size: 1.4rem; margin-bottom: .4rem; }
+    .auth-visual__content p { font-size: .92rem; }
+
+    .auth-panel { flex: none; padding: 2rem 1.3rem 2.5rem; }
+}
+
+@media (max-width: 480px) {
+    .auth-visual { min-height: 190px; }
+    .auth-visual__content p { display: none; }   /* solo el título en pantallas muy pequeñas */
+}

@@ -764,3 +764,76 @@
     0%, 100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4); }
     50% { box-shadow: 0 0 0 4px rgba(33, 150, 243, 0.1); }
 }
+
+/* Días con Permiso Especial (no cambia la jornada; marca informativa) */
+.dia-con-permiso {
+    background-color: #fffbeb !important;
+    border: 2px solid #f59e0b !important;
+    position: relative;
+}
+.dia-con-permiso:hover {
+    background-color: #fef3c7 !important;
+    border-color: #d97706 !important;
+}
+.permiso-icon {
+    position: absolute !important;
+    top: 2px !important;
+    left: 2px !important;
+    font-size: 10px !important;
+    z-index: 10;
+    pointer-events: none;
+}
+.dia-con-permiso .fc-daygrid-day-number {
+    color: #b45309 !important;
+    font-weight: 600 !important;
+}
+.fc-theme-standard .dia-con-permiso {
+    background-color: #fffbeb !important;
+    border-color: #f59e0b !important;
+}
+
+/* Días con Restricción (médica/administrativa) */
+.dia-con-restriccion {
+    background-color: #fef2f2 !important;
+    border: 2px solid #ef4444 !important;
+    position: relative;
+}
+.dia-con-restriccion:hover {
+    background-color: #fee2e2 !important;
+    border-color: #dc2626 !important;
+}
+.restriccion-icon {
+    position: absolute !important;
+    bottom: 2px !important;
+    left: 2px !important;
+    font-size: 10px !important;
+    z-index: 10;
+    pointer-events: none;
+}
+.dia-con-restriccion .fc-daygrid-day-number {
+    color: #b91c1c !important;
+    font-weight: 600 !important;
+}
+
+/* Días con Sanción (no puede solicitar nada) */
+.dia-con-sancion {
+    background-color: #e5e7eb !important;
+    border: 2px solid #4b5563 !important;
+    position: relative;
+}
+.dia-con-sancion:hover {
+    background-color: #d1d5db !important;
+    border-color: #374151 !important;
+}
+.sancion-icon {
+    position: absolute !important;
+    bottom: 2px !important;
+    right: 2px !important;
+    font-size: 10px !important;
+    z-index: 10;
+    pointer-events: none;
+}
+.dia-con-sancion .fc-daygrid-day-number {
+    color: #374151 !important;
+    font-weight: 700 !important;
+}

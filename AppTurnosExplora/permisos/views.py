@@ -63,6 +63,23 @@ def _dia_no_laborable(empleado, fecha):
         return False
 
 
+def _invalidar_turnos_cache(permiso):
+    """Invalida la caché de Mis Turnos del explorador para que el permiso se vea al instante."""
+    try:
+        from datetime import timedelta
+        from core.services.cache_service import CacheService
+        meses = set()
+        d = permiso.fecha_inicio
+        while d <= permiso.fecha_fin:
+            meses.add((d.month, d.year))
+            d += timedelta(days=28)
+        meses.add((permiso.fecha_fin.month, permiso.fecha_fin.year))
+        for m, y in meses:
+            CacheService.invalidar_cache_turnos_empleado(permiso.empleado.id, m, y)
+    except Exception:
+        pass
+
+
 class PermisoEspecialListView(LoginRequiredMixin, ListView):
     """Explorador ve los suyos; supervisor ve todos (con acciones de aprobación)."""
     model = PermisoEspecial
@@ -75,14 +92,57 @@ class PermisoEspecialListView(LoginRequiredMixin, ListView):
             .select_related('empleado', 'supervisor', 'cubre')
             .order_by('-creado_en')
         )
-        if _es_supervisor(self.request.user):
-            return qs
-        empleado = getattr(self.request.user, 'empleado', None)
-        return qs.filter(empleado=empleado) if empleado else qs.none()
+        es_super = _es_supervisor(self.request.user)
+        if es_super:
+            # Supervisor: filtro opcional por explorador
+            eid = self.request.GET.get('explorador')
+            if eid and str(eid).isdigit():
+                qs = qs.filter(empleado_id=eid)
+        else:
+            # Explorador: solo los suyos
+            empleado = getattr(self.request.user, 'empleado', None)
+            qs = qs.filter(empleado=empleado) if empleado else qs.none()
+
+        # Filtro por fecha (día) — permisos que cubren ese día
+        fecha = self.request.GET.get('fecha')
+        if fecha:
+            from datetime import datetime
+            try:
+                f = datetime.strptime(fecha, '%Y-%m-%d').date()
+                qs = qs.filter(fecha_inicio__lte=f, fecha_fin__gte=f)
+            except ValueError:
+                pass
+
+        # Filtro por mes (formato 'YYYY-MM') — permisos cuyo rango toca ese mes
+        mes = self.request.GET.get('mes')
+        if mes:
+            from datetime import date as _date, timedelta
+            try:
+                y, m = (int(x) for x in mes.split('-')[:2])
+                primero = _date(y, m, 1)
+                ultimo = _date(y + (1 if m == 12 else 0), 1 if m == 12 else m + 1, 1) - timedelta(days=1)
+                qs = qs.filter(fecha_inicio__lte=ultimo, fecha_fin__gte=primero)
+            except (ValueError, TypeError):
+                pass
+        return qs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['es_supervisor'] = _es_supervisor(self.request.user)
+        es_super = _es_supervisor(self.request.user)
+        context['es_supervisor'] = es_super
+        context['filtro_fecha'] = self.request.GET.get('fecha', '')
+        context['filtro_mes'] = self.request.GET.get('mes', '')
+        if es_super:
+            from empleados.models import Empleado
+            context['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+            context['filtro_explorador'] = self.request.GET.get('explorador', '')
+        else:
+            # Si el explorador está sancionado, avisamos y bloqueamos los botones (popup)
+            from empleados.sancion_utils import sancion_activa, mensaje_sancion
+            emp = getattr(self.request.user, 'empleado', None)
+            s = sancion_activa(emp) if emp else None
+            if s:
+                context['sancion_msg'] = mensaje_sancion(s)
         return context
 
 
@@ -90,6 +150,17 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
     model = PermisoEspecial
     success_url = reverse_lazy('permisos_especiales_list')
     es_permanente = False
+
+    def dispatch(self, request, *args, **kwargs):
+        # Bloqueo por sanción antes de mostrar/procesar el formulario (un solo aviso)
+        empleado = getattr(request.user, 'empleado', None)
+        if empleado:
+            from empleados.sancion_utils import sancion_activa, mensaje_sancion
+            sancion = sancion_activa(empleado)
+            if sancion:
+                messages.warning(request, mensaje_sancion(sancion))
+                return redirect('permisos_especiales_list')
+        return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -123,6 +194,7 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
                 return self.form_invalid(form)
 
         permiso.save()
+        _invalidar_turnos_cache(permiso)
 
         # Notificar al supervisor del explorador (in-app + email con enlaces)
         from .services import PermisoNotificacionService
@@ -181,6 +253,7 @@ class PermisoEspecialAprobarView(LoginRequiredMixin, View):
             permiso.estado = 'RECHAZADO'
             messages.info(request, 'Permiso rechazado.')
         permiso.save()
+        _invalidar_turnos_cache(permiso)
         from .services import PermisoNotificacionService
         try:
             PermisoNotificacionService.notificar_resolucion(permiso)
@@ -206,6 +279,7 @@ class PermisoEspecialResolverEmailView(View):
             permiso.supervisor = permiso.empleado.supervisor
             permiso.estado = 'APROBADO' if self.accion == 'aprobar' else 'RECHAZADO'
             permiso.save()
+            _invalidar_turnos_cache(permiso)
             try:
                 PermisoNotificacionService.notificar_resolucion(permiso)
             except Exception:
@@ -229,3 +303,8 @@ class PermisoEspecialDeleteView(LoginRequiredMixin, DeleteView):
             return qs
         empleado = getattr(self.request.user, 'empleado', None)
         return qs.filter(empleado=empleado, estado='PENDIENTE') if empleado else qs.none()
+
+    def form_valid(self, form):
+        permiso = self.get_object()
+        _invalidar_turnos_cache(permiso)
+        return super().form_valid(form)

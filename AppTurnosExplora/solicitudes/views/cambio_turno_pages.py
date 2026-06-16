@@ -48,8 +48,20 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             return self._render_doblada(request, tipo_solicitud)
         elif tipo_solicitud.nombre == "D FDS":
             return self._render_d_fds(request, tipo_solicitud)
+        elif tipo_solicitud.nombre == "DOBLADA PERMANENTE":
+            return self._render_doblada_permanente(request, tipo_solicitud)
         else:
             return self._render_cambio_turno_normal(request, tipo_solicitud)
+
+    def _render_doblada_permanente(self, request, tipo_solicitud):
+        """Renderizar formulario específico para DOBLADA PERMANENTE"""
+        context = {
+            'tipo_solicitud': tipo_solicitud,
+            'fecha_minima': timezone.now().date(),
+            'empleados_disponibles': [],
+            'empleado_seleccionado': None,
+        }
+        return render(request, 'solicitudes/solicitar_doblada_permanente.html', context)
     
     def _render_ct_permanente(self, request, tipo_solicitud):
         """Renderizar formulario especÃ­fico para CT PERMANENTE"""

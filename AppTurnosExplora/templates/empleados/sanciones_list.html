@@ -1,229 +1,121 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Sanciones - AppTurnos{% endblock %}
+{% block title %}Sanciones{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
 <style>
-    .badge-soft {font-weight:500;border-radius:999px;padding:0.25rem 0.85rem;}
-    .badge-soft-success {background:rgba(40,167,69,.15);color:#1e7e34;}
-    .badge-soft-secondary {background:rgba(108,117,125,.2);color:#495057;}
-    .badge-soft-danger {background:rgba(220,53,69,.15);color:#721c24;}
-    .badge-soft-info {background:rgba(0,123,255,.12);color:#0056b3;}
-    .empty-state {border:2px dashed #ced4da;border-radius:1rem;padding:2rem;text-align:center;color:#6c757d;}
-    .filter-pill {cursor:pointer;transition:all 0.3s ease;}
-    .filter-pill.active {background:#dc3545 !important;color:#fff!important;box-shadow:0 8px 20px rgba(220,53,69,.2);}
-    .table-sticky thead th {position:sticky;top:0;background:#f8f9fa;z-index:1;}
-    .border-left-danger {border-left:4px solid #dc3545;}
-    .border-left-success {border-left:4px solid #28a745;}
-    .border-left-secondary {border-left:4px solid #6c757d;}
-    .border-left-warning {border-left:4px solid #ffc107;}
-    .timeline-card {position:relative;padding-left:2rem;border-left:2px solid #e9ecef;margin-bottom:1.5rem;}
-    .timeline-card::before {content:'';position:absolute;left:-8px;top:0;width:14px;height:14px;border-radius:50%;background:#dc3545;border:2px solid #fff;box-shadow:0 0 0 2px #dc3545;}
-    .glow-badge {box-shadow:0 0 10px rgba(220,53,69,.3);}
+    .sanc-stats { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
+    .sanc-stat { background:#fff; border-radius:12px; box-shadow:0 4px 14px rgba(15,23,42,.06); padding:14px 18px; flex:1; min-width:150px; }
+    .sanc-stat .num { font-size:1.7rem; font-weight:700; line-height:1; }
+    .sanc-stat .lbl { font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; color:#6b7280; }
+    .filter-pill.active { background:#374151 !important; color:#fff !important; border-color:#374151 !important; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4">
-    <div class="row">
-        <div class="col-12 mb-3">
-            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center">
-                <div>
-                    <h3 class="mb-1"><i class="fas fa-gavel text-danger mr-2"></i>Sanciones registradas</h3>
-                    {% if es_supervisor %}
-                        <p class="text-muted mb-0">Gestiona las sanciones aplicadas a los exploradores y mantén un registro completo.</p>
-                    {% else %}
-                        <p class="text-muted mb-0">Estas son las sanciones registradas para ti. Contacta a tu supervisor si tienes dudas.</p>
-                    {% endif %}
-                </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-gavel"></i> Sanciones</h1>
+      <p class="pg-subtitle">
+        {% if es_supervisor %}Durante una sanción el explorador no puede solicitar cambios de turno ni permisos{% else %}Tus sanciones registradas{% endif %}
+      </p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="sanc-stats">
+      <div class="sanc-stat"><div class="lbl">Total</div><div class="num">{{ total_sanciones }}</div></div>
+      <div class="sanc-stat"><div class="lbl">Activas</div><div class="num" style="color:#dc2626;">{{ total_activas|default:0 }}</div></div>
+      <div class="sanc-stat"><div class="lbl">Finalizadas</div><div class="num" style="color:#6b7280;">{{ total_finalizadas|default:0 }}</div></div>
+    </div>
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#1f2937,#4b5563);">
+        <h3><i class="fas fa-clipboard-list"></i> Historial de sanciones</h3>
+        {% if es_supervisor %}
+        <div class="pg-actions">
+          <a href="{% url 'sanciones_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nueva sanción</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="pg-card-body">
+        <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem; margin-bottom:1rem;">
+          {% if es_supervisor %}
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Explorador</label>
+            <select name="explorador" class="form-control" style="min-width:240px;">
+              <option value="">Todos</option>
+              {% for e in exploradores %}<option value="{{ e.id }}" {% if filtro_explorador == e.id|stringformat:'s' %}selected{% endif %}>{{ e.nombre }} {{ e.apellido }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
+          {% if filtro_explorador %}<a href="{% url 'sanciones_list' %}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}
+          {% endif %}
+          <div class="ml-auto btn-group btn-group-sm" role="group" style="align-self:center;">
+            <button type="button" class="btn btn-outline-secondary filter-pill active" data-filter="todos">Todas</button>
+            <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="activa">Activas</button>
+            <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="finalizada">Finalizadas</button>
+          </div>
+        </form>
+
+        <div class="pg-table-wrap">
+          <table class="pg-table" id="tabla-sanciones">
+            <thead>
+              <tr>
+                {% if es_supervisor %}<th>Explorador</th>{% endif %}
+                <th>Motivo</th>
+                <th>Vigencia</th>
+                <th>Estado</th>
+                <th>Supervisor</th>
+                {% if es_supervisor %}<th></th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in sanciones %}
+              <tr data-estado="{% if s.fecha_fin and s.fecha_fin < hoy %}finalizada{% else %}activa{% endif %}">
+                {% if es_supervisor %}<td>{{ s.explorador.nombre }} {{ s.explorador.apellido }}</td>{% endif %}
+                <td>{{ s.motivo|default:'—' }}</td>
+                <td>
+                  <i class="far fa-play-circle text-success mr-1"></i>{{ s.fecha_inicio|date:'d/m/Y' }}<br>
+                  <i class="far fa-stop-circle text-danger mr-1"></i>{% if s.fecha_fin %}{{ s.fecha_fin|date:'d/m/Y' }}{% else %}<em>Indefinida</em>{% endif %}
+                </td>
+                <td>
+                  {% if s.fecha_fin and s.fecha_fin < hoy %}<span class="pg-chip pg-chip-gray">Finalizada</span>{% else %}<span class="pg-chip pg-chip-no">Activa</span>{% endif %}
+                </td>
+                <td>{% if s.supervisor %}{{ s.supervisor.nombre }} {{ s.supervisor.apellido }}{% else %}—{% endif %}</td>
                 {% if es_supervisor %}
-                <a href="{% url 'sanciones_create' %}" class="btn btn-danger mt-3 mt-lg-0">
-                    <i class="fas fa-plus-circle mr-1"></i> Nueva sanción
-                </a>
+                <td style="white-space:nowrap;">
+                  <a href="{% url 'sanciones_edit' s.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                  <a href="{% url 'sanciones_delete' s.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Eliminar esta sanción?');"><i class="fas fa-trash-alt"></i></a>
+                </td>
                 {% endif %}
-            </div>
+              </tr>
+              {% empty %}
+              <tr><td colspan="6"><div class="pg-empty"><i class="fas fa-gavel fa-2x mb-2 d-block"></i>Sin sanciones registradas.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
+      </div>
     </div>
-
-    <div class="row mb-4">
-        <div class="col-sm-6 col-xl-4 mb-3">
-            <div class="card shadow-sm border-left-warning h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Total registradas</p>
-                    <h3 class="mb-0">{{ total_sanciones|default:0 }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-6 col-xl-4 mb-3">
-            <div class="card shadow-sm border-left-danger h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Activas</p>
-                    <h3 class="mb-0 text-danger">{{ total_activas|default:0 }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-6 col-xl-4 mb-3">
-            <div class="card shadow-sm border-left-secondary h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Finalizadas</p>
-                    <h3 class="mb-0 text-secondary">{{ total_finalizadas|default:0 }}</h3>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card shadow">
-        <div class="card-header bg-white">
-            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center">
-                <div>
-                    <h5 class="mb-0">Historial de sanciones</h5>
-                    {% if not es_supervisor and empleado_actual %}
-                        <small class="text-muted">Empleado: {{ empleado_actual.nombre }} {{ empleado_actual.apellido }}</small>
-                    {% endif %}
-                </div>
-                <div class="mt-3 mt-md-0">
-                    <span class="badge badge-soft-info mr-2">
-                        {% if es_supervisor %}
-                            <i class="fas fa-user-shield mr-1"></i> Supervisor
-                        {% else %}
-                            <i class="fas fa-user mr-1"></i> Explorador
-                        {% endif %}
-                    </span>
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button type="button" class="btn btn-outline-secondary filter-pill active" data-filter="all">
-                            <i class="fas fa-list mr-1"></i> Todas
-                        </button>
-                        <button type="button" class="btn btn-outline-danger filter-pill" data-filter="activa">
-                            <i class="fas fa-exclamation-circle mr-1"></i> Activas
-                        </button>
-                        <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="finalizada">
-                            <i class="fas fa-check-circle mr-1"></i> Finalizadas
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="card-body">
-            {% if sanciones %}
-                <div class="table-responsive">
-                    <table class="table table-hover table-sticky">
-                        <thead class="thead-light">
-                            <tr>
-                                <th>Explorador</th>
-                                <th>Supervisor</th>
-                                <th>Motivo</th>
-                                <th>Fecha Inicio</th>
-                                <th>Fecha Fin</th>
-                                <th>Estado</th>
-                                {% if es_supervisor %}
-                                <th class="text-center">Acciones</th>
-                                {% endif %}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for sancion in sanciones %}
-                            <tr data-filter="{% if sancion.fecha_fin and sancion.fecha_fin < hoy %}finalizada{% else %}activa{% endif %}">
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="avatar-sm bg-danger text-white rounded-circle d-flex align-items-center justify-content-center mr-2" style="width:32px;height:32px;font-size:0.875rem;">
-                                            {{ sancion.explorador.nombre|first|upper }}{{ sancion.explorador.apellido|first|upper }}
-                                        </div>
-                                        <div>
-                                            <strong>{{ sancion.explorador.nombre }} {{ sancion.explorador.apellido }}</strong>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <div class="d-flex align-items-center">
-                                        <div class="avatar-sm bg-info text-white rounded-circle d-flex align-items-center justify-content-center mr-2" style="width:32px;height:32px;font-size:0.875rem;">
-                                            {{ sancion.supervisor.nombre|first|upper }}{{ sancion.supervisor.apellido|first|upper }}
-                                        </div>
-                                        <div>
-                                            {{ sancion.supervisor.nombre }} {{ sancion.supervisor.apellido }}
-                                        </div>
-                                    </div>
-                                </td>
-                                <td>
-                                    <span class="text-muted" style="max-width:300px;display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ sancion.motivo }}">
-                                        {{ sancion.motivo|truncatewords:15 }}
-                                    </span>
-                                </td>
-                                <td>
-                                    <i class="fas fa-calendar-alt text-muted mr-1"></i>
-                                    {{ sancion.fecha_inicio|date:"d/m/Y" }}
-                                </td>
-                                <td>
-                                    {% if sancion.fecha_fin %}
-                                        <i class="fas fa-calendar-check text-muted mr-1"></i>
-                                        {{ sancion.fecha_fin|date:"d/m/Y" }}
-                                    {% else %}
-                                        <span class="badge badge-soft-warning">Sin fecha fin</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if sancion.fecha_fin and sancion.fecha_fin < hoy %}
-                                        <span class="badge badge-soft-secondary glow-badge">
-                                            <i class="fas fa-check-circle mr-1"></i> Finalizada
-                                        </span>
-                                    {% else %}
-                                        <span class="badge badge-soft-danger glow-badge">
-                                            <i class="fas fa-exclamation-circle mr-1"></i> Activa
-                                        </span>
-                                    {% endif %}
-                                </td>
-                                {% if es_supervisor %}
-                                <td class="text-center">
-                                    <div class="btn-group" role="group">
-                                        <a href="{% url 'sanciones_edit' sancion.id %}" class="btn btn-sm btn-outline-primary" title="Editar">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="{% url 'sanciones_delete' sancion.id %}" class="btn btn-sm btn-outline-danger" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar esta sanción?');">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </a>
-                                    </div>
-                                </td>
-                                {% endif %}
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <div class="empty-state">
-                    <i class="fas fa-gavel fa-3x mb-3 text-muted"></i>
-                    <h5 class="text-muted">No hay sanciones registradas</h5>
-                    <p class="text-muted mb-0">{% if es_supervisor %}Comienza registrando una nueva sanción.{% else %}No tienes sanciones registradas.{% endif %}</p>
-                </div>
-            {% endif %}
-        </div>
-    </div>
+  </div>
 </div>
+{% endblock %}
 
+{% block extra_js %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const filterPills = document.querySelectorAll('.filter-pill');
-    const tableRows = document.querySelectorAll('tbody tr[data-filter]');
-    
-    filterPills.forEach(pill => {
-        pill.addEventListener('click', function() {
-            const filter = this.getAttribute('data-filter');
-            
-            // Actualizar estado activo de los pills
-            filterPills.forEach(p => p.classList.remove('active'));
-            this.classList.add('active');
-            
-            // Filtrar filas
-            tableRows.forEach(row => {
-                if (filter === 'all') {
-                    row.style.display = '';
-                } else {
-                    const rowFilter = row.getAttribute('data-filter');
-                    row.style.display = rowFilter === filter ? '' : 'none';
-                }
-            });
-        });
-    });
+document.addEventListener('DOMContentLoaded', function () {
+    const pills = document.querySelectorAll('.filter-pill');
+    const rows = document.querySelectorAll('#tabla-sanciones tbody tr');
+    pills.forEach(b => b.addEventListener('click', () => {
+        pills.forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        const f = b.dataset.filter;
+        rows.forEach(r => { r.style.display = (f === 'todos' || r.dataset.estado === f) ? '' : 'none'; });
+    }));
 });
 </script>
 {% endblock %}

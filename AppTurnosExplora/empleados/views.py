@@ -371,6 +371,9 @@ class RestriccionListView(LoginRequiredMixin, ListView):
         )
         user = self.request.user
         if user.is_staff:
+            eid = self.request.GET.get('explorador')
+            if eid and str(eid).isdigit():
+                qs = qs.filter(empleado_id=eid)
             return qs
         empleado = getattr(user, 'empleado', None)
         if not empleado:
@@ -403,11 +406,32 @@ class RestriccionListView(LoginRequiredMixin, ListView):
             'totales_por_tipo': queryset.values('tipo_restriccion').annotate(total=Count('id')).order_by('-total'),
             'hoy': hoy
         })
+        if user.is_staff:
+            context['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+            context['filtro_explorador'] = self.request.GET.get('explorador', '')
         
         if not user.is_staff and not getattr(user, 'empleado', None):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver restricciones.')
         
         return context
+
+def _invalidar_turnos_cache_restriccion(restriccion):
+    """Refresca Mis Turnos del empleado para que la restricción se vea al instante."""
+    try:
+        from datetime import timedelta, date as _date
+        from core.services.cache_service import CacheService
+        fin = restriccion.fecha_fin or (restriccion.fecha_inicio + timedelta(days=365))
+        meses = set()
+        d = restriccion.fecha_inicio
+        while d <= fin:
+            meses.add((d.month, d.year))
+            d += timedelta(days=28)
+        meses.add((fin.month, fin.year))
+        for m, y in meses:
+            CacheService.invalidar_cache_turnos_empleado(restriccion.empleado.id, m, y)
+    except Exception:
+        pass
+
 
 class RestriccionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = RestriccionEmpleado
@@ -415,16 +439,30 @@ class RestriccionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     template_name = 'empleados/restricciones_create.html'
     success_url = '/empleados/restricciones/'
 
+    def form_valid(self, response):
+        resp = super().form_valid(response)
+        _invalidar_turnos_cache_restriccion(self.object)
+        return resp
+
 class RestriccionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = RestriccionEmpleado
     form_class = RestriccionEmpleadoForm
     template_name = 'empleados/restricciones_edit.html'
     success_url = '/empleados/restricciones/'
 
+    def form_valid(self, response):
+        resp = super().form_valid(response)
+        _invalidar_turnos_cache_restriccion(self.object)
+        return resp
+
 class RestriccionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = RestriccionEmpleado
     template_name = 'empleados/restricciones_confirm_delete.html'
     success_url = '/empleados/restricciones/'
+
+    def form_valid(self, form):
+        _invalidar_turnos_cache_restriccion(self.get_object())
+        return super().form_valid(form)
 
 # CRUD de Sanciones
 class SancionListView(LoginRequiredMixin, ListView):
@@ -440,6 +478,9 @@ class SancionListView(LoginRequiredMixin, ListView):
         )
         user = self.request.user
         if user.is_staff:
+            eid = self.request.GET.get('explorador')
+            if eid and str(eid).isdigit():
+                qs = qs.filter(explorador_id=eid)
             return qs
         empleado = getattr(user, 'empleado', None)
         if not empleado:
@@ -455,14 +496,11 @@ class SancionListView(LoginRequiredMixin, ListView):
         queryset = self._base_queryset()
         user = self.request.user
         hoy = timezone.now().date()
-        
-        # Calcular totales usando el queryset base
-        # Activa: fecha_fin es NULL o fecha_fin >= hoy
-        # Finalizada: fecha_fin < hoy
+
         total_sanciones = queryset.count()
         total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
         total_finalizadas = queryset.filter(fecha_fin__lt=hoy).count()
-        
+
         context.update({
             'es_supervisor': user.is_staff,
             'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
@@ -471,11 +509,32 @@ class SancionListView(LoginRequiredMixin, ListView):
             'total_finalizadas': total_finalizadas,
             'hoy': hoy
         })
+        if user.is_staff:
+            context['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+            context['filtro_explorador'] = self.request.GET.get('explorador', '')
         
         if not user.is_staff and not getattr(user, 'empleado', None):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
         
         return context
+
+def _invalidar_turnos_cache_sancion(sancion):
+    """Refresca Mis Turnos del explorador para que la sanción se vea al instante."""
+    try:
+        from datetime import timedelta
+        from core.services.cache_service import CacheService
+        fin = sancion.fecha_fin or (sancion.fecha_inicio + timedelta(days=365))
+        meses = set()
+        d = sancion.fecha_inicio
+        while d <= fin:
+            meses.add((d.month, d.year))
+            d += timedelta(days=28)
+        meses.add((fin.month, fin.year))
+        for m, y in meses:
+            CacheService.invalidar_cache_turnos_empleado(sancion.explorador.id, m, y)
+    except Exception:
+        pass
+
 
 class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = SancionEmpleado
@@ -483,16 +542,54 @@ class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     template_name = 'empleados/sanciones_create.html'
     success_url = '/empleados/sanciones/'
 
+    def form_valid(self, response):
+        resp = super().form_valid(response)
+        _invalidar_turnos_cache_sancion(self.object)
+        return resp
+
 class SancionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = SancionEmpleado
     form_class = SancionEmpleadoForm
     template_name = 'empleados/sanciones_edit.html'
     success_url = '/empleados/sanciones/'
 
+    def form_valid(self, response):
+        resp = super().form_valid(response)
+        _invalidar_turnos_cache_sancion(self.object)
+        return resp
+
 class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = SancionEmpleado
     template_name = 'empleados/sanciones_confirm_delete.html'
     success_url = '/empleados/sanciones/'
+
+    def form_valid(self, form):
+        _invalidar_turnos_cache_sancion(self.get_object())
+        return super().form_valid(form)
+
+class IndicadoresView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
+    """Panel de indicadores/KPIs para supervisores."""
+    template_name = 'empleados/indicadores.html'
+
+    def get_context_data(self, **kwargs):
+        import json
+        from .services.indicadores_service import IndicadoresService
+        ctx = super().get_context_data(**kwargs)
+        explorador = self.request.GET.get('explorador') or None
+        jornada = self.request.GET.get('jornada') or None
+        anio_raw = self.request.GET.get('anio')
+        anio = int(anio_raw) if anio_raw and str(anio_raw).isdigit() else None
+
+        data = IndicadoresService.get(explorador_id=explorador, jornada=jornada, anio=anio)
+        ctx.update(data)
+        ctx['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+        ctx['anios'] = IndicadoresService.anios_disponibles()
+        ctx['filtro_explorador'] = explorador or ''
+        ctx['filtro_jornada'] = jornada or ''
+        ctx['chart_series_json'] = json.dumps(data['chart_series'])
+        ctx['meses_json'] = json.dumps(data['meses_nombres'])
+        return ctx
+
 
 # CRUD de PDH (Pago de Horas)
 class PDHListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
@@ -657,6 +754,9 @@ class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
         )
         user = self.request.user
         if user.is_staff:
+            eid = self.request.GET.get('explorador')
+            if eid and str(eid).isdigit():
+                qs = qs.filter(empleado_id=eid)
             return qs
         empleado = getattr(user, 'empleado', None)
         if not empleado:

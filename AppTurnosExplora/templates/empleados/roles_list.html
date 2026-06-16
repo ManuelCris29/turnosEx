@@ -1,54 +1,57 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Roles - AppTurnos{% endblock %}
-{% block page_title %}Roles{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12 col-md-8 col-lg-6">
-            <div class="card shadow">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0"><i class="fas fa-user-tag"></i> Lista de Roles</h4>
-                </div>
-                <div class="card-body">
-                    <a href="{% url 'roles_create' %}" class="btn btn-success mb-3">
-                        <i class="fas fa-plus"></i> Nuevo Rol
-                    </a>
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped table-bordered">
-                            <thead class="thead-dark">
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Nombre</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for rol in roles %}
-                                <tr>
-                                    <td>{{ rol.id }}</td>
-                                    <td>{{ rol.nombre }}</td>
-                                    <td>
-                                        <a href="{% url 'roles_edit' rol.id %}" class="btn btn-primary btn-sm" title="Editar">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="{% url 'roles_delete' rol.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este rol?');">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="3">No hay roles registrados.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-user-tag"></i> Roles y Permisos</h1>
+      <p class="pg-subtitle">Gestiona los roles disponibles para los exploradores</p>
     </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);">
+        <h3><i class="fas fa-user-tag"></i> Lista de roles</h3>
+        <div class="pg-actions">
+          <a href="{% url 'roles_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nuevo rol</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th style="text-align:right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for rol in roles %}
+              <tr>
+                <td>{{ rol.id }}</td>
+                <td><strong>{{ rol.nombre }}</strong></td>
+                <td style="text-align:right; white-space:nowrap;">
+                  <a href="{% url 'roles_edit' rol.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                  <a href="{% url 'roles_delete' rol.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este rol?');"><i class="fas fa-trash-alt"></i></a>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="3"><div class="pg-empty"><i class="fas fa-user-tag fa-2x mb-2 d-block"></i>No hay roles registrados.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

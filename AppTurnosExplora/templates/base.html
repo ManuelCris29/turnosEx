@@ -142,6 +142,12 @@
                         {% if user.is_staff %}
                         <li class="nav-header">ADMINISTRACIÓN</li>
                         <li class="nav-item">
+                            <a href="{% url 'indicadores' %}" class="nav-link">
+                                <i class="nav-icon fas fa-chart-bar"></i>
+                                <p>Indicadores</p>
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a href="{% url 'empleados' %}" class="nav-link">
                                 <i class="nav-icon fas fa-users"></i>
                                 <p>Empleados/Exploradores</p>

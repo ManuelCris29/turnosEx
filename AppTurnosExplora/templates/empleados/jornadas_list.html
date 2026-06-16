@@ -1,58 +1,61 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Jornadas - AppTurnos{% endblock %}
-{% block page_title %}Jornadas{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12 col-md-10 col-lg-8">
-            <div class="card shadow">
-                <div class="card-header bg-info text-white">
-                    <h4 class="mb-0"><i class="fas fa-clock"></i> Lista de Jornadas</h4>
-                </div>
-                <div class="card-body">
-                    <a href="{% url 'jornadas_create' %}" class="btn btn-success mb-3">
-                        <i class="fas fa-plus"></i> Nueva Jornada
-                    </a>
-                    <div class="table-responsive">
-                        <table class="table table-hover table-striped table-bordered">
-                            <thead class="thead-dark">
-                                <tr>
-                                    <th>ID</th>
-                                    <th>Nombre</th>
-                                    <th>Hora Inicio</th>
-                                    <th>Hora Fin</th>
-                                    <th>Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for jornada in jornadas %}
-                                <tr>
-                                    <td>{{ jornada.id }}</td>
-                                    <td>{{ jornada.nombre }}</td>
-                                    <td>{{ jornada.hora_inicio }}</td>
-                                    <td>{{ jornada.hora_fin }}</td>
-                                    <td>
-                                        <a href="{% url 'jornadas_edit' jornada.id %}" class="btn btn-primary btn-sm" title="Editar">
-                                            <i class="fas fa-edit"></i>
-                                        </a>
-                                        <a href="{% url 'jornadas_delete' jornada.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar esta jornada?');">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </a>
-                                    </td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="5">No hay jornadas registradas.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-clock"></i> Jornadas</h1>
+      <p class="pg-subtitle">Define los horarios de trabajo (AM / PM) del equipo</p>
     </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#0891b2,#06b6d4);">
+        <h3><i class="fas fa-clock"></i> Lista de jornadas</h3>
+        <div class="pg-actions">
+          <a href="{% url 'jornadas_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nueva jornada</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nombre</th>
+                <th>Hora inicio</th>
+                <th>Hora fin</th>
+                <th style="text-align:right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for jornada in jornadas %}
+              <tr>
+                <td>{{ jornada.id }}</td>
+                <td><strong>{{ jornada.nombre }}</strong></td>
+                <td><i class="far fa-play-circle text-success mr-1"></i>{{ jornada.hora_inicio }}</td>
+                <td><i class="far fa-stop-circle text-danger mr-1"></i>{{ jornada.hora_fin }}</td>
+                <td style="text-align:right; white-space:nowrap;">
+                  <a href="{% url 'jornadas_edit' jornada.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                  <a href="{% url 'jornadas_delete' jornada.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar esta jornada?');"><i class="fas fa-trash-alt"></i></a>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5"><div class="pg-empty"><i class="fas fa-clock fa-2x mb-2 d-block"></i>No hay jornadas registradas.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

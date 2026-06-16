@@ -1,229 +1,167 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Días Especiales - AppTurnos{% endblock %}
-{% block page_title %}Días Especiales{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<style>
+    .pg-card-body .nav-tabs { border-bottom:2px solid #e2e8f0; margin-bottom:1rem; }
+    .pg-card-body .nav-tabs .nav-link { color:#64748b; font-weight:600; border:none; }
+    .pg-card-body .nav-tabs .nav-link.active { color:#4f46e5; border-bottom:3px solid #4f46e5; background:transparent; }
+</style>
+{% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-12">
-            <div class="card shadow">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0"><i class="fas fa-calendar-day"></i> Lista de Días Especiales</h4>
-                </div>
-                <div class="card-body">
-                    {% if user.is_staff %}
-                    <div class="mb-3">
-                        <a href="{% url 'dias_especiales_temporadas_anual' %}" class="btn btn-info mr-2">
-                            <i class="fas fa-calendar-alt"></i> Gestionar Temporadas Anuales
-                        </a>
-                        <a href="{% url 'dias_especiales_festivos_mantenimiento_anual' %}" class="btn btn-success">
-                            <i class="fas fa-plus"></i> Nuevo Día Especial (Festivo/Mantenimiento)
-                        </a>
-                    </div>
-                    {% endif %}
-                    
-                    <!-- Tabs para filtrar por tipo -->
-                    <ul class="nav nav-tabs mb-3" id="tipoTab" role="tablist">
-                        <li class="nav-item">
-                            <a class="nav-link active" id="todos-tab" data-toggle="tab" href="#todos" role="tab">
-                                Todos
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="temporadas-tab" data-toggle="tab" href="#temporadas" role="tab">
-                                Temporadas
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="festivos-tab" data-toggle="tab" href="#festivos" role="tab">
-                                Festivos
-                            </a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" id="mantenimiento-tab" data-toggle="tab" href="#mantenimiento" role="tab">
-                                Mantenimiento
-                            </a>
-                        </li>
-                    </ul>
-                    
-                    <div class="tab-content" id="tipoTabContent">
-                        <div class="tab-pane fade show active" id="todos" role="tabpanel">
-                            <div class="table-responsive">
-                                <table class="table table-hover table-striped table-bordered">
-                                    <thead class="thead-dark">
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Fecha</th>
-                                            <th>Tipo</th>
-                                            <th>Descripción</th>
-                                            <th>Año Planificación</th>
-                                            <th>Recurrente</th>
-                                            <th>Activo</th>
-                                            <th>Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for dia in dias_especiales %}
-                                        <tr>
-                                            <td>{{ dia.id }}</td>
-                                            <td>{{ dia.fecha }}</td>
-                                            <td>
-                                                {{ dia.tipo }}
-                                                {% if dia.es_temporada %}
-                                                    <span class="badge badge-warning">Temporada</span>
-                                                {% endif %}
-                                            </td>
-                                            <td>{{ dia.descripcion }}</td>
-                                            <td>{% if dia.año_planificacion %}{{ dia.año_planificacion }}{% else %}-{% endif %}</td>
-                                            <td>{% if dia.recurrente %}<span class="badge badge-info">Sí</span>{% else %}<span class="badge badge-secondary">No</span>{% endif %}</td>
-                                            <td>{% if dia.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
-                                            <td>
-                                            {% if user.is_staff and not dia.es_temporada %}
-                                                <a href="{% url 'dias_especiales_edit' dia.id %}" class="btn btn-primary btn-sm" title="Editar">
-                                                    <i class="fas fa-edit"></i>
-                                                </a>
-                                                <a href="{% url 'dias_especiales_delete' dia.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');">
-                                                    <i class="fas fa-trash-alt"></i>
-                                                </a>
-                                            {% elif dia.es_temporada %}
-                                                <span class="text-muted small">Gestionar desde Temporadas Anuales</span>
-                                            {% endif %}
-                                            </td>
-                                        </tr>
-                                        {% empty %}
-                                        <tr>
-                                            <td colspan="8">No hay días especiales registrados.</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="tab-pane fade" id="temporadas" role="tabpanel">
-                            <div class="table-responsive">
-                                <table class="table table-hover table-striped table-bordered">
-                                    <thead class="thead-dark">
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Fecha</th>
-                                            <th>Tipo</th>
-                                            <th>Descripción</th>
-                                            <th>Año Planificación</th>
-                                            <th>Activo</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for dia in dias_especiales %}
-                                            {% if dia.es_temporada %}
-                                            <tr>
-                                                <td>{{ dia.id }}</td>
-                                                <td>{{ dia.fecha }}</td>
-                                                <td><span class="badge badge-warning">Temporada</span></td>
-                                                <td>{{ dia.descripcion }}</td>
-                                                <td>{{ dia.año_planificacion }}</td>
-                                                <td>{% if dia.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
-                                            </tr>
-                                            {% endif %}
-                                        {% empty %}
-                                        <tr>
-                                            <td colspan="6">No hay temporadas registradas.</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="tab-pane fade" id="festivos" role="tabpanel">
-                            <div class="table-responsive">
-                                <table class="table table-hover table-striped table-bordered">
-                                    <thead class="thead-dark">
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Fecha</th>
-                                            <th>Descripción</th>
-                                            <th>Recurrente</th>
-                                            <th>Activo</th>
-                                            <th>Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for dia in dias_especiales %}
-                                            {% if dia.tipo == 'festivo' and not dia.es_temporada %}
-                                            <tr>
-                                                <td>{{ dia.id }}</td>
-                                                <td>{{ dia.fecha }}</td>
-                                                <td>{{ dia.descripcion }}</td>
-                                                <td>{% if dia.recurrente %}<span class="badge badge-info">Sí</span>{% else %}<span class="badge badge-secondary">No</span>{% endif %}</td>
-                                                <td>{% if dia.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
-                                                <td>
-                                                {% if user.is_staff %}
-                                                    <a href="{% url 'dias_especiales_edit' dia.id %}" class="btn btn-primary btn-sm" title="Editar">
-                                                        <i class="fas fa-edit"></i>
-                                                    </a>
-                                                    <a href="{% url 'dias_especiales_delete' dia.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');">
-                                                        <i class="fas fa-trash-alt"></i>
-                                                    </a>
-                                                {% endif %}
-                                                </td>
-                                            </tr>
-                                            {% endif %}
-                                        {% empty %}
-                                        <tr>
-                                            <td colspan="6">No hay festivos registrados.</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div class="tab-pane fade" id="mantenimiento" role="tabpanel">
-                            <div class="table-responsive">
-                                <table class="table table-hover table-striped table-bordered">
-                                    <thead class="thead-dark">
-                                        <tr>
-                                            <th>ID</th>
-                                            <th>Fecha</th>
-                                            <th>Descripción</th>
-                                            <th>Recurrente</th>
-                                            <th>Activo</th>
-                                            <th>Acciones</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {% for dia in dias_especiales %}
-                                            {% if dia.tipo == 'mantenimiento' and not dia.es_temporada %}
-                                            <tr>
-                                                <td>{{ dia.id }}</td>
-                                                <td>{{ dia.fecha }}</td>
-                                                <td>{{ dia.descripcion }}</td>
-                                                <td>{% if dia.recurrente %}<span class="badge badge-info">Sí</span>{% else %}<span class="badge badge-secondary">No</span>{% endif %}</td>
-                                                <td>{% if dia.activo %}<span class="badge badge-success">Sí</span>{% else %}<span class="badge badge-danger">No</span>{% endif %}</td>
-                                                <td>
-                                                {% if user.is_staff %}
-                                                    <a href="{% url 'dias_especiales_edit' dia.id %}" class="btn btn-primary btn-sm" title="Editar">
-                                                        <i class="fas fa-edit"></i>
-                                                    </a>
-                                                    <a href="{% url 'dias_especiales_delete' dia.id %}" class="btn btn-danger btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');">
-                                                        <i class="fas fa-trash-alt"></i>
-                                                    </a>
-                                                {% endif %}
-                                                </td>
-                                            </tr>
-                                            {% endif %}
-                                        {% empty %}
-                                        <tr>
-                                            <td colspan="6">No hay días de mantenimiento registrados.</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-day"></i> Días Especiales</h1>
+      <p class="pg-subtitle">Administra temporadas, festivos y mantenimientos del parque</p>
     </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#2563eb,#3b82f6);">
+        <h3><i class="fas fa-calendar-day"></i> Lista de días especiales</h3>
+        {% if user.is_staff %}
+        <div class="pg-actions">
+          <a href="{% url 'dias_especiales_temporadas_anual' %}" class="pg-btn pg-btn-light"><i class="fas fa-calendar-alt"></i> Temporadas anuales</a>
+          <a href="{% url 'dias_especiales_festivos_mantenimiento_anual' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nuevo festivo/mantenimiento</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="pg-card-body">
+        <ul class="nav nav-tabs" id="tipoTab" role="tablist">
+          <li class="nav-item"><a class="nav-link active" id="todos-tab" data-toggle="tab" href="#todos" role="tab">Todos</a></li>
+          <li class="nav-item"><a class="nav-link" id="temporadas-tab" data-toggle="tab" href="#temporadas" role="tab">Temporadas</a></li>
+          <li class="nav-item"><a class="nav-link" id="festivos-tab" data-toggle="tab" href="#festivos" role="tab">Festivos</a></li>
+          <li class="nav-item"><a class="nav-link" id="mantenimiento-tab" data-toggle="tab" href="#mantenimiento" role="tab">Mantenimiento</a></li>
+        </ul>
+
+        <div class="tab-content" id="tipoTabContent">
+          <!-- TODOS -->
+          <div class="tab-pane fade show active" id="todos" role="tabpanel">
+            <div class="pg-table-wrap">
+              <table class="pg-table">
+                <thead>
+                  <tr><th>ID</th><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Año planif.</th><th>Recurrente</th><th>Activo</th><th style="text-align:right;">Acciones</th></tr>
+                </thead>
+                <tbody>
+                  {% for dia in dias_especiales %}
+                  <tr>
+                    <td>{{ dia.id }}</td>
+                    <td>{{ dia.fecha }}</td>
+                    <td>{{ dia.tipo }}{% if dia.es_temporada %} <span class="pg-chip pg-chip-pend">Temporada</span>{% endif %}</td>
+                    <td>{{ dia.descripcion }}</td>
+                    <td>{% if dia.año_planificacion %}{{ dia.año_planificacion }}{% else %}—{% endif %}</td>
+                    <td>{% if dia.recurrente %}<span class="pg-chip pg-chip-info">Sí</span>{% else %}<span class="pg-chip pg-chip-gray">No</span>{% endif %}</td>
+                    <td>{% if dia.activo %}<span class="pg-chip pg-chip-ok">Sí</span>{% else %}<span class="pg-chip pg-chip-no">No</span>{% endif %}</td>
+                    <td style="text-align:right; white-space:nowrap;">
+                      {% if user.is_staff and not dia.es_temporada %}
+                        <a href="{% url 'dias_especiales_edit' dia.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                        <a href="{% url 'dias_especiales_delete' dia.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');"><i class="fas fa-trash-alt"></i></a>
+                      {% elif dia.es_temporada %}
+                        <span class="text-muted small">Gestionar desde Temporadas Anuales</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% empty %}
+                  <tr><td colspan="8"><div class="pg-empty">No hay días especiales registrados.</div></td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- TEMPORADAS -->
+          <div class="tab-pane fade" id="temporadas" role="tabpanel">
+            <div class="pg-table-wrap">
+              <table class="pg-table">
+                <thead>
+                  <tr><th>ID</th><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Año planif.</th><th>Activo</th></tr>
+                </thead>
+                <tbody>
+                  {% for dia in dias_especiales %}{% if dia.es_temporada %}
+                  <tr>
+                    <td>{{ dia.id }}</td>
+                    <td>{{ dia.fecha }}</td>
+                    <td><span class="pg-chip pg-chip-pend">Temporada</span></td>
+                    <td>{{ dia.descripcion }}</td>
+                    <td>{{ dia.año_planificacion }}</td>
+                    <td>{% if dia.activo %}<span class="pg-chip pg-chip-ok">Sí</span>{% else %}<span class="pg-chip pg-chip-no">No</span>{% endif %}</td>
+                  </tr>
+                  {% endif %}{% empty %}
+                  <tr><td colspan="6"><div class="pg-empty">No hay temporadas registradas.</div></td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- FESTIVOS -->
+          <div class="tab-pane fade" id="festivos" role="tabpanel">
+            <div class="pg-table-wrap">
+              <table class="pg-table">
+                <thead>
+                  <tr><th>ID</th><th>Fecha</th><th>Descripción</th><th>Recurrente</th><th>Activo</th><th style="text-align:right;">Acciones</th></tr>
+                </thead>
+                <tbody>
+                  {% for dia in dias_especiales %}{% if dia.tipo == 'festivo' and not dia.es_temporada %}
+                  <tr>
+                    <td>{{ dia.id }}</td>
+                    <td>{{ dia.fecha }}</td>
+                    <td>{{ dia.descripcion }}</td>
+                    <td>{% if dia.recurrente %}<span class="pg-chip pg-chip-info">Sí</span>{% else %}<span class="pg-chip pg-chip-gray">No</span>{% endif %}</td>
+                    <td>{% if dia.activo %}<span class="pg-chip pg-chip-ok">Sí</span>{% else %}<span class="pg-chip pg-chip-no">No</span>{% endif %}</td>
+                    <td style="text-align:right; white-space:nowrap;">
+                      {% if user.is_staff %}
+                        <a href="{% url 'dias_especiales_edit' dia.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                        <a href="{% url 'dias_especiales_delete' dia.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');"><i class="fas fa-trash-alt"></i></a>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endif %}{% empty %}
+                  <tr><td colspan="6"><div class="pg-empty">No hay festivos registrados.</div></td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- MANTENIMIENTO -->
+          <div class="tab-pane fade" id="mantenimiento" role="tabpanel">
+            <div class="pg-table-wrap">
+              <table class="pg-table">
+                <thead>
+                  <tr><th>ID</th><th>Fecha</th><th>Descripción</th><th>Recurrente</th><th>Activo</th><th style="text-align:right;">Acciones</th></tr>
+                </thead>
+                <tbody>
+                  {% for dia in dias_especiales %}{% if dia.tipo == 'mantenimiento' and not dia.es_temporada %}
+                  <tr>
+                    <td>{{ dia.id }}</td>
+                    <td>{{ dia.fecha }}</td>
+                    <td>{{ dia.descripcion }}</td>
+                    <td>{% if dia.recurrente %}<span class="pg-chip pg-chip-info">Sí</span>{% else %}<span class="pg-chip pg-chip-gray">No</span>{% endif %}</td>
+                    <td>{% if dia.activo %}<span class="pg-chip pg-chip-ok">Sí</span>{% else %}<span class="pg-chip pg-chip-no">No</span>{% endif %}</td>
+                    <td style="text-align:right; white-space:nowrap;">
+                      {% if user.is_staff %}
+                        <a href="{% url 'dias_especiales_edit' dia.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                        <a href="{% url 'dias_especiales_delete' dia.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');"><i class="fas fa-trash-alt"></i></a>
+                      {% endif %}
+                    </td>
+                  </tr>
+                  {% endif %}{% empty %}
+                  <tr><td colspan="6"><div class="pg-empty">No hay días de mantenimiento registrados.</div></td></tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}

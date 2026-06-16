@@ -4,6 +4,7 @@
 {% block title %}Gestión de Festivos y Mantenimiento Anuales - AppTurnos{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
 <style>
     .calendario-mes {
         border: 1px solid #dee2e6;
@@ -442,16 +443,18 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4" style="overflow-x: hidden; max-width: 100%; box-sizing: border-box;">
-    <div class="row" style="margin-left: 0; margin-right: 0; max-width: 100%; box-sizing: border-box;">
-        <div class="col-12" style="padding-left: 15px; padding-right: 15px; max-width: 100%; box-sizing: border-box;">
-            <div class="card shadow">
-                <div class="card-header bg-primary text-white">
-                    <h4 class="mb-0">
-                        <i class="fas fa-calendar-alt"></i> Configurar Festivos y Mantenimiento por Año
-                    </h4>
-                </div>
-                <div class="card-body">
+<div class="pg-container">
+  <div class="pg-content" style="max-width:1500px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-alt"></i> Festivos y Mantenimiento</h1>
+      <p class="pg-subtitle">Configura los días festivos y de mantenimiento por mes para el año elegido</p>
+    </div>
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#2563eb,#3b82f6);">
+        <h3><i class="fas fa-calendar-alt"></i> Configurar festivos y mantenimiento por año</h3>
+      </div>
+      <div class="pg-card-body">
                     {% if tiene_dias %}
                     <div class="alert alert-warning alert-dismissible fade show" role="alert">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -530,19 +533,19 @@
                                        style="display: none;">
                             </div>
                             <div class="col-12 col-md-6 text-center text-md-right mt-3 mt-md-4">
-                                <button type="button" class="btn btn-info mb-2 mb-md-0 mr-md-2" id="btn-cargar-anio">
+                                <button type="button" class="pg-btn pg-btn-secondary mb-2 mb-md-0 mr-md-2" id="btn-cargar-anio">
                                     <i class="fas fa-sync"></i> Cargar Año
                                 </button>
                                 {% if tipo_seleccionado == 'mantenimiento' %}
-                                <button type="button" class="btn btn-warning mb-2 mb-md-0 mr-md-2" id="btn-regenerar-mantenimiento">
+                                <button type="button" class="pg-btn pg-btn-warn mb-2 mb-md-0 mr-md-2" id="btn-regenerar-mantenimiento">
                                     <i class="fas fa-magic"></i> Regenerar Automáticamente
                                 </button>
                                 {% elif tipo_seleccionado == 'festivo' %}
-                                <button type="button" class="btn btn-warning mb-2 mb-md-0 mr-md-2" id="btn-regenerar-festivos">
+                                <button type="button" class="pg-btn pg-btn-warn mb-2 mb-md-0 mr-md-2" id="btn-regenerar-festivos">
                                     <i class="fas fa-magic"></i> Regenerar Festivos
                                 </button>
                                 {% endif %}
-                                <button type="submit" class="btn btn-success" id="btn-guardar">
+                                <button type="submit" class="pg-btn pg-btn-success" id="btn-guardar">
                                     <i class="fas fa-save"></i> Guardar
                                 </button>
                             </div>
@@ -585,10 +588,9 @@
                             {% endfor %}
                         </div>
                     </form>
-                </div>
-            </div>
-        </div>
+      </div>
     </div>
+  </div>
 </div>
 {% endblock %}
 

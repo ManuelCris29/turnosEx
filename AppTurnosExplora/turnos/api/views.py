@@ -161,7 +161,108 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 fp = s.doblada.fecha_pago if s.doblada else None
                 if fp:
                     solicitudes_descanso_receptor[fp] = s
-            
+
+            # DOBLADA PERMANENTE: descansos recurrentes (este empleado es cubierto esos días).
+            # Solicitante descansa en sus días de cesión; receptor descansa en los de devolución.
+            from solicitudes.services.ct_permanente_helper import _es_festivo
+            descansos_perm = {}  # fecha -> {'companero_nombre', 'tipo'}
+            perm_qs = (
+                SolicitudCambio.objects
+                .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
+                .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
+                .select_related('explorador_solicitante', 'explorador_receptor', 'doblada_permanente')
+            )
+            for s in perm_qs:
+                det = getattr(s, 'doblada_permanente', None)
+                if not det:
+                    continue
+                es_sol = s.explorador_solicitante_id == empleado.id
+                dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
+                dias_set = {int(x) for x in dias_txt.split(',') if x.strip().isdigit()}
+                if not dias_set:
+                    continue
+                companero = s.explorador_receptor if es_sol else s.explorador_solicitante
+                comp_nombre = f"{companero.nombre} {companero.apellido}"
+                ini = max(det.fecha_inicio, fecha_inicio)
+                fin = min(det.fecha_fin, fecha_fin)
+                d = ini
+                while d <= fin:
+                    if d.weekday() in dias_set and d.weekday() != 6 and not _es_festivo(d):
+                        descansos_perm[d] = {
+                            'companero_nombre': comp_nombre,
+                            'tipo': 'cedio' if es_sol else 'pago',
+                        }
+                    d += timedelta(days=1)
+
+            # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
+            # No cambian la jornada; se muestran como indicador en el día.
+            from permisos.models import PermisoEspecial
+            permisos_por_fecha = {}
+            pe_qs = (
+                PermisoEspecial.objects
+                .filter(empleado=empleado, estado__in=['APROBADO', 'PENDIENTE'],
+                        fecha_inicio__lte=fecha_fin, fecha_fin__gte=fecha_inicio)
+                .select_related('cubre')
+            )
+            for p in pe_qs:
+                p_info = {
+                    'horas': float(p.tiempo or 0),
+                    'especificacion': p.especificacion or '',
+                    'tipo': p.get_tipo_display(),
+                    'cubre': f"{p.cubre.nombre} {p.cubre.apellido}" if p.cubre else None,
+                    'estado': p.estado,
+                    'es_permanente': p.es_permanente,
+                }
+                if p.es_permanente:
+                    dias_set = {int(x) for x in p.dias_semana.split(',') if x.strip().isdigit()}
+                    di = max(p.fecha_inicio, fecha_inicio)
+                    dfin = min(p.fecha_fin, fecha_fin)
+                    while di <= dfin:
+                        if di.weekday() in dias_set:
+                            permisos_por_fecha[di.strftime('%Y-%m-%d')] = p_info
+                        di += timedelta(days=1)
+                elif fecha_inicio <= p.fecha_inicio <= fecha_fin:
+                    permisos_por_fecha[p.fecha_inicio.strftime('%Y-%m-%d')] = p_info
+
+            # RESTRICCIONES del empleado vigentes en el mes (aplican TODOS los días del rango;
+            # fecha_fin nula = indefinida/en curso).
+            from empleados.models import RestriccionEmpleado
+            restricciones_por_fecha = {}
+            rest_qs = RestriccionEmpleado.objects.filter(
+                empleado=empleado, fecha_inicio__lte=fecha_fin
+            ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
+            for r in rest_qs:
+                r_info = {
+                    'tipo': r.tipo_restriccion or 'Restricción',
+                    'recomendacion': r.recomendacion or '',
+                    'indefinida': r.fecha_fin is None,
+                }
+                ini = max(r.fecha_inicio, fecha_inicio)
+                fin = min(r.fecha_fin, fecha_fin) if r.fecha_fin else fecha_fin
+                di = ini
+                while di <= fin:
+                    restricciones_por_fecha[di.strftime('%Y-%m-%d')] = r_info
+                    di += timedelta(days=1)
+
+            # SANCIONES del empleado vigentes en el mes (no puede solicitar nada esos días)
+            from empleados.models import SancionEmpleado
+            sanciones_por_fecha = {}
+            sanc_qs = SancionEmpleado.objects.filter(
+                explorador=empleado, fecha_inicio__lte=fecha_fin
+            ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
+            for s in sanc_qs:
+                s_info = {
+                    'motivo': s.motivo or '',
+                    'desde': s.fecha_inicio.strftime('%d/%m/%Y'),
+                    'hasta': s.fecha_fin.strftime('%d/%m/%Y') if s.fecha_fin else None,
+                }
+                ini = max(s.fecha_inicio, fecha_inicio)
+                fin = min(s.fecha_fin, fecha_fin) if s.fecha_fin else fecha_fin
+                di = ini
+                while di <= fin:
+                    sanciones_por_fecha[di.strftime('%Y-%m-%d')] = s_info
+                    di += timedelta(days=1)
+
             # Crear estructura de datos para el mes
             turnos_mes_dict = {}
             dias_mes = (fecha_fin - fecha_inicio).days + 1
@@ -235,8 +336,13 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     # OPTIMIZACIÓN: Usar dicts precargados en vez de 2 consultas por día
                     solicitud_como_solicitante = solicitudes_descanso_solicitante.get(fecha)
                     solicitud_como_receptor = solicitudes_descanso_receptor.get(fecha)
-                    esta_descansando = solicitud_como_solicitante is not None or solicitud_como_receptor is not None
-                    
+                    descanso_perm = descansos_perm.get(fecha)
+                    esta_descansando = (
+                        solicitud_como_solicitante is not None
+                        or solicitud_como_receptor is not None
+                        or descanso_perm is not None
+                    )
+
                     if esta_descansando:
                         # Determinar información detallada del descanso
                         companero_nombre = None
@@ -279,7 +385,11 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             fecha_aprobacion = solicitud_como_receptor.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_como_receptor.fecha_resolucion else None
                             tipo_cesion = detalle.get_tipo_cesion_display() if detalle else None
                             jornada_cedida = detalle.jornada_cedida if detalle and detalle.jornada_cedida else None
-                        
+                        elif descanso_perm:
+                            # Descanso recurrente por DOBLADA PERMANENTE (cubierto por el compañero)
+                            companero_nombre = descanso_perm['companero_nombre']
+                            tipo_descanso = descanso_perm['tipo']  # 'cedio' o 'pago'
+
                         # Usuario está descansando
                         turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                             'jornada': None,  # Sin jornada porque está descansando
@@ -536,11 +646,26 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'fecha_resolucion': sol.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if sol.fecha_resolucion else None
                         }
             
+            # Adjuntar el permiso especial (si lo hay) a cada día — antes de cachear
+            for _fstr, _pinfo in permisos_por_fecha.items():
+                if _fstr in turnos_mes_dict:
+                    turnos_mes_dict[_fstr]['permiso'] = _pinfo
+
+            # Adjuntar la restricción (si la hay) a cada día
+            for _fstr, _rinfo in restricciones_por_fecha.items():
+                if _fstr in turnos_mes_dict:
+                    turnos_mes_dict[_fstr]['restriccion'] = _rinfo
+
+            # Adjuntar la sanción (si la hay) a cada día
+            for _fstr, _sinfo in sanciones_por_fecha.items():
+                if _fstr in turnos_mes_dict:
+                    turnos_mes_dict[_fstr]['sancion'] = _sinfo
+
             # FASE 3.5: Guardar en caché usando CacheService
             # Los datos de turnos no cambian frecuentemente, así que 1 hora es seguro
             from core.services.cache_service import CACHE_TTL_LONG
             CacheService.set(cache_key, turnos_mes_dict, ttl=CACHE_TTL_LONG)
-            
+
             return JsonResponse(turnos_mes_dict)
             
         except Exception as e:

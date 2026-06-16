@@ -1,67 +1,68 @@
 {% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Dashboard - AppTurnos{% endblock %}
 
-{% block page_title %}Dashboard{% endblock %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="row">
-    <div class="col-lg-3 col-6">
-        <!-- small box -->
-        <div class="small-box bg-info">
-            <div class="inner">
-                <h3>150</h3>
-                <p>Nuevos Turnos</p>
-            </div>
-            <div class="icon">
-                <i class="ion ion-bag"></i>
-            </div>
-            <a href="#" class="small-box-footer">Más info <i class="fas fa-arrow-circle-right"></i></a>
-        </div>
-    </div>
-    <!-- ./col -->
-    <div class="col-lg-3 col-6">
-        <!-- small box -->
-        <div class="small-box bg-success">
-            <div class="inner">
-                <h3>53<sup style="font-size: 20px">%</sup></h3>
-                <p>Tasa de Cumplimiento</p>
-            </div>
-            <div class="icon">
-                <i class="ion ion-stats-bars"></i>
-            </div>
-            <a href="#" class="small-box-footer">Más info <i class="fas fa-arrow-circle-right"></i></a>
-        </div>
-    </div>
-    <!-- ./col -->
-    <div class="col-lg-3 col-6">
-        <!-- small box -->
-        <div class="small-box bg-warning">
-            <div class="inner">
-                <h3>44</h3>
-                <p>Empleados Registrados</p>
-            </div>
-            <div class="icon">
-                <i class="ion ion-person-add"></i>
-            </div>
-            <a href="#" class="small-box-footer">Más info <i class="fas fa-arrow-circle-right"></i></a>
-        </div>
-    </div>
-    <!-- ./col -->
-    <div class="col-lg-3 col-6">
-        <!-- small box -->
-        <div class="small-box bg-danger">
-            <div class="inner">
-                <h3>65</h3>
-                <p>Permisos Pendientes</p>
-            </div>
-            <div class="icon">
-                <i class="ion ion-pie-graph"></i>
-            </div>
-            <a href="#" class="small-box-footer">Más info <i class="fas fa-arrow-circle-right"></i></a>
-        </div>
-    </div>
-    <!-- ./col -->
+<!-- Hero / bienvenida -->
+<div class="dash-hero">
+  <div>
+    <h1>Hola, {% if user.empleado %}{{ user.empleado.nombre }}{% else %}{{ user.username }}{% endif %} 👋</h1>
+    <p>Bienvenido al panel de SWALP — gestión de turnos de Parque Explora.</p>
+  </div>
+  <div class="dash-hero-date">
+    <i class="far fa-calendar-alt mr-1"></i> {% now "d/m/Y" %}
+  </div>
 </div>
-<!-- /.row -->
-{% endblock %} 
+
+<!-- KPIs -->
+<div class="dash-kpis">
+  <a href="{% if es_admin %}{% url 'indicadores' %}{% else %}{% url 'mis_turnos' %}{% endif %}" class="dash-kpi azul">
+    <div class="dash-kpi-icon"><i class="fas fa-exchange-alt"></i></div>
+    <div>
+      <div class="dash-kpi-num">{{ kpi_cambios }}</div>
+      <div class="dash-kpi-lbl">Cambios realizados ({{ anio }})</div>
+    </div>
+  </a>
+  <a href="{% if es_admin %}{% url 'indicadores' %}{% else %}{% url 'mis_turnos' %}{% endif %}" class="dash-kpi verde">
+    <div class="dash-kpi-icon"><i class="fas fa-chart-line"></i></div>
+    <div>
+      <div class="dash-kpi-num">{{ kpi_tasa }}%</div>
+      <div class="dash-kpi-lbl">Tasa de aprobación</div>
+    </div>
+  </a>
+  <a href="{% if es_admin %}{% url 'empleados' %}{% else %}{% url 'mis_turnos' %}{% endif %}" class="dash-kpi ambar">
+    <div class="dash-kpi-icon"><i class="fas fa-users"></i></div>
+    <div>
+      <div class="dash-kpi-num">{{ kpi_empleados }}</div>
+      <div class="dash-kpi-lbl">Exploradores activos</div>
+    </div>
+  </a>
+  <a href="{% url 'permisos_especiales_list' %}" class="dash-kpi rojo">
+    <div class="dash-kpi-icon"><i class="fas fa-calendar-check"></i></div>
+    <div>
+      <div class="dash-kpi-num">{{ kpi_permisos_pend }}</div>
+      <div class="dash-kpi-lbl">Permisos pendientes</div>
+    </div>
+  </a>
+</div>
+
+<!-- Accesos rápidos -->
+<h2 class="dash-section-title"><i class="fas fa-bolt"></i> Accesos rápidos</h2>
+<div class="dash-quick">
+  <a href="{% url 'mis_turnos' %}" class="dash-quick-item"><i class="far fa-calendar-alt"></i> Mis Turnos</a>
+  <a href="{% url 'solicitudes:cambio_turno_inicio' %}" class="dash-quick-item"><i class="fas fa-exchange-alt"></i> Cambios de Turno</a>
+  <a href="{% url 'permisos_especiales_list' %}" class="dash-quick-item"><i class="fas fa-calendar-check"></i> Permisos Especiales</a>
+  <a href="{% url 'consolidado_horas' %}" class="dash-quick-item"><i class="fas fa-clock"></i> Consolidado de Horas</a>
+  <a href="{% url 'beneficios' %}" class="dash-quick-item"><i class="fas fa-gift"></i> Beneficios</a>
+  {% if es_admin %}
+  <a href="{% url 'indicadores' %}" class="dash-quick-item"><i class="fas fa-chart-bar"></i> Indicadores</a>
+  <a href="{% url 'empleados' %}" class="dash-quick-item"><i class="fas fa-users"></i> Empleados</a>
+  <a href="{% url 'turnos_list' %}" class="dash-quick-item"><i class="fas fa-calendar-day"></i> Calendario de Turnos</a>
+  {% endif %}
+</div>
+{% endblock %}

@@ -3,20 +3,62 @@ from django.contrib.auth.models import User
 from .models import SancionEmpleado, Empleado, Role, RestriccionEmpleado, Jornada, Sala
 
 class SancionEmpleadoForm(forms.ModelForm):
+    DURACION_CHOICES = [
+        ('15', '15 días'), ('30', '30 días'), ('45', '45 días'),
+        ('60', '60 días'), ('90', '90 días'), ('otro', 'Otro (personalizado)'),
+    ]
     fecha_inicio = forms.DateField(
+        label='Fecha de inicio',
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
     )
-    fecha_fin = forms.DateField(
-        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-        required=False
+    duracion = forms.ChoiceField(
+        label='Duración de la sanción', choices=DURACION_CHOICES,
+        widget=forms.Select(attrs={'class': 'form-control'})
+    )
+    dias_personalizado = forms.IntegerField(
+        label='Días (personalizado)', required=False, min_value=1,
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'Ej: 20'})
     )
 
     class Meta:
         model = SancionEmpleado
-        fields = ['explorador', 'supervisor', 'fecha_inicio', 'fecha_fin', 'motivo']
+        fields = ['explorador', 'supervisor', 'fecha_inicio', 'motivo']
+
+    def clean(self):
+        from datetime import timedelta
+        cleaned = super().clean()
+        fi = cleaned.get('fecha_inicio')
+        dur = cleaned.get('duracion')
+        dias = None
+        if dur == 'otro':
+            dias = cleaned.get('dias_personalizado')
+            if not dias or dias <= 0:
+                self.add_error('dias_personalizado', 'Indica cuántos días dura la sanción.')
+        elif dur:
+            dias = int(dur)
+        if fi and dias:
+            # Inclusivo: 15 días desde el 1 → termina el 15
+            cleaned['_fecha_fin'] = fi + timedelta(days=dias - 1)
+        return cleaned
+
+    def save(self, commit=True):
+        instancia = super().save(commit=False)
+        instancia.fecha_fin = self.cleaned_data.get('_fecha_fin')
+        if commit:
+            instancia.save()
+        return instancia
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Al editar, precargar la duración a partir del rango existente
+        inst = kwargs.get('instance') or getattr(self, 'instance', None)
+        if inst and inst.pk and inst.fecha_inicio and inst.fecha_fin:
+            dias = (inst.fecha_fin - inst.fecha_inicio).days + 1
+            if str(dias) in dict(self.DURACION_CHOICES):
+                self.fields['duracion'].initial = str(dias)
+            else:
+                self.fields['duracion'].initial = 'otro'
+                self.fields['dias_personalizado'].initial = dias
         # Filtrar solo empleados con rol de supervisor
         supervisor_role = Role.objects.filter(nombre__icontains='supervisor').first()
         if supervisor_role is not None:
@@ -36,12 +78,21 @@ class SancionEmpleadoForm(forms.ModelForm):
 
 class RestriccionEmpleadoForm(forms.ModelForm):
     fecha_inicio = forms.DateField(
+        label='Fecha de inicio',
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'})
     )
     fecha_fin = forms.DateField(
+        label='Fecha de fin',
         widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
-        required=False
+        required=True
     )
+
+    def clean(self):
+        cleaned = super().clean()
+        fi, ff = cleaned.get('fecha_inicio'), cleaned.get('fecha_fin')
+        if fi and ff and ff < fi:
+            self.add_error('fecha_fin', 'La fecha de fin debe ser igual o posterior a la de inicio.')
+        return cleaned
 
     class Meta:
         model = RestriccionEmpleado

@@ -1,136 +1,108 @@
 {% extends 'base.html' %}
-{% load widget_tweaks %}
+{% load static %}
 
-{% block title %}Nueva Sanción{% endblock %}
+{% block title %}Nueva sanción{% endblock %}
 
 {% block extra_css %}
-<style>
-    .form-card {border-radius:0.75rem;box-shadow:0 4px 20px rgba(0,0,0,.08);}
-    .form-header {background:linear-gradient(135deg,#dc3545 0%,#c82333 100%);color:#fff;border-radius:0.75rem 0.75rem 0 0;padding:1.5rem;}
-    .form-body {padding:2rem;}
-    .form-group label {font-weight:600;color:#495057;margin-bottom:0.5rem;}
-    .form-control:focus {border-color:#dc3545;box-shadow:0 0 0 0.2rem rgba(220,53,69,.25);}
-    .btn-danger {background:linear-gradient(135deg,#dc3545 0%,#c82333 100%);border:none;transition:all 0.3s ease;}
-    .btn-danger:hover {transform:translateY(-2px);box-shadow:0 8px 20px rgba(220,53,69,.3);}
-</style>
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4 mb-5">
-    <div class="row justify-content-center">
-        <div class="col-12 col-lg-10 col-xl-8">
-            <div class="card form-card border-0">
-                <div class="form-header">
-                    <div class="d-flex align-items-center">
-                        <div class="icon-circle bg-white text-danger d-flex align-items-center justify-content-center mr-3" style="width:48px;height:48px;border-radius:50%;">
-                            <i class="fas fa-gavel"></i>
-                        </div>
-                        <div>
-                            <h4 class="mb-0">Nueva Sanción</h4>
-                            <small class="opacity-75">Registra una nueva sanción para un explorador</small>
-                        </div>
-                    </div>
-                </div>
-                <div class="form-body">
-                    <form method="post" novalidate>
-                        {% csrf_token %}
-                        
-                        {% if form.non_field_errors %}
-                            <div class="alert alert-danger" role="alert">
-                                {% for error in form.non_field_errors %}
-                                    <i class="fas fa-exclamation-circle mr-2"></i>{{ error }}
-                                {% endfor %}
-                            </div>
-                        {% endif %}
-                        
-                        <div class="row">
-                            <div class="col-md-6 mb-4">
-                                <label for="{{ form.explorador.id_for_label }}">
-                                    <i class="fas fa-user text-danger mr-2"></i>Explorador <span class="text-danger">*</span>
-                                </label>
-                                {{ form.explorador|add_class:'form-control' }}
-                                {% if form.explorador.errors %}
-                                    <div class="text-danger small mt-1">
-                                        {% for error in form.explorador.errors %}
-                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                            
-                            <div class="col-md-6 mb-4">
-                                <label for="{{ form.supervisor.id_for_label }}">
-                                    <i class="fas fa-user-tie text-danger mr-2"></i>Supervisor <span class="text-danger">*</span>
-                                </label>
-                                {{ form.supervisor|add_class:'form-control' }}
-                                {% if form.supervisor.errors %}
-                                    <div class="text-danger small mt-1">
-                                        {% for error in form.supervisor.errors %}
-                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                        
-                        <div class="row">
-                            <div class="col-md-6 mb-4">
-                                <label for="{{ form.fecha_inicio.id_for_label }}">
-                                    <i class="fas fa-calendar-alt text-danger mr-2"></i>Fecha Inicio <span class="text-danger">*</span>
-                                </label>
-                                {{ form.fecha_inicio|add_class:'form-control' }}
-                                {% if form.fecha_inicio.errors %}
-                                    <div class="text-danger small mt-1">
-                                        {% for error in form.fecha_inicio.errors %}
-                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                            
-                            <div class="col-md-6 mb-4">
-                                <label for="{{ form.fecha_fin.id_for_label }}">
-                                    <i class="fas fa-calendar-check text-danger mr-2"></i>Fecha Fin
-                                </label>
-                                {{ form.fecha_fin|add_class:'form-control' }}
-                                <small class="form-text text-muted">Opcional. Deja vacío si la sanción no tiene fecha de finalización.</small>
-                                {% if form.fecha_fin.errors %}
-                                    <div class="text-danger small mt-1">
-                                        {% for error in form.fecha_fin.errors %}
-                                            <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
-                                        {% endfor %}
-                                    </div>
-                                {% endif %}
-                            </div>
-                        </div>
-                        
-                        <div class="mb-4">
-                            <label for="{{ form.motivo.id_for_label }}">
-                                <i class="fas fa-align-left text-danger mr-2"></i>Motivo <span class="text-danger">*</span>
-                            </label>
-                            {{ form.motivo|add_class:'form-control'|attr:'rows:4' }}
-                            <small class="form-text text-muted">Describe el motivo de la sanción de manera clara y detallada.</small>
-                            {% if form.motivo.errors %}
-                                <div class="text-danger small mt-1">
-                                    {% for error in form.motivo.errors %}
-                                        <i class="fas fa-exclamation-circle mr-1"></i>{{ error }}
-                                    {% endfor %}
-                                </div>
-                            {% endif %}
-                        </div>
-                        
-                        <div class="d-flex justify-content-between align-items-center pt-3 border-top">
-                            <a href="{% url 'sanciones_list' %}" class="btn btn-outline-secondary">
-                                <i class="fas fa-arrow-left mr-2"></i>Cancelar
-                            </a>
-                            <button type="submit" class="btn btn-danger px-4">
-                                <i class="fas fa-save mr-2"></i>Guardar Sanción
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content" style="max-width:720px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-gavel"></i> Registrar Sanción</h1>
+      <p class="pg-subtitle">Elige la fecha de inicio y la duración; la fecha de fin se calcula automáticamente</p>
     </div>
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#1f2937,#4b5563);">
+        <h3><i class="fas fa-clipboard-list"></i> Datos de la sanción</h3>
+      </div>
+      <div class="pg-card-body">
+        <form method="post" class="pg-form" novalidate>
+          {% csrf_token %}
+          {% if form.non_field_errors %}<div class="alert alert-danger">{% for e in form.non_field_errors %}<div>{{ e }}</div>{% endfor %}</div>{% endif %}
+
+          <div class="form-group">
+            <label for="{{ form.explorador.id_for_label }}"><i class="fas fa-user mr-1"></i> Explorador</label>
+            {{ form.explorador }}
+            {% for e in form.explorador.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.supervisor.id_for_label }}"><i class="fas fa-user-shield mr-1"></i> Supervisor que sanciona</label>
+            {{ form.supervisor }}
+            {% for e in form.supervisor.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="row">
+            <div class="form-group col-md-4">
+              <label for="{{ form.fecha_inicio.id_for_label }}"><i class="far fa-calendar-plus mr-1"></i> Fecha de inicio</label>
+              {{ form.fecha_inicio }}
+              {% for e in form.fecha_inicio.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="form-group col-md-4">
+              <label for="{{ form.duracion.id_for_label }}"><i class="fas fa-hourglass-half mr-1"></i> Duración</label>
+              {{ form.duracion }}
+              {% for e in form.duracion.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+            </div>
+            <div class="form-group col-md-4" id="grupo-dias-custom" style="display:none;">
+              <label for="{{ form.dias_personalizado.id_for_label }}"><i class="fas fa-calendar-day mr-1"></i> Días</label>
+              {{ form.dias_personalizado }}
+              {% for e in form.dias_personalizado.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+            </div>
+          </div>
+
+          <div id="preview-fin" class="alert" style="display:none; background:#eef2ff; border:none; color:#3730a3; border-radius:10px;">
+            <i class="fas fa-calendar-check mr-1"></i> La sanción terminaría el <strong id="preview-fecha"></strong>.
+          </div>
+
+          <div class="form-group">
+            <label for="{{ form.motivo.id_for_label }}"><i class="fas fa-comment mr-1"></i> Motivo</label>
+            {{ form.motivo }}
+            {% for e in form.motivo.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+          </div>
+
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="pg-btn pg-btn-danger"><i class="fas fa-save"></i> Registrar sanción</button>
+            <a href="{% url 'sanciones_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+    const inicio = document.getElementById('{{ form.fecha_inicio.id_for_label }}');
+    const dur = document.getElementById('{{ form.duracion.id_for_label }}');
+    const custom = document.getElementById('{{ form.dias_personalizado.id_for_label }}');
+    const grupoCustom = document.getElementById('grupo-dias-custom');
+    const preview = document.getElementById('preview-fin');
+    const previewFecha = document.getElementById('preview-fecha');
+    const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+    function dias() {
+        if (dur.value === 'otro') return parseInt(custom.value) || 0;
+        return parseInt(dur.value) || 0;
+    }
+    function actualizar() {
+        grupoCustom.style.display = (dur.value === 'otro') ? '' : 'none';
+        const d = dias();
+        if (inicio.value && d > 0) {
+            const f = new Date(inicio.value + 'T00:00:00');
+            f.setDate(f.getDate() + d - 1);  // inclusivo
+            previewFecha.textContent = `${f.getDate()} de ${meses[f.getMonth()]} de ${f.getFullYear()}`;
+            preview.style.display = '';
+        } else {
+            preview.style.display = 'none';
+        }
+    }
+    [inicio, dur, custom].forEach(el => { if (el) { el.addEventListener('change', actualizar); el.addEventListener('input', actualizar); } });
+    actualizar();
+})();
+</script>
 {% endblock %}

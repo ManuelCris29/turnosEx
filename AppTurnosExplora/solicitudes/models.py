@@ -331,6 +331,67 @@ class DobladaDetalle(models.Model):
         return f"solicitud: {self.solicitud.id} - fecha: {self.solicitud.fecha_solicitud}" #type:ignore
 
 
+class DobladaPermanenteDetalle(models.Model):
+    """
+    Detalle de una Doblada Permanente: doblada recurrente en días fijos de la
+    semana dentro de un rango (mutuo acuerdo entre dos exploradores).
+
+    - dias_cesion: días de la semana en que el SOLICITANTE no asiste y el RECEPTOR
+      cubre (el receptor se dobla AM+PM esos días; el solicitante descansa).
+    - dias_devolucion: días de la semana en que el SOLICITANTE devuelve el favor
+      doblándose (el solicitante se dobla AM+PM; el receptor descansa).
+
+    Días: 0=lunes .. 6=domingo, separados por coma. No se permiten domingos.
+    Cada doblada efectiva acumula 30 min de deuda corporativa para quien se dobla.
+    """
+    solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='doblada_permanente')
+    fecha_inicio = models.DateField(help_text='Inicio del rango de vigencia.')
+    fecha_fin = models.DateField(help_text='Fin del rango de vigencia.')
+    dias_cesion = models.CharField(
+        max_length=20, default='',
+        help_text='Días de la semana que cede el solicitante (los cubre el receptor). 0=lun..6=dom, coma.'
+    )
+    dias_devolucion = models.CharField(
+        max_length=20, default='',
+        help_text='Días de la semana en que el solicitante devuelve (se dobla). 0=lun..6=dom, coma.'
+    )
+    minutos_deuda = models.IntegerField(default=30)
+    empleado_receptor = models.ForeignKey(
+        Empleado, on_delete=models.CASCADE, null=True, blank=True,
+        related_name='dobladas_permanentes_recibidas',
+    )
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Detalle de Doblada Permanente'
+        verbose_name_plural = 'Detalles de Doblada Permanente'
+        ordering = ['-fecha_inicio', 'solicitud']
+        indexes = [
+            models.Index(fields=['solicitud'], name='dob_perm_solicitud_idx'),
+            models.Index(fields=['fecha_inicio'], name='dob_perm_fecha_idx'),
+        ]
+
+    @staticmethod
+    def _dias_legibles(dias_str):
+        nombres = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+        dias = [int(d) for d in dias_str.split(',') if d.strip().isdigit()]
+        return ', '.join(nombres[d] for d in sorted(dias) if 0 <= d <= 6)
+
+    def dias_cesion_legible(self):
+        return DobladaPermanenteDetalle._dias_legibles(self.dias_cesion)
+
+    def dias_devolucion_legible(self):
+        return DobladaPermanenteDetalle._dias_legibles(self.dias_devolucion)
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
+            raise ValidationError('La fecha de fin debe ser posterior a la fecha de inicio.')
+
+    def __str__(self):
+        return f"Doblada permanente sol {self.solicitud_id} ({self.fecha_inicio} a {self.fecha_fin})"
+
+
 class DeudaExplorador(models.Model):
     """
     Modelo para registrar deudas entre exploradores.

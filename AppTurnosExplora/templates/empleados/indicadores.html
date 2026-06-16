@@ -1,0 +1,206 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Indicadores{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<style>
+    .kpi-row { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
+    .kpi { flex:1; min-width:170px; background:#fff; border-radius:14px; box-shadow:0 6px 18px rgba(15,23,42,.07); padding:16px 18px; }
+    .kpi .num { font-size:1.9rem; font-weight:800; line-height:1; }
+    .kpi .lbl { font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; color:#6b7280; margin-bottom:6px; }
+    .kpi.azul .num{color:#2563eb;} .kpi.verde .num{color:#16a34a;} .kpi.ambar .num{color:#d97706;}
+    .kpi.morado .num{color:#7c3aed;} .kpi.cian .num{color:#0891b2;}
+    .pct-row { display:flex; flex-wrap:wrap; gap:10px; }
+    .pct-chip { display:flex; align-items:center; gap:8px; background:#f8fafc; border-radius:999px; padding:6px 14px; font-weight:600; font-size:.9rem; }
+    .pct-dot { width:12px; height:12px; border-radius:50%; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-chart-bar"></i> Indicadores</h1>
+      <p class="pg-subtitle">Estadísticas de cambios y permisos — año {{ anio }}</p>
+    </div>
+
+    <!-- Filtros -->
+    <div class="pg-card" style="margin-bottom:18px;">
+      <div class="pg-card-body">
+        <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem;">
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Explorador</label>
+            <select name="explorador" class="form-control" style="min-width:230px;">
+              <option value="">Todos</option>
+              {% for e in exploradores %}<option value="{{ e.id }}" {% if filtro_explorador == e.id|stringformat:'s' %}selected{% endif %}>{{ e.nombre }} {{ e.apellido }}</option>{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Jornada</label>
+            <select name="jornada" class="form-control">
+              <option value="">Todas</option>
+              <option value="AM" {% if filtro_jornada == 'AM' %}selected{% endif %}>AM</option>
+              <option value="PM" {% if filtro_jornada == 'PM' %}selected{% endif %}>PM</option>
+            </select>
+          </div>
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Año</label>
+            <select name="anio" class="form-control">
+              {% for y in anios %}<option value="{{ y }}" {% if y == anio %}selected{% endif %}>{{ y }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Aplicar</button>
+          {% if filtro_explorador or filtro_jornada %}<a href="{% url 'indicadores' %}?anio={{ anio }}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}
+        </form>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="kpi-row">
+      <div class="kpi azul"><div class="lbl">Cambios realizados</div><div class="num">{{ kpis.total_aprobados }}</div></div>
+      <div class="kpi cian"><div class="lbl">Solicitudes totales</div><div class="num">{{ kpis.total_solicitudes }}</div></div>
+      <div class="kpi verde"><div class="lbl">% aprobación</div><div class="num">{{ kpis.pct_aprobacion }}%</div></div>
+      <div class="kpi ambar"><div class="lbl">Cambios por día</div><div class="num">{{ kpis.cambios_por_dia }}</div></div>
+      <div class="kpi morado"><div class="lbl">Solicitudes por día</div><div class="num">{{ kpis.solicitudes_por_dia }}</div></div>
+    </div>
+
+    <!-- Gráfica -->
+    <div class="pg-card" style="margin-bottom:18px;">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);">
+        <h3><i class="fas fa-chart-column"></i> Cambios y permisos por mes</h3>
+      </div>
+      <div class="pg-card-body">
+        {% if total_general %}
+        <canvas id="chartIndicadores" height="110"></canvas>
+        <div class="pct-row mt-3">
+          {% for c in categorias_resumen %}
+          <span class="pct-chip">
+            <span class="pct-dot" style="background:{{ c.color }};"></span>
+            {{ c.label }}: <strong>{{ c.total }}</strong> ({{ c.pct }}%)
+          </span>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="pg-empty"><i class="fas fa-chart-bar fa-2x mb-2 d-block"></i>No hay datos para los filtros seleccionados.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Tabla mensual -->
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#1f2937,#4b5563);">
+        <h3><i class="fas fa-table"></i> Detalle mensual</h3>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th>Mes</th>
+                {% for c in categorias_resumen %}<th>{{ c.label }}</th>{% endfor %}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for fila in filas_mes %}
+              <tr>
+                <td><strong>{{ fila.mes }}</strong></td>
+                <td>{{ fila.cambios_turno }}</td>
+                <td>{{ fila.dobladas }}</td>
+                <td>{{ fila.cambio_descanso }}</td>
+                <td>{{ fila.doblada_finde }}</td>
+                <td>{{ fila.permisos }}</td>
+                <td><strong>{{ fila.total }}</strong></td>
+              </tr>
+              {% endfor %}
+              <tr style="background:#f8fafc; font-weight:700;">
+                <td>TOTAL</td>
+                <td>{{ totales_categoria.cambios_turno }}</td>
+                <td>{{ totales_categoria.dobladas }}</td>
+                <td>{{ totales_categoria.cambio_descanso }}</td>
+                <td>{{ totales_categoria.doblada_finde }}</td>
+                <td>{{ totales_categoria.permisos }}</td>
+                <td>{{ total_general }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-muted small mt-2"><i class="fas fa-info-circle mr-1"></i> «Cambio descanso» aún no se implementa como solicitud; queda en 0 hasta que se habilite.</p>
+      </div>
+    </div>
+
+    <!-- Por explorador: Solicita vs Reemplaza -->
+    <div class="pg-card" style="margin-top:18px;">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#0891b2,#06b6d4);">
+        <h3><i class="fas fa-users"></i> Por explorador — Solicita vs Reemplaza</h3>
+      </div>
+      <div class="pg-card-body">
+        {% if por_explorador %}
+        <div class="pg-table-wrap">
+          <table class="pg-table" style="font-size:.85rem;">
+            <thead>
+              <tr>
+                <th rowspan="2">Explorador</th>
+                <th rowspan="2">Jorn.</th>
+                {% for c in categorias_resumen %}<th colspan="2" style="text-align:center; border-left:1px solid #e2e8f0;">{{ c.label }}</th>{% endfor %}
+                <th rowspan="2">Total</th>
+              </tr>
+              <tr>
+                {% for c in categorias_resumen %}
+                <th style="border-left:1px solid #e2e8f0;" title="Solicitó">Sol</th>
+                <th title="Reemplazó (cubrió)">Reemp</th>
+                {% endfor %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in por_explorador %}
+              <tr>
+                <td>{{ r.nombre }}</td>
+                <td><span class="pg-chip {% if r.jornada == 'AM' %}pg-chip-info{% else %}pg-chip-gray{% endif %}">{{ r.jornada|default:'—' }}</span></td>
+                {% for cel in r.celdas %}
+                <td style="border-left:1px solid #eef2f7;">{{ cel.sol }}</td>
+                <td>{{ cel.reemp }}</td>
+                {% endfor %}
+                <td><strong>{{ r.total }}</strong></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <p class="text-muted small mt-2"><i class="fas fa-info-circle mr-1"></i> <strong>Sol</strong> = veces que el explorador hizo la solicitud · <strong>Reemp</strong> = veces que cubrió a un compañero.</p>
+        {% else %}
+        <div class="pg-empty"><i class="fas fa-users fa-2x mb-2 d-block"></i>No hay actividad por explorador para los filtros seleccionados.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script>
+(function () {
+    var el = document.getElementById('chartIndicadores');
+    if (!el || !window.Chart) return;
+    var meses = {{ meses_json|safe }};
+    var series = {{ chart_series_json|safe }};
+    new Chart(el, {
+        type: 'bar',
+        data: {
+            labels: meses,
+            datasets: series.map(function (s) {
+                return { label: s.label, data: s.data, backgroundColor: s.color, borderWidth: 0, borderRadius: 4 };
+            })
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { position: 'top' } },
+            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
+        }
+    });
+})();
+</script>
+{% endblock %}

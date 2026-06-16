@@ -14,6 +14,25 @@
     padding: 2.2rem 1rem 3rem;
 }
 
+/*
+ * Evita la franja blanca bajo la tarjeta: cuando la página usa el diseño
+ * de gestión, el degradado llena TODO el content-wrapper (no solo el alto
+ * del contenido), de modo que el espacio sobrante hasta el footer también
+ * queda pintado en lugar de mostrar el fondo gris/blanco de AdminLTE.
+ */
+.content-wrapper:has(.pg-container) {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+.content-wrapper:has(.pg-container) > .content-header {
+    display: none;   /* cabecera vacía de AdminLTE; el título ya está en .pg-header */
+}
+.content-wrapper:has(.pg-container) > .content {
+    padding-bottom: 0;
+}
+.content-wrapper:has(.pg-container) .pg-container {
+    margin-top: 0;   /* la cabecera vacía ya no existe, no hace falta tirar hacia arriba */
+}
+
 .pg-content {
     max-width: 1180px;
     margin: 0 auto;

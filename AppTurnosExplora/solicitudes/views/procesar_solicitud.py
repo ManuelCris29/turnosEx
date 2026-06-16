@@ -138,6 +138,16 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     return json_error('Debe seleccionar el compañero que se doblará el fin de semana', status=400, code='missing_fields')
                 if not request.POST.get('fecha_pago'):
                     return json_error('La fecha de pago es obligatoria (otro fin de semana del mismo mes).', status=400, code='missing_fields')
+            elif tipo_nombre == "DOBLADA PERMANENTE":
+                # Doblada permanente: receptor + rango + días de cesión y devolución
+                if not empleado_receptor_id:
+                    return json_error('Debe seleccionar el compañero que cubrirá la doblada', status=400, code='missing_fields')
+                if not request.POST.get('fecha_inicio') or not request.POST.get('fecha_fin'):
+                    return json_error('El rango de fechas (inicio y fin) es obligatorio', status=400, code='missing_fields')
+                if not request.POST.get('dias_cesion'):
+                    return json_error('Selecciona los días de la semana que cedes', status=400, code='missing_fields')
+                if not request.POST.get('dias_devolucion'):
+                    return json_error('Selecciona los días de la semana en que devolverás la doblada', status=400, code='missing_fields')
             else:
                 # CT y otros tipos requieren: empleado_receptor, fecha_solicitud
                 if not empleado_receptor_id:
@@ -148,7 +158,13 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             # Obtener objetos
             tipo_solicitud = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)  # type: ignore
             empleado_solicitante = request.user.empleado
-            
+
+            # BLOQUEO POR SANCIÓN: un explorador sancionado no puede solicitar cambios de turno
+            from empleados.sancion_utils import sancion_activa, mensaje_sancion
+            _sancion = sancion_activa(empleado_solicitante)
+            if _sancion:
+                return json_error(mensaje_sancion(_sancion), status=403, code='sancionado')
+
             # Para D FDS, el receptor es el compañero seleccionado (no auto-solicitud)
             if tipo_nombre == "D FDS":
                 empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)  # type: ignore
@@ -416,6 +432,19 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     'explorador_receptor': empleado_receptor,
                     'fecha_cambio_turno': fecha_solicitud,
                     'fecha_pago': request.POST.get('fecha_pago'),
+                    'fecha_creacion_solicitud': timezone.now().date(),
+                })
+            elif tipo_solicitud.nombre == "DOBLADA PERMANENTE":
+                # Doblada permanente: rango + días de cesión y devolución (CSV de 0..6)
+                dias_cesion = request.POST.getlist('dias_cesion') or request.POST.get('dias_cesion', '').split(',')
+                dias_devolucion = request.POST.getlist('dias_devolucion') or request.POST.get('dias_devolucion', '').split(',')
+                datos_solicitud = datos_solicitud_base.copy()
+                datos_solicitud.update({
+                    'explorador_receptor': empleado_receptor,
+                    'fecha_inicio': request.POST.get('fecha_inicio'),
+                    'fecha_fin': request.POST.get('fecha_fin'),
+                    'dias_cesion': [d for d in dias_cesion if str(d).strip() != ''],
+                    'dias_devolucion': [d for d in dias_devolucion if str(d).strip() != ''],
                     'fecha_creacion_solicitud': timezone.now().date(),
                 })
             else:

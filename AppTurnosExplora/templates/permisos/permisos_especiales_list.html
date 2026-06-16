@@ -25,11 +25,36 @@
       <div class="pg-card-head indigo">
         <h3><i class="fas fa-list-ul"></i> {% if es_supervisor %}Todos los permisos{% else %}Mis permisos{% endif %}</h3>
         <div class="pg-actions">
-          <a href="{% url 'permisos_especiales_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Solicitar permiso</a>
-          <a href="{% url 'permisos_especiales_permanente_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-calendar-week"></i> Permiso permanente</a>
+          <a href="{% url 'permisos_especiales_create' %}" class="pg-btn pg-btn-light js-permiso-btn" {% if sancion_msg %}data-sancion="1"{% endif %}><i class="fas fa-plus"></i> Solicitar permiso</a>
+          <a href="{% url 'permisos_especiales_permanente_create' %}" class="pg-btn pg-btn-light js-permiso-btn" {% if sancion_msg %}data-sancion="1"{% endif %}><i class="fas fa-calendar-week"></i> Permiso permanente</a>
         </div>
       </div>
       <div class="pg-card-body">
+        <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem; margin-bottom:1rem;">
+          {% if es_supervisor %}
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Explorador</label>
+            <select name="explorador" class="form-control" style="min-width:240px;">
+              <option value="">Todos</option>
+              {% for e in exploradores %}
+                <option value="{{ e.id }}" {% if filtro_explorador == e.id|stringformat:'s' %}selected{% endif %}>{{ e.nombre }} {{ e.apellido }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Día</label>
+            <input type="date" name="fecha" value="{{ filtro_fecha }}" class="form-control">
+          </div>
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Mes</label>
+            <input type="month" name="mes" value="{{ filtro_mes }}" class="form-control">
+          </div>
+          <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
+          {% if filtro_explorador or filtro_fecha or filtro_mes %}
+            <a href="{% url 'permisos_especiales_list' %}" class="pg-btn pg-btn-secondary">Limpiar</a>
+          {% endif %}
+        </form>
         <div class="pg-table-wrap">
           <table class="pg-table">
             <thead>
@@ -98,4 +123,26 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block extra_js %}
+{% if sancion_msg %}
+<script>
+(function () {
+    var MSG = "{{ sancion_msg|escapejs }}";
+    document.querySelectorAll('.js-permiso-btn[data-sancion]').forEach(function (b) {
+        b.classList.add('disabled');
+        b.style.opacity = '0.65';
+        b.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            if (window.Swal) {
+                Swal.fire({ icon: 'warning', title: 'Estás sancionado', text: MSG, confirmButtonText: 'Entendido' });
+            } else {
+                alert(MSG);
+            }
+        });
+    });
+})();
+</script>
+{% endif %}
 {% endblock %}

@@ -135,7 +135,25 @@ function aplicarEstilosCambios() {
         const icon = el.querySelector('.descanso-icon');
         if (icon) icon.remove();
     });
-    
+
+    document.querySelectorAll('.dia-con-permiso').forEach(el => {
+        el.classList.remove('dia-con-permiso');
+        const icon = el.querySelector('.permiso-icon');
+        if (icon) icon.remove();
+    });
+
+    document.querySelectorAll('.dia-con-restriccion').forEach(el => {
+        el.classList.remove('dia-con-restriccion');
+        const icon = el.querySelector('.restriccion-icon');
+        if (icon) icon.remove();
+    });
+
+    document.querySelectorAll('.dia-con-sancion').forEach(el => {
+        el.classList.remove('dia-con-sancion');
+        const icon = el.querySelector('.sancion-icon');
+        if (icon) icon.remove();
+    });
+
     // Esperar a que FullCalendar haya renderizado las celdas
     // Intentar múltiples veces si los elementos no están disponibles
     let intentos = 0;
@@ -220,8 +238,11 @@ function aplicarEstilosCambios() {
         let totalFechasConCambios = 0;
         let fechasFiltradas = 0;
         
-        // Primero, contar todas las fechas con cambios y descansos para debug
+        // Primero, contar todas las fechas con cambios, descansos y permisos
         let totalFechasConDescanso = 0;
+        let totalFechasConPermiso = 0;
+        let totalFechasConRestriccion = 0;
+        let totalFechasConSancion = 0;
         for (const [fechaStr, turnoInfo] of Object.entries(turnosMes)) {
             if (turnoInfo && turnoInfo.es_cambio) {
                 totalFechasConCambios++;
@@ -229,13 +250,21 @@ function aplicarEstilosCambios() {
             if (turnoInfo && (turnoInfo.es_descanso || turnoInfo.tipo === 'descanso')) {
                 totalFechasConDescanso++;
             }
+            if (turnoInfo && turnoInfo.permiso) {
+                totalFechasConPermiso++;
+            }
+            if (turnoInfo && turnoInfo.restriccion) {
+                totalFechasConRestriccion++;
+            }
+            if (turnoInfo && turnoInfo.sancion) {
+                totalFechasConSancion++;
+            }
         }
-        console.log(`[DEBUG aplicarEstilosCambios] Total fechas con cambios en turnosMes: ${totalFechasConCambios}`);
-        console.log(`[DEBUG aplicarEstilosCambios] Total fechas con descanso en turnosMes: ${totalFechasConDescanso}`);
-        
-        // Si no hay fechas con cambios ni descansos, no hay nada que hacer
-        if (totalFechasConCambios === 0 && totalFechasConDescanso === 0) {
-            console.log('[DEBUG aplicarEstilosCambios] No hay fechas con cambios ni descansos en los datos cargados');
+
+        // Si no hay nada que marcar, salir
+        if (totalFechasConCambios === 0 && totalFechasConDescanso === 0
+            && totalFechasConPermiso === 0 && totalFechasConRestriccion === 0
+            && totalFechasConSancion === 0) {
             aplicandoEstilos = false;
             return;
         }
@@ -397,8 +426,94 @@ function aplicarEstilosCambios() {
                     });
                 }
             }
+
+            // Procesar días con PERMISO especial (marcador en la esquina)
+            if (turnoInfo && turnoInfo.permiso) {
+                const fechaObj = new Date(fechaStr + 'T00:00:00');
+                const mesFecha = fechaObj.getMonth() + 1;
+                const anioFecha = fechaObj.getFullYear();
+                if (!(mesVisible && anioVisible && (mesFecha !== mesVisible || anioFecha !== anioVisible))) {
+                    let cellPermiso = document.querySelector(`.fc-daygrid-day[data-date="${fechaStr}"]`);
+                    if (!cellPermiso) {
+                        celdasExistentes.forEach(celda => {
+                            if (celda.getAttribute('data-date') === fechaStr) cellPermiso = celda;
+                        });
+                    }
+                    if (cellPermiso) {
+                        const aprobado = turnoInfo.permiso.estado === 'APROBADO';
+                        requestAnimationFrame(function () {
+                            if (cellPermiso && cellPermiso.parentNode && !cellPermiso.querySelector('.permiso-icon')) {
+                                cellPermiso.classList.add('dia-con-permiso');
+                                const ic = document.createElement('span');
+                                ic.className = 'permiso-icon';
+                                ic.title = aprobado ? 'Permiso aprobado' : 'Permiso pendiente';
+                                ic.innerHTML = aprobado ? '📋' : '⏳';
+                                ic.style.cssText = 'position: absolute; top: 2px; left: 2px; font-size: 10px; z-index: 10;';
+                                cellPermiso.appendChild(ic);
+                            }
+                        });
+                    }
+                }
+            }
+
+            // Procesar días con RESTRICCIÓN (marcador en la esquina inferior izquierda)
+            if (turnoInfo && turnoInfo.restriccion) {
+                const fechaObj = new Date(fechaStr + 'T00:00:00');
+                const mesFecha = fechaObj.getMonth() + 1;
+                const anioFecha = fechaObj.getFullYear();
+                if (!(mesVisible && anioVisible && (mesFecha !== mesVisible || anioFecha !== anioVisible))) {
+                    let cellRest = document.querySelector(`.fc-daygrid-day[data-date="${fechaStr}"]`);
+                    if (!cellRest) {
+                        celdasExistentes.forEach(celda => {
+                            if (celda.getAttribute('data-date') === fechaStr) cellRest = celda;
+                        });
+                    }
+                    if (cellRest) {
+                        const tituloRest = 'Restricción: ' + (turnoInfo.restriccion.tipo || '');
+                        requestAnimationFrame(function () {
+                            if (cellRest && cellRest.parentNode && !cellRest.querySelector('.restriccion-icon')) {
+                                cellRest.classList.add('dia-con-restriccion');
+                                const ic = document.createElement('span');
+                                ic.className = 'restriccion-icon';
+                                ic.title = tituloRest;
+                                ic.innerHTML = '🚫';
+                                ic.style.cssText = 'position: absolute; bottom: 2px; left: 2px; font-size: 10px; z-index: 10;';
+                                cellRest.appendChild(ic);
+                            }
+                        });
+                    }
+                }
+            }
+
+            // Procesar días con SANCIÓN (marcador en la esquina inferior derecha)
+            if (turnoInfo && turnoInfo.sancion) {
+                const fechaObj = new Date(fechaStr + 'T00:00:00');
+                const mesFecha = fechaObj.getMonth() + 1;
+                const anioFecha = fechaObj.getFullYear();
+                if (!(mesVisible && anioVisible && (mesFecha !== mesVisible || anioFecha !== anioVisible))) {
+                    let cellSanc = document.querySelector(`.fc-daygrid-day[data-date="${fechaStr}"]`);
+                    if (!cellSanc) {
+                        celdasExistentes.forEach(celda => {
+                            if (celda.getAttribute('data-date') === fechaStr) cellSanc = celda;
+                        });
+                    }
+                    if (cellSanc) {
+                        requestAnimationFrame(function () {
+                            if (cellSanc && cellSanc.parentNode && !cellSanc.querySelector('.sancion-icon')) {
+                                cellSanc.classList.add('dia-con-sancion');
+                                const ic = document.createElement('span');
+                                ic.className = 'sancion-icon';
+                                ic.title = 'Sancionado: sin solicitudes';
+                                ic.innerHTML = '⚖️';
+                                ic.style.cssText = 'position: absolute; bottom: 2px; right: 2px; font-size: 10px; z-index: 10;';
+                                cellSanc.appendChild(ic);
+                            }
+                        });
+                    }
+                }
+            }
         }
-        
+
         console.log(`[DEBUG aplicarEstilosCambios] Intento ${intentos}/${maxIntentos}: ${totalFechasConCambios} fechas con cambios, ${totalFechasConDescanso} fechas con descanso, ${fechasFiltradas} filtradas, ${elementosEncontrados} encontrados, ${elementosNoEncontrados.length} no encontrados`);
         
         // Si hay elementos no encontrados y aún tenemos intentos, reintentar
@@ -440,6 +555,45 @@ function mostrarDetallesDia(fechaStr) {
     if (jornadaDiv) {
         // Verificar si hay información disponible (incluyendo descanso)
         if (info && (info.jornada || info.es_descanso || info.tipo === 'descanso')) {
+            // Indicador de Permiso Especial (no cambia la jornada; se muestra encima)
+            let permisoHTML = '';
+            if (info.permiso) {
+                const pp = info.permiso;
+                const aprobado = pp.estado === 'APROBADO';
+                const estadoBadge = aprobado
+                    ? '<span style="background:#dcfce7;color:#166534;border-radius:999px;padding:1px 8px;font-size:.72rem;font-weight:600;">Aprobado</span>'
+                    : '<span style="background:#fde68a;color:#854d0e;border-radius:999px;padding:1px 8px;font-size:.72rem;font-weight:600;">Pendiente</span>';
+                const detallePermiso = pp.especificacion || pp.tipo || 'Permiso';
+                permisoHTML = `<div class="info-permiso" style="margin-top: 8px; padding: 10px; background-color: #fef9c3; border-left: 3px solid #f59e0b; border-radius: 4px; font-size: 0.9rem; color: #854d0e; line-height: 1.5;">
+                        <i class="fas fa-calendar-check" style="margin-right: 6px;"></i>
+                        <strong>Permiso${pp.es_permanente ? ' permanente' : ''}:</strong> ${detallePermiso} · ${pp.horas} h ${estadoBadge}
+                        ${pp.cubre ? `<br><small style="color:#92400e;">Cubre: ${pp.cubre}</small>` : ''}
+                    </div>`;
+            }
+
+            // Indicador de Restricción (médica/administrativa) vigente ese día
+            let restriccionHTML = '';
+            if (info.restriccion) {
+                const rr = info.restriccion;
+                restriccionHTML = `<div class="info-restriccion" style="margin-top: 8px; padding: 10px; background-color: #fee2e2; border-left: 3px solid #ef4444; border-radius: 4px; font-size: 0.9rem; color: #991b1b; line-height: 1.5;">
+                        <i class="fas fa-ban" style="margin-right: 6px;"></i>
+                        <strong>Restricción:</strong> ${rr.tipo}${rr.indefinida ? ' <small>(vigente)</small>' : ''}
+                        ${rr.recomendacion ? `<br><small style="color:#b91c1c;">${rr.recomendacion}</small>` : ''}
+                    </div>`;
+            }
+
+            // Indicador de Sanción (bloquea solicitudes ese día)
+            let sancionHTML = '';
+            if (info.sancion) {
+                const ss = info.sancion;
+                const vig = ss.hasta ? `${ss.desde} – ${ss.hasta}` : `desde ${ss.desde} (indefinida)`;
+                sancionHTML = `<div class="info-sancion" style="margin-top: 8px; padding: 10px; background-color: #1f2937; border-left: 3px solid #dc2626; border-radius: 4px; font-size: 0.9rem; color: #f9fafb; line-height: 1.5;">
+                        <i class="fas fa-gavel" style="margin-right: 6px;"></i>
+                        <strong>Sanción:</strong> no puedes solicitar cambios ni permisos. <small>(${vig})</small>
+                        ${ss.motivo ? `<br><small style="color:#fca5a5;">Motivo: ${ss.motivo}</small>` : ''}
+                    </div>`;
+            }
+
             // Manejar caso de descanso
             if (info.es_descanso || info.tipo === 'descanso' || (!info.jornada && info.tipo === 'descanso')) {
                 // ✅ MEJORADO: Mensajes sencillos y profesionales
@@ -471,7 +625,7 @@ function mostrarDetallesDia(fechaStr) {
                         <i class="fas fa-bed" style="margin-right: 6px;"></i>
                         <strong>Estás descansando:</strong> ${mensajeDescanso}
                     </div>`;
-                jornadaDiv.innerHTML = jornadaHTML;
+                jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
                 return;
             }
             
@@ -530,8 +684,8 @@ function mostrarDetallesDia(fechaStr) {
                     ${mensajePredeterminado}
                 </div>`;
             }
-            
-            jornadaDiv.innerHTML = jornadaHTML;
+
+            jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
             console.log('Jornada mostrada:', info.jornada, 'Clase:', claseJornada, 'Es cambio:', info.es_cambio, 'Coincide:', info.coincide_con_predeterminada);
         } else {
             // Si no hay datos aún, mostrar "Cargando..." temporalmente

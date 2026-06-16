@@ -5,12 +5,15 @@ This strategy implements the specific logic for "CT PERMANENTE" solicitudes,
 which are requests for permanent shift changes.
 """
 
+import logging
 from typing import Dict, Any, Tuple, Optional, List, Set
 from datetime import date, timedelta
 from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service, get_turno_service
+
+logger = logging.getLogger(__name__)
 
 
 class CTPermanenteStrategy(SolicitudStrategy):

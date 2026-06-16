@@ -1,205 +1,127 @@
 {% extends 'base.html' %}
 {% load static %}
 
-{% block title %}Restricciones - AppTurnos{% endblock %}
+{% block title %}Restricciones{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
 <style>
-    .badge-soft {font-weight:500;border-radius:999px;padding:0.25rem 0.85rem;}
-    .badge-soft-success {background:rgba(40,167,69,.15);color:#1e7e34;}
-    .badge-soft-secondary {background:rgba(108,117,125,.2);color:#495057;}
-    .badge-soft-warning {background:rgba(255,193,7,.18);color:#856404;}
-    .badge-soft-info {background:rgba(0,123,255,.12);color:#0056b3;}
-    .empty-state {border:2px dashed #ced4da;border-radius:1rem;padding:2rem;text-align:center;color:#6c757d;}
-    .filter-pill {cursor:pointer;}
-    .filter-pill.active {background:#007bff !important;color:#fff!important;box-shadow:0 8px 20px rgba(0,123,255,.2);}
-    .table-sticky thead th {position:sticky;top:0;background:#f8f9fa;z-index:1;}
+    .rest-stats { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+    .rest-stat { background:#fff; border-radius:12px; box-shadow:0 4px 14px rgba(15,23,42,.06); padding:14px 18px; flex:1; min-width:150px; }
+    .rest-stat .num { font-size:1.7rem; font-weight:700; line-height:1; }
+    .rest-stat .lbl { font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; color:#6b7280; }
+    .filter-pill.active { background:#ef4444 !important; color:#fff !important; border-color:#ef4444 !important; }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4">
-    <div class="row">
-        <div class="col-12 mb-3">
-            <div class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-center">
-                <div>
-                    <h3 class="mb-1"><i class="fas fa-ban text-warning mr-2"></i>Restricciones registradas</h3>
-                    {% if es_supervisor %}
-                        <p class="text-muted mb-0">Gestiona las restricciones reportadas por los exploradores y mantén trazabilidad.</p>
-                    {% else %}
-                        <p class="text-muted mb-0">Estas son las restricciones registradas para ti. Si falta un acta, contacta a tu supervisor.</p>
-                    {% endif %}
-                </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-ban"></i> Restricciones</h1>
+      <p class="pg-subtitle">
+        {% if es_supervisor %}Gestiona las restricciones de los exploradores y su vigencia{% else %}Tus restricciones registradas{% endif %}
+      </p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="rest-stats">
+      <div class="rest-stat"><div class="lbl">Total</div><div class="num">{{ total_restricciones }}</div></div>
+      <div class="rest-stat"><div class="lbl">Activas</div><div class="num" style="color:#16a34a;">{{ total_activos|default:0 }}</div></div>
+      <div class="rest-stat"><div class="lbl">Finalizadas</div><div class="num" style="color:#6b7280;">{{ total_finalizados|default:0 }}</div></div>
+      <div class="rest-stat">
+        <div class="lbl">Tipos</div>
+        <div style="margin-top:6px;">
+          {% for t in totales_por_tipo %}<span class="pg-chip pg-chip-no" style="margin:2px;">{{ t.tipo_restriccion|default:'Sin tipo' }} ({{ t.total }})</span>{% empty %}<span class="text-muted small">—</span>{% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#dc2626,#ef4444);">
+        <h3><i class="fas fa-clipboard-list"></i> Historial de restricciones</h3>
+        {% if es_supervisor %}
+        <div class="pg-actions">
+          <a href="{% url 'restricciones_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nueva restricción</a>
+        </div>
+        {% endif %}
+      </div>
+      <div class="pg-card-body">
+        <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem; margin-bottom:1rem;">
+          {% if es_supervisor %}
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Explorador</label>
+            <select name="explorador" class="form-control" style="min-width:240px;">
+              <option value="">Todos</option>
+              {% for e in exploradores %}<option value="{{ e.id }}" {% if filtro_explorador == e.id|stringformat:'s' %}selected{% endif %}>{{ e.nombre }} {{ e.apellido }}</option>{% endfor %}
+            </select>
+          </div>
+          <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
+          {% if filtro_explorador %}<a href="{% url 'restricciones_list' %}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}
+          {% endif %}
+          <div class="ml-auto btn-group btn-group-sm" role="group" style="align-self:center;">
+            <button type="button" class="btn btn-outline-secondary filter-pill active" data-filter="todos">Todas</button>
+            <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="activa">Activas</button>
+            <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="finalizada">Finalizadas</button>
+          </div>
+        </form>
+
+        <div class="pg-table-wrap">
+          <table class="pg-table" id="tabla-restricciones">
+            <thead>
+              <tr>
+                {% if es_supervisor %}<th>Explorador</th>{% endif %}
+                <th>Tipo</th>
+                <th>Recomendación</th>
+                <th>Vigencia</th>
+                <th>Estado</th>
+                {% if es_supervisor %}<th></th>{% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in restricciones %}
+              <tr data-estado="{% if r.fecha_fin and r.fecha_fin < hoy %}finalizada{% else %}activa{% endif %}">
+                {% if es_supervisor %}<td>{{ r.empleado.nombre }} {{ r.empleado.apellido }}</td>{% endif %}
+                <td><span class="pg-chip pg-chip-no">{{ r.tipo_restriccion|default:'Sin tipo' }}</span></td>
+                <td>{{ r.recomendacion|default:'—' }}</td>
+                <td>
+                  <i class="far fa-play-circle text-success mr-1"></i>{{ r.fecha_inicio|date:'d/m/Y' }}<br>
+                  <i class="far fa-stop-circle text-danger mr-1"></i>{% if r.fecha_fin %}{{ r.fecha_fin|date:'d/m/Y' }}{% else %}<em>Indefinida</em>{% endif %}
+                </td>
+                <td>
+                  {% if r.fecha_fin and r.fecha_fin < hoy %}<span class="pg-chip pg-chip-gray">Finalizada</span>{% else %}<span class="pg-chip pg-chip-ok">Activa</span>{% endif %}
+                </td>
                 {% if es_supervisor %}
-                <a href="{% url 'restricciones_create' %}" class="btn btn-success mt-3 mt-lg-0">
-                    <i class="fas fa-plus-circle mr-1"></i> Nueva restricción
-                </a>
+                <td style="white-space:nowrap;">
+                  <a href="{% url 'restricciones_edit' r.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
+                  <a href="{% url 'restricciones_delete' r.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Eliminar esta restricción?');"><i class="fas fa-trash-alt"></i></a>
+                </td>
                 {% endif %}
-            </div>
+              </tr>
+              {% empty %}
+              <tr><td colspan="6"><div class="pg-empty"><i class="fas fa-clipboard-list fa-2x mb-2 d-block"></i>Sin restricciones registradas.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
+      </div>
     </div>
-
-    <div class="row mb-4">
-        <div class="col-sm-6 col-xl-3 mb-3">
-            <div class="card shadow-sm border-left-warning h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Total registradas</p>
-                    <h3 class="mb-0">{{ total_restricciones }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-6 col-xl-3 mb-3">
-            <div class="card shadow-sm border-left-success h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Activas</p>
-                    <h3 class="mb-0 text-success">{{ total_activos|default:0 }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-6 col-xl-3 mb-3">
-            <div class="card shadow-sm border-left-secondary h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Finalizadas</p>
-                    <h3 class="mb-0 text-secondary">{{ total_finalizados|default:0 }}</h3>
-                </div>
-            </div>
-        </div>
-        <div class="col-sm-6 col-xl-3 mb-3">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <p class="text-muted mb-1">Tipos registrados</p>
-                    <div class="d-flex flex-wrap">
-                        {% for tipo in totales_por_tipo %}
-                            <span class="badge badge-soft-warning mr-2 mb-2">{{ tipo.tipo_restriccion|default:'Sin tipo' }} ({{ tipo.total }})</span>
-                        {% empty %}
-                            <span class="text-muted">Sin registros</span>
-                        {% endfor %}
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card shadow">
-        <div class="card-header bg-white">
-            <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center">
-                <div>
-                    <h5 class="mb-0">Historial de restricciones</h5>
-                    {% if not es_supervisor and empleado_actual %}
-                        <small class="text-muted">Empleado: {{ empleado_actual.nombre }} {{ empleado_actual.apellido }}</small>
-                    {% endif %}
-                </div>
-                <div class="mt-3 mt-md-0">
-                    <span class="badge badge-soft-info mr-2">
-                        {% if es_supervisor %}
-                            <i class="fas fa-user-shield mr-1"></i> Supervisor
-                        {% else %}
-                            <i class="fas fa-user mr-1"></i> Explorador
-                        {% endif %}
-                    </span>
-                    <div class="btn-group btn-group-sm" role="group">
-                        <button class="btn btn-outline-secondary filter-pill active" data-filter="todos">Todos</button>
-                        <button class="btn btn-outline-secondary filter-pill" data-filter="activa">Activas</button>
-                        <button class="btn btn-outline-secondary filter-pill" data-filter="finalizada">Finalizadas</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="card-body p-0">
-            {% if restricciones %}
-            <div class="table-responsive table-sticky">
-                <table class="table table-hover mb-0" id="tabla-restricciones">
-                    <thead class="thead-light">
-                        <tr>
-                            <th>Empleado</th>
-                            <th>Tipo</th>
-                            <th>Recomendación</th>
-                            <th>Vigencia</th>
-                            <th class="text-center">Estado</th>
-                            {% if es_supervisor %}
-                            <th class="text-center">Acciones</th>
-                            {% endif %}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for restriccion in restricciones %}
-                        {% with tiene_fin=restriccion.fecha_fin %}
-                        <tr data-estado="{% if tiene_fin and restriccion.fecha_fin < hoy %}finalizada{% else %}activa{% endif %}">
-                            <td>
-                                <strong>{{ restriccion.empleado.nombre }} {{ restriccion.empleado.apellido }}</strong><br>
-                                <small class="text-muted">ID #{{ restriccion.id }}</small>
-                            </td>
-                            <td>
-                                <span class="badge badge-soft-warning">{{ restriccion.tipo_restriccion|default:'Sin tipo' }}</span>
-                            </td>
-                            <td>
-                                <small class="text-muted d-block">Recomendación</small>
-                                {{ restriccion.recomendacion|default:'—' }}
-                            </td>
-                            <td>
-                                <div class="d-flex flex-column">
-                                    <span><i class="far fa-play-circle text-success mr-1"></i>{{ restriccion.fecha_inicio|date:'d M Y' }}</span>
-                                    <span><i class="far fa-stop-circle text-danger mr-1"></i>{{ restriccion.fecha_fin|default:'Sin definir' }}</span>
-                                </div>
-                            </td>
-                            <td class="text-center">
-                                {% if tiene_fin and restriccion.fecha_fin < hoy %}
-                                    <span class="badge badge-soft-secondary">Finalizada</span>
-                                {% else %}
-                                    <span class="badge badge-soft-success">Activa</span>
-                                {% endif %}
-                            </td>
-                            {% if es_supervisor %}
-                            <td class="text-center">
-                                <div class="btn-group btn-group-sm" role="group">
-                                    <a href="{% url 'restricciones_edit' restriccion.id %}" class="btn btn-outline-primary" title="Editar">
-                                        <i class="fas fa-edit"></i>
-                                    </a>
-                                    <a href="{% url 'restricciones_delete' restriccion.id %}" class="btn btn-outline-danger" title="Eliminar">
-                                        <i class="fas fa-trash-alt"></i>
-                                    </a>
-                                </div>
-                            </td>
-                            {% endif %}
-                        </tr>
-                        {% endwith %}
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            {% else %}
-            <div class="empty-state m-4">
-                <i class="fas fa-clipboard-list fa-2x mb-3"></i>
-                <p class="mb-1 font-weight-bold">Sin restricciones registradas</p>
-                <p class="mb-0">Cuando se creen restricciones se mostrarán en este panel.</p>
-            </div>
-            {% endif %}
-        </div>
-    </div>
+  </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-    const filterButtons = document.querySelectorAll('.filter-pill');
+    const pills = document.querySelectorAll('.filter-pill');
     const rows = document.querySelectorAll('#tabla-restricciones tbody tr');
-
-    filterButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            filterButtons.forEach(btn => btn.classList.remove('active'));
-            button.classList.add('active');
-            const filter = button.dataset.filter;
-
-            rows.forEach(row => {
-                if (filter === 'todos' || row.dataset.estado === filter) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-        });
-    });
+    pills.forEach(b => b.addEventListener('click', () => {
+        pills.forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        const f = b.dataset.filter;
+        rows.forEach(r => { r.style.display = (f === 'todos' || r.dataset.estado === f) ? '' : 'none'; });
+    }));
 });
 </script>
 {% endblock %}

@@ -4,6 +4,7 @@
 {% block title %}Calendario de Turnos{% endblock %}
 
 {% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
 <style>
     /* Estilos para el calendario */
@@ -273,68 +274,61 @@
 {% endblock %}
 
 {% block content %}
-<div class="container-fluid mt-4">
-    <div class="row">
-        <div class="col-12">
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-primary text-white">
-                    <h3 class="mb-0">
-                        <i class="fas fa-calendar-alt"></i> Calendario de Turnos
-                    </h3>
-                </div>
-                <div class="card-body">
-                    <div id="calendar"></div>
-                </div>
-            </div>
-        </div>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-alt"></i> Calendario de Turnos</h1>
+      <p class="pg-subtitle">Selecciona una fecha para ver los exploradores asignados a cada jornada</p>
     </div>
-    
-    <div class="row">
-        <div class="col-12 mb-3">
-            <div class="card shadow-sm">
-                <div class="card-body">
-                    <h4 class="mb-0">
-                        <i class="fas fa-clock"></i> Turnos para 
-                        <span id="fecha-seleccionada" class="text-primary">Seleccione una fecha</span>
-                    </h4>
-                </div>
-            </div>
-        </div>
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#2563eb,#3b82f6);">
+        <h3><i class="fas fa-calendar-alt"></i> Calendario</h3>
+      </div>
+      <div class="pg-card-body">
+        <div id="calendar"></div>
+      </div>
     </div>
-    
-    <div class="row">
-        <div class="col-md-6 mb-4">
-            <div class="card shadow-sm turnos-col am-col">
-                <div class="card-body">
-                    <h5>
-                        <i class="fas fa-sun"></i> Exploradores AM
-                        <span class="badge badge-primary">0</span>
-                    </h5>
-                    <ul id="lista-am" class="list-group list-group-flush">
-                        <li class="list-group-item text-muted text-center">
-                            <i class="fas fa-info-circle"></i> Seleccione una fecha en el calendario
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-        
-        <div class="col-md-6 mb-4">
-            <div class="card shadow-sm turnos-col pm-col">
-                <div class="card-body">
-                    <h5>
-                        <i class="fas fa-moon"></i> Exploradores PM
-                        <span class="badge badge-warning">0</span>
-                    </h5>
-                    <ul id="lista-pm" class="list-group list-group-flush">
-                        <li class="list-group-item text-muted text-center">
-                            <i class="fas fa-info-circle"></i> Seleccione una fecha en el calendario
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </div>
+
+    <div class="pg-card">
+      <div class="pg-card-body">
+        <h4 class="mb-0">
+          <i class="fas fa-clock text-primary"></i> Turnos para
+          <span id="fecha-seleccionada" class="text-primary">Seleccione una fecha</span>
+        </h4>
+      </div>
     </div>
+
+    <div class="row">
+      <div class="col-md-6 mb-4">
+        <div class="turnos-col am-col">
+          <h5>
+            <i class="fas fa-sun"></i> Exploradores AM
+            <span class="badge badge-primary">0</span>
+          </h5>
+          <ul id="lista-am" class="list-group list-group-flush">
+            <li class="list-group-item text-muted text-center">
+              <i class="fas fa-info-circle"></i> Seleccione una fecha en el calendario
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="col-md-6 mb-4">
+        <div class="turnos-col pm-col">
+          <h5>
+            <i class="fas fa-moon"></i> Exploradores PM
+            <span class="badge badge-warning">0</span>
+          </h5>
+          <ul id="lista-pm" class="list-group list-group-flush">
+            <li class="list-group-item text-muted text-center">
+              <i class="fas fa-info-circle"></i> Seleccione una fecha en el calendario
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 
