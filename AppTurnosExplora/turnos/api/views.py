@@ -3,7 +3,7 @@ from django.views.generic import View
 from django.http import JsonResponse
 from django.db.models import Q
 # Cache ahora se usa a través de CacheService (importado donde se necesita)
-from turnos.models import Turno, AsignarJornadaExplorador, AsignarSalaExplorador, DiaEspecial
+from turnos.models import Turno, AsignarJornadaExplorador, DiaEspecial
 from turnos.services.turno_service import TurnoService
 from turnos.services.temporada_service import TemporadaService
 from datetime import datetime, timedelta, date
@@ -127,14 +127,10 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             def calcular_jornada_dia(j_base, fecha):
                 return JornadaUtils.calcular_jornada_dia(j_base, fecha)
             
-            # Obtener asignaciones de sala activas para el mes (select_related para evitar consultas extra)
-            asignaciones_activas = AsignarSalaExplorador.objects.filter(
-                explorador=empleado,
-                fecha_inicio__lte=fecha_fin
-            ).filter(
-                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio)
-            ).select_related('sala').first()
-            
+            # La sala es informativa (especialidad del explorador vía CompetenciaEmpleado);
+            # ya no existe asignación de sala por período.
+            asignaciones_activas = None
+
             # OPTIMIZACIÓN: Precargar dobladas donde el empleado descansa (solicitante o receptor)
             # Evita 2 consultas por cada día sin turnos
             from solicitudes.models import SolicitudCambio
@@ -287,19 +283,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     
                     # Detectar si es doblada
                     es_doblada = jornada_display == 'DOBLADA'
-                    
-                    # Si es sábado o domingo con doblada completa (AM+PM en BD), generar deuda corporativa
-                    if fecha.weekday() in [5, 6] and es_doblada and turnos_dia:  # Sábado (5) o Domingo (6)
-                        # Verificar que tiene AM+PM (doblada completa)
-                        jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
-                        tiene_am = 'AM' in jornadas_turnos
-                        tiene_pm = 'PM' in jornadas_turnos
-                        tiene_doblada_completa = tiene_am and tiene_pm
-                        
-                        if tiene_doblada_completa:
-                            from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-                            DeudaCorporativaService.generar_deuda_fin_semana_predeterminado(empleado, fecha)
-                    
+
                     # Determinar tipo de cambio (si todos los turnos tienen el mismo tipo_cambio)
                     tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
                     es_cambio = len(tipos_cambio) > 0

@@ -4,7 +4,7 @@ Servicio para gestión de turnos.
 Responsabilidad única: Obtener y procesar información de turnos de exploradores.
 """
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from turnos.models import AsignarJornadaExplorador, Turno, AsignarSalaExplorador
+from turnos.models import AsignarJornadaExplorador, Turno
 from turnos.services.jornada_service import JornadaService
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from core.utils.jornada_utils import JornadaUtils
@@ -216,27 +216,7 @@ class TurnoService(ITurnoService):
                             'es_doblada_sabado': True,
                         }
             
-            # 3. Buscar sala asignada especial para ese día
-            asignacion_sala = AsignarSalaExplorador.objects.select_related('sala').filter(
-                explorador=explorador,
-                fecha_inicio__lte=fecha_obj
-            ).filter(
-                Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_obj)
-            ).order_by('-fecha_inicio').first()
-            
-            if asignacion_sala:
-                return {
-                    'id': None,
-                    'jornada': jornada_dia.nombre if jornada_dia else None,
-                    'sala': asignacion_sala.sala.nombre,
-                    'sala_id': asignacion_sala.sala.id,
-                    'hora_inicio': jornada_dia.hora_inicio.strftime('%H:%M') if jornada_dia and jornada_dia.hora_inicio else None,
-                    'hora_fin': jornada_dia.hora_fin.strftime('%H:%M') if jornada_dia and jornada_dia.hora_fin else None,
-                    'es_turno_virtual': True,
-                    'tipo_sala': 'asignacion_especial'
-                }
-            
-            # 4. Si no hay asignación especial, usar todas las salas de competencia
+            # 3. Usar todas las salas de competencia (la sala es informativa: especialidad del explorador)
             competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
             salas_competencia = [
                 {'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias

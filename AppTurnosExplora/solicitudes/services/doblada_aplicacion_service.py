@@ -15,10 +15,43 @@ from turnos.services.jornada_service import JornadaService
 from turnos.services.doblada_turno_service import DobladaTurnoService
 from .deuda_service import DeudaService
 from .deuda_corporativa_service import DeudaCorporativaService
-from datetime import date
+from datetime import date, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _fecha_limite_pago_semana(fecha_sabado: date) -> date:
+    """
+    Calcula la fecha límite para pagar la deuda residual de un pago en sábado AMBAS:
+    un día de la semana (lunes a viernes) DENTRO DEL MISMO MES del sábado, que no sea
+    festivo ni día de mantenimiento efectivo (la temporada manda sobre el mantenimiento).
+
+    Estrategia: primer día hábil válido DESPUÉS del sábado dentro del mes; si no hay
+    (sábado al final del mes), el último día hábil válido ANTES del sábado en el mes.
+    """
+    from turnos.models import DiaEspecial
+    from solicitudes.services.ct_permanente_helper import _es_festivo
+
+    def _es_habil(d):
+        return d.weekday() < 5 and not _es_festivo(d) and not DiaEspecial.es_mantenimiento_efectivo(d)
+
+    # Hacia adelante, mismo mes
+    d = fecha_sabado + timedelta(days=1)
+    while d.month == fecha_sabado.month:
+        if _es_habil(d):
+            return d
+        d += timedelta(days=1)
+
+    # Hacia atrás, mismo mes (caso borde: sábado al final del mes)
+    d = fecha_sabado - timedelta(days=1)
+    while d.month == fecha_sabado.month and d.day >= 1:
+        if _es_habil(d):
+            return d
+        d -= timedelta(days=1)
+
+    # Fallback improbable: el propio sábado
+    return fecha_sabado
 
 
 def _obtener_jornadas_cache() -> Dict[str, Jornada]:
@@ -405,8 +438,35 @@ class DobladaAplicacionService:
         #
         if fecha_pago.weekday() == 5 and detalle.jornada_pago_sabado:
             jornada_sel = detalle.jornada_pago_sabado.upper()
+
+            # ===========================
+            # AMBAS: el solicitante cubre el día completo (AM+PM) y el receptor descansa.
+            # Como el solicitante trabaja de más, el receptor le queda debiendo media jornada
+            # (se registra en generar_deudas_doblada y se paga en semana).
+            # ===========================
+            if jornada_sel == "AMBAS":
+                jornadas_cache = _obtener_jornadas_cache()
+                # Receptor descansa ese sábado: se eliminan sus turnos
+                Turno.objects.filter(explorador=receptor, fecha=fecha_pago).delete()
+                # Solicitante: dejar AM + PM
+                Turno.objects.filter(explorador=solicitante, fecha=fecha_pago).delete()
+                sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
+                for jn in ("AM", "PM"):
+                    Turno.objects.create(
+                        explorador=solicitante,
+                        fecha=fecha_pago,
+                        jornada=jornadas_cache[jn],
+                        sala=sala_solicitante,
+                        tipo_cambio="DOBLADA",
+                    )
+                logger.info(
+                    f"Pago en sábado (AMBAS): {solicitante.nombre} cubre AM+PM en {fecha_pago}, "
+                    f"{receptor.nombre} descansa (queda media jornada a favor del solicitante)."
+                )
+                return
+
             if jornada_sel not in ("AM", "PM"):
-                raise ValidationError("jornada_pago_sabado inválida. Debe ser 'AM' o 'PM'")
+                raise ValidationError("jornada_pago_sabado inválida. Debe ser 'AM', 'PM' o 'AMBAS'")
 
             jornada_contraria = "PM" if jornada_sel == "AM" else "AM"
 
@@ -701,6 +761,51 @@ class DobladaAplicacionService:
     
     @staticmethod
     @transaction.atomic
+    def aplicar_pago_residual_semana(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
+        """
+        Aplica la devolución en semana de la deuda residual generada por un pago en sábado AMBAS.
+
+        Ese día (detalle.fecha_pago_semana) el RECEPTOR dobla para cubrir al SOLICITANTE:
+        - El solicitante DESCANSA su jornada (la que el receptor le devuelve).
+        - El receptor trabaja DOBLE: su propia jornada + la del solicitante.
+
+        Requiere jornadas contrarias ese día (ya validado en la estrategia).
+        """
+        fecha = detalle.fecha_pago_semana
+        if not fecha:
+            return
+
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        fstr = fecha.strftime('%Y-%m-%d')
+
+        j_sol = JornadaService.get_jornada_explorador_fecha(solicitante.id, fstr)
+        j_rec = JornadaService.get_jornada_explorador_fecha(receptor.id, fstr)
+        if not j_sol or not j_rec:
+            raise ValidationError("No se pudo determinar la jornada para el pago en semana.")
+
+        jornadas_cache = _obtener_jornadas_cache()
+        j_sol_obj = jornadas_cache[j_sol.nombre.upper()]
+        j_rec_obj = jornadas_cache[j_rec.nombre.upper()]
+
+        # Solicitante descansa su jornada (el receptor se la devuelve)
+        Turno.objects.filter(explorador=solicitante, fecha=fecha, jornada=j_sol_obj).delete()
+
+        # Receptor dobla: su jornada + la del solicitante
+        if DobladaTurnoService.tiene_jornada_en_fecha(receptor, fecha, j_rec_obj):
+            jornadas_receptor = DobladaTurnoService.obtener_jornadas_en_fecha(receptor, fecha)
+            if j_sol.nombre.upper() not in jornadas_receptor:
+                DobladaTurnoService.agregar_jornada_a_doblada(receptor, fecha, j_sol_obj, 'DOBLADA')
+        else:
+            DobladaTurnoService.crear_doblada_completa(receptor, fecha, j_rec_obj, j_sol_obj, 'DOBLADA')
+
+        logger.info(
+            f"Pago en semana aplicado: {receptor.nombre} dobla cubriendo a {solicitante.nombre} "
+            f"en {fecha} (el solicitante descansa su jornada {j_sol.nombre.upper()})."
+        )
+
+    @staticmethod
+    @transaction.atomic
     def generar_deudas_doblada(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
         """
         Genera las deudas entre exploradores y corporativas asociadas a una doblada.
@@ -741,7 +846,42 @@ class DobladaAplicacionService:
             jornada_cedida=jornada_cedida_nombre,
             media_jornada=True
         )
-        
+
+        # ===========================
+        # Deuda residual: pago en sábado cubriendo AMBAS jornadas
+        # ===========================
+        # Si el solicitante cubrió el día completo del sábado (AMBAS), trabajó de más una
+        # jornada respecto a lo que debía. Por eso el RECEPTOR le queda debiendo esa jornada
+        # al solicitante, que se devuelve el día de semana elegido (detalle.fecha_pago_semana):
+        # ese día el receptor dobla y el solicitante descansa. Como se aplica al aprobar,
+        # la deuda queda registrada como PAGADA (con su fecha real = el día de semana).
+        if (fecha_pago.weekday() == 5
+                and (getattr(detalle, 'jornada_pago_sabado', '') or '').upper() == 'AMBAS'
+                and getattr(detalle, 'fecha_pago_semana', None)):
+            fecha_semana = detalle.fecha_pago_semana
+            # La jornada que se devuelve es la del SOLICITANTE (la que el receptor le cubre ese día).
+            jornada_sol_semana = JornadaService.get_jornada_explorador_fecha(
+                solicitante.id, fecha_semana.strftime('%Y-%m-%d')
+            )
+            jornada_residual = (
+                jornada_sol_semana.nombre.upper()
+                if jornada_sol_semana else jornada_cedida_nombre
+            )
+            DeudaService.crear_deuda(
+                deudor=receptor,        # el receptor queda debiendo...
+                acreedor=solicitante,   # ...a favor del solicitante
+                solicitud=solicitud,
+                fecha_generacion=fecha_pago,
+                fecha_pago_pactada=fecha_semana,
+                fecha_pago_real=fecha_semana,  # se aplica al aprobar → pagada
+                jornada_cedida=jornada_residual,
+                media_jornada=True,
+            )
+            logger.info(
+                f"Deuda residual (pago sábado AMBAS): {receptor.nombre} devuelve la jornada "
+                f"{jornada_residual} a {solicitante.nombre} el {fecha_semana} (en semana)."
+            )
+
         # ===========================
         # Deuda corporativa SOLO por doblada efectiva
         # ===========================
@@ -757,6 +897,13 @@ class DobladaAplicacionService:
         from turnos.services.turno_service import TurnoService
 
         def _registrar_deuda_corporativa_si_doblada(explorador: Empleado, fecha_doblada: date, comentario: str) -> None:
+            # Los 30 min solo aplican de lunes a viernes (no sábados, domingos ni festivos).
+            if not DeudaCorporativaService.aplica_deuda_doblada(fecha_doblada):
+                logger.info(
+                    f"No se genera deuda corporativa para {explorador.nombre} en {fecha_doblada}: "
+                    f"fin de semana o festivo (jornada completa, sin 30 min)."
+                )
+                return
             jornada_display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
             if jornada_display == 'DOBLADA':
                 DeudaCorporativaService.crear_deuda_corporativa(

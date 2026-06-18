@@ -140,9 +140,9 @@ def _es_festivo(fecha: date) -> bool:
 
 
 def _es_mantenimiento(fecha: date) -> bool:
-    """Verificar si es día de mantenimiento"""
+    """Verificar si es día de mantenimiento EFECTIVO (temporada manda sobre mantenimiento)."""
     try:
-        return DiaEspecial.objects.filter(fecha=fecha, tipo='mantenimiento', activo=True).exists()
+        return DiaEspecial.es_mantenimiento_efectivo(fecha)
     except Exception:
         return False
 

@@ -2522,6 +2522,10 @@
                     // No lanzamos error aquí para que el siguiente .then maneje el flujo especial
                     return data;
                 }
+                // Advertencia (no bloqueo) por restricción médica: dejar que el siguiente .then la maneje
+                if (data && data.code === 'advertencia_restriccion') {
+                    return data;
+                }
 
                 const errorMessage = data.error || data.message || `Error ${response.status}: ${response.statusText}`;
                 const errorObj = {
@@ -2535,6 +2539,29 @@
             return data;
         })
         .then(data => {
+            // Advertencia (no bloqueo) por restricción médica: avisar y reenviar al confirmar
+            if (data.code === 'advertencia_restriccion') {
+                if (window.RestriccionAdvertencia) {
+                    RestriccionAdvertencia.mostrar(data.restricciones, function () {
+                        formData.set('confirmar_restriccion', '1');
+                        fetch('/solicitudes/procesar-solicitud/', {
+                            method: 'POST', body: formData,
+                            headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }
+                        })
+                        .then(r => r.json().catch(() => ({})))
+                        .then(d2 => {
+                            if (d2 && d2.success) {
+                                Swal.fire({ icon: 'success', title: '¡Solicitud enviada!', text: d2.message || 'Solicitud enviada correctamente.' })
+                                    .then(() => { window.location.href = '/solicitudes/mis-solicitudes/'; });
+                            } else {
+                                Swal.fire({ icon: 'error', title: 'No se pudo enviar', text: (d2 && (d2.error || d2.message)) || 'Error al procesar la solicitud.' });
+                            }
+                        })
+                        .catch(() => Swal.fire({ icon: 'error', title: 'Error', text: 'Ocurrió un error de red.' }));
+                    });
+                }
+                return;
+            }
             // Verificar si requiere cambio de turno previo (caso crítico)
             if (data.code === 'requiere_cambio_turno_previo') {
                 const fechaPago = data.fecha_pago || fechaPagoInput.value;

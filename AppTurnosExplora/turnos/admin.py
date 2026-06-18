@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import (
-    AsignarJornadaExplorador, AsignarSalaExplorador,
+    AsignarJornadaExplorador,
     Turno, DiaEspecial, TurnoArchivo
 )
 
@@ -14,17 +14,6 @@ class AsignarJornadaExploradorAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('explorador', 'jornada')
-
-
-@admin.register(AsignarSalaExplorador)
-class AsignarSalaExploradorAdmin(admin.ModelAdmin):
-    list_display = ['explorador', 'sala', 'fecha_inicio', 'fecha_fin']
-    list_filter = ['sala', 'fecha_inicio']
-    search_fields = ['explorador__nombre', 'explorador__apellido', 'explorador__cedula']
-    date_hierarchy = 'fecha_inicio'
-    
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('explorador', 'sala')
 
 
 @admin.register(Turno)

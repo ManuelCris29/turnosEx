@@ -13,7 +13,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from turnos.models import Sala, AsignarSalaExplorador, AsignarJornadaExplorador
+from turnos.models import Sala, AsignarJornadaExplorador
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from solicitudes.services.solicitud_factory import SolicitudFactory
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
@@ -40,8 +40,7 @@ class ReflejoMisTurnosTest(TestCase):
 
         for emp, jor in ((self.sol, self.am), (self.rec, self.pm)):
             AsignarJornadaExplorador.objects.create(explorador=emp, jornada=jor, fecha_inicio=date(2025, 1, 1))
-            AsignarSalaExplorador.objects.create(explorador=emp, sala=self.sala, fecha_inicio=date(2025, 1, 1))
-            # CT sencillo busca salas vía competencias del empleado
+            # La sala es la especialidad del explorador vía competencia
             CompetenciaEmpleado.objects.create(empleado=emp, sala=self.sala)
 
         self.tipos = {n: TipoSolicitudCambio.objects.create(nombre=n) for n in

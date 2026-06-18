@@ -1,0 +1,94 @@
+/*
+ * Marcadores de días especiales para datepickers Flatpickr.
+ * Reutilizable por los formularios de cambio de turno que usan
+ * window.DatepickerFestivos (doblada, doblada permanente, etc.).
+ *
+ * Clases aplicadas por static/js/cambio-turno/datepicker_festivos.js:
+ *   .festivo (🎉)  .mantenimiento (🔧)  .temporada (📅)
+ *   .domingo (D)   .flatpickr-disabled (fallback)
+ */
+
+/* Ocultar días de mes anterior/siguiente sin romper la cuadrícula Lun–Dom */
+.flatpickr-day.prevMonthDay,
+.flatpickr-day.nextMonthDay,
+.flatpickr-day.flatpickr-prevMonth,
+.flatpickr-day.flatpickr-nextMonth {
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+/* Festivos */
+.flatpickr-day.festivo {
+    background-color: #ff6b6b !important;
+    color: white !important;
+    font-weight: bold;
+    border-color: #ff5252 !important;
+}
+.flatpickr-day.festivo:hover { background-color: #ff5252 !important; }
+.flatpickr-day.festivo.selected { background-color: #e53935 !important; border-color: #e53935 !important; }
+.flatpickr-day.festivo::after {
+    content: '🎉'; position: absolute; top: 2px; right: 2px; font-size: 10px;
+}
+
+/* Domingos (bloqueados) */
+.flatpickr-day.flatpickr-disabled.domingo {
+    background-color: #e0e0e0 !important;
+    color: #757575 !important;
+    cursor: not-allowed !important;
+}
+.flatpickr-day.flatpickr-disabled.domingo::after {
+    content: 'D'; position: absolute; top: 2px; right: 2px;
+    font-size: 9px; font-weight: bold; color: #757575;
+}
+
+/* Resto de días bloqueados (fallback) */
+.flatpickr-day.flatpickr-disabled {
+    background-color: #f5f5f5 !important;
+    color: #ccc !important;
+    cursor: not-allowed !important;
+}
+
+/* Mantenimiento */
+.flatpickr-day.mantenimiento {
+    background-color: #ff9800 !important;
+    color: white !important;
+    font-weight: bold;
+    border-color: #f57c00 !important;
+}
+.flatpickr-day.mantenimiento:hover { background-color: #f57c00 !important; }
+.flatpickr-day.mantenimiento.selected { background-color: #e65100 !important; border-color: #e65100 !important; }
+.flatpickr-day.festivo.mantenimiento { background-color: #ff9800 !important; border-color: #f57c00 !important; }
+.flatpickr-day.mantenimiento::after {
+    content: '🔧'; position: absolute; top: 2px; right: 2px; font-size: 10px;
+}
+
+/* Temporada */
+.flatpickr-day.temporada {
+    background-color: #2196f3 !important;
+    color: white !important;
+    font-weight: bold;
+    border-color: #1976d2 !important;
+}
+.flatpickr-day.temporada:hover { background-color: #1976d2 !important; }
+.flatpickr-day.temporada.selected { background-color: #1565c0 !important; border-color: #1565c0 !important; }
+.flatpickr-day.festivo.temporada { background-color: #ff6b6b !important; border-color: #ff5252 !important; }
+/* La temporada manda sobre el mantenimiento: si un día es ambos, se pinta como temporada. */
+.flatpickr-day.mantenimiento.temporada { background-color: #2196f3 !important; border-color: #1976d2 !important; }
+.flatpickr-day.temporada::after {
+    content: '📅'; position: absolute; top: 2px; right: 2px; font-size: 10px;
+}
+
+/* Mantener el color del marcador aunque el día esté bloqueado (flatpickr-disabled) */
+.flatpickr-day.flatpickr-disabled.festivo {
+    background-color: #ff6b6b !important; color: white !important; font-weight: bold; border-color: #ff5252 !important;
+}
+.flatpickr-day.flatpickr-disabled.mantenimiento {
+    background-color: #ff9800 !important; color: white !important; font-weight: bold; border-color: #f57c00 !important;
+}
+.flatpickr-day.flatpickr-disabled.temporada {
+    background-color: #2196f3 !important; color: white !important; font-weight: bold; border-color: #1976d2 !important;
+}
+.flatpickr-day.flatpickr-disabled.festivo.mantenimiento { background-color: #ff9800 !important; border-color: #f57c00 !important; }
+.flatpickr-day.flatpickr-disabled.festivo.temporada { background-color: #ff6b6b !important; border-color: #ff5252 !important; }
+/* La temporada manda sobre el mantenimiento también en días deshabilitados. */
+.flatpickr-day.flatpickr-disabled.mantenimiento.temporada { background-color: #2196f3 !important; border-color: #1976d2 !important; }

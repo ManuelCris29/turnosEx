@@ -6,8 +6,8 @@ manejando la lógica de salas y jornadas de forma centralizada.
 """
 from typing import Optional, Tuple
 from django.core.exceptions import ValidationError
-from django.db import transaction, models
-from turnos.models import Turno, Jornada, Sala, AsignarSalaExplorador
+from django.db import transaction
+from turnos.models import Turno, Jornada, Sala
 from empleados.models import Empleado
 from turnos.services.turno_service import TurnoService
 from datetime import date
@@ -52,18 +52,7 @@ class DobladaTurnoService:
         if turno_existente:
             return turno_existente.sala
         
-        # 2. Buscar sala de asignación especial activa
-        asignacion_sala = AsignarSalaExplorador.objects.filter(
-            explorador=explorador,
-            fecha_inicio__lte=fecha
-        ).filter(
-            models.Q(fecha_fin__isnull=True) | models.Q(fecha_fin__gte=fecha)
-        ).select_related('sala').order_by('-fecha_inicio').first()
-        
-        if asignacion_sala:
-            return asignacion_sala.sala
-        
-        # 3. Usar primera sala de competencia
+        # 2. Usar primera sala de competencia (la sala es informativa: especialidad del explorador)
         from empleados.models import CompetenciaEmpleado
         competencia = CompetenciaEmpleado.objects.filter(
             empleado=explorador

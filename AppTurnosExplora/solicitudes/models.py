@@ -262,7 +262,13 @@ class DobladaDetalle(models.Model):
         ('AM', 'AM'),
         ('PM', 'PM'),
     ]
-    
+
+    JORNADA_PAGO_SABADO_CHOICES = [
+        ('AM', 'AM'),
+        ('PM', 'PM'),
+        ('AMBAS', 'Ambas (cubro el día completo; el receptor descansa)'),
+    ]
+
     solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='doblada')
     minutos_deuda = models.IntegerField(default=30)
     fecha_pago = models.DateField(
@@ -282,11 +288,18 @@ class DobladaDetalle(models.Model):
         help_text='Jornada específica que se cede (si es cesión parcial)'
     )
     jornada_pago_sabado = models.CharField(
-        max_length=2,
-        choices=JORNADA_CHOICES,
+        max_length=5,
+        choices=JORNADA_PAGO_SABADO_CHOICES,
         null=True,
         blank=True,
-        help_text='Si la fecha de pago es sábado, jornada (AM/PM) que el solicitante elige trabajar ese sábado'
+        help_text='Si la fecha de pago es sábado, jornada que el solicitante cubre ese sábado: '
+                  'AM, PM o AMBAS (día completo; en ese caso el receptor descansa y queda debiendo media jornada).'
+    )
+    fecha_pago_semana = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Solo cuando jornada_pago_sabado=AMBAS: día de semana (lun-vie, mismo mes) en que el '
+                  'receptor le devuelve la jornada al solicitante (el receptor dobla y el solicitante descansa).'
     )
     JORNADA_CUBRE_PAGO_CHOICES = [
         ('AM', 'AM'),
@@ -359,6 +372,11 @@ class DobladaPermanenteDetalle(models.Model):
     empleado_receptor = models.ForeignKey(
         Empleado, on_delete=models.CASCADE, null=True, blank=True,
         related_name='dobladas_permanentes_recibidas',
+    )
+    snapshot_turnos_previos = models.JSONField(
+        null=True, blank=True,
+        help_text='Turnos de solicitante/receptor en las fechas afectadas ANTES de aplicar la doblada '
+                  'permanente. Permite revertir al cancelar dentro de los 30 min.'
     )
     historial = HistoricalRecords()
 

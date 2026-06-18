@@ -223,7 +223,13 @@ class DobladaStrategy(SolicitudStrategy):
             # Validar reglas de festivos: si ambas fechas son festivos de semana, deben ser del mismo mes
             fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
             fecha_pago_obj = DateUtils.parse_date(fecha_pago)
-            
+
+            # Sábado por sábado se gestiona en Doblada de Fin de Semana (D FDS), no en doblada normal.
+            # Se permite el sábado en UN solo lado (sábado ↔ día de semana), pero no en ambos.
+            if fecha_cesion_obj.weekday() == 5 and fecha_pago_obj.weekday() == 5:
+                return False, ("No puedes hacer una doblada de sábado por sábado. "
+                               "Para intercambiar sábados usa una Doblada de Fin de Semana (D FDS).")
+
             es_cesion_festivo = SolicitudValidator.es_festivo_semana(fecha_cesion_obj)
             es_pago_festivo = SolicitudValidator.es_festivo_semana(fecha_pago_obj)
             if es_cesion_festivo or es_pago_festivo:
@@ -250,9 +256,9 @@ class DobladaStrategy(SolicitudStrategy):
 
             if es_pago_sabado:
                 jornada_pago_sabado_upper = str(jornada_pago_sabado).upper()
-                if jornada_pago_sabado_upper not in ("AM", "PM"):
+                if jornada_pago_sabado_upper not in ("AM", "PM", "AMBAS"):
                     logger.warning(f"Validación fallida: jornada_pago_sabado inválida: {jornada_pago_sabado}")
-                    return False, "Para pagar en sábado debes seleccionar una jornada válida (AM o PM)."
+                    return False, "Para pagar en sábado debes seleccionar una jornada válida (AM, PM o ambas)."
 
                 # Validar que el receptor TRABAJA ese sábado según alternancia
                 jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_pago_obj)
@@ -328,6 +334,48 @@ class DobladaStrategy(SolicitudStrategy):
                             f"El sábado de pago siempre debe coincidir con el turno de la persona que realizó el doble turno. "
                             f"Por favor, selecciona otro sábado que corresponda al turno {jornada_receptor_nombre}."
                         )
+
+                # ===========================
+                # Pago en sábado AMBAS: validar el día de devolución en semana
+                # ===========================
+                # Al cubrir el sábado completo, el receptor queda debiendo una jornada que devuelve
+                # un día de semana (lun-vie) del mismo mes; ese día el receptor dobla y el solicitante
+                # descansa, por lo que deben tener jornadas contrarias.
+                if jornada_pago_sabado_upper == 'AMBAS':
+                    if not fecha_pago_semana:
+                        return False, ("Al cubrir ambas jornadas el sábado, debes elegir el día de la semana "
+                                       "en que el compañero te devolverá la jornada.")
+                    fps_obj = DateUtils.parse_date(fecha_pago_semana)
+                    if not fps_obj:
+                        return False, "El día de pago en semana no es una fecha válida."
+                    if fps_obj.weekday() >= 5:
+                        return False, "El día de pago en semana debe ser de lunes a viernes."
+                    if (fps_obj.year, fps_obj.month) != (fecha_pago_obj.year, fecha_pago_obj.month):
+                        return False, "El día de pago en semana debe estar dentro del mismo mes que el sábado."
+                    from turnos.models import DiaEspecial
+                    if SolicitudValidator.es_festivo_semana(fps_obj) or DiaEspecial.es_mantenimiento_efectivo(fps_obj):
+                        return False, "El día de pago en semana no puede ser festivo ni de mantenimiento."
+                    if fps_obj < date.today():
+                        return False, "El día de pago en semana no puede ser en el pasado."
+                    j_sol = JornadaService.get_jornada_explorador_fecha(
+                        explorador_solicitante.id, fps_obj.strftime('%Y-%m-%d'))
+                    j_rec = JornadaService.get_jornada_explorador_fecha(
+                        explorador_receptor.id, fps_obj.strftime('%Y-%m-%d'))
+                    if not j_sol or not j_rec:
+                        return False, "No se pudo determinar la jornada de los exploradores en el día de pago en semana."
+                    if j_sol.nombre.upper() == j_rec.nombre.upper():
+                        # Reutiliza el mismo recuadro + botón "Ir a Cambio de Turno Sencillo"
+                        # que ya existe para la fecha de pago, pero apuntando al día de semana.
+                        return False, json.dumps({
+                            'code': 'requiere_cambio_turno_previo',
+                            'message': (
+                                f"El {fps_obj.strftime('%d/%m/%Y')} tú y el compañero tienen la misma jornada "
+                                f"({j_sol.nombre.upper()}). Para que él te pague (doblándose por ti) ese día deben "
+                                f"quedar en jornadas contrarias. Realiza primero un cambio de turno sencillo."
+                            ),
+                            'fecha_pago': str(fps_obj),
+                            'jornada_comun': j_sol.nombre.upper(),
+                        })
 
             # Cobertura explícita AM / PM / AMBAS cuando el receptor tiene doblada en fecha de pago (no aplica a pago sábado especial)
             if jornada_cubre_en_pago and jornada_cubre_en_pago not in ('AM', 'PM', 'AMBAS'):
@@ -484,6 +532,7 @@ class DobladaStrategy(SolicitudStrategy):
             jornada_cedida = datos.get('jornada_cedida')
             jornada_pago_sabado = datos.get('jornada_pago_sabado')
             jornada_cubre_en_pago = datos.get('jornada_cubre_en_pago')
+            fecha_pago_semana = datos.get('fecha_pago_semana')
             tipo_cesion = datos.get('tipo_cesion', 'cesion_completa')
 
             # Sin transaction.atomic(): en MySQL + reintentos tras error SQL, atomic() dejaba la conexión
@@ -508,6 +557,9 @@ class DobladaStrategy(SolicitudStrategy):
                 doblada_detalle_data['jornada_cedida'] = jornada_cedida
             if jornada_pago_sabado:
                 doblada_detalle_data['jornada_pago_sabado'] = jornada_pago_sabado
+            # Pago en sábado AMBAS: guardar el día de devolución en semana
+            if str(jornada_pago_sabado or '').upper() == 'AMBAS' and fecha_pago_semana:
+                doblada_detalle_data['fecha_pago_semana'] = fecha_pago_semana
             if jornada_cubre_en_pago:
                 jcp = str(jornada_cubre_en_pago).strip().upper()
                 if jcp in ('AM', 'PM', 'AMBAS'):
@@ -578,7 +630,13 @@ class DobladaStrategy(SolicitudStrategy):
                 
                 # Aplicar doblada en fecha de pago
                 DobladaAplicacionService.aplicar_doblada_pago(solicitud, detalle)
-                
+
+                # Pago en sábado AMBAS: aplicar también la devolución de la jornada en semana
+                # (ese día el receptor dobla y el solicitante descansa).
+                if (str(getattr(detalle, 'jornada_pago_sabado', '') or '').upper() == 'AMBAS'
+                        and getattr(detalle, 'fecha_pago_semana', None)):
+                    DobladaAplicacionService.aplicar_pago_residual_semana(solicitud, detalle)
+
                 # Generar deudas
                 DobladaAplicacionService.generar_deudas_doblada(solicitud, detalle)
                 
@@ -592,9 +650,12 @@ class DobladaStrategy(SolicitudStrategy):
             fecha_cesion = solicitud.fecha_cambio_turno
             fecha_pago = detalle.fecha_pago
             
-            # Limpiar caché para solicitante y receptor (mes de cesión y mes de pago)
+            # Limpiar caché para solicitante y receptor (mes de cesión, pago y pago en semana)
             # Usar helper centralizado que normaliza el formato de la clave de caché
-            for fecha in [fecha_cesion, fecha_pago]:
+            fechas_cache = [fecha_cesion, fecha_pago]
+            if getattr(detalle, 'fecha_pago_semana', None):
+                fechas_cache.append(detalle.fecha_pago_semana)
+            for fecha in fechas_cache:
                 CacheService.invalidar_cache_turnos_empleado(solicitante.id, fecha.month, fecha.year)
                 CacheService.invalidar_cache_turnos_empleado(receptor.id, fecha.month, fecha.year)
                 logger.info(

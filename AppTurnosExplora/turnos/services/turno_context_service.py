@@ -5,7 +5,7 @@ Responsabilidad única: Construir estructuras de datos para las vistas de turnos
 from datetime import timedelta
 from django.utils import timezone
 from django.db.models import Q
-from turnos.models import Turno, AsignarSalaExplorador, AsignarJornadaExplorador
+from turnos.models import Turno, AsignarJornadaExplorador
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 import logging
@@ -72,13 +72,10 @@ class TurnoContextService:
                 turnos_por_fecha[t.fecha] = []
             turnos_por_fecha[t.fecha].append(t)
         
-        # Obtener asignaciones de sala activas (select_related para evitar consulta extra)
-        asignaciones_activas = AsignarSalaExplorador.objects.filter(
-            explorador=empleado,
-            fecha_inicio__lte=fecha_actual,
-            fecha_fin__gte=fecha_actual
-        ).select_related('sala').first()
-        
+        # La sala es informativa (especialidad del explorador vía CompetenciaEmpleado);
+        # ya no existe asignación de sala por período.
+        asignaciones_activas = None
+
         # Obtener jornada predeterminada vigente
         jornada_predeterminada = (
             AsignarJornadaExplorador.objects

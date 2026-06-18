@@ -10,7 +10,6 @@ from .views import (
     PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView,
     ChangePasswordView, RoleUpdateView, RoleDeleteView,
     PDHVisualizarListView, SancionVisualizarListView, RestriccionVisualizarListView,
-    AsignacionSalaPeriodoView, DesactivarAsignacionSalaView,
     IndicadoresView,
 )
 
@@ -52,7 +51,5 @@ urlpatterns = [
     path('sanciones/visualizar/', SancionVisualizarListView.as_view(), name='sanciones_visualizar'),
     path('restricciones/visualizar/', RestriccionVisualizarListView.as_view(), name='restricciones_visualizar'),
     path('change-password/<int:user_id>/', ChangePasswordView.as_view(), name='change_password'),
-    path('asignacion-sala-periodo/', AsignacionSalaPeriodoView.as_view(), name='asignacion_sala_periodo'),
-    path('desactivar-asignacion-sala/<int:asignacion_id>/', DesactivarAsignacionSalaView.as_view(), name='desactivar_asignacion_sala'),
     # Aquí irán más URLs conforme se vayan creando las vistas
 ] 

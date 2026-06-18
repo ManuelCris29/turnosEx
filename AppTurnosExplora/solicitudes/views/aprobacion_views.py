@@ -155,9 +155,9 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                     )
 
                 # Revertir cambios de la doblada si aplica
+                tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
                 es_doblada = (
-                    solicitud.tipo_cambio and
-                    solicitud.tipo_cambio.nombre == 'DOBLADA' and
+                    tipo_nombre == 'DOBLADA' and
                     hasattr(solicitud, 'doblada') and
                     solicitud.doblada is not None
                 )
@@ -170,6 +170,22 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                     for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
                         CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
                         CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+
+                elif tipo_nombre == 'DOBLADA PERMANENTE' and getattr(solicitud, 'doblada_permanente', None):
+                    from ..services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
+                    DobladaPermanenteAplicacionService.revertir(solicitud)
+                    # Limpiar caché de turnos en los meses del rango
+                    from core.services.cache_service import CacheService as CS
+                    from datetime import timedelta as _td
+                    det = solicitud.doblada_permanente
+                    meses = set()
+                    d = det.fecha_inicio
+                    while d <= det.fecha_fin:
+                        meses.add((d.month, d.year)); d += _td(days=28)
+                    meses.add((det.fecha_fin.month, det.fecha_fin.year))
+                    for (m, y) in meses:
+                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
+                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
 
                 solicitud.estado = 'cancelada'
                 solicitud.comentario = (

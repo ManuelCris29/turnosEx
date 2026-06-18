@@ -5,7 +5,7 @@ from django.views.generic.edit import CreateView, DeleteView
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from .services.empleado_service import EmpleadoService
-from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado, AsignacionSalaPeriodo
+from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado
 from permisos.models import PDH
 from django import forms
 from django.contrib.auth.models import User
@@ -795,70 +795,3 @@ class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
         
         return context
 
-class AsignacionSalaPeriodoView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
-    template_name = 'empleados/asignacion_sala_periodo.html'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        
-        # Obtener empleados con competencias
-        empleados = Empleado.objects.filter(
-            activo=True,
-            competenciaempleado__isnull=False
-        ).distinct()
-        
-        # Obtener salas disponibles
-        salas = Sala.objects.filter(activo=True)
-        
-        # Obtener asignaciones activas
-        asignaciones = AsignacionSalaPeriodo.objects.filter(
-            activo=True
-        ).select_related('empleado', 'sala', 'creado_por').order_by('fecha_inicio')
-        
-        context.update({
-            'empleados': empleados,
-            'salas': salas,
-            'asignaciones': asignaciones,
-        })
-        
-        return context
-    
-    def post(self, request, *args, **kwargs):
-        empleado_id = request.POST.get('empleado')
-        sala_id = request.POST.get('sala')
-        fecha_inicio = request.POST.get('fecha_inicio')
-        fecha_fin = request.POST.get('fecha_fin')
-        
-        try:
-            empleado = Empleado.objects.get(id=empleado_id)
-            sala = Sala.objects.get(id=sala_id)
-            
-            # Crear asignación
-            asignacion = AsignacionSalaPeriodo.objects.create(
-                empleado=empleado,
-                sala=sala,
-                fecha_inicio=fecha_inicio,
-                fecha_fin=fecha_fin,
-                creado_por=request.user
-            )
-            
-            messages.success(request, f'Asignación creada: {asignacion}')
-            
-        except Exception as e:
-            messages.error(request, f'Error: {str(e)}')
-        
-        return redirect('asignacion_sala_periodo')
-
-class DesactivarAsignacionSalaView(LoginRequiredMixin, AdminRequiredMixin, View):
-    def post(self, request, asignacion_id):
-        try:
-            asignacion = AsignacionSalaPeriodo.objects.get(id=asignacion_id)
-            asignacion.activo = False
-            asignacion.save()
-            messages.success(request, f'Asignación desactivada: {asignacion}')
-        except AsignacionSalaPeriodo.DoesNotExist:
-            messages.error(request, 'Asignación no encontrada')
-        except Exception as e:
-            messages.error(request, f'Error: {str(e)}')
-        
-        return redirect('asignacion_sala_periodo')

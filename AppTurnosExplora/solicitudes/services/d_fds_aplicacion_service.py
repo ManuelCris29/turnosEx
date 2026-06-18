@@ -135,6 +135,13 @@ class DFDSAplicacionService:
         from turnos.services.turno_service import TurnoService
 
         def _deuda_corp_si_doblada(explorador, fecha_doblada, comentario):
+            # Los 30 min solo aplican de lunes a viernes (no sábados, domingos ni festivos).
+            if not DeudaCorporativaService.aplica_deuda_doblada(fecha_doblada):
+                logger.info(
+                    "D FDS: sin deuda corporativa para %s en %s (fin de semana o festivo)",
+                    explorador.nombre, fecha_doblada
+                )
+                return
             display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
             if display == 'DOBLADA':
                 DeudaCorporativaService.crear_deuda_corporativa(

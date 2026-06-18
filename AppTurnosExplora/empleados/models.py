@@ -113,45 +113,6 @@ class CompetenciaEmpleado(models.Model):
     def __str__(self):
         return f"{self.empleado.nombre} {self.empleado.apellido} - {self.sala.nombre}"
 
-class AsignacionSalaPeriodo(models.Model):
-    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
-    sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
-    fecha_inicio = models.DateField()
-    fecha_fin = models.DateField()
-    activo = models.BooleanField(default=True)
-    creado_por = models.ForeignKey('auth.User', on_delete=models.CASCADE)
-    creado_en = models.DateTimeField(auto_now_add=True)
-    historial = HistoricalRecords()
-    
-    class Meta:
-        verbose_name = "Asignación de Sala por Período"
-        verbose_name_plural = "Asignaciones de Sala por Períodos"
-        ordering = ['fecha_inicio', 'empleado']
-    
-    def __str__(self):
-        return f"{self.empleado.nombre} - {self.sala.nombre} ({self.fecha_inicio} a {self.fecha_fin})"
-    
-    def clean(self):
-        from django.core.exceptions import ValidationError
-        
-        # Validar que el empleado tenga competencia en la sala
-        if not CompetenciaEmpleado.objects.filter(
-            empleado=self.empleado,
-            sala=self.sala
-        ).exists():
-            raise ValidationError(f"{self.empleado.nombre} no tiene competencia en {self.sala.nombre}")
-        
-        # Validar que no haya solapamientos
-        solapamientos = AsignacionSalaPeriodo.objects.filter(
-            empleado=self.empleado,
-            activo=True,
-            fecha_inicio__lte=self.fecha_fin,
-            fecha_fin__gte=self.fecha_inicio
-        ).exclude(id=self.id)
-        
-        if solapamientos.exists():
-            raise ValidationError(f"Ya existe una asignación para {self.empleado.nombre} en ese período")
-
 class RestriccionEmpleado(models.Model):
     """Modelo para representar restricciones temporales de empleados."""
     empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)

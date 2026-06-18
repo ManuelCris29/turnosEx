@@ -30,6 +30,197 @@ from core.utils.json_responses import json_ok, json_error
 
 @method_decorator(csrf_exempt, name='dispatch')
 class ProcesarSolicitudView(LoginRequiredMixin, View):
+
+    def _advertencia_restriccion_generica(self, request, empleado_solicitante):
+        """
+        Devuelve un JsonResponse de ADVERTENCIA (no bloqueo) si el solicitante o algún
+        receptor tiene una restricción médica que solapa las fechas de la solicitud, y
+        aún no se confirmó. Devuelve None si no hay nada que advertir o ya se confirmó.
+        La sanción se sigue bloqueando aparte (no aquí).
+        """
+        if str(request.POST.get('confirmar_restriccion', '')).lower() in ('1', 'true', 'si', 'sí'):
+            return None
+        from empleados.models import RestriccionEmpleado
+        from django.db.models import Q as _Q
+        from datetime import datetime as _dt
+
+        # Fechas candidatas (cualquiera presente en el POST según el tipo)
+        campos = ['fecha_solicitud', 'fecha_cambio_turno', 'fecha_pago', 'fecha_inicio',
+                  'fecha_fin', 'fecha_pago_am', 'fecha_pago_pm', 'fecha_pago_semana']
+        fechas = []
+        for c in campos:
+            v = request.POST.get(c)
+            if v:
+                try:
+                    fechas.append(_dt.strptime(v, '%Y-%m-%d').date())
+                except (ValueError, TypeError):
+                    pass
+        if not fechas:
+            return None
+        fmin, fmax = min(fechas), max(fechas)
+
+        # Exploradores involucrados: solicitante + receptores presentes en el POST
+        receptor_ids = set()
+        for c in ['empleado_receptor', 'empleado_receptor_am', 'empleado_receptor_pm']:
+            v = request.POST.get(c)
+            if v:
+                receptor_ids.add(v)
+        emps, vistos = [empleado_solicitante], set()
+        for rid in receptor_ids:
+            try:
+                emps.append(Empleado.objects.get(id=rid))
+            except Empleado.DoesNotExist:
+                pass
+
+        advertencias = []
+        for emp in emps:
+            if emp.id in vistos:
+                continue
+            vistos.add(emp.id)
+            rs = RestriccionEmpleado.objects.filter(empleado=emp, fecha_inicio__lte=fmax).filter(
+                _Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=fmin)
+            )
+            for r in rs:
+                advertencias.append({
+                    'explorador': f"{emp.nombre} {emp.apellido}",
+                    'tipo': r.tipo_restriccion or 'Restricción',
+                    'nota': r.recomendacion or '—',
+                })
+        if advertencias:
+            return JsonResponse({
+                'success': False,
+                'code': 'advertencia_restriccion',
+                'message': 'Hay una restricción médica vigente en las fechas. Revisa la nota antes de continuar.',
+                'restricciones': advertencias,
+            }, status=400)
+        return None
+
+    def _procesar_doblada_permanente_multi(self, request, tipo_solicitud, empleado_solicitante, comentario):
+        """
+        Doblada permanente con VARIOS compañeros: agrupa los días por compañero y
+        crea una solicitud independiente por cada uno (como la "Cesión Total" de la
+        doblada normal). Valida TODAS antes de crear ninguna (todo o nada).
+        """
+        fecha_inicio = request.POST.get('fecha_inicio')
+        fecha_fin = request.POST.get('fecha_fin')
+        ces_dias = request.POST.getlist('cesion_dia')
+        ces_comps = request.POST.getlist('cesion_companero')
+        dev_dias = request.POST.getlist('devolucion_dia')
+        dev_comps = request.POST.getlist('devolucion_companero')
+
+        if not comentario or not comentario.strip():
+            return json_error('Ingresa un comentario.', status=400, code='missing_fields')
+
+        # Agrupar (día, compañero) por compañero
+        cesion_por_comp = {}
+        for dia, comp in zip(ces_dias, ces_comps):
+            if comp and str(dia) != '':
+                cesion_por_comp.setdefault(comp, set()).add(str(dia))
+        devol_por_comp = {}
+        for dia, comp in zip(dev_dias, dev_comps):
+            if comp and str(dia) != '':
+                devol_por_comp.setdefault(comp, set()).add(str(dia))
+
+        if not cesion_por_comp:
+            return json_error('Agrega al menos un día de cesión con su compañero', status=400, code='missing_fields')
+
+        # Devolución solo a quien te cubre, y balance por compañero
+        for comp in devol_por_comp:
+            if comp not in cesion_por_comp:
+                return json_error('Solo puedes devolverle a un compañero que te cubra.', status=400, code='validation_error')
+        for comp, dias_c in cesion_por_comp.items():
+            if len(devol_por_comp.get(comp, set())) != len(dias_c):
+                return json_error('A cada compañero debes devolverle la misma cantidad de días que te cubre.',
+                                  status=400, code='validation_error')
+
+        # ADVERTENCIA (no bloquea) por restricción médica del solicitante o de algún compañero.
+        # Si hay restricción y el usuario aún no confirmó, devolvemos el aviso con la nota.
+        confirmar_restriccion = str(request.POST.get('confirmar_restriccion', '')).lower() in ('1', 'true', 'si', 'sí')
+        if not confirmar_restriccion:
+            from empleados.models import RestriccionEmpleado
+            from django.db.models import Q as _Q
+            from datetime import datetime as _dt
+            try:
+                _fi = _dt.strptime(fecha_inicio, '%Y-%m-%d').date()
+                _ff = _dt.strptime(fecha_fin, '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                _fi = _ff = None
+            advertencias = []
+            if _fi and _ff:
+                emps = [empleado_solicitante]
+                for comp_id in cesion_por_comp:
+                    try:
+                        emps.append(Empleado.objects.get(id=comp_id))
+                    except Empleado.DoesNotExist:
+                        pass
+                vistos = set()
+                for emp in emps:
+                    if emp.id in vistos:
+                        continue
+                    vistos.add(emp.id)
+                    rs = RestriccionEmpleado.objects.filter(empleado=emp, fecha_inicio__lte=_ff).filter(
+                        _Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=_fi)
+                    )
+                    for r in rs:
+                        advertencias.append({
+                            'explorador': f"{emp.nombre} {emp.apellido}",
+                            'tipo': r.tipo_restriccion or 'Restricción',
+                            'nota': r.recomendacion or '—',
+                        })
+            if advertencias:
+                return JsonResponse({
+                    'success': False,
+                    'code': 'advertencia_restriccion',
+                    'message': 'Hay una restricción médica vigente en el rango. Revisa la nota antes de continuar.',
+                    'restricciones': advertencias,
+                }, status=400)
+
+        # Validar TODAS antes de crear ninguna
+        pendientes = []
+        for comp_id, dias_c in cesion_por_comp.items():
+            try:
+                receptor = Empleado.objects.get(id=comp_id)
+            except Empleado.DoesNotExist:
+                return json_error('Compañero no válido.', status=400, code='validation_error')
+            datos = {
+                'explorador_solicitante': empleado_solicitante,
+                'explorador_receptor': receptor,
+                'tipo_cambio': tipo_solicitud,
+                'comentario': comentario,
+                'fecha_inicio': fecha_inicio,
+                'fecha_fin': fecha_fin,
+                'dias_cesion': sorted(dias_c),
+                'dias_devolucion': sorted(devol_por_comp.get(comp_id, set())),
+                'fecha_creacion_solicitud': timezone.now().date(),
+            }
+            es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)
+            if not es_valida:
+                # Regla del sábado u otras que devuelven el código de cambio de turno previo
+                try:
+                    import json as _json
+                    err = _json.loads(mensaje)
+                    if isinstance(err, dict) and err.get('code') == 'requiere_cambio_turno_previo':
+                        return JsonResponse({'success': False, **err}, status=400)
+                except (ValueError, TypeError):
+                    pass
+                return json_error(f"{receptor.nombre} {receptor.apellido}: {mensaje}", status=400, code='validation_error')
+            pendientes.append((receptor, datos))
+
+        # Crear todas
+        creadas = 0
+        for receptor, datos in pendientes:
+            solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos)
+            if solicitud is None:
+                return json_error(f"Error creando la solicitud para {receptor.nombre}: {mensaje}",
+                                  status=400, code='creation_failed')
+            creadas += 1
+
+        msg = ('Doblada permanente solicitada. Se notificó al compañero y al supervisor.'
+               if creadas == 1 else
+               f'Se crearon {creadas} solicitudes de doblada permanente (una por compañero). '
+               f'Se notificó a cada uno y al supervisor.')
+        return json_ok({'message': msg, 'solicitudes_creadas': creadas}, status=201)
+
     def post(self, request):
         try:
             # Obtener datos del formulario
@@ -139,15 +330,13 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                 if not request.POST.get('fecha_pago'):
                     return json_error('La fecha de pago es obligatoria (otro fin de semana del mismo mes).', status=400, code='missing_fields')
             elif tipo_nombre == "DOBLADA PERMANENTE":
-                # Doblada permanente: receptor + rango + días de cesión y devolución
-                if not empleado_receptor_id:
-                    return json_error('Debe seleccionar el compañero que cubrirá la doblada', status=400, code='missing_fields')
+                # Doblada permanente (varios compañeros): rango + filas día+compañero
                 if not request.POST.get('fecha_inicio') or not request.POST.get('fecha_fin'):
                     return json_error('El rango de fechas (inicio y fin) es obligatorio', status=400, code='missing_fields')
-                if not request.POST.get('dias_cesion'):
-                    return json_error('Selecciona los días de la semana que cedes', status=400, code='missing_fields')
-                if not request.POST.get('dias_devolucion'):
-                    return json_error('Selecciona los días de la semana en que devolverás la doblada', status=400, code='missing_fields')
+                if not request.POST.getlist('cesion_companero'):
+                    return json_error('Agrega al menos un día de cesión con su compañero', status=400, code='missing_fields')
+                if not request.POST.getlist('devolucion_companero'):
+                    return json_error('Agrega al menos un día de devolución con su compañero', status=400, code='missing_fields')
             else:
                 # CT y otros tipos requieren: empleado_receptor, fecha_solicitud
                 if not empleado_receptor_id:
@@ -164,6 +353,18 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             _sancion = sancion_activa(empleado_solicitante)
             if _sancion:
                 return json_error(mensaje_sancion(_sancion), status=403, code='sancionado')
+
+            # DOBLADA PERMANENTE (varios compañeros): se agrupa por compañero y se crea
+            # una solicitud independiente por cada uno (como la "Cesión Total" de la doblada).
+            if tipo_nombre == "DOBLADA PERMANENTE":
+                return self._procesar_doblada_permanente_multi(
+                    request, tipo_solicitud, empleado_solicitante, comentario
+                )
+
+            # ADVERTENCIA (no bloqueo) por restricción médica — aplica a los demás tipos.
+            _adv = self._advertencia_restriccion_generica(request, empleado_solicitante)
+            if _adv is not None:
+                return _adv
 
             # Para D FDS, el receptor es el compañero seleccionado (no auto-solicitud)
             if tipo_nombre == "D FDS":
@@ -210,8 +411,9 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                 # Para DOBLADA, capturar fecha_pago y otros campos
                 fecha_pago = request.POST.get('fecha_pago')
                 jornada_cedida = request.POST.get('jornada_cedida')  # 'AM' o 'PM' (opcional)
-                jornada_pago_sabado = request.POST.get('jornada_pago_sabado')  # 'AM' o 'PM' (si fecha_pago es sábado)
+                jornada_pago_sabado = request.POST.get('jornada_pago_sabado')  # 'AM' | 'PM' | 'AMBAS' (si fecha_pago es sábado)
                 jornada_cubre_en_pago = request.POST.get('jornada_cubre_en_pago')  # AM | PM | AMBAS (receptor doblada en pago)
+                fecha_pago_semana = request.POST.get('fecha_pago_semana')  # solo si jornada_pago_sabado=AMBAS: día de devolución en semana
                 tipo_cesion = request.POST.get('tipo_cesion', 'cesion_completa')
                 
                 # CORRECCIÓN: Inferir jornada_cedida si no se proporcionó
@@ -411,6 +613,7 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                         'jornada_cedida': jornada_cedida,
                         'jornada_pago_sabado': jornada_pago_sabado,
                         'jornada_cubre_en_pago': jornada_cubre_en_pago,
+                        'fecha_pago_semana': fecha_pago_semana,
                         'tipo_cesion': tipo_cesion,
                         'fecha_creacion_solicitud': timezone.now().date()  # Para validación de fecha_pago
                     })

@@ -266,19 +266,16 @@ class CTPermanenteStrategy(SolicitudStrategy):
             dias_omitidos = []
             dias_procesados = 0
             
-            # Obtener las salas de cada empleado
-            from turnos.models import AsignarSalaExplorador
-            # Las salas son indefinidas por defecto (sin fecha_fin)
-            sala_solicitante = AsignarSalaExplorador.objects.filter(
-                explorador=solicitud.explorador_solicitante,
-                fecha_inicio__lte=detalle.fecha_inicio
-            ).order_by('-fecha_inicio').first()
-            
-            sala_receptor = AsignarSalaExplorador.objects.filter(
-                explorador=solicitud.explorador_receptor,
-                fecha_inicio__lte=detalle.fecha_inicio
-            ).order_by('-fecha_inicio').first()
-            
+            # Obtener la sala (especialidad) de cada empleado vía CompetenciaEmpleado
+            from empleados.models import CompetenciaEmpleado
+            sala_solicitante = CompetenciaEmpleado.objects.filter(
+                empleado=solicitud.explorador_solicitante
+            ).select_related('sala').first()
+
+            sala_receptor = CompetenciaEmpleado.objects.filter(
+                empleado=solicitud.explorador_receptor
+            ).select_related('sala').first()
+
             # Si no se encuentran salas asignadas, usar la primera sala disponible
             if not sala_solicitante:
                 from turnos.models import Sala
@@ -666,10 +663,10 @@ class CTPermanenteStrategy(SolicitudStrategy):
             return False
 
     def _es_mantenimiento(self, fecha):
-        """Verificar si es día de mantenimiento"""
+        """Verificar si es día de mantenimiento EFECTIVO (temporada manda sobre mantenimiento)."""
         try:
             from turnos.models import DiaEspecial
-            return DiaEspecial.objects.filter(fecha=fecha, tipo='mantenimiento', activo=True).exists()
+            return DiaEspecial.es_mantenimiento_efectivo(fecha)
         except:
             return False
     

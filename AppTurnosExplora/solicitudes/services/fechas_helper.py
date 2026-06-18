@@ -74,13 +74,9 @@ def analizar_fecha_solicitud(
     except Exception:
         pass
     
-    # Verificar mantenimiento
+    # Verificar mantenimiento EFECTIVO (la temporada manda sobre el mantenimiento)
     try:
-        resultado['es_mantenimiento'] = DiaEspecial.objects.filter(
-            fecha=fecha,
-            tipo='mantenimiento',
-            activo=True
-        ).exclude(es_temporada=True).exists()
+        resultado['es_mantenimiento'] = DiaEspecial.es_mantenimiento_efectivo(fecha)
         if resultado['es_mantenimiento']:
             resultado['razones_exclusion'].append('Mantenimiento')
     except Exception:

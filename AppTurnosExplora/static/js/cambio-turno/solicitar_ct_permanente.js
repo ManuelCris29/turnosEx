@@ -1688,6 +1688,24 @@ function enviarSolicitudCTPermanente() {
                 // Redirigir a la lista de solicitudes o dashboard
                 window.location.href = '/solicitudes/';
             });
+        } else if (window.RestriccionAdvertencia && data.code === 'advertencia_restriccion') {
+            // Advertencia (no bloqueo) por restricción médica: avisar y reenviar al confirmar
+            RestriccionAdvertencia.mostrar(data.restricciones, function () {
+                formData.set('confirmar_restriccion', '1');
+                fetch('/solicitudes/procesar-solicitud/', {
+                    method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                })
+                .then(r => r.json().catch(() => ({})))
+                .then(d2 => {
+                    if (d2 && d2.success) {
+                        Swal.fire({ icon: 'success', title: '¡Solicitud enviada!', text: d2.message || 'Solicitud enviada correctamente.' })
+                            .then(() => { window.location.href = '/solicitudes/'; });
+                    } else {
+                        Swal.fire({ icon: 'error', title: 'No se pudo enviar', text: (d2 && (d2.error || d2.message)) || 'Error al procesar la solicitud.' });
+                    }
+                })
+                .catch(() => Swal.fire({ icon: 'error', title: 'Error', text: 'Ocurrió un error de red.' }));
+            });
         } else {
             // Mostrar error
             Swal.fire({

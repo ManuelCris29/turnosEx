@@ -20,7 +20,24 @@ class DeudaCorporativaService:
     
     Responsabilidad única: Operaciones sobre deudas corporativas acumuladas.
     """
-    
+
+    @staticmethod
+    def aplica_deuda_doblada(fecha: date) -> bool:
+        """
+        Regla de negocio: los 30 minutos de deuda corporativa por doblada solo
+        aplican de LUNES A VIERNES. Los sábados, domingos y festivos NO generan
+        deuda, porque ese día se trabaja una jornada completa de todos modos.
+        """
+        if fecha.weekday() >= 5:  # 5=sábado, 6=domingo
+            return False
+        try:
+            from solicitudes.services.ct_permanente_helper import _es_festivo
+            if _es_festivo(fecha):
+                return False
+        except Exception:
+            pass
+        return True
+
     @staticmethod
     def crear_deuda_corporativa(
         explorador: Empleado,
@@ -132,90 +149,3 @@ class DeudaCorporativaService:
             solicitud_origen=solicitud
         ).select_related('explorador')
     
-    @staticmethod
-    def generar_deuda_fin_semana_predeterminado(explorador: Empleado, fecha: date) -> Optional[DeudaCorporativa]:
-        """
-        Genera deuda corporativa para una doblada predeterminada de sábado o domingo.
-        
-        IMPORTANTE: Solo genera si el explorador REALMENTE trabaja la doblada completa (AM+PM).
-        Si por algún cambio de turno queda con media jornada, NO genera deuda.
-        
-        Solo genera si:
-        1. Es sábado o domingo
-        2. Le corresponde trabajar según alternancia
-        3. Tiene AM+PM en BD (doblada completa) - Si solo tiene AM o PM, NO genera
-        4. No existe ya una deuda para esa fecha
-        
-        Args:
-            explorador: Explorador que trabaja el fin de semana
-            fecha: Fecha del sábado o domingo
-        
-        Returns:
-            DeudaCorporativa creada o None si ya existe o no aplica
-        """
-        # Verificar que es sábado o domingo
-        if fecha.weekday() not in [5, 6]:  # 5 = Sábado, 6 = Domingo
-            return None
-        
-        # Verificar que le corresponde trabajar según alternancia
-        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-        if fecha.weekday() == 5:  # Sábado
-            jornada_trabaja = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha)
-        else:  # Domingo
-            jornada_trabaja = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha)
-        
-        if not jornada_trabaja:
-            return None
-        
-        # Verificar jornada del explorador
-        from turnos.services.jornada_service import JornadaService
-        jornada_explorador = JornadaService.get_jornada_explorador_fecha(
-            explorador.id, fecha.strftime('%Y-%m-%d')
-        )
-        if not jornada_explorador or jornada_explorador.nombre.upper() != jornada_trabaja.upper():
-            return None
-        
-        # ✅ REGLA CRÍTICA: Verificar que tiene AM+PM en BD (doblada completa)
-        # Si solo tiene AM o solo PM, NO generar deuda (alguien más trabajó media jornada)
-        from turnos.models import Turno
-        turnos_sabado = Turno.objects.filter(
-            explorador=explorador,
-            fecha=fecha
-        ).select_related('jornada')
-        
-        jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_sabado if t.jornada]
-        tiene_am = 'AM' in jornadas_turnos
-        tiene_pm = 'PM' in jornadas_turnos
-        tiene_doblada_completa = tiene_am and tiene_pm
-        
-        # Si NO tiene doblada completa, NO generar deuda
-        if not tiene_doblada_completa:
-            logger.info(
-                f"No se genera deuda para {explorador.nombre} en {fecha}: "
-                f"tiene jornadas {jornadas_turnos} (no es doblada completa AM+PM)"
-            )
-            return None
-        
-        # Verificar si ya existe deuda para esta fecha
-        deuda_existente = DeudaCorporativa.objects.filter(
-            explorador=explorador,
-            fecha_doblada=fecha,
-            estado='activa',
-            solicitud_origen__isnull=True  # Solo deudas de sábados predeterminados
-        ).first()
-        
-        if deuda_existente:
-            return deuda_existente  # Ya existe, retornar la existente
-        
-        # Crear nueva deuda corporativa (solo si tiene doblada completa)
-        dia_semana = 'sábado' if fecha.weekday() == 5 else 'domingo'
-        return DeudaCorporativaService.crear_deuda_corporativa(
-            explorador=explorador,
-            minutos=30,
-            fecha_generacion=fecha,
-            fecha_doblada=fecha,
-            solicitud=None,  # No hay solicitud para dobladas predeterminadas
-            comentario=f'Doblada predeterminada de {dia_semana} (alternancia) - {fecha.strftime("%d/%m/%Y")}'
-        )
-
-

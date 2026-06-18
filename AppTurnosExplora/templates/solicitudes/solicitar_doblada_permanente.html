@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<link rel="stylesheet" href="{% static 'css/cambio-turno/dias_especiales_datepicker.css' %}">
 <style>
     .solicitud-layout { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
     .solicitud-card { background:#fff; border-radius:12px; box-shadow:0 8px 24px rgba(15,23,42,.08); overflow:hidden; }
@@ -71,36 +72,23 @@
                 </div>
 
                 <div class="form-group box-cesion">
-                    <label><i class="fas fa-hand-paper mr-1"></i>Días que <strong>cedes</strong> (te cubre el compañero) <span class="text-danger">*</span></label>
-                    <div class="dias-grid" id="dias_cesion_grid">
-                        <label><input type="checkbox" name="dias_cesion" value="0"> Lunes</label>
-                        <label><input type="checkbox" name="dias_cesion" value="1"> Martes</label>
-                        <label><input type="checkbox" name="dias_cesion" value="2"> Miércoles</label>
-                        <label><input type="checkbox" name="dias_cesion" value="3"> Jueves</label>
-                        <label><input type="checkbox" name="dias_cesion" value="4"> Viernes</label>
-                        <label><input type="checkbox" name="dias_cesion" value="5"> Sábado</label>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label for="empleado_receptor"><i class="fas fa-user mr-1"></i>Compañero que te cubrirá <span class="text-danger">*</span></label>
-                    <select class="form-control" id="empleado_receptor" name="empleado_receptor" required disabled>
-                        <option value="">Primero elige la fecha de inicio…</option>
-                    </select>
-                    <small class="form-text text-muted">Solo compañeros con jornada contraria a la tuya.</small>
+                    <label><i class="fas fa-hand-paper mr-1"></i>Días que <strong>cedes</strong> (te cubre un compañero) <span class="text-danger">*</span></label>
+                    <p class="small text-muted mb-2">Por cada día elige el compañero (de jornada contraria) que te cubrirá. Puede ser el mismo o uno distinto por día.</p>
+                    <div id="cesion_rows"></div>
+                    <button type="button" class="btn btn-sm btn-outline-success" id="btn_add_cesion" disabled>
+                        <i class="fas fa-plus"></i> Agregar día de cesión
+                    </button>
+                    <small class="form-text text-muted" id="cesion_hint">Primero elige la fecha de inicio para cargar los compañeros.</small>
                 </div>
 
                 <div class="form-group box-devol">
-                    <label><i class="fas fa-exchange-alt mr-1"></i>Días en que <strong>devuelves</strong> (tú te doblas) <span class="text-danger">*</span></label>
-                    <div class="dias-grid" id="dias_devolucion_grid">
-                        <label><input type="checkbox" name="dias_devolucion" value="0"> Lunes</label>
-                        <label><input type="checkbox" name="dias_devolucion" value="1"> Martes</label>
-                        <label><input type="checkbox" name="dias_devolucion" value="2"> Miércoles</label>
-                        <label><input type="checkbox" name="dias_devolucion" value="3"> Jueves</label>
-                        <label><input type="checkbox" name="dias_devolucion" value="4"> Viernes</label>
-                        <label><input type="checkbox" name="dias_devolucion" value="5"> Sábado</label>
-                    </div>
-                    <small class="form-text text-muted">Un mismo día no puede ser de cesión y de devolución.</small>
+                    <label><i class="fas fa-exchange-alt mr-1"></i>Días en que <strong>devuelves</strong> (tú te doblas para pagar) <span class="text-danger">*</span></label>
+                    <p class="small text-muted mb-2">A cada compañero le devuelves la <strong>misma cantidad de días</strong> que te cubrió. Un día no puede ser de cesión y de devolución a la vez.</p>
+                    <div id="devolucion_rows"></div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="btn_add_devolucion" disabled>
+                        <i class="fas fa-plus"></i> Agregar día de devolución
+                    </button>
+                    <small class="form-text text-muted">Solo puedes devolverle a un compañero que te cubra.</small>
                 </div>
 
                 <div class="form-group">
@@ -125,5 +113,7 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+<script src="{% static 'js/festivos_colombia.js' %}"></script>
+<script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/solicitar_doblada_permanente.js' %}"></script>
 {% endblock %}

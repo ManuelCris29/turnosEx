@@ -21,31 +21,6 @@ class AsignarJornadaExplorador(models.Model):
     def __str__(self):
         return f"{self.explorador.user.username} - {self.jornada.nombre}" #type:ignore
 
-class AsignarSalaExplorador(models.Model):
-    """Modelo para asignar salas a exploradores por períodos."""
-    explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
-    sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
-    fecha_inicio = models.DateField()
-    fecha_fin = models.DateField(null=True, blank=True)
-    historial = HistoricalRecords()
-    
-    class Meta:
-        verbose_name = 'Asignación de Sala a Explorador'
-        verbose_name_plural = 'Asignaciones de Sala a Exploradores'
-        ordering = ['-fecha_inicio', 'explorador']
-        indexes = [
-            models.Index(fields=['explorador', 'fecha_inicio'], name='asig_sala_exp_fecha_idx'),
-            models.Index(fields=['sala'], name='asig_sala_sala_idx'),
-        ]
-    
-    def clean(self):
-        from django.core.exceptions import ValidationError
-        if self.fecha_fin and self.fecha_fin < self.fecha_inicio:
-            raise ValidationError('La fecha de fin debe ser posterior a la fecha de inicio.')
-
-    def __str__(self):
-        return f"{self.explorador.user.username} - {self.sala.nombre}" #type:ignore
-
 class Turno(models.Model):
     explorador= models.ForeignKey(Empleado, on_delete=models.CASCADE)
     fecha= models.DateField()
@@ -97,7 +72,31 @@ class DiaEspecial(models.Model):
     def get_mes(self):
         """Retorna el mes de la fecha"""
         return self.fecha.month if self.fecha else None
-    
+
+    @classmethod
+    def es_temporada_en(cls, fecha):
+        """True si la fecha cae dentro de un día de temporada activo."""
+        try:
+            return cls.objects.filter(fecha=fecha, es_temporada=True, activo=True).exists()
+        except Exception:
+            return False
+
+    @classmethod
+    def es_mantenimiento_efectivo(cls, fecha):
+        """
+        True si la fecha es día de mantenimiento EFECTIVO.
+
+        Regla de negocio: la temporada tiene prioridad sobre el mantenimiento.
+        Un lunes (u otro día) marcado como mantenimiento que cae dentro de un
+        rango de temporada NO se considera mantenimiento, porque la temporada manda.
+        """
+        try:
+            if cls.es_temporada_en(fecha):
+                return False
+            return cls.objects.filter(fecha=fecha, tipo='mantenimiento', activo=True).exists()
+        except Exception:
+            return False
+
     def __str__(self):
         tipo_str = f" - {self.tipo}"
         if self.es_temporada:

@@ -216,22 +216,19 @@ class SolicitudValidator:
             
             if isinstance(fecha, str):
                 fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
-            
-            # Verificar si es día de mantenimiento activo
-            es_mantenimiento = DiaEspecial.objects.filter(
-                fecha=fecha,
-                tipo='mantenimiento',
-                activo=True
-            ).exclude(es_temporada=True).exists()
-            
+
+            # Verificar si es día de mantenimiento EFECTIVO.
+            # La temporada manda: si la fecha cae en temporada, NO se considera mantenimiento.
+            es_mantenimiento = DiaEspecial.es_mantenimiento_efectivo(fecha)
+
             if es_mantenimiento:
                 # Obtener descripción del día de mantenimiento para mensaje más informativo
                 dia_mantenimiento = DiaEspecial.objects.filter(
                     fecha=fecha,
                     tipo='mantenimiento',
                     activo=True
-                ).exclude(es_temporada=True).first()
-                
+                ).first()
+
                 descripcion = dia_mantenimiento.descripcion if dia_mantenimiento and dia_mantenimiento.descripcion else 'Día de mantenimiento'
                 raise ValidationError(f'No se pueden realizar cambios de turno en días de mantenimiento. {descripcion}')
                 
@@ -1057,11 +1054,8 @@ class SolicitudValidator:
         if fecha_obj.weekday() == 6:
             raise ValidationError('No se puede realizar doblada en domingos')
 
-        if DiaEspecial.objects.filter(
-            fecha=fecha_obj,
-            tipo='mantenimiento',
-            activo=True
-        ).exists():
+        # La temporada manda: un día de mantenimiento que cae en temporada NO es mantenimiento.
+        if DiaEspecial.es_mantenimiento_efectivo(fecha_obj):
             raise ValidationError('No se puede realizar doblada en días de mantenimiento')
 
         # NOTA: Días de temporada y festivos de semana están permitidos para doblada

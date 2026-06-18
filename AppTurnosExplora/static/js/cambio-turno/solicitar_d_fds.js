@@ -154,38 +154,48 @@
             return;
         }
 
-        const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
-        const fd = new FormData(form);
+        enviar(false);
 
-        btnEnviar.disabled = true;
-        btnEnviar.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
+        function restablecer() {
+            btnEnviar.disabled = false;
+            btnEnviar.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
+        }
 
-        fetch(URL_PROCESAR, {
-            method: 'POST',
-            headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' },
-            body: fd,
-        })
-            .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
-            .then(({ ok, data }) => {
-                const success = ok && (data.success !== false);
-                if (success) {
-                    const msg = (data.data && data.data.message) || data.message ||
-                        'Solicitud de doblada de fin de semana enviada correctamente.';
-                    notificar('success', '¡Solicitud enviada!', msg).then(() => {
-                        window.location.href = '/solicitudes/mis-solicitudes/';
-                    });
-                } else {
-                    const msg = data.error || data.message ||
-                        'No se pudo procesar la solicitud.';
-                    notificar('error', 'No se pudo enviar', msg);
-                    btnEnviar.disabled = false;
-                    btnEnviar.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
-                }
+        function enviar(confirmarRestriccion) {
+            const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
+            const fd = new FormData(form);
+            if (confirmarRestriccion) fd.set('confirmar_restriccion', '1');
+
+            btnEnviar.disabled = true;
+            btnEnviar.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
+
+            fetch(URL_PROCESAR, {
+                method: 'POST',
+                headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                body: fd,
             })
-            .catch(() => {
-                notificar('error', 'Error', 'Ocurrió un error de red. Intenta de nuevo.');
-                btnEnviar.disabled = false;
-                btnEnviar.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
-            });
+                .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+                .then(({ ok, data }) => {
+                    const success = ok && (data.success !== false);
+                    if (success) {
+                        const msg = (data.data && data.data.message) || data.message ||
+                            'Solicitud de doblada de fin de semana enviada correctamente.';
+                        notificar('success', '¡Solicitud enviada!', msg).then(() => {
+                            window.location.href = '/solicitudes/mis-solicitudes/';
+                        });
+                    } else if (window.RestriccionAdvertencia &&
+                               RestriccionAdvertencia.manejar(data, function () { enviar(true); }, restablecer)) {
+                        return;  // advertencia de restricción: ya se mostró el aviso
+                    } else {
+                        const msg = data.error || data.message || 'No se pudo procesar la solicitud.';
+                        notificar('error', 'No se pudo enviar', msg);
+                        restablecer();
+                    }
+                })
+                .catch(() => {
+                    notificar('error', 'Error', 'Ocurrió un error de red. Intenta de nuevo.');
+                    restablecer();
+                });
+        }
     });
 })();

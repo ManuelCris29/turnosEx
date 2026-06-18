@@ -863,6 +863,8 @@ function inicializarDatepickerFestivos(config) {
                 }]),
                 function(date) {
                     const fechaStr = date.toISOString().split('T')[0];
+                    // La temporada manda: un día de mantenimiento que cae en temporada NO se bloquea.
+                    if (fechasTemporada.includes(fechaStr)) return false;
                     return fechasMantenimiento.includes(fechaStr);
                 },
                 // Temporada: solo bloquear si NO se permite seleccionarlos (CT Permanente no permite)

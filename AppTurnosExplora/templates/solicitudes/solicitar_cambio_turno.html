@@ -8,6 +8,7 @@
 <!-- Flatpickr CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<link rel="stylesheet" href="{% static 'css/cambio-turno/dias_especiales_datepicker.css' %}">
 <style>
     .solicitud-layout {
         max-width: 960px;
@@ -82,117 +83,8 @@
         }
     }
 
-    /* Ocultar días de mes anterior/siguiente sin romper la cuadrícula (visibility, no display:none). */
-    .flatpickr-day.prevMonthDay,
-    .flatpickr-day.nextMonthDay,
-    .flatpickr-day.flatpickr-prevMonth,
-    .flatpickr-day.flatpickr-nextMonth {
-        visibility: hidden !important;
-        pointer-events: none !important;
-    }
-    /* Domingos bloqueados: distintivo para que se vea que es domingo */
-    .flatpickr-day.flatpickr-disabled.domingo {
-        background-color: #e0e0e0 !important;
-        color: #757575 !important;
-        cursor: not-allowed !important;
-    }
-    .flatpickr-day.flatpickr-disabled.domingo::after {
-        content: 'D';
-        position: absolute;
-        top: 2px;
-        right: 2px;
-        font-size: 9px;
-        font-weight: bold;
-        color: #757575;
-    }
-    .flatpickr-day.flatpickr-disabled {
-        background-color: #f5f5f5 !important;
-        color: #ccc !important;
-        cursor: not-allowed !important;
-    }
-    /* Estilos personalizados para días festivos en Flatpickr */
-    .flatpickr-day.festivo {
-        background-color: #ff6b6b !important;
-        color: white !important;
-        font-weight: bold;
-        border-color: #ff5252 !important;
-    }
-    .flatpickr-day.festivo:hover {
-        background-color: #ff5252 !important;
-    }
-    .flatpickr-day.festivo.selected {
-        background-color: #e53935 !important;
-        border-color: #e53935 !important;
-    }
-    /* Tooltip para festivos */
-    .flatpickr-day.festivo::after {
-        content: '🎉';
-        position: absolute;
-        top: 2px;
-        right: 2px;
-        font-size: 10px;
-    }
-    
-    /* Estilos personalizados para días de mantenimiento en Flatpickr */
-    .flatpickr-day.mantenimiento {
-        background-color: #ff9800 !important;
-        color: white !important;
-        font-weight: bold;
-        border-color: #f57c00 !important;
-    }
-    .flatpickr-day.mantenimiento:hover {
-        background-color: #f57c00 !important;
-    }
-    .flatpickr-day.mantenimiento.selected {
-        background-color: #e65100 !important;
-        border-color: #e65100 !important;
-    }
-    /* Si un día es tanto festivo como mantenimiento, priorizar mantenimiento */
-    .flatpickr-day.festivo.mantenimiento {
-        background-color: #ff9800 !important;
-        border-color: #f57c00 !important;
-    }
-    /* Tooltip para mantenimiento */
-    .flatpickr-day.mantenimiento::after {
-        content: '🔧';
-        position: absolute;
-        top: 2px;
-        right: 2px;
-        font-size: 10px;
-    }
-    
-    /* Estilos personalizados para días de temporada en Flatpickr */
-    .flatpickr-day.temporada {
-        background-color: #2196f3 !important;
-        color: white !important;
-        font-weight: bold;
-        border-color: #1976d2 !important;
-    }
-    .flatpickr-day.temporada:hover {
-        background-color: #1976d2 !important;
-    }
-    .flatpickr-day.temporada.selected {
-        background-color: #1565c0 !important;
-        border-color: #1565c0 !important;
-    }
-    /* Si un día es tanto festivo como temporada, priorizar festivo */
-    .flatpickr-day.festivo.temporada {
-        background-color: #ff6b6b !important;
-        border-color: #ff5252 !important;
-    }
-    /* Si un día es tanto mantenimiento como temporada, priorizar mantenimiento */
-    .flatpickr-day.mantenimiento.temporada {
-        background-color: #ff9800 !important;
-        border-color: #f57c00 !important;
-    }
-    /* Tooltip para temporada */
-    .flatpickr-day.temporada::after {
-        content: '📅';
-        position: absolute;
-        top: 2px;
-        right: 2px;
-        font-size: 10px;
-    }
+    /* Marcadores de festivos/mantenimiento/temporada/domingo:
+       en css/cambio-turno/dias_especiales_datepicker.css (compartido). */
 </style>
 {% endblock %}
 
@@ -391,5 +283,6 @@ window.solicitanteId = {{ request.user.empleado.id }};
 <script src="{% static 'js/festivos_colombia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
+<script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/solicitar_cambio_turno.js' %}"></script>
 {% endblock %} 

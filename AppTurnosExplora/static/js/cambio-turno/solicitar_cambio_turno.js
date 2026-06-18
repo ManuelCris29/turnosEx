@@ -361,23 +361,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 } else {
                     // No es día de mantenimiento, proceder con el envío
-                    procederConEnvio(form);
+                    procederConEnvio(form, false);
                 }
             }).catch(error => {
                 console.error('Error verificando día de mantenimiento:', error);
                 // En caso de error, proceder con el envío (la validación backend lo manejará)
-                procederConEnvio(form);
+                procederConEnvio(form, false);
             });
         } else {
             // Si no se puede verificar, proceder con el envío (la validación backend lo manejará)
-            procederConEnvio(form);
+            procederConEnvio(form, false);
         }
     }
     
     // Función auxiliar para proceder con el envío del formulario
-    function procederConEnvio(form) {
+    function procederConEnvio(form, confirmarRestriccion) {
         const formData = new FormData(form);
-        
+        if (confirmarRestriccion) formData.set('confirmar_restriccion', '1');
+
         // Mostrar indicador de carga
         const submitButton = form.querySelector('button[type="submit"]');
         const originalText = submitButton.innerHTML;
@@ -412,6 +413,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Redirigir a la lista de solicitudes o dashboard
                     window.location.href = '/solicitudes/';
                 });
+            } else if (window.RestriccionAdvertencia &&
+                       RestriccionAdvertencia.manejar(data, function () { procederConEnvio(form, true); })) {
+                // Advertencia (no bloqueo) por restricción médica: ya se mostró el aviso.
+                return;
             } else {
                 // Mostrar error
                 const mensajeError = data.error || 'Ocurrió un error al procesar la solicitud';

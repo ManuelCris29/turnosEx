@@ -15,12 +15,12 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada
+from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from solicitudes.models import (
     SolicitudCambio, TipoSolicitudCambio, DobladaDetalle,
     DeudaExplorador, DeudaCorporativa,
 )
-from turnos.models import Turno, AsignarJornadaExplorador, Sala, AsignarSalaExplorador
+from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from solicitudes.services.strategies.d_fds_strategy import DFDSStrategy
 
@@ -79,9 +79,9 @@ class DFDSBaseTest(TestCase):
         self.receptor = Empleado.objects.create(user=self.u_rec, nombre='Rec', apellido='Dos', cedula='222', activo=True)
         AsignarJornadaExplorador.objects.create(explorador=self.receptor, jornada=self.am, fecha_inicio=date(2025, 1, 1))
 
-        # Sala asignada a ambos (necesaria para crear turnos de doblada)
-        AsignarSalaExplorador.objects.create(explorador=self.solicitante, sala=self.sala, fecha_inicio=date(2025, 1, 1))
-        AsignarSalaExplorador.objects.create(explorador=self.receptor, sala=self.sala, fecha_inicio=date(2025, 1, 1))
+        # Sala (especialidad) de ambos vía competencia — necesaria para crear turnos de doblada
+        CompetenciaEmpleado.objects.create(empleado=self.solicitante, sala=self.sala)
+        CompetenciaEmpleado.objects.create(empleado=self.receptor, sala=self.sala)
 
         self.strat = DFDSStrategy()
         self.ces, self.pago = _fechas_fds('PM', 'AM')

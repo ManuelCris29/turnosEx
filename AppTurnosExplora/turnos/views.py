@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
 from core.mixins import AdminRequiredMixin
-from .models import Turno, DiaEspecial, AsignarSalaExplorador, AsignarJornadaExplorador
+from .models import Turno, DiaEspecial, AsignarJornadaExplorador
 from .forms import TemporadasAnualForm, DiasEspecialesAnualForm
 from .services.temporada_service import TemporadaService
 from .services.dia_especial_service import DiaEspecialService

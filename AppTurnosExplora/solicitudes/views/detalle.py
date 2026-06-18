@@ -176,7 +176,28 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         datos['fechas']['fecha_doblada'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
                         datos['informacion_adicional']['minutos_deuda'] = detalle.minutos_deuda
                         datos['informacion_adicional']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
-                        
+
+                        # Tipo de cesión y jornada cedida
+                        _tc = {
+                            'cesion_completa': 'Completa (AM y PM)',
+                            'cesion_parcial_am': 'Parcial AM',
+                            'cesion_parcial_pm': 'Parcial PM',
+                        }.get(detalle.tipo_cesion, detalle.tipo_cesion)
+                        datos['informacion_adicional']['tipo_cesion'] = _tc
+                        if detalle.jornada_cedida:
+                            datos['informacion_adicional']['jornada_cedida'] = detalle.jornada_cedida.upper()
+
+                        # Pago en sábado (AM / PM / AMBAS) y, si es AMBAS, el día de pago en semana
+                        if getattr(detalle, 'jornada_pago_sabado', None):
+                            jps = detalle.jornada_pago_sabado.upper()
+                            datos['informacion_adicional']['pago_sabado'] = {
+                                'AM': 'Cubres la jornada AM ese sábado (el compañero conserva PM)',
+                                'PM': 'Cubres la jornada PM ese sábado (el compañero conserva AM)',
+                                'AMBAS': 'Cubres el día completo (AM+PM); el compañero descansa y te devuelve media jornada en semana',
+                            }.get(jps, jps)
+                        if getattr(detalle, 'fecha_pago_semana', None):
+                            datos['informacion_adicional']['fecha_pago_semana'] = detalle.fecha_pago_semana.strftime('%d/%m/%Y')
+
                         # Analizar fecha para mostrar información detallada
                         if solicitud.fecha_cambio_turno:
                             from ..services.fechas_helper import obtener_informacion_fecha_para_detalle
@@ -224,6 +245,24 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 except Exception as e:
                     logger.error(f"Error obteniendo detalles de D FDS: {e}")
             
+            # DOBLADA PERMANENTE (acuerdo recurrente por días de la semana)
+            elif tipo_nombre == 'DOBLADA PERMANENTE':
+                try:
+                    detalle = solicitud.doblada_permanente
+                    if detalle:
+                        datos['fechas']['inicio'] = detalle.fecha_inicio.strftime('%d/%m/%Y')
+                        datos['fechas']['fin'] = detalle.fecha_fin.strftime('%d/%m/%Y') if detalle.fecha_fin else 'Sin fecha de fin'
+                        datos['informacion_adicional']['dias_cesion'] = detalle.dias_cesion_legible() or '—'
+                        datos['informacion_adicional']['dias_devolucion'] = detalle.dias_devolucion_legible() or '—'
+                        datos['informacion_adicional']['nota'] = (
+                            'El compañero (receptor) te cubre doblándose en tus días de cesión, y tú le devuelves '
+                            'doblándote en los días de devolución, durante el rango indicado. '
+                            'No aplica domingos, festivos ni días de mantenimiento.'
+                        )
+                except Exception as e:
+                    logger.error(f"Error obteniendo detalles de DOBLADA PERMANENTE: {e}")
+                    datos['fechas']['error'] = 'No se pudieron obtener los detalles de la doblada permanente'
+
             # CT (Cambio Turno normal) y otros tipos
             else:
                 if solicitud.fecha_cambio_turno:

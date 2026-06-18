@@ -74,6 +74,7 @@ class IndicadoresService:
     def _ocurrencias_doblada_perm(solicitud, anio, hasta):
         """Fechas reales de doblada de una doblada permanente dentro del año (cesión + devolución)."""
         from solicitudes.services.ct_permanente_helper import _es_festivo
+        from turnos.models import DiaEspecial
         det = getattr(solicitud, 'doblada_permanente', None)
         if not det:
             return []
@@ -86,7 +87,9 @@ class IndicadoresService:
         d = max(det.fecha_inicio, date(anio, 1, 1))
         fin = min(det.fecha_fin, date(anio, 12, 31), hasta)
         while d <= fin:
-            if d.weekday() in dias and d.weekday() != 6 and not _es_festivo(d):
+            if (d.weekday() in dias and d.weekday() != 6
+                    and not _es_festivo(d)
+                    and not DiaEspecial.es_mantenimiento_efectivo(d)):
                 res.append(d)
             d += timedelta(days=1)
         return res
