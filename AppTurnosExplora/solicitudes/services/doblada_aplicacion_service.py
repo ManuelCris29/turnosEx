@@ -937,7 +937,18 @@ class DobladaAplicacionService:
             fecha_doblada=fecha_pago,
             comentario=f'Doblada efectiva en fecha de pago ({fecha_pago})'
         )
-        
+
+        # Pago en sábado AMBAS: el día de pago en semana el RECEPTOR dobla en un día de semana
+        # (cambia un sábado por un día de semana) → sí genera 30 min para el receptor.
+        if (fecha_pago.weekday() == 5
+                and (getattr(detalle, 'jornada_pago_sabado', '') or '').upper() == 'AMBAS'
+                and getattr(detalle, 'fecha_pago_semana', None)):
+            _registrar_deuda_corporativa_si_doblada(
+                explorador=receptor,
+                fecha_doblada=detalle.fecha_pago_semana,
+                comentario=f'Doblada efectiva (pago en semana del sábado AMBAS) ({detalle.fecha_pago_semana})'
+            )
+
         logger.info(
             f"Deudas generadas: Solicitud {solicitud.id} - "
             f"Deuda entre {solicitante.nombre} y {receptor.nombre}, "

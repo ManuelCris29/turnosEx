@@ -50,8 +50,17 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
 
     @staticmethod
     def _grupo_base(explorador, fecha):
-        j = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
-        return j.nombre.upper() if j else None
+        # Grupo base (AM/PM) por ASIGNACIÓN de jornada, NO por el turno del día.
+        # (En sábados/dobladas el turno del día no representa el grupo del explorador.)
+        from turnos.models import AsignarJornadaExplorador
+        asg = (
+            AsignarJornadaExplorador.objects
+            .filter(explorador=explorador, fecha_inicio__lte=fecha)
+            .select_related('jornada')
+            .order_by('-fecha_inicio')
+            .first()
+        )
+        return asg.jornada.nombre.upper() if asg else None
 
     # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
@@ -174,27 +183,34 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             # ===========================
             # Regla del sábado
             # ===========================
-            # El sábado solo se admite si AMBOS exploradores tienen UNA sola jornada
-            # (media jornada AM o PM) ese día. Si hay doblada (día completo) o no tienen
-            # turno, se bloquea: primero hay que hacer una doblada normal (día de semana
-            # por sábado) para dejar ese sábado con una sola jornada.
+            # El sábado solo se admite si la persona que CEDE su jornada ese día tiene UNA
+            # sola jornada (media jornada AM o PM):
+            #   - Si el sábado es de CESIÓN  → el SOLICITANTE cede (el compañero lo cubre).
+            #   - Si el sábado es de DEVOLUCIÓN → el COMPAÑERO cede (el solicitante lo cubre).
+            # Si esa persona tiene doblada (día completo) o no tiene turno, se bloquea:
+            # primero hay que hacer una doblada normal (día de semana por sábado) para dejar
+            # ese sábado con una sola jornada.
             if 5 in dias_cesion or 5 in dias_devolucion:
                 from turnos.models import Turno
                 from datetime import timedelta
+                if 5 in dias_cesion:
+                    exp_sab, etiqueta = solicitante, 'tú cedes'
+                else:
+                    exp_sab, etiqueta = receptor, 'el compañero cede'
                 d = fi
                 while d <= ff:
                     if d.weekday() == 5:
-                        for exp, etiqueta in ((solicitante, 'tú'), (receptor, 'el compañero')):
-                            n = Turno.objects.filter(explorador=exp, fecha=d).count()
-                            if n != 1:
-                                razon = ('tiene doblada (día completo)' if n >= 2
-                                         else 'no tiene una sola jornada asignada')
-                                return False, (
-                                    f"El sábado {d.strftime('%d/%m/%Y')} {etiqueta} {razon}. "
-                                    f"La doblada permanente solo admite sábados cuando se tiene UNA sola jornada "
-                                    f"(media jornada AM o PM). Primero realiza una doblada normal (día de semana por "
-                                    f"sábado) para dejar ese sábado con una sola jornada, respetando la alternancia."
-                                )
+                        n = Turno.objects.filter(explorador=exp_sab, fecha=d).count()
+                        if n != 1:
+                            razon = ('ese día hay doblada (día completo)' if n >= 2
+                                     else 'ese día no hay una sola jornada asignada')
+                            return False, (
+                                f"El sábado {d.strftime('%d/%m/%Y')} {etiqueta} pero {razon}. "
+                                f"La doblada permanente solo admite sábados cuando quien cede tiene UNA sola "
+                                f"jornada (media jornada AM o PM). Primero se debe hacer una doblada normal "
+                                f"(día de semana por sábado) para dejar ese sábado con una sola jornada, "
+                                f"o elige otro día/compañero."
+                            )
                     d += timedelta(days=1)
 
             return True, "Solicitud de doblada permanente válida"

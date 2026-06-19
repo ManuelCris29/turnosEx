@@ -28,7 +28,7 @@ class TurnoServiceTest(TestCase):
         # Crear sala
         self.sala = Sala.objects.create(
             nombre='Sala Test',
-            activa=True
+            activo=True
         )
         
         # Crear usuarios y empleados

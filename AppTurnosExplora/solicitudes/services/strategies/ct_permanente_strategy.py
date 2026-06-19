@@ -305,14 +305,20 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 es_mantenimiento = self._es_mantenimiento(fecha_actual)
                 es_descanso_solicitante = self._es_dia_descanso(solicitud.explorador_solicitante, fecha_actual)
                 es_descanso_receptor = self._es_dia_descanso(solicitud.explorador_receptor, fecha_actual)
-                
+                # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada
+                # predeterminada, por lo que el CT permanente NO puede aplicarse ese día.
+                tipo_previo_solicitante = self._tipo_cambio_previo(solicitud.explorador_solicitante, fecha_actual)
+                tipo_previo_receptor = self._tipo_cambio_previo(solicitud.explorador_receptor, fecha_actual)
+
                 # Determinar si el día es válido
-                es_valido = (not es_sabado and 
-                            not es_domingo and 
-                            not es_festivo and 
+                es_valido = (not es_sabado and
+                            not es_domingo and
+                            not es_festivo and
                             not es_mantenimiento and
                             not es_descanso_solicitante and
-                            not es_descanso_receptor)
+                            not es_descanso_receptor and
+                            not tipo_previo_solicitante and
+                            not tipo_previo_receptor)
                 
                 if es_valido:
                     # Crear turnos solo para días válidos
@@ -337,13 +343,15 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 else:
                     # Registrar día omitido con razón específica
                     razon = self._obtener_razon_dia_invalido_detallada(
-                        fecha_actual, 
+                        fecha_actual,
                         es_sabado,
-                        es_domingo, 
-                        es_festivo, 
+                        es_domingo,
+                        es_festivo,
                         es_mantenimiento,
                         es_descanso_solicitante,
-                        es_descanso_receptor
+                        es_descanso_receptor,
+                        tipo_previo_solicitante,
+                        tipo_previo_receptor
                     )
                     dias_omitidos.append(f"{fecha_actual.strftime('%d/%m/%Y')} ({razon})")
             
@@ -625,6 +633,41 @@ class CTPermanenteStrategy(SolicitudStrategy):
         
         return self._generar_fechas_validas_params(detalle.fecha_inicio, fecha_fin, dias_seleccionados)
     
+    def _tipo_cambio_previo(self, explorador: Empleado, fecha: date):
+        """
+        Devuelve el tipo de cambio que ya tiene el explorador ese día si su turno NO es la
+        jornada predeterminada (doblada, CT sencillo, D FDS, etc.), o None si el día está en
+        su estado predeterminado (sin turno o turno del horario importado con tipo_cambio NULL).
+
+        El CT PERMANENTE intercambia las jornadas PREDETERMINADAS; si ese día el explorador ya
+        no está en su jornada predeterminada, ese día debe OMITIRSE.
+        """
+        from turnos.models import Turno
+        turnos = list(
+            Turno.objects
+            .filter(explorador=explorador, fecha=fecha)
+            .exclude(tipo_cambio__isnull=True)
+            .exclude(tipo_cambio='')
+        )
+        if not turnos:
+            return None
+        tipos = {t.tipo_cambio for t in turnos}
+        # Una doblada deja 2 turnos (día completo): priorizar reportarla como doblada.
+        if len(turnos) >= 2 or tipos & {'DOBLADA', 'DOBLADA PERM'}:
+            return 'DOBLADA PERM' if 'DOBLADA PERM' in tipos else 'DOBLADA'
+        return next(iter(tipos))
+
+    @staticmethod
+    def _razon_tipo_cambio_previo(tipo: str) -> str:
+        """Texto legible para el aviso de día omitido por cambio previo."""
+        return {
+            'DOBLADA': 'ya tiene una doblada ese día',
+            'DOBLADA PERM': 'ya tiene una doblada permanente ese día',
+            'CT': 'ya cambió su turno (CT sencillo) ese día',
+            'D FDS': 'ya tiene una doblada de fin de semana ese día',
+            'CT PERMANENTE': 'ya tiene otro cambio permanente ese día',
+        }.get(tipo, f'ya tiene un cambio previo ({tipo}) ese día')
+
     def _es_dia_descanso(self, explorador: Empleado, fecha: date) -> bool:
         """
         Verificar si un explorador está descansando en una fecha específica.
@@ -683,7 +726,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
         else:
             return "no válido"
     
-    def _obtener_razon_dia_invalido_detallada(self, fecha, es_sabado, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor):
+    def _obtener_razon_dia_invalido_detallada(self, fecha, es_sabado, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor, tipo_previo_solicitante=None, tipo_previo_receptor=None):
         """Obtener la razón detallada por la cual un día es inválido"""
         razones = []
         if es_sabado:
@@ -698,5 +741,9 @@ class CTPermanenteStrategy(SolicitudStrategy):
             razones.append("descanso solicitante")
         if es_descanso_receptor:
             razones.append("descanso receptor")
-        
+        if tipo_previo_solicitante:
+            razones.append(f"el solicitante {self._razon_tipo_cambio_previo(tipo_previo_solicitante)}; para incluirlo, ese día debe quedar en su jornada predeterminada")
+        if tipo_previo_receptor:
+            razones.append(f"el compañero {self._razon_tipo_cambio_previo(tipo_previo_receptor)}; para incluirlo, ese día debe quedar en su jornada predeterminada")
+
         return ", ".join(razones) if razones else "no válido"

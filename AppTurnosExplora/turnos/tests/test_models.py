@@ -22,7 +22,7 @@ class TurnoModelTest(TestCase):
         # Crear sala
         self.sala = Sala.objects.create(
             nombre='Sala Test',
-            activa=True
+            activo=True
         )
         
         # Crear usuario y empleado
@@ -52,7 +52,7 @@ class TurnoModelTest(TestCase):
     
     def test_turno_str(self):
         """Test del método __str__"""
-        expected = f"{self.empleado.nombre} - {self.jornada.nombre} - {date.today()}"
+        expected = f"{self.empleado.user.username} - {date.today()}"
         self.assertEqual(str(self.turno), expected)
 
 

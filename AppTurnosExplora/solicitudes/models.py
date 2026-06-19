@@ -492,9 +492,10 @@ class DeudaCorporativa(models.Model):
     """
     ESTADO_CHOICES = [
         ('activa', 'Activa'),
+        ('pagada', 'Pagada'),
         ('cancelada', 'Cancelada'),
     ]
-    
+
     explorador = models.ForeignKey(
         Empleado,
         on_delete=models.CASCADE,
@@ -524,7 +525,12 @@ class DeudaCorporativa(models.Model):
         max_length=20,
         choices=ESTADO_CHOICES,
         default='activa',
-        help_text='Estado de la deuda: activa o cancelada'
+        help_text='Estado de la deuda: activa, pagada o cancelada'
+    )
+    fecha_pago = models.DateField(
+        null=True,
+        blank=True,
+        help_text='Fecha en que se pagó la deuda (cuando estado=pagada)'
     )
     comentario = models.TextField(
         null=True,

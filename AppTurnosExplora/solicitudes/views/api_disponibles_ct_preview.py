@@ -192,6 +192,8 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
             _es_mantenimiento,
             _es_temporada,
             _es_dia_descanso,
+            _tipo_cambio_previo,
+            _razon_cambio_previo,
             _razon_principal_ct_permanente,
         )
         from ..services.solicitud_validator import SolicitudValidator  # type: ignore
@@ -324,6 +326,14 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                     razones_exclusion.append('Descanso Solicitante')
                 if receptor and _es_dia_descanso(receptor, fecha_dia):
                     razones_exclusion.append('Descanso Receptor')
+                # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
+                tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha_dia)
+                if tipo_previo_sol:
+                    razones_exclusion.append(_razon_cambio_previo(tipo_previo_sol, True))
+                if receptor:
+                    tipo_previo_rec = _tipo_cambio_previo(receptor, fecha_dia)
+                    if tipo_previo_rec:
+                        razones_exclusion.append(_razon_cambio_previo(tipo_previo_rec, False))
 
                 if razones_exclusion:
                     fechas_excluidas.append(
@@ -361,7 +371,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                         'resumen': {
                             'total_dias_rango': total_dias_rango,
                             'fines_de_semana_en_rango': total_fines_semana_rango,
-                            'prioridad': 'Mantenimiento > Festivo > Temporada > Descanso Solicitante > Descanso Receptor > Fines de semana',
+                            'prioridad': 'Mantenimiento > Festivo > Temporada > Doblada/Cambio Previo > Descanso Solicitante > Descanso Receptor > Fines de semana',
                         },
                     },
                 }

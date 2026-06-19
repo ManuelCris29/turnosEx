@@ -18,6 +18,11 @@ _PRIORIDAD_RAZONES_CT_PERMANENTE = [
     'Mantenimiento',
     'Festivo',
     'Temporada',
+    # Día que ya no está en jornada predeterminada (no se puede aplicar el permanente):
+    'Doblada Solicitante',
+    'Doblada Receptor',
+    'Cambio Previo Solicitante',
+    'Cambio Previo Receptor',
     'Descanso Solicitante',
     'Descanso Receptor',
     'Fines de semana',
@@ -119,15 +124,19 @@ def calcular_fechas_aplicables_ct_permanente(
         es_temporada = _es_temporada(fecha_dia)
         es_descanso_solicitante = _es_dia_descanso(solicitante, fecha_dia)
         es_descanso_receptor = _es_dia_descanso(receptor, fecha_dia)
-        
-        if (not es_domingo and 
-            not es_festivo and 
+        tipo_previo_solicitante = _tipo_cambio_previo(solicitante, fecha_dia)
+        tipo_previo_receptor = _tipo_cambio_previo(receptor, fecha_dia)
+
+        if (not es_domingo and
+            not es_festivo and
             not es_mantenimiento and
             not es_temporada and
             not es_descanso_solicitante and
-            not es_descanso_receptor):
+            not es_descanso_receptor and
+            not tipo_previo_solicitante and
+            not tipo_previo_receptor):
             fechas_finales.append(fecha_dia)
-    
+
     return fechas_finales
 
 
@@ -162,14 +171,49 @@ def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
     """Verificar si un explorador está descansando en una fecha específica"""
     try:
         jornada_base = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
-        
+
         if not jornada_base:
             return False
-        
+
         jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
         return jornada_dia == "Descanso"
     except Exception:
         return False
+
+
+def _tipo_cambio_previo(explorador: Empleado, fecha: date):
+    """
+    Devuelve el tipo de cambio que el explorador ya tiene ese día si su turno NO es su
+    jornada predeterminada (doblada, CT sencillo, D FDS...), o None si está en estado
+    predeterminado (sin turno, o turno del horario importado con tipo_cambio NULL).
+
+    El CT permanente intercambia las jornadas PREDETERMINADAS; si ese día el explorador ya
+    no está en su jornada predeterminada, ese día no puede incluirse en el cambio.
+    """
+    try:
+        from turnos.models import Turno
+        turnos = list(
+            Turno.objects.filter(explorador=explorador, fecha=fecha)
+            .exclude(tipo_cambio__isnull=True)
+            .exclude(tipo_cambio='')
+        )
+        if not turnos:
+            return None
+        tipos = {t.tipo_cambio for t in turnos}
+        # Una doblada deja 2 turnos (día completo): reportarla como doblada.
+        if len(turnos) >= 2 or tipos & {'DOBLADA', 'DOBLADA PERM'}:
+            return 'DOBLADA PERM' if 'DOBLADA PERM' in tipos else 'DOBLADA'
+        return next(iter(tipos))
+    except Exception:
+        return None
+
+
+def _razon_cambio_previo(tipo: str, es_solicitante: bool) -> str:
+    """Etiqueta corta (para la vista previa) según el cambio que ya existe ese día."""
+    quien = 'Solicitante' if es_solicitante else 'Receptor'
+    if tipo in ('DOBLADA', 'DOBLADA PERM'):
+        return f'Doblada {quien}'
+    return f'Cambio Previo {quien}'
 
 
 def calcular_fechas_aplicables_y_excluidas_ct_permanente(
@@ -284,7 +328,15 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
         # Verificar día de descanso del receptor
         if _es_dia_descanso(receptor, fecha_dia):
             razones_exclusion.append('Descanso Receptor')
-        
+
+        # Verificar día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
+        tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha_dia)
+        if tipo_previo_sol:
+            razones_exclusion.append(_razon_cambio_previo(tipo_previo_sol, True))
+        tipo_previo_rec = _tipo_cambio_previo(receptor, fecha_dia)
+        if tipo_previo_rec:
+            razones_exclusion.append(_razon_cambio_previo(tipo_previo_rec, False))
+
         # Si hay razones de exclusión, agregar a excluidas
         if razones_exclusion:
             # Opción 2: una sola razón principal por fecha (sin razones compuestas)

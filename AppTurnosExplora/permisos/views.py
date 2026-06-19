@@ -155,6 +155,12 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
         # Bloqueo por sanción antes de mostrar/procesar el formulario (un solo aviso)
         empleado = getattr(request.user, 'empleado', None)
         if empleado:
+            # Generar/levantar automáticamente la sanción por deuda de doblada vencida
+            try:
+                from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+                DeudaCorporativaService.gestionar_sancion_por_deuda(empleado)
+            except Exception:
+                pass
             from empleados.sancion_utils import sancion_activa, mensaje_sancion
             sancion = sancion_activa(empleado)
             if sancion:

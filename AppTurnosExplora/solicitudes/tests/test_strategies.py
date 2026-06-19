@@ -15,7 +15,8 @@ class CambioTurnoStrategyTest(TestCase):
             codigo_estrategia='CT',
             activo=True
         )
-        self.strategy = CambioTurnoStrategy(self.tipo.nombre)
+        # El constructor ya no recibe argumentos: fija internamente el tipo "CT".
+        self.strategy = CambioTurnoStrategy()
     
     def test_strategy_instanciacion(self):
         """Test que se puede instanciar la estrategia"""

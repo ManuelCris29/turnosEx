@@ -129,11 +129,11 @@
             {% endif %}
         </div>
 
-        {# --- Otras (fin de semana predeterminado) --- #}
+        {# --- Otras (deudas sin solicitud asociada / sin rol claro) --- #}
         {% if consolidado.otras %}
         <div class="ch-section">
             <div class="ch-section-title otras">
-                <span><i class="fas fa-calendar-week mr-2"></i>Otras (fin de semana)</span>
+                <span><i class="fas fa-calendar-week mr-2"></i>Otras</span>
                 <span class="badge badge-horas">{{ consolidado.total_otras }} h</span>
             </div>
             <div class="table-responsive">

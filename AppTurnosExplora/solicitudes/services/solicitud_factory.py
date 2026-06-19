@@ -64,7 +64,12 @@ class SolicitudFactory:
         
         # Convert to uppercase and strip whitespace
         normalized = name.upper().strip()
-        
+
+        # Tratar guiones bajos/medios como espacios para que códigos como 'CT_PERMANENTE'
+        # se normalicen igual que 'CT PERMANENTE' (y no caigan por subcadena en 'CT').
+        normalized = normalized.replace('_', ' ').replace('-', ' ')
+        normalized = re.sub(r'\s+', ' ', normalized).strip()
+
         # Remove common words
         normalized = re.sub(r'\b(DE|DEL|LA|EL|LOS|LAS|Y|E)\b', '', normalized)
         normalized = re.sub(r'\s+', ' ', normalized).strip()

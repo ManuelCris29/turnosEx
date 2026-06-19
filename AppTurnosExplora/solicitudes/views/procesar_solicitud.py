@@ -348,6 +348,14 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             tipo_solicitud = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)  # type: ignore
             empleado_solicitante = request.user.empleado
 
+            # SANCIÓN AUTOMÁTICA POR DEUDA DE DOBLADA VENCIDA (>30 días sin pagar):
+            # genera la sanción automáticamente (o la levanta si ya pagó) antes de validar el bloqueo.
+            try:
+                from ..services.deuda_corporativa_service import DeudaCorporativaService
+                DeudaCorporativaService.gestionar_sancion_por_deuda(empleado_solicitante)
+            except Exception:
+                logger.exception('Error gestionando sanción automática por deuda')
+
             # BLOQUEO POR SANCIÓN: un explorador sancionado no puede solicitar cambios de turno
             from empleados.sancion_utils import sancion_activa, mensaje_sancion
             _sancion = sancion_activa(empleado_solicitante)

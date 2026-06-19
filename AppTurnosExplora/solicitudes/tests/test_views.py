@@ -26,13 +26,13 @@ class SolicitudesViewTest(TestCase):
     
     def test_solicitudes_view_requiere_login(self):
         """Test que la vista requiere autenticación"""
-        response = self.client.get(reverse('solicitudes:list'))
+        response = self.client.get(reverse('solicitudes:solicitudes'))
         self.assertEqual(response.status_code, 302)  # Redirect a login
     
     def test_solicitudes_view_con_login(self):
         """Test que la vista funciona con usuario autenticado"""
         self.client.login(username='testuser', password='test123')
-        response = self.client.get(reverse('solicitudes:list'))
+        response = self.client.get(reverse('solicitudes:solicitudes'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'solicitudes')
 

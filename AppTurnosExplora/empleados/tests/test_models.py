@@ -31,7 +31,7 @@ class EmpleadoModelTest(TestCase):
     
     def test_empleado_str(self):
         """Test del método __str__"""
-        expected = f"{self.empleado.nombre} {self.empleado.apellido}"
+        expected = f"{self.empleado.nombre} {self.empleado.apellido} ({self.user.username})"
         self.assertEqual(str(self.empleado), expected)
 
 

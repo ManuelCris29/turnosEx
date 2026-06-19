@@ -142,7 +142,7 @@ class Command(BaseCommand):
                 self.stdout.write(self.style.SUCCESS('      → CASO 2: Tiene CT aprobado (no puede ceder)'))
                 return
             else:
-                self.stdout.write('      → CASO 2: Tiene turno normal (puede ceder)'))
+                self.stdout.write('      → CASO 2: Tiene turno normal (puede ceder)')
                 return
         
         self.stdout.write('   c) ¿NO tiene turnos? Verificando descanso...')

@@ -168,7 +168,8 @@ class DFDSAplicacionTest(DFDSBaseTest):
         self.assertEqual(de.count(), 1)
         self.assertEqual(de.first().deudor_id, self.solicitante.id)
         self.assertEqual(de.first().acreedor_id, self.receptor.id)
-        # Corporativa: 30 min al receptor (cesión) y al solicitante (pago)
+        # Corporativa: en D FDS la cesión y el pago caen en fin de semana, y los fines de
+        # semana NO generan deuda de 30 min (solo se debe al cambiar un sábado por un día
+        # de semana). Por lo tanto no debe generarse ninguna deuda corporativa.
         dc = DeudaCorporativa.objects.filter(solicitud_origen=sol)
-        self.assertEqual(dc.count(), 2)
-        self.assertEqual(set(dc.values_list('minutos', flat=True)), {30})
+        self.assertEqual(dc.count(), 0)

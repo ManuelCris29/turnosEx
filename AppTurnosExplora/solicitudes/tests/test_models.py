@@ -105,7 +105,10 @@ class SolicitudCambioModelTest(TestCase):
     
     def test_solicitud_str(self):
         """Test del método __str__"""
-        expected = f"Solicitud {self.solicitud.id}: {self.empleado1.nombre} -> {self.empleado2.nombre}"
+        expected = (
+            f"{self.tipo.nombre} - {self.empleado1} a {self.empleado2} "
+            f"({self.solicitud.fecha_cambio_turno})"
+        )
         self.assertEqual(str(self.solicitud), expected)
     
     def test_solicitud_estado_default(self):

@@ -500,8 +500,14 @@ async function cargarDesgloseJornadasRango(exploradorId, fechaInicio, fechaFin) 
     
     // json_ok devuelve {success: true, jornadas: [...], resumen: {...}}
     const jornadas = data.jornadas || [];
-    const resumen = data.resumen || { total_dias: 0, dias_am: 0, dias_pm: 0 };
-    
+    const resumen = data.resumen || { total_dias: 0, dias_am: 0, dias_pm: 0, dias_doblada: 0 };
+
+    // Badges de días que NO aplican (se muestran solo si existen). Reflejan lo que el CT
+    // permanente excluirá realmente, coherente con la lista de abajo.
+    const badgeExcluido = (n, cls, icono, txt) => (n || 0) > 0
+        ? `<span class="badge badge-${cls} p-2"><i class="fas ${icono} mr-1"></i>${txt}: ${n} días</span>`
+        : '';
+
     // Construir resumen agrupado
     const resumenHtml = `
         <div class="d-flex flex-wrap gap-2 mb-3">
@@ -511,6 +517,10 @@ async function cargarDesgloseJornadasRango(exploradorId, fechaInicio, fechaFin) 
             <span class="badge badge-warning p-2">
                 <i class="fas fa-moon mr-1"></i>PM: ${resumen.dias_pm} días
             </span>
+            ${badgeExcluido(resumen.dias_doblada, 'info', 'fa-clone', 'Doblada')}
+            ${badgeExcluido(resumen.dias_mantenimiento, 'dark', 'fa-tools', 'Mantenim.')}
+            ${badgeExcluido(resumen.dias_festivo, 'danger', 'fa-calendar-check', 'Festivo')}
+            ${badgeExcluido(resumen.dias_temporada, 'success', 'fa-calendar-alt', 'Temporada')}
             <span class="badge badge-secondary p-2">
                 <i class="fas fa-calendar-alt mr-1"></i>Total: ${resumen.total_dias} días
             </span>
@@ -601,8 +611,17 @@ function agruparDiasConsecutivos(jornadas) {
 
 // Función para renderizar un grupo de días
 function renderizarGrupoDias(grupo) {
-    const colorBadge = grupo.jornada === 'AM' ? 'primary' : grupo.jornada === 'PM' ? 'warning' : 'secondary';
-    const icono = grupo.jornada === 'AM' ? 'fa-sun' : grupo.jornada === 'PM' ? 'fa-moon' : 'fa-question';
+    const estilos = {
+        'AM':            { color: 'primary', icono: 'fa-sun' },
+        'PM':            { color: 'warning', icono: 'fa-moon' },
+        'DOBLADA':       { color: 'info',    icono: 'fa-clone' },
+        'MANTENIMIENTO': { color: 'dark',    icono: 'fa-tools' },
+        'FESTIVO':       { color: 'danger',  icono: 'fa-calendar-check' },
+        'TEMPORADA':     { color: 'success', icono: 'fa-calendar-alt' },
+    };
+    const est = estilos[grupo.jornada] || { color: 'secondary', icono: 'fa-question' };
+    const colorBadge = est.color;
+    const icono = est.icono;
     
     if (grupo.fechas.length === 1) {
         const fecha = grupo.fechas[0];
@@ -1421,7 +1440,11 @@ function obtenerIconoRazon(razon) {
         'Descanso (AM)': '<i class="fas fa-moon text-secondary mr-2"></i>',
         'Descanso (PM)': '<i class="fas fa-moon text-secondary mr-2"></i>',
         'Descanso receptor (AM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
-        'Descanso receptor (PM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>'
+        'Descanso receptor (PM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
+        'Doblada Solicitante': '<i class="fas fa-clone text-info mr-2"></i>',
+        'Doblada Receptor': '<i class="fas fa-clone text-info mr-2"></i>',
+        'Cambio Previo Solicitante': '<i class="fas fa-exchange-alt text-info mr-2"></i>',
+        'Cambio Previo Receptor': '<i class="fas fa-exchange-alt text-info mr-2"></i>'
     };
     return iconos[razon] || '<i class="fas fa-ban text-danger mr-2"></i>';
 }
@@ -1438,7 +1461,11 @@ function obtenerColorRazon(razon) {
         'Descanso (AM)': 'secondary',
         'Descanso (PM)': 'secondary',
         'Descanso receptor (AM)': 'secondary',
-        'Descanso receptor (PM)': 'secondary'
+        'Descanso receptor (PM)': 'secondary',
+        'Doblada Solicitante': 'info',
+        'Doblada Receptor': 'info',
+        'Cambio Previo Solicitante': 'info',
+        'Cambio Previo Receptor': 'info'
     };
     return colores[razon] || 'danger';
 }

@@ -98,7 +98,7 @@ class ConsolidadoHorasService:
         from permisos.models import PermisoEspecial
         pe_qs = (
             PermisoEspecial.objects
-            .filter(empleado=empleado, estado='APROBADO')
+            .filter(empleado=empleado, estado='APROBADO', pagado=False)
             .order_by('fecha_inicio')
         )
         permisos = []
@@ -123,7 +123,10 @@ class ConsolidadoHorasService:
             })
         total_permisos = round(total_permisos, 2)
 
-        total_acumulado = round(total_min / 60 + total_permisos, 2)
+        # Las deudas pagadas ahora se marcan (doblada estado='pagada', permiso pagado=True),
+        # por lo que las listas de arriba YA son solo lo pendiente. El saldo es directamente
+        # lo pendiente; no se vuelve a restar el pagado (eso causaría doble descuento).
+        saldo = round(total_min / 60 + total_permisos, 2)
 
         # --- Pagos de horas (PDH): descuentos autorizados por un supervisor ---
         from permisos.models import PDH
@@ -143,7 +146,8 @@ class ConsolidadoHorasService:
                 'comentario': p.comentario or '',
             })
         total_pagado = round(sum(p['horas'] for p in pagos), 2)
-        saldo = round(total_acumulado - total_pagado, 2)
+        # Histórico = lo que aún debe + lo que ya pagó (solo informativo).
+        total_acumulado = round(saldo + total_pagado, 2)
 
         return {
             'solicitante': solicitante,
@@ -157,6 +161,6 @@ class ConsolidadoHorasService:
             'total_permisos': total_permisos,
             'total_acumulado': total_acumulado,
             'total_pagado': total_pagado,
-            # total_horas = saldo pendiente (acumulado - pagado)
+            # total_horas = saldo pendiente (lo que aún debe)
             'total_horas': saldo,
         }

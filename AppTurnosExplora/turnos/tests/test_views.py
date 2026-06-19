@@ -26,13 +26,13 @@ class MisTurnosViewTest(TestCase):
     
     def test_mis_turnos_view_requiere_login(self):
         """Test que la vista requiere autenticación"""
-        response = self.client.get(reverse('turnos:mis_turnos'))
+        response = self.client.get(reverse('mis_turnos'))
         self.assertEqual(response.status_code, 302)  # Redirect a login
     
     def test_mis_turnos_view_con_login(self):
         """Test que la vista funciona con usuario autenticado"""
         self.client.login(username='testuser', password='test123')
-        response = self.client.get(reverse('turnos:mis_turnos'))
+        response = self.client.get(reverse('mis_turnos'))
         self.assertEqual(response.status_code, 200)
 
 

@@ -396,23 +396,52 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             from django.utils import formats
             dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
             
+            from turnos.models import Turno
+            from solicitudes.services.ct_permanente_helper import (
+                _es_festivo, _es_mantenimiento, _es_temporada,
+            )
             jornadas_por_dia = []
             for fecha_obj in fechas_validas:
-                jornada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha_obj)
                 dia_semana_num = fecha_obj.weekday()
+                # Reflejar el estado REAL del día, coherente con lo que se aplicará en el CT
+                # permanente. Prioridad (igual que la exclusión real):
+                #   Doblada (turno real) > Mantenimiento > Festivo > Temporada > jornada AM/PM.
+                turnos_dia = list(
+                    Turno.objects.filter(explorador_id=explorador_id, fecha=fecha_obj)
+                    .select_related('jornada')
+                )
+                if len(turnos_dia) >= 2:
+                    jornada_nombre, jornada_id = 'DOBLADA', None
+                elif _es_mantenimiento(fecha_obj):
+                    jornada_nombre, jornada_id = 'MANTENIMIENTO', None
+                elif _es_festivo(fecha_obj):
+                    jornada_nombre, jornada_id = 'FESTIVO', None
+                elif _es_temporada(fecha_obj):
+                    jornada_nombre, jornada_id = 'TEMPORADA', None
+                else:
+                    jornada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha_obj)
+                    jornada_nombre = jornada.nombre if jornada else None
+                    jornada_id = jornada.id if jornada else None
                 jornadas_por_dia.append({
                     'fecha': fecha_obj.strftime('%Y-%m-%d'),
                     'fecha_formateada': fecha_obj.strftime('%d/%m/%Y'),
                     'dia_semana': dias_semana_es[dia_semana_num] if dia_semana_num < len(dias_semana_es) else fecha_obj.strftime('%A'),
-                    'jornada': jornada.nombre if jornada else None,
-                    'jornada_id': jornada.id if jornada else None
+                    'jornada': jornada_nombre,
+                    'jornada_id': jornada_id
                 })
-            
+
+            # Etiquetas que NO son una jornada aplicable (el día queda excluido del cambio)
+            _NO_APLICAN = {'DOBLADA', 'MANTENIMIENTO', 'FESTIVO', 'TEMPORADA'}
             # Calcular resumen
             resumen = {
                 'total_dias': len(jornadas_por_dia),
                 'dias_am': len([j for j in jornadas_por_dia if j['jornada'] == 'AM']),
                 'dias_pm': len([j for j in jornadas_por_dia if j['jornada'] == 'PM']),
+                'dias_doblada': len([j for j in jornadas_por_dia if j['jornada'] == 'DOBLADA']),
+                'dias_mantenimiento': len([j for j in jornadas_por_dia if j['jornada'] == 'MANTENIMIENTO']),
+                'dias_festivo': len([j for j in jornadas_por_dia if j['jornada'] == 'FESTIVO']),
+                'dias_temporada': len([j for j in jornadas_por_dia if j['jornada'] == 'TEMPORADA']),
+                'dias_no_aplican': len([j for j in jornadas_por_dia if j['jornada'] in _NO_APLICAN]),
                 'dias_sin_jornada': len([j for j in jornadas_por_dia if j['jornada'] is None])
             }
             

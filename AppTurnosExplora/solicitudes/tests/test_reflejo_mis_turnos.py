@@ -150,9 +150,13 @@ class ReflejoMisTurnosTest(TestCase):
         self.assertEqual(self._cell(self.rec, fi).get('jornada'), 'AM')
 
     def test_doblada_permanente_refleja(self):
+        import calendar
         fi = self._dia_semana(0)             # lunes (cesión)
         martes = self._dia_semana(1, desde=fi)  # martes (devolución)
-        ff = fi + timedelta(days=13)
+        # La doblada permanente exige que el rango esté dentro del mismo mes: acotar ff al
+        # último día del mes de fi (sigue incluyendo el lunes y el martes de esa semana).
+        ultimo_dia_mes = date(fi.year, fi.month, calendar.monthrange(fi.year, fi.month)[1])
+        ff = min(fi + timedelta(days=13), ultimo_dia_mes)
         sol = self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['DOBLADA PERMANENTE'], 'comentario': 'test',

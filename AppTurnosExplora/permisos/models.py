@@ -15,6 +15,13 @@ class PDH(models.Model):
     # 'pago_horas' = descuento de horas autorizado por un supervisor (ledger de pagos).
     tipo_registro=models.CharField(max_length=50, default='pago_horas')
     comentario=models.TextField(null=True, blank=True)
+    # Deudas concretas que este pago salda (las horas del PDH = suma de estas deudas).
+    deudas_pagadas = models.ManyToManyField('solicitudes.DeudaCorporativa', blank=True,
+                                            related_name='pdhs_pago',
+                                            help_text='Dobladas (0.5 h c/u) que paga este registro.')
+    permisos_pagados = models.ManyToManyField('permisos.PermisoEspecial', blank=True,
+                                              related_name='pdhs_pago',
+                                              help_text='Permisos aprobados que paga este registro.')
     historial=HistoricalRecords()
     
     class Meta:
@@ -71,6 +78,9 @@ class PermisoEspecial(models.Model):
                               help_text='Compañero que cubre el hueco (opcional).')
     motivo = models.TextField()
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='PENDIENTE')
+    # Pago de la deuda generada por este permiso (se salda vía PDH, igual que las dobladas).
+    pagado = models.BooleanField(default=False, help_text='True si la deuda de este permiso ya fue pagada (PDH).')
+    fecha_pago = models.DateField(null=True, blank=True, help_text='Fecha en que se pagó la deuda de este permiso.')
     supervisor = models.ForeignKey(Empleado, on_delete=models.SET_NULL, null=True, blank=True,
                                    related_name='permisos_supervisor',
                                    help_text='Supervisor que aprueba/rechaza.')

@@ -50,13 +50,17 @@ class SolicitudService:
         Returns:
             Tupla (solicitud: SolicitudCambio, message: str) o (None, error_message)
         """
+        # Regla de negocio: el comentario es obligatorio para crear una solicitud.
+        if not comentario or not str(comentario).strip():
+            return None, "Debes ingresar un comentario para enviar la solicitud."
+
         logger.info("Creando solicitud de cambio", extra={
             'solicitante_id': explorador_solicitante.id,
             'receptor_id': explorador_receptor.id,
             'tipo_cambio': tipo_cambio.nombre,
             'fecha_cambio_turno': str(fecha_cambio_turno)
         })
-        
+
         # 1. Verificar si ya existe una solicitud pendiente para la misma fecha
         solicitud_anterior = SolicitudCambio.objects.filter(
             explorador_solicitante=explorador_solicitante,

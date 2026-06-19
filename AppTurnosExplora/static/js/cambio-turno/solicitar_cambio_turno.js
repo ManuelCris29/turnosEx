@@ -624,6 +624,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     esDiaMantenimiento = esMantenimiento;
                 });
             }
+            // Cargar compañeros disponibles para la fecha precargada (la actual). Sin esto,
+            // la lista solo se llenaba al CAMBIAR la fecha (onDateChange).
+            actualizarEmpleadosDisponibles();
             cargarInformacionSolicitante();
             verificarCambioAprobado();
         }
