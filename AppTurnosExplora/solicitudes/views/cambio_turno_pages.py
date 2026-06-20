@@ -50,8 +50,35 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             return self._render_d_fds(request, tipo_solicitud)
         elif tipo_solicitud.nombre == "DOBLADA PERMANENTE":
             return self._render_doblada_permanente(request, tipo_solicitud)
+        elif tipo_solicitud.nombre == "CAMBIO DESCANSO":
+            return self._render_cambio_descanso(request, tipo_solicitud)
         else:
             return self._render_cambio_turno_normal(request, tipo_solicitud)
+
+    def _render_cambio_descanso(self, request, tipo_solicitud):
+        """Renderizar formulario de Cambio de Día de Descanso (fin de semana)."""
+        # Jornada base (AM/PM) del solicitante, para marcar en el calendario qué día
+        # trabaja y cuál descansa según la alternancia.
+        jornada_base = ''
+        try:
+            from turnos.models import AsignarJornadaExplorador
+            emp = request.user.empleado
+            asg = (AsignarJornadaExplorador.objects
+                   .filter(explorador=emp, fecha_inicio__lte=timezone.now().date())
+                   .select_related('jornada').order_by('-fecha_inicio').first())
+            if asg:
+                jornada_base = asg.jornada.nombre.upper()
+        except Exception:
+            pass
+        context = {
+            'tipo_solicitud': tipo_solicitud,
+            'fecha_minima': timezone.now().date(),
+            'fecha_seleccionada': None,
+            'empleados_disponibles': [],
+            'empleado_seleccionado': None,
+            'jornada_base': jornada_base,
+        }
+        return render(request, 'solicitudes/solicitar_cambio_descanso.html', context)
 
     def _render_doblada_permanente(self, request, tipo_solicitud):
         """Renderizar formulario específico para DOBLADA PERMANENTE"""

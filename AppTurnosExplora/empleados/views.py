@@ -255,6 +255,7 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
                     password=form.cleaned_data['password'],
                     email=form.cleaned_data['email']
                 )
+            es_supervisor = form.es_supervisor()
             empleado = Empleado.objects.create(
                 user=user,
                 nombre=form.cleaned_data['nombre'],
@@ -262,18 +263,22 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
                 cedula=form.cleaned_data['cedula'],
                 email=form.cleaned_data['email'],
                 activo=form.cleaned_data['activo'],
-                supervisor=form.cleaned_data.get('supervisor')  # Agregar supervisor
+                # Un supervisor no tiene supervisor asignado.
+                supervisor=None if es_supervisor else form.cleaned_data.get('supervisor')
             )
             for rol in form.cleaned_data['roles']:
                 EmpleadoRole.objects.create(empleado=empleado, role=rol)
-            for sala in form.cleaned_data['salas']:
-                CompetenciaEmpleado.objects.create(empleado=empleado, sala=sala)
-            jornada = form.cleaned_data['jornada']
-            AsignarJornadaExplorador.objects.create(
-                explorador=empleado,
-                jornada=jornada,
-                fecha_inicio=date.today()
-            )
+            # Sala y jornada solo aplican a empleados normales (no supervisores).
+            if not es_supervisor:
+                for sala in form.cleaned_data.get('salas') or []:
+                    CompetenciaEmpleado.objects.create(empleado=empleado, sala=sala)
+                jornada = form.cleaned_data.get('jornada')
+                if jornada:
+                    AsignarJornadaExplorador.objects.create(
+                        explorador=empleado,
+                        jornada=jornada,
+                        fecha_inicio=date.today()
+                    )
             messages.success(request, 'Usuario y empleado creados correctamente.')
             return redirect('empleados')
         return render(request, self.template_name, {'form': form})

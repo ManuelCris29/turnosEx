@@ -15,6 +15,7 @@
 
     const URL_EMPLEADOS = '/solicitudes/obtener-empleados-disponibles/';
     const URL_PROCESAR = '/solicitudes/procesar-solicitud/';
+    const URL_ALTERNANCIA = '/solicitudes/alternancia-finde/';
 
     const form = document.getElementById('dfdsForm');
     if (!form) return;
@@ -25,6 +26,29 @@
     const inputPago = document.getElementById('fecha_pago');
     const resumen = document.getElementById('fds_resumen');
     const btnEnviar = document.getElementById('btnEnviarDfds');
+    const distintivoCesion = document.getElementById('fds_distintivo_cesion');
+    const distintivoPago = document.getElementById('fds_distintivo_pago');
+
+    // Día de la semana del finde cedido (0=domingo, 6=sábado) para exigir el mismo en el pago.
+    let diaCesion = null;
+
+    // Pinta el distintivo AM/PM del fin de semana de una fecha en el contenedor dado.
+    function mostrarDistintivo(contenedor, fechaStr) {
+        if (!contenedor) return;
+        if (!fechaStr) { contenedor.style.display = 'none'; contenedor.innerHTML = ''; return; }
+        fetch(`${URL_ALTERNANCIA}?fecha=${encodeURIComponent(fechaStr)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((res) => {
+                const d = (res && res.data) ? res.data : res;
+                if (!d || !d.sabado || !d.domingo) { contenedor.style.display = 'none'; return; }
+                const chip = (label, dia, jor) =>
+                    `<span class="fds-dia">${label} ${dia} <span class="jor jor-${jor}">${jor || '?'}</span></span>`;
+                contenedor.innerHTML =
+                    chip('Sáb', d.sabado.dia, d.sabado.jornada) + chip('Dom', d.domingo.dia, d.domingo.jornada);
+                contenedor.style.display = 'flex';
+            })
+            .catch(() => { contenedor.style.display = 'none'; });
+    }
 
     const esFinde = (d) => d.getDay() === 0 || d.getDay() === 6;
     const soloFindes = [(date) => !esFinde(date)];
@@ -62,12 +86,18 @@
         inputPago.value = '';
         inputPago.disabled = true;
         resumen.style.display = 'none';
+        if (distintivoPago) { distintivoPago.style.display = 'none'; distintivoPago.innerHTML = ''; }
     }
 
     function onCesionChange(selectedDates, dateStr) {
         resetReceptorYPago();
-        if (!dateStr) return;
-
+        if (!dateStr) {
+            if (distintivoCesion) { distintivoCesion.style.display = 'none'; distintivoCesion.innerHTML = ''; }
+            diaCesion = null;
+            return;
+        }
+        diaCesion = selectedDates[0].getDay();  // 0=domingo, 6=sábado
+        mostrarDistintivo(distintivoCesion, dateStr);
         cargarCompaneros(dateStr);
         configurarPagoMismoMes(selectedDates[0], dateStr);
     }
@@ -85,9 +115,9 @@
             dateFormat: 'Y-m-d',
             minDate: minDate,
             maxDate: ultimo,
-            // Deshabilitar días entre semana y la propia fecha de cesión
+            // Solo el MISMO día de la semana que la cesión (sáb→sáb, dom→dom) y nunca la propia cesión.
             disable: [
-                (date) => !esFinde(date),
+                (date) => date.getDay() !== diaCesion,
                 cesionStr,
             ],
             onChange: actualizarResumen,
@@ -127,6 +157,7 @@
         const ces = inputCesion.value;
         const pago = inputPago.value;
         const comp = selectReceptor.options[selectReceptor.selectedIndex];
+        mostrarDistintivo(distintivoPago, pago);
         if (ces && pago && selectReceptor.value) {
             resumen.innerHTML =
                 `<i class="fas fa-check-circle me-1"></i> <strong>${comp.textContent}</strong> se doblará el ` +

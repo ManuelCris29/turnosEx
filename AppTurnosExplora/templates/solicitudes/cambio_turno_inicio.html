@@ -264,7 +264,9 @@
             {% for tipo in tipos_solicitud %}
                 <div class="solicitud-type-card {% if not tipo.activo %}inactive{% endif %}">
                     <div class="solicitud-type-icon">
-                        {% if "PERMANENTE" in tipo.nombre or "permanente" in tipo.nombre|lower %}
+                        {% if "DESCANSO" in tipo.nombre or "descanso" in tipo.nombre|lower %}
+                            <i class="fas fa-bed"></i>
+                        {% elif "PERMANENTE" in tipo.nombre or "permanente" in tipo.nombre|lower %}
                             <i class="fas fa-calendar-alt"></i>
                         {% elif "DOBLADA" in tipo.nombre or "doblada" in tipo.nombre|lower %}
                             <i class="fas fa-clock"></i>

@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Eliminar descanso de semana{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:560px;">
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#ef4444,#dc2626);">
+        <h3><i class="fas fa-trash"></i> Eliminar descanso de semana</h3>
+      </div>
+      <div class="pg-card-body">
+        <p>¿Seguro que deseas eliminar este descanso?</p>
+        <p><strong>{{ object.jornada.nombre }}</strong> descansa el <strong>{{ object.fecha|date:"d/m/Y" }}</strong>
+           ({{ object.get_motivo_display }}).</p>
+        <form method="post">
+          {% csrf_token %}
+          <div class="d-flex justify-content-end" style="gap:.5rem;">
+            <a href="{% url 'descanso_semana_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+            <button type="submit" class="pg-btn pg-btn-success" style="background:#dc2626;"><i class="fas fa-trash"></i> Eliminar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

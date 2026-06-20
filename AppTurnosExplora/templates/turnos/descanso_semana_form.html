@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}{{ titulo }}{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:680px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-bed"></i> {{ titulo }}</h1>
+      <p class="pg-subtitle">Día de descanso de entre semana por jornada (temporada/festivo)</p>
+    </div>
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#6366f1,#4f46e5);">
+        <h3><i class="fas fa-bed"></i> Datos del descanso</h3>
+      </div>
+      <div class="pg-card-body">
+        <form method="post" class="pg-form">
+          {% csrf_token %}
+          {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+          <div class="form-group">
+            <label for="{{ form.fecha.id_for_label }}">Fecha (lunes a viernes)</label>
+            <input type="date" name="fecha" id="{{ form.fecha.id_for_label }}" class="form-control"
+                   value="{{ form.fecha.value|default_if_none:'' }}" required>
+            {% if form.fecha.errors %}<div class="text-danger small">{{ form.fecha.errors|striptags }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.jornada.id_for_label }}">Jornada que descansa</label>
+            {{ form.jornada }}
+            {% if form.jornada.errors %}<div class="text-danger small">{{ form.jornada.errors|striptags }}</div>{% endif %}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.motivo.id_for_label }}">Motivo</label>
+            {{ form.motivo }}
+          </div>
+          <div class="form-group">
+            <label for="{{ form.descripcion.id_for_label }}">Descripción (opcional)</label>
+            {{ form.descripcion }}
+          </div>
+          <div class="form-check mb-3">
+            {{ form.activo }} <label class="form-check-label" for="{{ form.activo.id_for_label }}">Activo</label>
+          </div>
+          <div class="d-flex justify-content-end" style="gap:.5rem;">
+            <a href="{% url 'descanso_semana_list' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
+            <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+  // Estilo bootstrap a los widgets del ModelForm.
+  ['{{ form.jornada.id_for_label }}','{{ form.motivo.id_for_label }}','{{ form.descripcion.id_for_label }}']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.classList.add('form-control'); });
+</script>
+{% endblock %}

@@ -5,7 +5,7 @@ from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
 from core.mixins import AdminRequiredMixin
-from .models import Turno, DiaEspecial, AsignarJornadaExplorador
+from .models import Turno, DiaEspecial, AsignarJornadaExplorador, DescansoSemanaManual
 from .forms import TemporadasAnualForm, DiasEspecialesAnualForm
 from .services.temporada_service import TemporadaService
 from .services.dia_especial_service import DiaEspecialService
@@ -202,6 +202,48 @@ class DiaEspecialDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = DiaEspecial
     template_name = 'turnos/diasespeciales_confirm_delete.html'
     success_url = '/turnos/dias-especiales-admin/'
+
+# ---------------------------------------------------------------------------
+# Descanso de semana (manual) — para semanas con temporada/festivo
+# ---------------------------------------------------------------------------
+class DescansoSemanaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
+    model = DescansoSemanaManual
+    template_name = 'turnos/descanso_semana_list.html'
+    context_object_name = 'descansos'
+
+    def get_queryset(self):
+        return DescansoSemanaManual.objects.select_related('jornada').order_by('-fecha', 'jornada__nombre')
+
+
+class DescansoSemanaCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+    model = DescansoSemanaManual
+    template_name = 'turnos/descanso_semana_form.html'
+    fields = ['fecha', 'jornada', 'motivo', 'descripcion', 'activo']
+    success_url = '/turnos/descanso-semana/'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['titulo'] = 'Nuevo descanso de semana'
+        return ctx
+
+
+class DescansoSemanaUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    model = DescansoSemanaManual
+    template_name = 'turnos/descanso_semana_form.html'
+    fields = ['fecha', 'jornada', 'motivo', 'descripcion', 'activo']
+    success_url = '/turnos/descanso-semana/'
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+        ctx['titulo'] = 'Editar descanso de semana'
+        return ctx
+
+
+class DescansoSemanaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+    model = DescansoSemanaManual
+    template_name = 'turnos/descanso_semana_confirm_delete.html'
+    success_url = '/turnos/descanso-semana/'
+
 
 class TurnosCalendarioView(LoginRequiredMixin, TemplateView):
     template_name = 'turnos/turnos_calendario.html'

@@ -38,9 +38,10 @@ def _findes_de_mes(anio, mes):
 
 def _fechas_fds(grupo_solicitante, grupo_receptor):
     """
-    Devuelve (cesion, pago) en un mismo mes futuro:
+    Devuelve (cesion, pago) en un mismo mes futuro y del MISMO día de la semana
+    (sáb→sáb o dom→dom), conforme a la regla: si cedes un domingo, devuelves un domingo.
     - cesion: día de finde donde trabaja el grupo del solicitante.
-    - pago: otro día de finde (mismo mes) donde trabaja el grupo del receptor.
+    - pago: otro día de finde del MISMO día de semana (mismo mes) donde trabaja el receptor.
     """
     hoy = timezone.now().date()
     # Empezar dos meses adelante para asegurar futuro y margen.
@@ -52,10 +53,13 @@ def _fechas_fds(grupo_solicitante, grupo_receptor):
             anio += 1
     for _ in range(6):  # buscar en meses sucesivos por si acaso
         findes = _findes_de_mes(anio, mes)
-        ces = next((f for f, g in findes if g == grupo_solicitante and f > hoy), None)
-        pago = next((f for f, g in findes if g == grupo_receptor and f > hoy and f != ces), None)
-        if ces and pago:
-            return ces, pago
+        # Probar por cada tipo de día (sábado=5, domingo=6) un par cesión/pago del mismo tipo.
+        for wd in (5, 6):
+            dias = [f for f, _g in findes if f.weekday() == wd and f > hoy]
+            ces = next((f for f in dias if AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(f) == grupo_solicitante), None)
+            pago = next((f for f in dias if AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(f) == grupo_receptor and f != ces), None)
+            if ces and pago:
+                return ces, pago
         mes += 1
         if mes > 12:
             mes = 1
@@ -125,12 +129,27 @@ class DFDSValidacionTest(DFDSBaseTest):
         ok, msg = self.strat.validar_solicitud(self._datos(fecha_cambio_turno=lunes.strftime('%Y-%m-%d')))
         self.assertFalse(ok)
 
+    def test_pago_distinto_dia_rechazado(self):
+        # Regla del mismo día: si cedes un sábado, el pago debe ser sábado (y viceversa).
+        opp_wd = 6 if self.ces.weekday() == 5 else 5
+        cand = None
+        d = date(self.ces.year, self.ces.month, 1)
+        while d.month == self.ces.month:
+            if d.weekday() == opp_wd and d > timezone.now().date() and d != self.ces:
+                cand = d
+                break
+            d += timedelta(days=1)
+        self.assertIsNotNone(cand, "No se encontró un finde del día opuesto para la prueba")
+        ok, msg = self.strat.validar_solicitud(self._datos(fecha_pago=cand.strftime('%Y-%m-%d')))
+        self.assertFalse(ok)
+        self.assertIn('debe ser un', msg.lower())
+
     def test_pago_otro_mes_rechazado(self):
-        otro_mes = self.pago
-        # Avanzar al mes siguiente, primer finde
+        # Avanzar al mes siguiente, primer día del MISMO tipo que la cesión (sáb/dom),
+        # para que dispare la regla de "mismo mes" y no la de "mismo día".
         m = self.pago.month
         d = date(self.pago.year + (1 if m == 12 else 0), 1 if m == 12 else m + 1, 1)
-        while d.weekday() not in (5, 6):
+        while d.weekday() != self.ces.weekday():
             d += timedelta(days=1)
         ok, msg = self.strat.validar_solicitud(self._datos(fecha_pago=d.strftime('%Y-%m-%d')))
         self.assertFalse(ok)

@@ -537,3 +537,38 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
         except Exception as e:
             logger.exception('Error en ObtenerCambioAprobadoView')
             return json_error('Error al verificar cambio aprobado', status=500, code='internal_error')
+
+
+class AlternanciaFindeView(LoginRequiredMixin, View):
+    """
+    Devuelve, para el fin de semana de una fecha dada (sábado o domingo), qué jornada
+    (AM/PM) trabaja el sábado y cuál el domingo según la alternancia. Sirve de "distintivo"
+    en la Doblada de Fin de Semana para ver de un vistazo la configuración del finde.
+    """
+    def get(self, request):
+        from datetime import datetime, timedelta
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        fecha_str = request.GET.get('fecha')
+        if not fecha_str:
+            return json_error('Falta el parámetro fecha', status=400, code='missing_params')
+        try:
+            fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+        except ValueError:
+            return json_error('Formato de fecha inválido (use YYYY-MM-DD)', status=400, code='invalid_date')
+        if fecha.weekday() not in (5, 6):
+            return json_error('La fecha debe ser sábado o domingo', status=400, code='no_finde')
+
+        sabado = fecha if fecha.weekday() == 5 else fecha - timedelta(days=1)
+        domingo = sabado + timedelta(days=1)
+        return json_ok({
+            'sabado': {
+                'fecha': sabado.strftime('%Y-%m-%d'),
+                'dia': sabado.strftime('%d/%m'),
+                'jornada': AlternanciaFinesSemanaService.jornada_trabaja_sabado(sabado),
+            },
+            'domingo': {
+                'fecha': domingo.strftime('%Y-%m-%d'),
+                'dia': domingo.strftime('%d/%m'),
+                'jornada': AlternanciaFinesSemanaService.jornada_trabaja_domingo(sabado),
+            },
+        })

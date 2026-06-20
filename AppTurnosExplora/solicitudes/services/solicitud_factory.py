@@ -85,6 +85,9 @@ class SolicitudFactory:
             'DOBLADA': 'DOBLADA',
             'D FDS': 'D FDS',
             'DIA FIN DE SEMANA': 'D FDS',
+            'CAMBIO DESCANSO': 'CAMBIO DESCANSO',
+            'CAMBIO DIA DESCANSO': 'CAMBIO DESCANSO',
+            'CAMBIO DE DESCANSO': 'CAMBIO DESCANSO',
         }
         
         # Check exact mappings first (most important)
@@ -401,7 +404,7 @@ def _auto_register_strategies():
         # Step 1: Manual registration (backward compatibility)
         from .strategies import (
             CambioTurnoStrategy, DobladaStrategy, CTPermanenteStrategy, DFDSStrategy,
-            DobladaPermanenteStrategy,
+            DobladaPermanenteStrategy, CambioDescansoStrategy,
         )
 
         SolicitudFactory.register_strategy("CT", CambioTurnoStrategy)
@@ -409,8 +412,9 @@ def _auto_register_strategies():
         SolicitudFactory.register_strategy("CT PERMANENTE", CTPermanenteStrategy)
         SolicitudFactory.register_strategy("D FDS", DFDSStrategy)
         SolicitudFactory.register_strategy("DOBLADA PERMANENTE", DobladaPermanenteStrategy)
+        SolicitudFactory.register_strategy("CAMBIO DESCANSO", CambioDescansoStrategy)
 
-        logger.info("Estrategias manuales registradas: CT, DOBLADA, CT PERMANENTE, D FDS, DOBLADA PERMANENTE")
+        logger.info("Estrategias manuales registradas: CT, DOBLADA, CT PERMANENTE, D FDS, DOBLADA PERMANENTE, CAMBIO DESCANSO")
         
         # Step 2: Dynamic registration from database
         try:
@@ -468,7 +472,8 @@ def _find_strategy_by_code(codigo: str):
     try:
         from .strategies import (
             CambioTurnoStrategy, DobladaStrategy,
-            CTPermanenteStrategy, DFDSStrategy, DobladaPermanenteStrategy
+            CTPermanenteStrategy, DFDSStrategy, DobladaPermanenteStrategy,
+            CambioDescansoStrategy,
         )
 
         # Mapping of codes to strategy classes
@@ -480,6 +485,7 @@ def _find_strategy_by_code(codigo: str):
             'CAMBIO PERMANENTE': CTPermanenteStrategy,
             'D FDS': DFDSStrategy,
             'DIA FIN DE SEMANA': DFDSStrategy,
+            'CAMBIO DESCANSO': CambioDescansoStrategy,
         }
         
         return code_mapping.get(codigo)

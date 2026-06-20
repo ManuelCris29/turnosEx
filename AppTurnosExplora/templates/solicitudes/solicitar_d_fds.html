@@ -48,6 +48,13 @@
         display: none; background-color: #f8f9fa; border-left: 4px solid #10b981;
         padding: 12px 15px; margin-top: 12px; border-radius: 4px; color: #065f46;
     }
+    /* Distintivo AM/PM del fin de semana */
+    .fds-distintivo { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .fds-dia { display: inline-flex; align-items: center; gap: 6px; background: #f1f5f9; border: 1px solid #e2e8f0;
+               border-radius: 8px; padding: 4px 10px; font-size: .82rem; color: #334155; }
+    .fds-dia .jor { font-weight: 700; padding: 1px 7px; border-radius: 5px; color: #fff; font-size: .75rem; }
+    .jor-AM { background: #0d6efd; }
+    .jor-PM { background: #f59e0b; }
 </style>
 {% endblock %}
 
@@ -76,6 +83,12 @@
                     se dobla ese finde (trabaja su día + el tuyo). Tú le devuelves el favor doblándote otro fin de
                     semana del mismo mes (fecha de pago).
                 </p>
+                <p class="mb-0 mt-2" style="font-size:.85rem;">
+                    <i class="fas fa-balance-scale mr-1"></i>
+                    <strong>Mismo día:</strong> si cedes un <strong>domingo</strong>, devuelves un <strong>domingo</strong>
+                    (igual con sábado), para que ambos conserven la misma cantidad de sábados/domingos en el mes.
+                    <br><small style="opacity:.85;">Nota: si el mes tiene 5 sábados o 5 domingos (cantidad impar), no siempre quedarán exactamente iguales.</small>
+                </p>
             </div>
 
             <form method="post" id="dfdsForm" class="solicitud-form">
@@ -93,6 +106,7 @@
                     <small class="form-text text-muted">
                         Solo se permiten fines de semana en los que te corresponde trabajar (según la alternancia).
                     </small>
+                    <div id="fds_distintivo_cesion" class="fds-distintivo" style="display:none;"></div>
                 </div>
 
                 <!-- Compañero que se doblará -->
@@ -116,8 +130,9 @@
                     <input type="text" class="form-control" id="fecha_pago" name="fecha_pago" required disabled
                            placeholder="Otro fin de semana del mismo mes" autocomplete="off" readonly>
                     <small class="form-text text-muted">
-                        Debe ser otro fin de semana del <strong>mismo mes</strong>, donde cubrirás el día de tu compañero.
+                        Debe ser otro <strong>mismo día</strong> (sáb→sáb, dom→dom) del <strong>mismo mes</strong>, donde cubrirás el día de tu compañero.
                     </small>
+                    <div id="fds_distintivo_pago" class="fds-distintivo" style="display:none;"></div>
                     <div id="fds_resumen"></div>
                 </div>
 

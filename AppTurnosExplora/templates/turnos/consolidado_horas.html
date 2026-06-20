@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block title %}Consolidado de Horas{% endblock %}
-{% block page_title %}Consolidado de Horas{% endblock %}
+{% block page_title %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -29,6 +29,22 @@
     .ch-section .badge-horas { background: rgba(0,0,0,.08); color: inherit; font-weight: 600; }
     .ch-empty { padding: 16px 18px; color: #6b7280; font-style: italic; }
     .ch-nota { background: #f8fafc; border-left: 4px solid #94a3b8; border-radius: 8px; padding: 12px 16px; color: #475569; font-size: .9rem; }
+    /* Desplegable "ver deudas pagadas" en la tabla de pagos */
+    .pago-detalle { display: inline-block; }
+    .pago-detalle > summary {
+        cursor: pointer; list-style: none; color: #0d6efd; font-size: .85rem;
+        white-space: nowrap; user-select: none;
+    }
+    .pago-detalle > summary::-webkit-details-marker { display: none; }
+    .pago-detalle > summary:hover { text-decoration: underline; }
+    .pago-detalle[open] > summary .chev { transform: rotate(90deg); }
+    .pago-detalle .chev { display: inline-block; transition: transform .15s; }
+    .pago-detalle-list { margin-top: 6px; padding-left: 2px; }
+    .pago-detalle-list .item {
+        display: flex; align-items: center; gap: 6px; font-size: .82rem;
+        color: #374151; padding: 2px 0;
+    }
+    .pago-detalle-list .item .badge { font-weight: 500; }
 </style>
 {% endblock %}
 
@@ -190,12 +206,30 @@
             {% if consolidado.pagos %}
             <div class="table-responsive">
                 <table class="table table-sm table-striped mb-0">
-                    <thead><tr><th>Fecha de pago</th><th>Horas</th><th>Líder que autoriza</th><th>Nota</th></tr></thead>
+                    <thead><tr><th>Fecha de pago</th><th>Horas</th><th>Deudas pagadas</th><th>Líder que autoriza</th><th>Nota</th></tr></thead>
                     <tbody>
                     {% for f in consolidado.pagos %}
                         <tr>
                             <td>{{ f.fecha_str }}</td>
                             <td class="text-danger">−{{ f.horas }}</td>
+                            <td>
+                                {% if f.detalle_deudas %}
+                                    <details class="pago-detalle">
+                                        <summary><i class="fas fa-chevron-right chev mr-1"></i><i class="fas fa-list-ul mr-1"></i>Ver {{ f.detalle_deudas|length }} deuda{{ f.detalle_deudas|length|pluralize }}</summary>
+                                        <div class="pago-detalle-list">
+                                            {% for d in f.detalle_deudas %}
+                                                <div class="item">
+                                                    <span class="badge {% if d.tipo == 'doblada' %}badge-info{% else %}badge-secondary{% endif %}">{% if d.tipo == 'doblada' %}Doblada{% else %}Permiso{% endif %}</span>
+                                                    <span>{{ d.fecha_str }}</span>
+                                                    <span class="text-muted">· {{ d.horas }} h</span>
+                                                </div>
+                                            {% endfor %}
+                                        </div>
+                                    </details>
+                                {% else %}
+                                    <span class="text-muted small">—</span>
+                                {% endif %}
+                            </td>
                             <td>{{ f.lider }}</td>
                             <td>{{ f.comentario }}</td>
                         </tr>

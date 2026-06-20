@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Descansos de Semana{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<style>
+  .ds-table { width:100%; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 14px rgba(15,23,42,.06); border-collapse:collapse; }
+  .ds-table th { background:#f8fafc; text-align:left; padding:11px 12px; font-size:.8rem; color:#475569; text-transform:uppercase; }
+  .ds-table td { padding:11px 12px; border-top:1px solid #f1f5f9; font-size:.92rem; }
+  .jor { font-weight:700; padding:2px 9px; border-radius:6px; color:#fff; font-size:.78rem; }
+  .jor-AM { background:#0d6efd; } .jor-PM { background:#f59e0b; }
+  .mot { padding:2px 8px; border-radius:6px; font-size:.78rem; background:#e2e8f0; color:#334155; }
+  .ds-empty { text-align:center; padding:38px; color:#6b7280; }
+  .ds-acc a { margin-right:6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:980px;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-bed"></i> Descansos de Semana (manual)</h1>
+      <p class="pg-subtitle">Define el día de descanso de entre semana por jornada cuando hay temporada o festivo (el lunes de mantenimiento normal no aplica esas semanas)</p>
+    </div>
+
+    <div class="alert alert-info" style="border-radius:8px;">
+      <i class="fas fa-info-circle"></i> Normalmente el descanso de semana es el <strong>lunes de mantenimiento</strong> (descansan AM y PM).
+      Aquí solo registras las excepciones: en semanas de <strong>temporada</strong> o con <strong>festivo</strong>, qué día descansa cada jornada (ej.: AM martes, PM viernes).
+    </div>
+
+    <div class="d-flex justify-content-end mb-2">
+      <a href="{% url 'descanso_semana_create' %}" class="pg-btn pg-btn-success"><i class="fas fa-plus"></i> Nuevo descanso</a>
+    </div>
+
+    {% if descansos %}
+    <table class="ds-table">
+      <thead><tr><th>Fecha</th><th>Día</th><th>Jornada que descansa</th><th>Motivo</th><th>Descripción</th><th>Activo</th><th>Acciones</th></tr></thead>
+      <tbody>
+      {% for d in descansos %}
+        <tr>
+          <td>{{ d.fecha|date:"d/m/Y" }}</td>
+          <td>{{ d.fecha|date:"l"|capfirst }}</td>
+          <td><span class="jor jor-{{ d.jornada.nombre }}">{{ d.jornada.nombre }}</span></td>
+          <td><span class="mot">{{ d.get_motivo_display }}</span></td>
+          <td>{{ d.descripcion|default:"—" }}</td>
+          <td>{% if d.activo %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
+          <td class="ds-acc">
+            <a href="{% url 'descanso_semana_edit' d.id %}" class="pg-btn pg-btn-secondary" title="Editar"><i class="fas fa-edit"></i></a>
+            <a href="{% url 'descanso_semana_delete' d.id %}" class="pg-btn pg-btn-secondary" title="Eliminar"><i class="fas fa-trash text-danger"></i></a>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="ds-table"><div class="ds-empty"><i class="fas fa-bed fa-2x mb-2"></i><br>Sin descansos de semana registrados. Solo se necesitan en semanas con temporada o festivo.</div></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

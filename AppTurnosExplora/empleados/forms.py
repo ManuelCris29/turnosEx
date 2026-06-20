@@ -168,5 +168,24 @@ class EmpleadoUsuarioForm(forms.Form):
         help_text='Opcional: Asignar un supervisor a este empleado (solo empleados con rol Supervisor)'
     )
     roles = forms.ModelMultipleChoiceField(queryset=Role.objects.all(), required=True, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
-    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=True, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
-    jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=True, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
+    # salas/jornada NO son obligatorias a nivel de campo: se exigen solo si el empleado NO
+    # es supervisor (ver clean()). Un supervisor no tiene sala, jornada ni supervisor asignado.
+    salas = forms.ModelMultipleChoiceField(queryset=Sala.objects.all(), required=False, widget=forms.SelectMultiple(attrs={'class': 'form-control'}))
+    jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=False, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
+
+    @staticmethod
+    def _roles_incluyen_supervisor(roles):
+        return bool(roles) and any('supervisor' in (r.nombre or '').lower() for r in roles)
+
+    def es_supervisor(self):
+        return self._roles_incluyen_supervisor(self.cleaned_data.get('roles'))
+
+    def clean(self):
+        cleaned = super().clean()
+        if not self._roles_incluyen_supervisor(cleaned.get('roles')):
+            # Empleado normal (no supervisor): sala y jornada son obligatorias.
+            if not cleaned.get('salas'):
+                self.add_error('salas', 'Selecciona al menos una sala (obligatorio para no supervisores).')
+            if not cleaned.get('jornada'):
+                self.add_error('jornada', 'Selecciona una jornada (obligatorio para no supervisores).')
+        return cleaned

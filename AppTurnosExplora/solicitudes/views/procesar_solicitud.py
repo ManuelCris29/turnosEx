@@ -329,6 +329,15 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     return json_error('Debe seleccionar el compañero que se doblará el fin de semana', status=400, code='missing_fields')
                 if not request.POST.get('fecha_pago'):
                     return json_error('La fecha de pago es obligatoria (otro fin de semana del mismo mes).', status=400, code='missing_fields')
+            elif tipo_nombre == "CAMBIO DESCANSO":
+                # Cambio de descanso de fin de semana: cesión = finde que cambias,
+                # pago = finde de devolución (mismo mes), receptor = compañero contrario.
+                if not fecha_solicitud:
+                    return json_error('El fin de semana que cambias es requerido', status=400, code='missing_fields')
+                if not empleado_receptor_id:
+                    return json_error('Debe seleccionar el compañero con quien intercambia el descanso', status=400, code='missing_fields')
+                if not request.POST.get('fecha_pago'):
+                    return json_error('El fin de semana de devolución es obligatorio (otro finde del mismo mes).', status=400, code='missing_fields')
             elif tipo_nombre == "DOBLADA PERMANENTE":
                 # Doblada permanente (varios compañeros): rango + filas día+compañero
                 if not request.POST.get('fecha_inicio') or not request.POST.get('fecha_fin'):
@@ -638,6 +647,15 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                     })
             elif tipo_solicitud.nombre == "D FDS":
                 # D FDS: cesión = finde que cede, pago = finde de devolución (mismo mes)
+                datos_solicitud = datos_solicitud_base.copy()
+                datos_solicitud.update({
+                    'explorador_receptor': empleado_receptor,
+                    'fecha_cambio_turno': fecha_solicitud,
+                    'fecha_pago': request.POST.get('fecha_pago'),
+                    'fecha_creacion_solicitud': timezone.now().date(),
+                })
+            elif tipo_solicitud.nombre == "CAMBIO DESCANSO":
+                # Cambio de descanso: cesión = finde que cambias, pago = finde de devolución
                 datos_solicitud = datos_solicitud_base.copy()
                 datos_solicitud.update({
                     'explorador_receptor': empleado_receptor,

@@ -129,10 +129,51 @@ class TurnoArchivo(models.Model):
     
     def __str__(self):
         return f"{self.explorador.user.username} - {self.fecha} (Archivado)"
-    
 
 
+class DescansoSemanaManual(models.Model):
+    """
+    Descanso de ENTRE SEMANA asignado manualmente por el supervisor.
 
+    Normalmente el descanso de semana es el "lunes de mantenimiento" (descansan AM y PM).
+    Pero en semanas con TEMPORADA o FESTIVO ese lunes no aplica como descanso, y el descanso
+    se mueve a otro día (martes/viernes). Este modelo deja que el supervisor defina, POR
+    JORNADA (AM/PM), qué día (lun-vie) descansa ese grupo esa semana. Ej.: AM descansa el
+    martes, PM descansa el viernes.
+    """
+    MOTIVO_CHOICES = [
+        ('temporada', 'Temporada'),
+        ('festivo', 'Festivo'),
+        ('otro', 'Otro'),
+    ]
+    fecha = models.DateField(help_text='Día (lunes a viernes) en que descansa la jornada indicada')
+    jornada = models.ForeignKey(Jornada, on_delete=models.CASCADE, related_name='descansos_semana_manual')
+    motivo = models.CharField(max_length=20, choices=MOTIVO_CHOICES, default='temporada',
+                              help_text='Por qué esta semana el descanso es manual (temporada/festivo)')
+    descripcion = models.CharField(max_length=200, blank=True, default='')
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Descanso de semana (manual)'
+        verbose_name_plural = 'Descansos de semana (manuales)'
+        ordering = ['-fecha', 'jornada']
+        constraints = [
+            models.UniqueConstraint(fields=['fecha', 'jornada'], name='uniq_descanso_semana_fecha_jornada'),
+        ]
+        indexes = [
+            models.Index(fields=['fecha', 'activo'], name='descsem_fecha_activo_idx'),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.fecha and self.fecha.weekday() >= 5:
+            raise ValidationError('El descanso de semana debe ser un día de lunes a viernes.')
+
+    def __str__(self):
+        return f"{self.jornada.nombre} descansa {self.fecha} ({self.get_motivo_display()})"
 
 
 

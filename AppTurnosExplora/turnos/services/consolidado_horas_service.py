@@ -134,16 +134,37 @@ class ConsolidadoHorasService:
             PDH.objects
             .filter(explorador=empleado, tipo_registro='pago_horas')
             .select_related('supervisor')
+            .prefetch_related('deudas_pagadas__solicitud_origen__tipo_cambio', 'permisos_pagados')
             .order_by('fecha')
         )
         pagos = []
         for p in pagos_qs:
+            # Trazabilidad: qué deudas concretas saldó este pago (evita conflictos
+            # supervisor/explorador: se ve exactamente qué se pagó).
+            detalle_deudas = []
+            for d in p.deudas_pagadas.all():
+                origen = (d.solicitud_origen.tipo_cambio.nombre
+                          if d.solicitud_origen and d.solicitud_origen.tipo_cambio else 'Doblada')
+                detalle_deudas.append({
+                    'tipo': 'doblada',
+                    'fecha_str': _fecha_es(d.fecha_doblada),
+                    'horas': round(d.minutos / 60, 2),
+                    'descripcion': f'{origen} {_fecha_es(d.fecha_doblada)}',
+                })
+            for pe in p.permisos_pagados.all():
+                detalle_deudas.append({
+                    'tipo': 'permiso',
+                    'fecha_str': _fecha_es(pe.fecha_inicio),
+                    'horas': round(pe.horas_totales(), 2),
+                    'descripcion': f'Permiso {pe.get_tipo_display()} {_fecha_es(pe.fecha_inicio)}',
+                })
             pagos.append({
                 'fecha': p.fecha,
                 'fecha_str': _fecha_es(p.fecha),
                 'horas': float(p.horas),
                 'lider': f"{p.supervisor.nombre} {p.supervisor.apellido}" if p.supervisor else '—',
                 'comentario': p.comentario or '',
+                'detalle_deudas': detalle_deudas,
             })
         total_pagado = round(sum(p['horas'] for p in pagos), 2)
         # Histórico = lo que aún debe + lo que ya pagó (solo informativo).

@@ -54,22 +54,26 @@ class ReflejoMisTurnosTest(TestCase):
         return d
 
     def _findes_fds(self):
-        """(cesion, pago) en un mismo mes futuro: cesion día que trabaja AM, pago día que trabaja PM."""
-        base = timezone.now().date() + timedelta(days=30)
+        """
+        (cesion, pago) en un mismo mes futuro y del MISMO día de la semana (regla D FDS:
+        si cedes un domingo, devuelves un domingo). cesion: trabaja AM; pago: trabaja PM.
+        """
+        hoy = timezone.now().date()
+        base = hoy + timedelta(days=30)
         for _ in range(6):
             anio, mes = base.year, base.month
-            ces = pago = None
+            findes = []
             d = date(anio, mes, 1)
             while d.month == mes:
-                if d > timezone.now().date() and d.weekday() in (5, 6):
-                    g = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(d)
-                    if g == 'AM' and not ces:
-                        ces = d
-                    if g == 'PM' and not pago:
-                        pago = d
+                if d > hoy and d.weekday() in (5, 6):
+                    findes.append(d)
                 d += timedelta(days=1)
-            if ces and pago:
-                return ces, pago
+            for wd in (5, 6):
+                dias = [f for f in findes if f.weekday() == wd]
+                ces = next((f for f in dias if AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(f) == 'AM'), None)
+                pago = next((f for f in dias if AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(f) == 'PM' and f != ces), None)
+                if ces and pago:
+                    return ces, pago
             base = (date(anio, mes, 28) + timedelta(days=7))
         self.fail("No se hallaron fechas de finde para D FDS")
 

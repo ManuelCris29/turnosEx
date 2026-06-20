@@ -434,24 +434,53 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                                 'turno_id': None
                             }
                         else:
-                            # No hay turno, usar jornada predeterminada (día normal)
-                            jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
-                            
-                            # Intentar obtener sala de asignación activa
-                            sala_nombre = 'Por asignar'
-                            if asignaciones_activas:
-                                sala_nombre = asignaciones_activas.sala.nombre
-                            
-                            turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                                'jornada': jornada_nombre,
-                                'sala': sala_nombre,
-                                'tipo': 'predeterminado',
-                                'es_cambio': False,
-                                'es_descanso': False,
-                                'jornada_predeterminada': jornada_nombre,
-                                'coincide_con_predeterminada': True,
-                                'turno_id': None
-                            }
+                            # ¿Descanso de ENTRE SEMANA? (lunes-viernes)
+                            #  - Lunes de mantenimiento efectivo → descansan AM y PM.
+                            #  - Día manual (temporada/festivo) → descansa la jornada configurada.
+                            motivo_descanso_semana = None
+                            if fecha.weekday() < 5:
+                                from turnos.services.descanso_semana_service import DescansoSemanaService
+                                from turnos.models import DiaEspecial
+                                if DescansoSemanaService.es_descanso_semana_manual(jornada_base, fecha):
+                                    motivo_descanso_semana = 'manual'
+                                elif DiaEspecial.es_mantenimiento_efectivo(fecha):
+                                    motivo_descanso_semana = 'mantenimiento'
+
+                            if motivo_descanso_semana:
+                                # Día de descanso de entre semana
+                                turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                                    'jornada': None,
+                                    'sala': None,
+                                    'tipo': 'descanso',
+                                    'es_cambio': False,
+                                    'es_descanso': True,
+                                    'jornada_predeterminada': calcular_jornada_dia(jornada_base, fecha),
+                                    'coincide_con_predeterminada': False,
+                                    'turno_id': None,
+                                    'descanso_info': {
+                                        'tipo': 'descanso_semana',
+                                        'motivo': motivo_descanso_semana,  # 'manual' o 'mantenimiento'
+                                    },
+                                }
+                            else:
+                                # No hay turno, usar jornada predeterminada (día normal)
+                                jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+
+                                # Intentar obtener sala de asignación activa
+                                sala_nombre = 'Por asignar'
+                                if asignaciones_activas:
+                                    sala_nombre = asignaciones_activas.sala.nombre
+
+                                turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                                    'jornada': jornada_nombre,
+                                    'sala': sala_nombre,
+                                    'tipo': 'predeterminado',
+                                    'es_cambio': False,
+                                    'es_descanso': False,
+                                    'jornada_predeterminada': jornada_nombre,
+                                    'coincide_con_predeterminada': True,
+                                    'turno_id': None
+                                }
             
             # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
             # Limitar a las solicitudes más recientes para mejorar rendimiento

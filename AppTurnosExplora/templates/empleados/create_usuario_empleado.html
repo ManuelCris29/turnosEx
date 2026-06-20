@@ -80,15 +80,21 @@
             <label for="id_roles"><i class="fas fa-user-tag"></i> Roles</label>
             {{ form.roles|add_class:'form-control' }}
           </div>
-          <div class="form-group">
+
+          {# Aviso cuando el empleado es supervisor #}
+          <div class="alert alert-info" id="aviso_supervisor" style="display:none;">
+            <i class="fas fa-user-tie"></i> Este empleado es <strong>Supervisor</strong>: no requiere sala, jornada ni supervisor asignado.
+          </div>
+
+          <div class="form-group" id="grp_salas">
             <label for="id_salas"><i class="fas fa-door-open"></i> Salas</label>
             {{ form.salas|add_class:'form-control' }}
           </div>
-          <div class="form-group">
+          <div class="form-group" id="grp_jornada">
             <label for="id_jornada"><i class="fas fa-clock"></i> Jornada</label>
             {{ form.jornada|add_class:'form-control' }}
           </div>
-          <div class="form-group">
+          <div class="form-group" id="grp_supervisor">
             <label for="id_supervisor"><i class="fas fa-user-tie"></i> Supervisor</label>
             {{ form.supervisor|add_class:'form-control' }}
             {% if form.supervisor.help_text %}<small class="form-text text-muted">{{ form.supervisor.help_text }}</small>{% endif %}
@@ -107,4 +113,34 @@
 
 {% block extra_js %}
 <script src="{% static 'js/empleados/create_usuario_empleado.js' %}"></script>
+<script>
+(function(){
+  const roles = document.getElementById('id_roles');
+  const grpSalas = document.getElementById('grp_salas');
+  const grpJornada = document.getElementById('grp_jornada');
+  const grpSupervisor = document.getElementById('grp_supervisor');
+  const aviso = document.getElementById('aviso_supervisor');
+  if(!roles) return;
+
+  function esSupervisor(){
+    return Array.from(roles.selectedOptions || []).some(o => (o.text || '').toLowerCase().includes('supervisor'));
+  }
+  function toggle(){
+    const sup = esSupervisor();
+    [grpSalas, grpJornada, grpSupervisor].forEach(g => { if(g) g.style.display = sup ? 'none' : ''; });
+    if(aviso) aviso.style.display = sup ? '' : 'none';
+    // Al ocultar, limpiar selección para no enviar datos que se ignorarán.
+    if(sup){
+      const salas = document.getElementById('id_salas');
+      const jornada = document.getElementById('id_jornada');
+      const supervisor = document.getElementById('id_supervisor');
+      if(salas) Array.from(salas.options).forEach(o => o.selected = false);
+      if(jornada) jornada.value = '';
+      if(supervisor) supervisor.value = '';
+    }
+  }
+  roles.addEventListener('change', toggle);
+  toggle(); // estado inicial (por si el form vuelve con errores)
+})();
+</script>
 {% endblock %}

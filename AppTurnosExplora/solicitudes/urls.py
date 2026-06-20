@@ -10,7 +10,10 @@ from .views import (
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView,
     ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView,
     ObtenerExploradoresDobladaView, VerificarDobladaExistenteView, ObtenerFechasDescansoView,
-    VerificarCoincidenciaJornadasView
+    VerificarCoincidenciaJornadasView,
+    GestionSolicitudesView, ReenviarNotificacionSolicitudView,
+    GestionCancelarSolicitudView, GestionEliminarSolicitudView,
+    AlternanciaFindeView,
 )
 
 app_name = 'solicitudes'
@@ -30,6 +33,12 @@ urlpatterns = [
     
     # SOLICITUDES PENDIENTES (con funcionalidad completa)
     path('solicitudes-pendientes/', SolicitudesPendientesListView.as_view(), name='solicitudes_pendientes_list'),
+
+    # Gestión / supervisión de TODAS las solicitudes (detectar atascadas, reenviar, cancelar, eliminar)
+    path('gestion-solicitudes/', GestionSolicitudesView.as_view(), name='gestion_solicitudes'),
+    path('gestion-solicitudes/<int:solicitud_id>/reenviar/', ReenviarNotificacionSolicitudView.as_view(), name='gestion_reenviar_solicitud'),
+    path('gestion-solicitudes/<int:solicitud_id>/cancelar/', GestionCancelarSolicitudView.as_view(), name='gestion_cancelar_solicitud'),
+    path('gestion-solicitudes/<int:solicitud_id>/eliminar/', GestionEliminarSolicitudView.as_view(), name='gestion_eliminar_solicitud'),
     
     # ACCIONES DE SOLICITUDES (funcionales)
     path('aprobar-solicitud/<int:solicitud_id>/', AprobarSolicitudView.as_view(), name='aprobar_solicitud'),
@@ -46,6 +55,7 @@ urlpatterns = [
     path('obtener-turno-explorador/', ObtenerTurnoExploradorView.as_view(), name='obtener_turno_explorador'),
     path('obtener-jornadas-rango/', ObtenerJornadasRangoView.as_view(), name='obtener_jornadas_rango'),
     path('obtener-cambio-aprobado/', ObtenerCambioAprobadoView.as_view(), name='obtener_cambio_aprobado'),
+    path('alternancia-finde/', AlternanciaFindeView.as_view(), name='alternancia_finde'),
     path('obtener-detalle-solicitud/<int:solicitud_id>/', ObtenerDetalleSolicitudView.as_view(), name='obtener_detalle_solicitud'),
     path('previsualizar-ct-permanente/', PrevisualizarCTPermanenteView.as_view(), name='previsualizar_ct_permanente'),
     path('procesar-solicitud/', ProcesarSolicitudView.as_view(), name='procesar_solicitud'),

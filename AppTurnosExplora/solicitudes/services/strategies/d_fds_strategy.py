@@ -100,6 +100,16 @@ class DFDSStrategy(SolicitudStrategy):
             if fecha_pago == fecha_cesion:
                 return False, "La fecha de pago no puede ser la misma que la fecha de cesión"
 
+            # 4b. El pago debe ser el MISMO día del fin de semana que la cesión:
+            #     si cedes un domingo, devuelves un domingo; si cedes un sábado, un sábado.
+            #     Así cada quien conserva la misma cantidad de sábados/domingos del mes.
+            if fecha_cesion.weekday() != fecha_pago.weekday():
+                dia_ces = 'domingo' if fecha_cesion.weekday() == 6 else 'sábado'
+                return False, (
+                    f"Cediste un {dia_ces}: la devolución (pago) también debe ser un {dia_ces}, "
+                    f"para que ambos conserven la misma cantidad de {dia_ces}s en el mes."
+                )
+
             # 5. Pago en el mismo mes que la cesión (regla reutilizada de doblada)
             SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
 
