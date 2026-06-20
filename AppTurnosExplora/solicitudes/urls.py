@@ -13,7 +13,7 @@ from .views import (
     VerificarCoincidenciaJornadasView,
     GestionSolicitudesView, ReenviarNotificacionSolicitudView,
     GestionCancelarSolicitudView, GestionEliminarSolicitudView,
-    AlternanciaFindeView,
+    AlternanciaFindeView, DescansosSemanaUsuarioView,
 )
 
 app_name = 'solicitudes'
@@ -56,6 +56,7 @@ urlpatterns = [
     path('obtener-jornadas-rango/', ObtenerJornadasRangoView.as_view(), name='obtener_jornadas_rango'),
     path('obtener-cambio-aprobado/', ObtenerCambioAprobadoView.as_view(), name='obtener_cambio_aprobado'),
     path('alternancia-finde/', AlternanciaFindeView.as_view(), name='alternancia_finde'),
+    path('descansos-semana-usuario/', DescansosSemanaUsuarioView.as_view(), name='descansos_semana_usuario'),
     path('obtener-detalle-solicitud/<int:solicitud_id>/', ObtenerDetalleSolicitudView.as_view(), name='obtener_detalle_solicitud'),
     path('previsualizar-ct-permanente/', PrevisualizarCTPermanenteView.as_view(), name='previsualizar_ct_permanente'),
     path('procesar-solicitud/', ProcesarSolicitudView.as_view(), name='procesar_solicitud'),

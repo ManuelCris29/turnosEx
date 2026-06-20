@@ -572,3 +572,35 @@ class AlternanciaFindeView(LoginRequiredMixin, View):
                 'jornada': AlternanciaFinesSemanaService.jornada_trabaja_domingo(sabado),
             },
         })
+
+
+class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
+    """
+    Devuelve los días de descanso de ENTRE SEMANA del usuario en un año: el día manual de
+    su jornada (temporada/festivo) y el lunes de mantenimiento efectivo. Sirve para marcar
+    esos días en el formulario de Cambio de Día de Descanso (modalidad entre semana).
+    """
+    def get(self, request):
+        from datetime import date as _date
+        from turnos.models import AsignarJornadaExplorador, DiaEspecial, DescansoSemanaManual
+        try:
+            anio = int(request.GET.get('anio'))
+        except (TypeError, ValueError):
+            anio = _date.today().year
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_ok({'descansos': {}})
+        asg = (AsignarJornadaExplorador.objects
+               .filter(explorador=emp, fecha_inicio__lte=_date(anio, 12, 31))
+               .select_related('jornada').order_by('-fecha_inicio').first())
+        jornada = asg.jornada.nombre.upper() if asg else None
+        res = {}
+        if jornada:
+            for d in DescansoSemanaManual.objects.filter(
+                    fecha__year=anio, activo=True, jornada__nombre__iexact=jornada):
+                if d.fecha.weekday() < 5:
+                    res[d.fecha.isoformat()] = 'temporada'
+        for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='mantenimiento', activo=True):
+            if de.fecha.weekday() < 5 and DiaEspecial.es_mantenimiento_efectivo(de.fecha):
+                res.setdefault(de.fecha.isoformat(), 'mantenimiento')
+        return json_ok({'descansos': res, 'jornada': jornada})

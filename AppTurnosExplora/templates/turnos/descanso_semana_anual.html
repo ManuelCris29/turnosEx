@@ -1,0 +1,168 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Planeación de Descansos de Semana{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<style>
+  .dsa-wrap { max-width: 1200px; margin: 0 auto; }
+  .dsa-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .dsa-leyenda { display:flex; gap:14px; flex-wrap:wrap; font-size:.85rem; color:#475569; }
+  .dsa-leyenda span { display:inline-flex; align-items:center; gap:6px; }
+  .dsa-box { width:14px; height:14px; border-radius:3px; display:inline-block; }
+  .box-am { background:#0d6efd; } .box-pm { background:#f59e0b; } .box-amb { background:linear-gradient(90deg,#0d6efd 50%,#f59e0b 50%); }
+  .dsa-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
+  .dsa-mes { background:#fff; border-radius:12px; box-shadow:0 4px 14px rgba(15,23,42,.06); padding:12px; }
+  .dsa-mes h4 { font-size:1rem; margin:0 0 8px; color:#1e293b; text-align:center; }
+  .dsa-cal { width:100%; border-collapse:collapse; table-layout:fixed; }
+  .dsa-cal th { font-size:.7rem; color:#94a3b8; text-transform:uppercase; padding:2px; text-align:center; }
+  .dsa-cal td { text-align:center; padding:1px; }
+  .dia { width:34px; height:34px; line-height:1; border-radius:8px; display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
+         font-size:.82rem; cursor:pointer; user-select:none; border:1px solid transparent; transition:.1s; position:relative; }
+  .dia:hover { background:#f1f5f9; }
+  .dia.otro { color:#cbd5e1; cursor:default; } .dia.otro:hover { background:transparent; }
+  .dia.finde { color:#cbd5e1; cursor:default; } .dia.finde:hover { background:transparent; }
+  .dia .et { font-size:.55rem; font-weight:700; line-height:1; margin-top:1px; }
+  .dia.sel-am { background:#dbeafe; border-color:#0d6efd; } .dia.sel-am .et { color:#0d6efd; }
+  .dia.sel-pm { background:#fef3c7; border-color:#f59e0b; } .dia.sel-pm .et { color:#b45309; }
+  .dia.sel-amb { background:linear-gradient(90deg,#dbeafe 50%,#fef3c7 50%); border-color:#6366f1; }
+  .dia.sel-amb .et { color:#4338ca; }
+  /* Marcadores de referencia (temporada/festivo/mantenimiento) */
+  .dia .marks { position:absolute; top:2px; right:2px; display:flex; gap:2px; }
+  .dia .mk { width:6px; height:6px; border-radius:50%; }
+  .mk-temporada { background:#8b5cf6; } .mk-festivo { background:#ef4444; } .mk-mantenimiento { background:#475569; }
+  .dia.tem-bg { box-shadow: inset 0 0 0 2px #ede9fe; }
+  .dsa-actions { position:sticky; bottom:0; background:#fff; padding:12px; border-top:1px solid #e2e8f0; display:flex; gap:10px; justify-content:flex-end; margin-top:16px; border-radius:0 0 12px 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="dsa-wrap" style="width:100%;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-bed"></i> Planeación de Descansos de Semana</h1>
+      <p class="pg-subtitle">Programa el año completo: haz clic en un día (lun-vie) para asignar qué jornada descansa esa semana de temporada. Clic repetido cambia AM → PM → ambas → ninguna.</p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }}" style="border-radius:8px;">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="dsa-toolbar">
+      <form method="get" class="form-inline" style="gap:8px;">
+        <label class="mb-0 font-weight-bold mr-1">Año:</label>
+        <select name="anio" class="form-control" onchange="this.form.submit()">
+          {% for a in anios_disponibles %}<option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>{% endfor %}
+          {% if anio not in anios_disponibles %}<option value="{{ anio }}" selected>{{ anio }}</option>{% endif %}
+        </select>
+      </form>
+      <div class="dsa-leyenda">
+        <span><i class="dsa-box box-am"></i> Descansa AM</span>
+        <span><i class="dsa-box box-pm"></i> Descansa PM</span>
+        <span><i class="dsa-box box-amb"></i> Ambas</span>
+        <span style="color:#cbd5e1;">|</span>
+        <span><i class="mk mk-temporada" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Temporada</span>
+        <span><i class="mk mk-festivo" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Festivo</span>
+        <span><i class="mk mk-mantenimiento" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Mantenimiento</span>
+      </div>
+    </div>
+
+    <form method="post" id="dsaForm">
+      {% csrf_token %}
+      <input type="hidden" name="anio" value="{{ anio }}">
+      <input type="hidden" name="seleccion" id="seleccion">
+
+      <div class="dsa-grid">
+        {% for mes in meses %}
+        <div class="dsa-mes">
+          <h4>{{ mes.nombre }}</h4>
+          <table class="dsa-cal">
+            <thead><tr><th>L</th><th>M</th><th>X</th><th>J</th><th>V</th><th>S</th><th>D</th></tr></thead>
+            <tbody>
+              {% for semana in mes.semanas %}
+              <tr>
+                {% for dia in semana %}
+                <td>
+                  {% if dia.month == mes.numero %}
+                    {% if dia.weekday < 5 %}
+                      <span class="dia" data-fecha="{{ dia|date:'Y-m-d' }}"><span class="num">{{ dia.day }}</span><span class="et"></span></span>
+                    {% else %}
+                      <span class="dia finde" data-fecha="{{ dia|date:'Y-m-d' }}"><span class="num">{{ dia.day }}</span></span>
+                    {% endif %}
+                  {% else %}
+                    <span class="dia otro"><span class="num">{{ dia.day }}</span></span>
+                  {% endif %}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="dsa-actions">
+        <a href="{% url 'descanso_semana_list' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-list"></i> Ver lista / ajustes individuales</a>
+        <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar programación del año</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  const pre = {{ preseleccion_json|safe }};
+  const marcadores = {{ marcadores_json|safe }};
+  const form = document.getElementById('dsaForm');
+  const hidden = document.getElementById('seleccion');
+
+  // Pintar marcadores de referencia (temporada/festivo/mantenimiento) en cada día del año.
+  document.querySelectorAll('.dia[data-fecha]').forEach(span => {
+    const tags = marcadores[span.dataset.fecha];
+    if(!tags || !tags.length) return;
+    const cont = document.createElement('span');
+    cont.className = 'marks';
+    tags.forEach(t => { const d = document.createElement('span'); d.className = 'mk mk-' + t; d.title = t; cont.appendChild(d); });
+    span.appendChild(cont);
+    if(tags.indexOf('temporada') >= 0) span.classList.add('tem-bg');
+  });
+  // estado en memoria: { 'YYYY-MM-DD': ['AM'] | ['PM'] | ['AM','PM'] }
+  const estado = {};
+  Object.keys(pre).forEach(f => { estado[f] = pre[f].slice().sort(); });
+
+  const ESTADOS = [[], ['AM'], ['PM'], ['AM','PM']];
+  function claseDe(arr){
+    if(arr.length === 2) return 'sel-amb';
+    if(arr[0] === 'AM') return 'sel-am';
+    if(arr[0] === 'PM') return 'sel-pm';
+    return '';
+  }
+  function etiqueta(arr){
+    if(arr.length === 2) return 'AM·PM';
+    return arr[0] || '';
+  }
+  function pintar(span){
+    const f = span.dataset.fecha;
+    const arr = estado[f] || [];
+    span.classList.remove('sel-am','sel-pm','sel-amb');
+    const c = claseDe(arr); if(c) span.classList.add(c);
+    span.querySelector('.et').textContent = etiqueta(arr);
+  }
+  document.querySelectorAll('.dia[data-fecha]:not(.finde)').forEach(span => {
+    pintar(span);
+    span.addEventListener('click', () => {
+      const f = span.dataset.fecha;
+      const actual = estado[f] || [];
+      // índice del estado actual en el ciclo
+      let idx = ESTADOS.findIndex(e => e.length === actual.length && e.every((v,i)=>v===actual[i]));
+      if(idx < 0) idx = 0;
+      const siguiente = ESTADOS[(idx + 1) % ESTADOS.length];
+      if(siguiente.length) estado[f] = siguiente.slice(); else delete estado[f];
+      pintar(span);
+    });
+  });
+  form.addEventListener('submit', () => { hidden.value = JSON.stringify(estado); });
+})();
+</script>
+{% endblock %}

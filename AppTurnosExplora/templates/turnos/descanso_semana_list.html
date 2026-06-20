@@ -31,8 +31,9 @@
       Aquí solo registras las excepciones: en semanas de <strong>temporada</strong> o con <strong>festivo</strong>, qué día descansa cada jornada (ej.: AM martes, PM viernes).
     </div>
 
-    <div class="d-flex justify-content-end mb-2">
-      <a href="{% url 'descanso_semana_create' %}" class="pg-btn pg-btn-success"><i class="fas fa-plus"></i> Nuevo descanso</a>
+    <div class="d-flex justify-content-end mb-2" style="gap:8px;">
+      <a href="{% url 'descanso_semana_anual' %}" class="pg-btn" style="background:#6366f1;color:#fff;"><i class="fas fa-calendar-alt"></i> Planeación anual</a>
+      <a href="{% url 'descanso_semana_create' %}" class="pg-btn pg-btn-success"><i class="fas fa-plus"></i> Ajuste individual</a>
     </div>
 
     {% if descansos %}

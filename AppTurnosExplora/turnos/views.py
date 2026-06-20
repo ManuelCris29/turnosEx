@@ -245,6 +245,78 @@ class DescansoSemanaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteVie
     success_url = '/turnos/descanso-semana/'
 
 
+class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
+    """
+    Planeación ANUAL de los descansos de semana (estilo Días Especiales): 12 meses, el
+    supervisor hace clic en cada día y asigna qué jornada descansa (AM/PM) en las semanas
+    de temporada. Se guarda todo el año de una vez.
+    """
+    template_name = 'turnos/descanso_semana_anual.html'
+
+    def _anio(self):
+        anio = self.request.GET.get('anio')
+        try:
+            return int(anio)
+        except (TypeError, ValueError):
+            return date.today().year
+
+    def get_context_data(self, **kwargs):
+        import calendar as _cal
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        context = super().get_context_data(**kwargs)
+        anio = self._anio()
+        meses_nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        cal = _cal.Calendar(firstweekday=0)  # lunes primero
+        meses = []
+        for m in range(1, 13):
+            meses.append({
+                'numero': m,
+                'nombre': meses_nombres[m - 1],
+                'semanas': cal.monthdatescalendar(anio, m),  # semanas de 7 fechas
+            })
+        # Marcadores de referencia: temporada / festivo / mantenimiento del año (solo informativo)
+        from collections import defaultdict as _dd
+        marcadores = _dd(list)
+        for de in DiaEspecial.objects.filter(fecha__year=anio, activo=True):
+            f = de.fecha.isoformat()
+            if de.es_temporada:
+                tag = 'temporada'
+            elif de.tipo == 'festivo':
+                tag = 'festivo'
+            elif de.tipo == 'mantenimiento':
+                tag = 'mantenimiento'
+            else:
+                continue
+            if tag not in marcadores[f]:
+                marcadores[f].append(tag)
+
+        anio_actual = date.today().year
+        context.update({
+            'anio': anio,
+            'anios_disponibles': list(range(anio_actual, anio_actual + 6)),
+            'meses': meses,
+            'preseleccion_json': json.dumps(DescansoSemanaService.descansos_anual(anio)),
+            'marcadores_json': json.dumps(dict(marcadores)),
+        })
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        try:
+            anio = int(request.POST.get('anio'))
+        except (TypeError, ValueError):
+            messages.error(request, 'Año inválido.')
+            return redirect('descanso_semana_anual')
+        try:
+            seleccion = json.loads(request.POST.get('seleccion', '{}'))
+        except json.JSONDecodeError:
+            seleccion = {}
+        n = DescansoSemanaService.guardar_anual(anio, seleccion)
+        messages.success(request, f'Programación de descansos guardada para {anio} ({n} día(s) asignados).')
+        return redirect(f"{reverse('descanso_semana_anual')}?anio={anio}")
+
+
 class TurnosCalendarioView(LoginRequiredMixin, TemplateView):
     template_name = 'turnos/turnos_calendario.html'
 

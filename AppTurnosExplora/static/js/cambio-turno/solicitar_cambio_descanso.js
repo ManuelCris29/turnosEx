@@ -15,6 +15,29 @@
     const URL_EMPLEADOS = '/solicitudes/obtener-empleados-disponibles/';
     const URL_PROCESAR = '/solicitudes/procesar-solicitud/';
     const URL_ALTERNANCIA = '/solicitudes/alternancia-finde/';
+    const URL_DESCANSOS_SEMANA = '/solicitudes/descansos-semana-usuario/';
+
+    // Descansos de entre semana del usuario por año (temporada/mantenimiento), para marcar el calendario.
+    const descansosSemana = {};   // { 'YYYY-MM-DD': 'temporada'|'mantenimiento' }
+    const aniosDescansoCargados = {};
+
+    function toISO(d) {
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return d.getFullYear() + '-' + m + '-' + day;
+    }
+    function cargarDescansosSemana(anio, cb) {
+        if (aniosDescansoCargados[anio]) { if (cb) cb(); return; }
+        fetch(`${URL_DESCANSOS_SEMANA}?anio=${anio}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((res) => {
+                const d = (res && res.data) ? res.data : res;
+                Object.assign(descansosSemana, (d && d.descansos) || {});
+                aniosDescansoCargados[anio] = true;
+                if (cb) cb();
+            })
+            .catch(() => { if (cb) cb(); });
+    }
 
     const form = document.getElementById('cdForm');
     if (!form) return;
@@ -56,11 +79,20 @@
     }
 
     function marcarDia(dObj, dStr, fp, dayElem) {
-        if (modo !== 'finde') return;
-        const est = estadoFinde(dayElem.dateObj);
-        if (!est) return;
-        dayElem.classList.add('cd-' + est);
-        dayElem.title = est === 'trabaja' ? 'Trabajas este día' : 'Descansas este día';
+        const d = dayElem.dateObj;
+        if (modo === 'finde') {
+            const est = estadoFinde(d);
+            if (!est) return;
+            dayElem.classList.add('cd-' + est);
+            dayElem.title = est === 'trabaja' ? 'Trabajas este día' : 'Descansas este día';
+        } else {
+            // Entre semana: marcar los días que el usuario DESCANSA (temporada/mantenimiento).
+            if (d.getDay() < 1 || d.getDay() > 5) return;
+            const motivo = descansosSemana[toISO(d)];
+            if (!motivo) return;
+            dayElem.classList.add('cd-descansa');
+            dayElem.title = motivo === 'mantenimiento' ? 'Descanso (mantenimiento)' : 'Descanso (temporada)';
+        }
     }
 
     function notificar(icon, title, text) {
@@ -84,7 +116,25 @@
             .catch(() => { contenedor.style.display = 'none'; });
     }
 
-    let fpCesion = flatpickr(inputCesion, { locale: 'es', dateFormat: 'Y-m-d', minDate: 'today', disable: disableCesion(), onChange: onCesionChange, onDayCreate: marcarDia });
+    // Carga los descansos del año visible y redibuja el calendario (modalidad entre semana).
+    function cargarYRedraw(fp) {
+        if (modo !== 'semana') return;
+        const y = fp.currentYear || new Date().getFullYear();
+        cargarDescansosSemana(y, () => fp.redraw());
+    }
+    function crearPickerCesion() {
+        if (fpCesion) fpCesion.destroy();
+        fpCesion = flatpickr(inputCesion, {
+            locale: 'es', dateFormat: 'Y-m-d', minDate: 'today', disable: disableCesion(),
+            onChange: onCesionChange, onDayCreate: marcarDia,
+            onReady: function () { cargarYRedraw(this); },
+            onYearChange: function () { cargarYRedraw(this); },
+            onMonthChange: function () { cargarYRedraw(this); },
+        });
+    }
+
+    let fpCesion = null;
+    crearPickerCesion();
     let fpPago = flatpickr(inputPago, { locale: 'es', dateFormat: 'Y-m-d', disable: disableCesion(), onDayCreate: marcarDia });
 
     // Cambio de modalidad (fin de semana / entre semana)
@@ -97,17 +147,26 @@
             document.getElementById('lbl_cesion').textContent = finde ? 'Fin de Semana que Cambias' : 'Día (entre semana) que Cambias';
             document.getElementById('modo_ayuda').textContent = finde
                 ? 'Intercambia tu descanso de sábado o domingo (ida y vuelta, mismos domingos).'
-                : 'Intercambia un día de descanso de lunes a viernes. Si es festivo, debe ser festivo por festivo (otro festivo del mes).';
+                : 'Intercambia un día de descanso de lunes a viernes. Los días grises son tus descansos (temporada/mantenimiento). Si es festivo, debe ser festivo por festivo.';
             // Resetear todo y reconfigurar el picker de cesión.
             inputCesion.value = ''; diaCesion = null;
             resetReceptorYPago();
             if (distintivoCesion) { distintivoCesion.style.display = 'none'; distintivoCesion.innerHTML = ''; }
-            const ley = document.getElementById('cd_leyenda');
-            if (ley) ley.style.display = finde ? 'flex' : 'none';
-            if (fpCesion) fpCesion.destroy();
-            fpCesion = flatpickr(inputCesion, { locale: 'es', dateFormat: 'Y-m-d', minDate: 'today', disable: disableCesion(), onChange: onCesionChange, onDayCreate: marcarDia });
+            // La leyenda se muestra en ambas modalidades; en entre semana solo aplica "Descansas".
+            actualizarLeyenda(finde);
+            crearPickerCesion();
+            if (!finde) cargarDescansosSemana(new Date().getFullYear(), () => fpCesion && fpCesion.redraw());
         });
     });
+
+    function actualizarLeyenda(finde) {
+        const ley = document.getElementById('cd_leyenda');
+        if (!ley) return;
+        ley.style.display = 'flex';
+        ley.innerHTML = finde
+            ? '<span><i class="box cd-box-trab"></i> Trabajas</span><span><i class="box cd-box-desc"></i> Descansas</span>'
+            : '<span><i class="box cd-box-desc"></i> Tus descansos (temporada/mantenimiento)</span>';
+    }
 
     function resetReceptorYPago() {
         selectReceptor.innerHTML = '<option value="">Primero selecciona el fin de semana…</option>';
