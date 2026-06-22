@@ -487,13 +487,16 @@ class ObtenerFechasDescansoView(LoginRequiredMixin, View):
             # Buscar solicitudes donde usuario es solicitante y estado=aprobada
             from datetime import datetime
             
-            # OPTIMIZACIÓN: Solo necesitamos las fechas, usar values_list directamente
+            # Solo las cesiones COMPLETAS dejan al solicitante descansando todo el día.
+            # En una cesión PARCIAL (parcial_am/parcial_pm) el solicitante conserva media
+            # jornada, así que ESE día NO está descansando y no debe marcarse como descanso.
             solicitudes_cedidas = (
                 SolicitudCambio.objects
                 .filter(
                     explorador_solicitante=usuario_actual,
                     tipo_cambio__nombre='DOBLADA',
-                    estado='aprobada'
+                    estado='aprobada',
+                    doblada__tipo_cesion='cesion_completa',
                 )
                 .values_list('fecha_cambio_turno', flat=True)
             )

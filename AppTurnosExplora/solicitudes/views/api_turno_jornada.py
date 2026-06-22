@@ -213,7 +213,26 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                     # Si está descansando por doblada, no queremos mostrar jornada base
                     turno_dict = None
                     turnos_list = []
-            
+
+                # Descanso de ENTRE SEMANA (manual de temporada/festivo o lunes de mantenimiento).
+                # Debe verse igual que en Mis Turnos: es un descanso, no la jornada predeterminada.
+                if not esta_descansando and fecha_obj.weekday() < 5:
+                    from turnos.services.descanso_semana_service import DescansoSemanaService
+                    from turnos.models import DiaEspecial as _DE
+                    from turnos.services.jornada_service import JornadaService as _JS
+                    _pred = _JS.get_jornada_explorador_fecha(explorador_id, fecha)
+                    _jb = _pred.nombre.upper() if _pred else None
+                    _motivo_ds = None
+                    if DescansoSemanaService.es_descanso_semana_manual(_jb, fecha_obj):
+                        _motivo_ds = 'temporada'
+                    elif _DE.es_mantenimiento_efectivo(fecha_obj):
+                        _motivo_ds = 'mantenimiento'
+                    if _motivo_ds:
+                        esta_descansando = True
+                        descanso_info = {'tipo': 'descanso_semana', 'motivo': _motivo_ds}
+                        turno_dict = None
+                        turnos_list = []
+
             # Regla adicional para festivos de lunes a viernes:
             # - Solo mostrar DOBLADA (AM+PM) si en BD tiene realmente ambos turnos.
             #   Si ya hizo cesión parcial y solo tiene una jornada, mostrar esa jornada, no doblada.

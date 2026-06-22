@@ -213,6 +213,54 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                             )
                     d += timedelta(days=1)
 
+            # ===========================
+            # Cada fecha ENTRE SEMANA del rango: ambos deben tener UNA sola jornada.
+            # ===========================
+            # La doblada permanente parte de 1 jornada y al doblar quedas con 2. Por eso, si
+            # en una fecha elegida el solicitante o el receptor YA tiene una doblada (2 jornadas)
+            # o tiene el día LIBRE (descanso), no se permite la solicitud.
+            from solicitudes.services.doblada_permanente_aplicacion_service import (
+                DobladaPermanenteAplicacionService as _DPAS,
+            )
+            from turnos.models import Turno as _T
+            from turnos.services.descanso_semana_service import DescansoSemanaService as _DSS
+
+            ocurrencias = sorted(set(
+                list(_DPAS._ocurrencias(fi, ff, dias_cesion))
+                + list(_DPAS._ocurrencias(fi, ff, dias_devolucion))
+            ))
+
+            def _estado_jornada(emp, fecha):
+                """Devuelve 'doblada' (2), 'libre' (0) o None (1 jornada = ok)."""
+                n = _T.objects.filter(explorador=emp, fecha=fecha).count()
+                if n >= 2:
+                    return 'doblada'
+                if n == 1:
+                    return None
+                # n == 0: día predeterminado (1 jornada) salvo que sea descanso de semana manual.
+                jb = self._grupo_base(emp, fecha)
+                if _DSS.es_descanso_semana_manual(jb, fecha):
+                    return 'libre'
+                return None
+
+            for d in ocurrencias:
+                if d.weekday() == 5:  # los sábados los maneja la regla del sábado de arriba
+                    continue
+                for emp, tiene in ((solicitante, 'tú ya tienes'), (receptor, f'{receptor.nombre} ya tiene')):
+                    est = _estado_jornada(emp, d)
+                    if est == 'doblada':
+                        return False, (
+                            f"El {d.strftime('%d/%m/%Y')} {tiene} una doblada (día completo). "
+                            f"La doblada permanente requiere partir de UNA sola jornada ese día. "
+                            f"Elige otros días o resuelve esa doblada primero."
+                        )
+                    if est == 'libre':
+                        quien = 'tú tienes' if tiene.startswith('tú') else f'{receptor.nombre} tiene'
+                        return False, (
+                            f"El {d.strftime('%d/%m/%Y')} {quien} el día libre (descanso). "
+                            f"No se puede doblar un día de descanso; elige otros días."
+                        )
+
             return True, "Solicitud de doblada permanente válida"
 
         except ValidationError as e:

@@ -258,9 +258,16 @@ document.addEventListener('DOMContentLoaded', function() {
         .then(data => {
             if (data.esta_descansando && data.descanso_info) {
                 const info = data.descanso_info;
-                const razon = info.tipo === 'cedio'
-                    ? `Cediste tu jornada del ${info.fecha_cesion || ''} a ${info.companero_nombre}.`
-                    : `Estás en descanso como pago de la doblada realizada por ${info.companero_nombre}.`;
+                let razon;
+                if (info.tipo === 'descanso_semana') {
+                    razon = info.motivo === 'mantenimiento'
+                        ? 'Es tu día de descanso por mantenimiento.'
+                        : 'Es tu día de descanso de la semana (temporada).';
+                } else if (info.tipo === 'cedio') {
+                    razon = `Cediste tu jornada del ${info.fecha_cesion || ''} a ${info.companero_nombre}.`;
+                } else {
+                    razon = `Estás en descanso como pago de la doblada realizada por ${info.companero_nombre}.`;
+                }
                 turnoSolicitanteDetalles.innerHTML = `
                     <div class="alert alert-info mb-0">
                         <i class="fas fa-bed mr-2"></i>

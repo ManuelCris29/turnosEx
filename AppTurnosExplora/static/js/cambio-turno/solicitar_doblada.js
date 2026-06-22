@@ -596,23 +596,14 @@
     }
     
     /**
-     * Marcar visualmente las fechas de descanso en el calendario
+     * Marcar visualmente las fechas de descanso en el calendario.
+     * El marcado real se hace en onDayCreate (síncrono y consistente); aquí solo se
+     * redibuja para que onDayCreate vuelva a correr con las fechas ya cargadas.
      */
     function marcarFechasDescansoEnCalendario() {
-        if (!flatpickrCesion) return;
-        
-        setTimeout(() => {
-            fechasDescanso.forEach(fecha => {
-                const fechaObj = new Date(fecha + 'T00:00:00');
-                const dias = flatpickrCesion.calendarContainer.querySelectorAll('.flatpickr-day');
-                dias.forEach(dia => {
-                    const diaFecha = new Date(dia.dateObj);
-                    if (diaFecha.toDateString() === fechaObj.toDateString()) {
-                        dia.classList.add('descanso');
-                    }
-                });
-            });
-        }, 100);
+        if (flatpickrCesion && typeof flatpickrCesion.redraw === 'function') {
+            flatpickrCesion.redraw();
+        }
     }
     
     /**
@@ -637,6 +628,21 @@
             bloquearDiasEspeciales: true,
             permitirFestivos: true,
             permitirTemporada: true, // En temporada sí se pueden hacer solicitudes de doblada
+            // Marcar los días de descanso (día libre) en el momento de crear cada celda,
+            // de forma síncrona y consistente (evita el marcado flaky por setTimeout).
+            flatpickrOptions: {
+                onDayCreate: function(dates, str, inst, dayElem) {
+                    if (dayElem && dayElem.dateObj && Array.isArray(fechasDescanso) && fechasDescanso.length) {
+                        const d = dayElem.dateObj;
+                        const iso = d.getFullYear() + '-' +
+                            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                            String(d.getDate()).padStart(2, '0');
+                        if (fechasDescanso.includes(iso)) {
+                            dayElem.classList.add('descanso');
+                        }
+                    }
+                }
+            },
             onReady: function(flatpickrInstance) {
                 flatpickrCesion = flatpickrInstance;
                 marcarFechasDescansoEnCalendario();

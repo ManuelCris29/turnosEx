@@ -841,6 +841,42 @@ function inicializarDatepickerFestivos(config) {
             }, 100);
         };
         
+        // Marcado SÍNCRONO de días especiales en onDayCreate (por cada día, en el momento de
+        // crearse), usando las fechas ya cargadas. Esto evita la inconsistencia y el solapamiento
+        // del marcado posterior por setTimeout/querySelectorAll (que a veces aparecía y a veces no).
+        const _fechaLocalISO = (d) => {
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return d.getFullYear() + '-' + m + '-' + day;
+        };
+        const _userOnDayCreateGlobal = opcionesBase.onDayCreate;
+        opcionesBase.onDayCreate = function(dates, str, inst, dayElem) {
+            if (dayElem && dayElem.dateObj) {
+                const wd = dayElem.dateObj.getDay();
+                const iso = _fechaLocalISO(dayElem.dateObj);
+                // Limpiar marcas previas (la celda se reutiliza al cambiar de mes).
+                dayElem.classList.remove('festivo', 'mantenimiento', 'temporada', 'domingo', 'sabado');
+                if (wd === 0) {
+                    dayElem.classList.add('domingo');
+                    if (!dayElem.title) dayElem.title = 'Domingo (no disponible)';
+                } else if (bloquearSabados && wd === 6) {
+                    dayElem.classList.add('sabado');
+                    if (!dayElem.title) dayElem.title = 'Sábado (no disponible)';
+                }
+                // Temporada manda sobre mantenimiento; festivo puede coexistir (CSS combina).
+                if (temporadaMapActual && temporadaMapActual.has(iso)) {
+                    dayElem.classList.add('temporada');
+                } else if (mantenimientoMapActual && mantenimientoMapActual.has(iso)) {
+                    dayElem.classList.add('mantenimiento');
+                }
+                if (festivosMapActual && festivosMapActual.has(iso)) {
+                    dayElem.classList.add('festivo');
+                    dayElem.title = festivosMapActual.get(iso) || 'Día festivo';
+                }
+            }
+            if (_userOnDayCreateGlobal) _userOnDayCreateGlobal(dates, str, inst, dayElem);
+        };
+
         // Si bloquearDiasEspeciales es true, configurar disable: domingos, festivos, mantenimiento y temporada
         // permitirFestivos: no bloquear festivos. permitirTemporada: no bloquear temporada (CT Permanente sí bloquea)
         if (bloquearDiasEspeciales) {
@@ -881,28 +917,8 @@ function inicializarDatepickerFestivos(config) {
                 );
             }
 
-            // Marcar domingos (y sábados si aplica) en el momento de crear cada día (onDayCreate), para que
-            // el distintivo aparezca aunque el marcado posterior (setTimeout) falle o se retrase
-            const userOnDayCreate = opcionesBase.onDayCreate;
-            opcionesBase.onDayCreate = function(dates, str, inst, dayElem) {
-                if (dayElem && dayElem.dateObj) {
-                    const dayOfWeek = dayElem.dateObj.getDay();
-                    if (dayOfWeek === 0) { // Domingo
-                        dayElem.classList.add('domingo');
-                        if (!dayElem.title) {
-                            dayElem.title = 'Domingo (no disponible)';
-                        }
-                    } else if (bloquearSabados && dayOfWeek === 6) { // Sábado
-                        dayElem.classList.add('sabado');
-                        if (!dayElem.title) {
-                            dayElem.title = 'Sábado (no disponible)';
-                        }
-                    }
-                }
-                if (userOnDayCreate) {
-                    userOnDayCreate(dates, str, inst, dayElem);
-                }
-            };
+            // (El marcado de domingos/sábados y días especiales ya se hace en el onDayCreate
+            //  unificado de arriba, de forma síncrona y consistente.)
         }
         
         // Callbacks para marcar festivos y mantenimiento

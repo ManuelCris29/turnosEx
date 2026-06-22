@@ -413,14 +413,27 @@ function aplicarEstilosCambios() {
                     requestAnimationFrame(function() {
                         if (cellElement && cellElement.parentNode) { // Verificar que aún existe
                             cellElement.classList.add('dia-con-descanso');
-                            
-                            // Agregar ícono si no existe
+
+                            // Ícono distinto según el tipo:
+                            //  - Descanso REAL (asignado: semana/mantenimiento) → 😴
+                            //  - DÍA LIBRE (queda libre por una doblada: cesión/pago) → ☕
+                            const di = turnoInfo.descanso_info || {};
+                            const esDescansoReal = (di.tipo === 'descanso_semana');
+                            const emoji = esDescansoReal ? '😴' : '☕';
+                            const titulo = esDescansoReal ? 'Día de descanso' : 'Día libre (doblada)';
+
                             if (!cellElement.querySelector('.descanso-icon')) {
                                 const iconElement = document.createElement('span');
                                 iconElement.className = 'descanso-icon';
-                                iconElement.innerHTML = '😴';
+                                iconElement.innerHTML = emoji;
+                                iconElement.title = titulo;
                                 iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; z-index: 10;';
                                 cellElement.appendChild(iconElement);
+                            } else {
+                                // Si ya existe, asegurar que muestre el emoji correcto.
+                                const ic = cellElement.querySelector('.descanso-icon');
+                                ic.innerHTML = emoji;
+                                ic.title = titulo;
                             }
                         }
                     });
@@ -598,15 +611,25 @@ function mostrarDetallesDia(fechaStr) {
             if (info.es_descanso || info.tipo === 'descanso' || (!info.jornada && info.tipo === 'descanso')) {
                 // ✅ MEJORADO: Mensajes sencillos y profesionales
                 const descansoInfo = info.descanso_info || {};
-                const tipoDescanso = descansoInfo.tipo; // 'cedio' o 'pago'
+                const tipoDescanso = descansoInfo.tipo; // 'cedio' | 'pago' | 'descanso_semana'
                 const companeroNombre = descansoInfo.companero_nombre || 'un compañero';
                 const fechaCesion = descansoInfo.fecha_cesion;
                 const fechaPago = descansoInfo.fecha_pago;
-                
+
+                // Diferenciar DÍA LIBRE (queda libre por una solicitud de doblada: cesión/pago)
+                // del DESCANSO real (el asignado: descanso de semana / mantenimiento).
+                const esDescansoReal = (tipoDescanso === 'descanso_semana');
+                const etiqueta = esDescansoReal ? 'DESCANSO' : 'DÍA LIBRE';
+                const encabezado = esDescansoReal ? 'Día de descanso' : 'Día libre';
+                const icono = esDescansoReal ? 'fa-bed' : 'fa-mug-hot';
+
                 // Construir mensaje principal según el tipo (sencillo y profesional)
                 let mensajeDescanso = '';
-                
-                if (tipoDescanso === 'cedio') {
+                if (esDescansoReal) {
+                    mensajeDescanso = descansoInfo.motivo === 'mantenimiento'
+                        ? 'Descanso por día de mantenimiento.'
+                        : 'Día de descanso asignado.';
+                } else if (tipoDescanso === 'cedio') {
                     mensajeDescanso = `El compañero <strong>${companeroNombre}</strong> está trabajando por ti este día.`;
                     if (fechaPago) {
                         mensajeDescanso += ` Pagarás el ${fechaPago}.`;
@@ -617,13 +640,13 @@ function mostrarDetallesDia(fechaStr) {
                         mensajeDescanso += ` Tú lo cubriste el ${fechaCesion}.`;
                     }
                 } else {
-                    mensajeDescanso = 'Cediste tu jornada en una doblada. El compañero que te cubrió está trabajando por ti.';
+                    mensajeDescanso = 'Quedaste libre por una doblada. El compañero que te cubrió está trabajando por ti.';
                 }
-                
-                const jornadaHTML = `<span class="jornada-value descanso">DESCANSO</span>
+
+                const jornadaHTML = `<span class="jornada-value descanso">${etiqueta}</span>
                     <div class="info-descanso" style="margin-top: 8px; padding: 10px; background-color: #e3f2fd; border-left: 3px solid #2196f3; border-radius: 4px; font-size: 0.9rem; color: #1565c0; line-height: 1.5;">
-                        <i class="fas fa-bed" style="margin-right: 6px;"></i>
-                        <strong>Estás descansando:</strong> ${mensajeDescanso}
+                        <i class="fas ${icono}" style="margin-right: 6px;"></i>
+                        <strong>${encabezado}:</strong> ${mensajeDescanso}
                     </div>`;
                 jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
                 return;
