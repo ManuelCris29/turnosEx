@@ -1471,12 +1471,12 @@
                         dobladaExistenteInfo.style.display = 'block';
                         dobladaExistenteInfo.innerHTML = `
                             <div class="alert alert-info">
-                                <i class="fas fa-bed mr-2"></i>
-                                <strong>Estás Descansando</strong>
+                                <i class="fas fa-mug-hot mr-2"></i>
+                                <strong>Día Libre</strong>
                                 <p class="mb-1">${data.mensaje || 'Ya cediste tu jornada para esta fecha.'}</p>
                                 <small class="text-muted">
-                                    <i class="fas fa-info-circle"></i> 
-                                    Aunque estás en descanso para esta fecha, puedes continuar y definir una nueva solicitud de doblada si lo necesitas.
+                                    <i class="fas fa-info-circle"></i>
+                                    Es un día libre (no un descanso asignado): puedes continuar y definir una nueva solicitud de doblada si lo necesitas.
                                 </small>
                             </div>
                         `;

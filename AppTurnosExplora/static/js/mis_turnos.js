@@ -225,6 +225,22 @@ function aplicarEstilosCambios() {
         // Verificar primero si hay celdas renderizadas en el DOM
         const celdasExistentes = document.querySelectorAll('.fc-daygrid-day');
         console.log(`[DEBUG aplicarEstilosCambios] Celdas encontradas en DOM: ${celdasExistentes.length}`);
+
+        // LIMPIEZA: quitar marcadores de descanso "viejos" de celdas que, según los datos
+        // actuales, ya NO son descanso. Sin esto, un ícono agregado en un render previo
+        // (o por datos en caché desactualizados) puede quedar pegado en un día que ahora
+        // es un fin de semana de descanso normal o una jornada predeterminada.
+        celdasExistentes.forEach(celda => {
+            const dataDate = celda.getAttribute('data-date');
+            if (!dataDate) return;
+            const info = turnosMes[dataDate];
+            const esDescanso = info && (info.es_descanso || info.tipo === 'descanso');
+            if (!esDescanso) {
+                const iconoViejo = celda.querySelector('.descanso-icon');
+                if (iconoViejo) iconoViejo.remove();
+                celda.classList.remove('dia-con-descanso');
+            }
+        });
         
         if (celdasExistentes.length === 0) {
             console.log('[DEBUG aplicarEstilosCambios] No hay celdas en el DOM aún, reintentando...');
@@ -411,30 +427,47 @@ function aplicarEstilosCambios() {
                     elementosEncontrados++;
                     // Usar requestAnimationFrame para evitar causar re-renderizados
                     requestAnimationFrame(function() {
-                        if (cellElement && cellElement.parentNode) { // Verificar que aún existe
-                            cellElement.classList.add('dia-con-descanso');
+                        if (!cellElement || !cellElement.parentNode) return; // ya no existe
 
-                            // Ícono distinto según el tipo:
-                            //  - Descanso REAL (asignado: semana/mantenimiento) → 😴
-                            //  - DÍA LIBRE (queda libre por una doblada: cesión/pago) → ☕
-                            const di = turnoInfo.descanso_info || {};
-                            const esDescansoReal = (di.tipo === 'descanso_semana');
-                            const emoji = esDescansoReal ? '😴' : '☕';
-                            const titulo = esDescansoReal ? 'Día de descanso' : 'Día libre (doblada)';
+                        // ANTI-RACE: este callback se programó con los datos de un momento
+                        // anterior. Antes de pintar, RE-LEER los datos actuales de ESTA fecha.
+                        // Si entre tanto el día dejó de ser descanso (p. ej. se refrescó la
+                        // caché y ahora es jornada predeterminada), hay que QUITAR el ícono,
+                        // no volver a agregarlo. Esto evita el café "superpuesto" intermitente.
+                        const actual = turnosMes[fechaStr];
+                        const sigueDescanso = actual && (actual.es_descanso || actual.tipo === 'descanso');
+                        if (!sigueDescanso) {
+                            const viejo = cellElement.querySelector('.descanso-icon');
+                            if (viejo) viejo.remove();
+                            cellElement.classList.remove('dia-con-descanso');
+                            return;
+                        }
 
-                            if (!cellElement.querySelector('.descanso-icon')) {
-                                const iconElement = document.createElement('span');
-                                iconElement.className = 'descanso-icon';
-                                iconElement.innerHTML = emoji;
-                                iconElement.title = titulo;
-                                iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; z-index: 10;';
-                                cellElement.appendChild(iconElement);
-                            } else {
-                                // Si ya existe, asegurar que muestre el emoji correcto.
-                                const ic = cellElement.querySelector('.descanso-icon');
-                                ic.innerHTML = emoji;
-                                ic.title = titulo;
-                            }
+                        cellElement.classList.add('dia-con-descanso');
+
+                        // Ícono distinto según el tipo:
+                        //  - DÍA LIBRE (queda libre por una doblada: cesión/pago) → ☕
+                        //  - Descanso REAL (asignado: semana/mantenimiento/fin de semana) → 😴
+                        // IMPORTANTE: el café (☕) SOLO aplica a días libres por doblada.
+                        // Cualquier otro descanso (incluido un fin de semana de alternancia
+                        // o datos en caché sin 'descanso_info') debe mostrar 😴, nunca ☕.
+                        const di = (actual && actual.descanso_info) || {};
+                        const esDiaLibre = (di.tipo === 'cedio' || di.tipo === 'pago');
+                        const emoji = esDiaLibre ? '☕' : '😴';
+                        const titulo = esDiaLibre ? 'Día libre (doblada)' : 'Día de descanso';
+
+                        if (!cellElement.querySelector('.descanso-icon')) {
+                            const iconElement = document.createElement('span');
+                            iconElement.className = 'descanso-icon';
+                            iconElement.innerHTML = emoji;
+                            iconElement.title = titulo;
+                            iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; z-index: 10;';
+                            cellElement.appendChild(iconElement);
+                        } else {
+                            // Si ya existe, asegurar que muestre el emoji correcto.
+                            const ic = cellElement.querySelector('.descanso-icon');
+                            ic.innerHTML = emoji;
+                            ic.title = titulo;
                         }
                     });
                 }
@@ -617,8 +650,10 @@ function mostrarDetallesDia(fechaStr) {
                 const fechaPago = descansoInfo.fecha_pago;
 
                 // Diferenciar DÍA LIBRE (queda libre por una solicitud de doblada: cesión/pago)
-                // del DESCANSO real (el asignado: descanso de semana / mantenimiento).
-                const esDescansoReal = (tipoDescanso === 'descanso_semana');
+                // del DESCANSO real (el asignado: descanso de semana / mantenimiento / fin de semana).
+                // El café/DÍA LIBRE SOLO aplica a doblada (cedio/pago); todo lo demás es DESCANSO.
+                const esDiaLibre = (tipoDescanso === 'cedio' || tipoDescanso === 'pago');
+                const esDescansoReal = !esDiaLibre;
                 const etiqueta = esDescansoReal ? 'DESCANSO' : 'DÍA LIBRE';
                 const encabezado = esDescansoReal ? 'Día de descanso' : 'Día libre';
                 const icono = esDescansoReal ? 'fa-bed' : 'fa-mug-hot';
@@ -904,10 +939,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 return iconElement;
             };
             
-            const crearIconoDescanso = () => {
+            const crearIconoDescanso = (turnoInfo) => {
+                // ☕ solo para día libre por doblada (cedio/pago); 😴 para cualquier otro descanso.
+                const di = (turnoInfo && turnoInfo.descanso_info) || {};
+                const esDiaLibre = (di.tipo === 'cedio' || di.tipo === 'pago');
                 const iconElement = document.createElement('span');
                 iconElement.className = 'descanso-icon';
-                iconElement.innerHTML = '😴';
+                iconElement.innerHTML = esDiaLibre ? '☕' : '😴';
+                iconElement.title = esDiaLibre ? 'Día libre (doblada)' : 'Día de descanso';
                 iconElement.style.cssText = 'position: absolute; top: 2px; right: 2px; font-size: 10px; z-index: 10;';
                 return iconElement;
             };
@@ -935,13 +974,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Aplicar estilo para descansos
                 if (turnoInfo.es_descanso || turnoInfo.tipo === 'descanso') {
                     requestAnimationFrame(() => {
-                        if (el?.parentNode) {
-                            el.classList.add('dia-con-descanso');
-                            if (!el.querySelector('.descanso-icon')) {
-                                el.appendChild(crearIconoDescanso());
-                            }
+                        if (!el?.parentNode) return;
+                        // ANTI-RACE: re-leer los datos actuales antes de pintar.
+                        const actual = turnosMes[dateStr];
+                        if (!actual || !(actual.es_descanso || actual.tipo === 'descanso')) {
+                            const viejo = el.querySelector('.descanso-icon');
+                            if (viejo) viejo.remove();
+                            el.classList.remove('dia-con-descanso');
+                            return;
+                        }
+                        el.classList.add('dia-con-descanso');
+                        if (!el.querySelector('.descanso-icon')) {
+                            el.appendChild(crearIconoDescanso(actual));
                         }
                     });
+                } else {
+                    // El día NO es descanso: quitar cualquier ícono viejo que haya quedado.
+                    const viejo = el.querySelector('.descanso-icon');
+                    if (viejo) viejo.remove();
+                    el.classList.remove('dia-con-descanso');
                 }
             };
             

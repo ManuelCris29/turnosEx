@@ -90,19 +90,20 @@
     /* Marcadores de festivos/mantenimiento/temporada/domingo:
        movidos a css/cambio-turno/dias_especiales_datepicker.css (compartido). */
 
-    /* Estilos para días de descanso (usuario cedió su jornada) */
+    /* Estilos para DÍA LIBRE (el usuario cedió su jornada por una doblada).
+       NO es un descanso real asignado: es seleccionable (se pueden hacer solicitudes). */
     .flatpickr-day.descanso {
         background-color: #ffeb3b !important;
         color: #000 !important;
         font-weight: bold;
         border-color: #fdd835 !important;
-        cursor: not-allowed !important;
+        cursor: pointer !important;
     }
     .flatpickr-day.descanso:hover {
         background-color: #fdd835 !important;
     }
     .flatpickr-day.descanso::after {
-        content: '😴';
+        content: '☕';
         position: absolute;
         top: 2px;
         right: 2px;
