@@ -47,12 +47,15 @@ def _fechas_prueba_doblada():
     else:
         anio, mes = hoy.year, hoy.month + 1
 
+    # Estos casos son de DÍA DE SEMANA (coincidencia de jornada fija AM/PM). En sábado la
+    # jornada la gobierna la alternancia de fin de semana, así que se evitan sáb (5) y dom (6)
+    # para que las fechas de cesión y pago sean siempre días de semana deterministas.
     cesion = date(anio, mes, 10)
-    while cesion.weekday() == 6:          # evitar domingo
+    while cesion.weekday() >= 5:          # evitar sábado y domingo
         cesion += timedelta(days=1)
 
     pago = date(anio, mes, 17)
-    while pago.weekday() == 6 or pago == cesion:
+    while pago.weekday() >= 5 or pago == cesion:
         pago += timedelta(days=1)
 
     return cesion, pago
@@ -799,3 +802,340 @@ class TestValidacionesGenerales(MatrizDobladasTestCase):
             fecha_cambio_turno=FECHA_CESION,
         )
         self.assertRechazado(self._datos(), 'pendiente', 'Solicitud duplicada')
+
+
+# ===========================================================================
+# Deuda de 30 min al EMISOR: cesión de doblada de SEMANA pagada en SÁBADO
+# ===========================================================================
+class TestDeudaEmisorDobladaSemanaPagoSabado(MatrizDobladasTestCase):
+    """
+    Regla de negocio: cuando el EMISOR cede una jornada de una DOBLADA que tenía
+    en un día de SEMANA y la paga en SÁBADO, deben generarse 30 min para AMBOS:
+      - Receptor: dobla (AM+PM) en la fecha de cesión (día de semana) → 30 min.
+      - Emisor:   por la doblada de semana que cedió, asociada al DÍA DE SEMANA
+                  de la cesión (el sábado por sí solo no genera 30 min).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    @staticmethod
+    def _martes_y_sabado_futuros():
+        """Devuelve (martes futuro, sábado de esa misma semana)."""
+        d = date.today() + timedelta(days=7)
+        while d.weekday() != 1:          # 1 = martes
+            d += timedelta(days=1)
+        cesion = d
+        sabado = cesion + timedelta(days=(5 - cesion.weekday()))  # sábado misma semana
+        return cesion, sabado
+
+    def _crear_solicitud_detalle(self, cesion, sabado, snapshot_emisor):
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=cesion,
+            comentario='Test deuda emisor sábado',
+        )
+        detalle = DobladaDetalle.objects.create(
+            solicitud=sol,
+            fecha_pago=sabado,
+            tipo_cesion='cesion_parcial_am',
+            jornada_cedida='AM',
+            empleado_receptor=self.receptor,
+            jornada_pago_sabado='AM',
+            snapshot_turnos_previos=snapshot_emisor,
+        )
+        return sol, detalle
+
+    def test_emisor_recibe_30min_por_doblada_semana_pagada_en_sabado(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from solicitudes.models import DeudaCorporativa
+
+        cesion, sabado = self._martes_y_sabado_futuros()
+        # Receptor dobla (AM+PM) en la cesión → debe recibir sus 30 min.
+        self._crear_doblada_turnos(self.receptor, cesion)
+        # Snapshot: el emisor TENÍA una doblada (AM+PM) en el día de semana de cesión.
+        snapshot = {
+            f"{self.emisor.id}:{cesion.isoformat()}": [
+                {'jornada_nombre': 'AM', 'sala_id': self.sala.id, 'tipo_cambio': 'DOBLADA'},
+                {'jornada_nombre': 'PM', 'sala_id': self.sala.id, 'tipo_cambio': 'DOBLADA'},
+            ],
+        }
+        sol, detalle = self._crear_solicitud_detalle(cesion, sabado, snapshot)
+
+        DobladaAplicacionService.generar_deudas_doblada(sol, detalle)
+
+        deuda_emisor = DeudaCorporativa.objects.filter(
+            explorador=self.emisor, fecha_doblada=cesion, estado='activa'
+        )
+        self.assertTrue(
+            deuda_emisor.exists(),
+            "El emisor debe recibir 30 min por la doblada de semana cedida pagada en sábado.",
+        )
+        self.assertEqual(deuda_emisor.first().minutos, 30)
+
+        deuda_receptor = DeudaCorporativa.objects.filter(
+            explorador=self.receptor, fecha_doblada=cesion, estado='activa'
+        )
+        self.assertTrue(
+            deuda_receptor.exists(),
+            "El receptor debe recibir 30 min por doblar en la fecha de cesión.",
+        )
+
+
+# ===========================================================================
+# Pago en SÁBADO de un subpago de cesión total (cesión parcial) + fix AMBAS
+# ===========================================================================
+class TestPagoSabadoCesionParcial(MatrizDobladasTestCase):
+    """
+    Un subpago de cesión total que cae en sábado (cesión parcial) es válido cuando el
+    emisor elige la jornada (AM/PM) y el receptor trabaja ese sábado por alternancia.
+    Además, pagar 'AMBAS' sin día de semana ya NO debe crashear con NameError (bug
+    de fecha_pago_semana que solo se leía en crear_solicitud).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    @staticmethod
+    def _sabado_am_y_cesion():
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        d = date.today() + timedelta(days=10)
+        while not (d.weekday() == 5 and (AlternanciaFinesSemanaService.jornada_trabaja_sabado(d) or '').upper() == 'AM'):
+            d += timedelta(days=1)
+        sab = d
+        ces = date(sab.year, sab.month, 2)
+        while ces.weekday() >= 5 or ces <= date.today():
+            ces += timedelta(days=1)
+        return ces, sab
+
+    def _datos_parcial_pm(self, ces, sab, jps):
+        return {
+            'explorador_solicitante': self.emisor,
+            'explorador_receptor': self.receptor,
+            'fecha_cambio_turno': str(ces),
+            'fecha_pago': str(sab),
+            'comentario': 'test pago sábado',
+            'tipo_cesion': 'cesion_parcial_pm',
+            'jornada_cedida': 'PM',
+            'jornada_pago_sabado': jps,
+            'fecha_creacion_solicitud': date.today(),
+        }
+
+    def test_subpago_sabado_am_valido(self):
+        ces, sab = self._sabado_am_y_cesion()
+        self._crear_turno(self.emisor, ces, self.jornada_pm)
+        self._crear_turno(self.receptor, ces, self.jornada_am)
+        ok, msg = self.strategy.validar_solicitud(self._datos_parcial_pm(ces, sab, 'AM'))
+        self.assertTrue(ok, f"Esperaba VÁLIDO el subpago de sábado (AM): {msg}")
+
+    def test_pago_ambas_sin_fecha_semana_no_crashea(self):
+        ces, sab = self._sabado_am_y_cesion()
+        self._crear_turno(self.emisor, ces, self.jornada_pm)
+        self._crear_turno(self.receptor, ces, self.jornada_am)
+        ok, msg = self.strategy.validar_solicitud(self._datos_parcial_pm(ces, sab, 'AMBAS'))
+        self.assertFalse(ok)
+        # No debe ser un crash de NameError, sino un rechazo de negocio claro.
+        self.assertNotIn('not defined', str(msg))
+        self.assertNotIn('NameError', str(msg))
+
+
+# ===========================================================================
+# Receptor descansa por ALTERNANCIA de fin de semana en la fecha de pago
+# ===========================================================================
+class TestReceptorDescansaFinDeSemanaEnPago(MatrizDobladasTestCase):
+    """
+    Si la fecha de pago cae en un SÁBADO donde el receptor DESCANSA por alternancia, no hay
+    jornada que cubrir → la solicitud debe RECHAZARSE. Antes la validación usaba la jornada
+    predeterminada (que ignora el descanso de fin de semana) y dejaba pasar el pago.
+    """
+
+    @staticmethod
+    def _sabado_futuro():
+        d = date.today() + timedelta(days=7)
+        while d.weekday() != 5:   # 5 = sábado
+            d += timedelta(days=1)
+        return d
+
+    def test_receptor_descansa_sabado_por_alternancia_rechaza(self):
+        from django.core.exceptions import ValidationError
+        from solicitudes.services.solicitud_validator import SolicitudValidator
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        sab = self._sabado_futuro()
+        trabaja = (AlternanciaFinesSemanaService.jornada_trabaja_sabado(sab) or 'AM').upper()
+        descansa = 'PM' if trabaja == 'AM' else 'AM'
+        # Receptor con jornada base del grupo que DESCANSA ese sábado.
+        self._asignar_jornada_base(self.receptor, self.jornada_am if descansa == 'AM' else self.jornada_pm)
+        with self.assertRaises(ValidationError):
+            SolicitudValidator.validar_receptor_tiene_jornada_en_fecha_pago(self.receptor, sab.isoformat())
+
+    def test_receptor_trabaja_sabado_por_alternancia_permite(self):
+        from solicitudes.services.solicitud_validator import SolicitudValidator
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        sab = self._sabado_futuro()
+        trabaja = (AlternanciaFinesSemanaService.jornada_trabaja_sabado(sab) or 'AM').upper()
+        # Receptor con jornada base del grupo que SÍ trabaja ese sábado → no debe rechazar.
+        self._asignar_jornada_base(self.receptor, self.jornada_am if trabaja == 'AM' else self.jornada_pm)
+        SolicitudValidator.validar_receptor_tiene_jornada_en_fecha_pago(self.receptor, sab.isoformat())
+
+    def test_solicitante_descansa_sabado_en_cesion_rechaza(self):
+        """El SOLICITANTE descansa por alternancia en la fecha de cesión → no tiene jornada que ceder."""
+        from django.core.exceptions import ValidationError
+        from solicitudes.services.solicitud_validator import SolicitudValidator
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        sab = self._sabado_futuro()
+        trabaja = (AlternanciaFinesSemanaService.jornada_trabaja_sabado(sab) or 'AM').upper()
+        descansa = 'PM' if trabaja == 'AM' else 'AM'
+        # Solicitante en el grupo que DESCANSA ese sábado; receptor en el que trabaja.
+        self._asignar_jornada_base(self.emisor, self.jornada_am if descansa == 'AM' else self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am if trabaja == 'AM' else self.jornada_pm)
+        with self.assertRaises(ValidationError):
+            SolicitudValidator.validar_jornadas_contrarias_doblada(
+                self.emisor, self.receptor, sab.isoformat(), None
+            )
+
+
+# ===========================================================================
+# Reconciliación al cancelar una CESIÓN TOTAL (snapshots intermedios)
+# ===========================================================================
+class TestReconciliacionRevertCesionTotal(MatrizDobladasTestCase):
+    """
+    Al cancelar una cesión total (2 solicitudes enlazadas que comparten la fecha de
+    cesión), el snapshot intermedio puede dejar al solicitante con MEDIA doblada. La
+    reconciliación re-aplica las dobladas que SIGUEN APROBADAS sobre las fechas afectadas
+    y restaura el estado correcto (AM+PM), sin importar el orden de cancelación.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+
+    def _crear_doblada_aprobada_pago(self, fdob):
+        from django.utils import timezone
+        from solicitudes.models import DobladaDetalle
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION,
+            fecha_resolucion=timezone.now(),
+            comentario='doblada base aprobada',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol,
+            fecha_pago=fdob,
+            tipo_cesion='cesion_completa',
+            jornada_cedida='PM',
+            empleado_receptor=self.receptor,
+        )
+        return sol
+
+    def test_reconciliacion_restaura_doblada_del_solicitante(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        fdob = FECHA_PAGO  # día de semana garantizado por el helper
+        self._crear_doblada_aprobada_pago(fdob)
+        # Estado INTERMEDIO tras un revert mal hecho: el solicitante quedó solo con AM.
+        self._limpiar_turnos(self.emisor, fdob)
+        self._crear_turno(self.emisor, fdob, self.jornada_am)
+
+        DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+            {(self.emisor.id, fdob)}, excluir_solicitud_id=999999
+        )
+
+        jornadas = {
+            j.upper()
+            for j in Turno.objects.filter(explorador=self.emisor, fecha=fdob)
+            .values_list('jornada__nombre', flat=True)
+        }
+        self.assertEqual(
+            {'AM', 'PM'}, jornadas,
+            "La reconciliación debe restaurar la doblada completa (AM+PM) del solicitante.",
+        )
+
+    def test_reconciliacion_sin_dobladas_aprobadas_no_cambia(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        fdob = FECHA_PAGO
+        self._limpiar_turnos(self.emisor, fdob)
+        self._crear_turno(self.emisor, fdob, self.jornada_am)
+
+        # No hay dobladas aprobadas en esa fecha → no debe tocar nada.
+        DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+            {(self.emisor.id, fdob)}, excluir_solicitud_id=999999
+        )
+        jornadas = {
+            j.upper()
+            for j in Turno.objects.filter(explorador=self.emisor, fecha=fdob)
+            .values_list('jornada__nombre', flat=True)
+        }
+        self.assertEqual({'AM'}, jornadas)
+
+
+class TestDeudaEmisorContinuacion(MatrizDobladasTestCase):
+    """Continúa los casos de deuda del emisor (separado por claridad)."""
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    @staticmethod
+    def _martes_y_sabado_futuros():
+        d = date.today() + timedelta(days=7)
+        while d.weekday() != 1:
+            d += timedelta(days=1)
+        cesion = d
+        sabado = cesion + timedelta(days=(5 - cesion.weekday()))
+        return cesion, sabado
+
+    def _crear_solicitud_detalle(self, cesion, sabado, snapshot_emisor):
+        from solicitudes.models import DobladaDetalle
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=cesion,
+            comentario='Test deuda emisor sábado (cont.)',
+        )
+        detalle = DobladaDetalle.objects.create(
+            solicitud=sol,
+            fecha_pago=sabado,
+            tipo_cesion='cesion_parcial_am',
+            jornada_cedida='AM',
+            empleado_receptor=self.receptor,
+            jornada_pago_sabado='AM',
+            snapshot_turnos_previos=snapshot_emisor,
+        )
+        return sol, detalle
+
+    def test_emisor_sin_doblada_previa_no_recibe_30min(self):
+        """Si el emisor NO tenía doblada de semana (snapshot de 1 jornada), no se le cargan 30 min."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from solicitudes.models import DeudaCorporativa
+
+        cesion, sabado = self._martes_y_sabado_futuros()
+        self._crear_doblada_turnos(self.receptor, cesion)
+        # Snapshot: el emisor tenía UNA sola jornada (no era doblada).
+        snapshot = {
+            f"{self.emisor.id}:{cesion.isoformat()}": [
+                {'jornada_nombre': 'PM', 'sala_id': self.sala.id, 'tipo_cambio': None},
+            ],
+        }
+        sol, detalle = self._crear_solicitud_detalle(cesion, sabado, snapshot)
+
+        DobladaAplicacionService.generar_deudas_doblada(sol, detalle)
+
+        self.assertFalse(
+            DeudaCorporativa.objects.filter(
+                explorador=self.emisor, fecha_doblada=cesion, estado='activa'
+            ).exists(),
+            "El emisor NO debe recibir 30 min si no tenía una doblada de semana.",
+        )

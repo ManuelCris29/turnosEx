@@ -223,6 +223,27 @@
         return fechaObj.getDay() === 6; // 6 = Sábado
     }
 
+    /**
+     * Muestra/oculta el selector de jornada (AM/PM) del pago en sábado de la cesión total.
+     * Solo se muestra cuando la fecha de pago es SÁBADO **y el receptor TRABAJA** ese sábado
+     * (por alternancia). Si el receptor descansa, no hay jornada que pagar → no se muestra el
+     * selector (el panel "Jornada del Receptor" ya indica el descanso) y el backend lo rechaza.
+     * @param {string} sub - 'am' | 'pm'
+     * @param {string} fecha - fecha de pago (YYYY-MM-DD) o '' para ocultar
+     * @param {boolean} receptorTrabaja - true si el receptor trabaja ese día
+     */
+    function evaluarSelectorSabadoReceptor(sub, fecha, receptorTrabaja) {
+        const wrapId = sub === 'pm' ? 'jornada_sabado_pm_wrap' : 'jornada_sabado_am_wrap';
+        const radiosName = sub === 'pm' ? 'jornada_pago_sabado_pm' : 'jornada_pago_sabado_am';
+        const wrap = document.getElementById(wrapId);
+        if (!wrap) return;
+        const mostrar = !!fecha && esSabado(fecha) && !!receptorTrabaja;
+        wrap.style.display = mostrar ? 'block' : 'none';
+        if (!mostrar) {
+            document.querySelectorAll('input[name="' + radiosName + '"]').forEach(r => { r.checked = false; });
+        }
+    }
+
     function limpiarSeleccionPagoSabado() {
         if (jornadaPagoSabadoRadios && jornadaPagoSabadoRadios.length > 0) {
             jornadaPagoSabadoRadios.forEach(r => { r.checked = false; });
@@ -672,6 +693,10 @@
                     });
                 }
                 
+                // Al cambiar la fecha de cesión, resetear la sección de pago para que no queden
+                // visibles datos/paneles calculados para la fecha anterior.
+                resetearSeccionPagoPorCambioCesion();
+
                 // Verificar doblada existente (esto cargará exploradores y jornada según el caso)
                 verificarDobladaExistente(fecha);
             }
@@ -813,8 +838,12 @@
                 if (!fecha) return;
                 if (esDomingo(fecha)) {
                     fechaPagoAM.value = '';
+                    evaluarSelectorSabadoReceptor('am', '', false);
                     return;
                 }
+                // Ocultar de momento; cargarJornadaReceptorPagoAM decidirá si mostrarlo
+                // según si el receptor TRABAJA ese sábado.
+                evaluarSelectorSabadoReceptor('am', fecha, false);
                 actualizarVistaPrevia();
             }
         }).then(instance => {
@@ -845,8 +874,12 @@
                 if (!fecha) return;
                 if (esDomingo(fecha)) {
                     fechaPagoPM.value = '';
+                    evaluarSelectorSabadoReceptor('pm', '', false);
                     return;
                 }
+                // Ocultar de momento; cargarJornadaReceptorPagoPM decidirá si mostrarlo
+                // según si el receptor TRABAJA ese sábado.
+                evaluarSelectorSabadoReceptor('pm', fecha, false);
                 actualizarVistaPrevia();
             }
         }).then(instance => {
@@ -1338,6 +1371,9 @@
                 } else {
                     renderTurnoYSalas(null, detallesDiv, salasDiv, false, [], { contexto: 'receptor' });
                 }
+                // Mostrar el selector de pago en sábado SOLO si el receptor trabaja ese día.
+                const receptorTrabaja = !!(data && data.success && (data.es_doblada || data.tiene_turno || data.turno));
+                evaluarSelectorSabadoReceptor('am', fecha, receptorTrabaja);
             })
             .catch(error => {
                 console.error('Error al cargar jornada receptor AM:', error);
@@ -1376,6 +1412,9 @@
                 } else {
                     renderTurnoYSalas(null, detallesDiv, salasDiv, false, [], { contexto: 'receptor' });
                 }
+                // Mostrar el selector de pago en sábado SOLO si el receptor trabaja ese día.
+                const receptorTrabaja = !!(data && data.success && (data.es_doblada || data.tiene_turno || data.turno));
+                evaluarSelectorSabadoReceptor('pm', fecha, receptorTrabaja);
             })
             .catch(error => {
                 console.error('Error al cargar jornada receptor PM:', error);
@@ -1719,6 +1758,55 @@
         empleadoReceptorPM && (empleadoReceptorPM.value = '');
         fechaPagoAM && (fechaPagoAM.value = '');
         fechaPagoPM && (fechaPagoPM.value = '');
+    }
+
+    /**
+     * Resetea TODA la sección de pago (fechas, compañeros, paneles "Tu Jornada para Fecha de
+     * Pago" y selectores de pago en sábado) cuando cambia la FECHA DE CESIÓN. Sin esto, al
+     * cambiar de fecha quedaban visibles datos/paneles calculados para la fecha anterior.
+     */
+    function resetearSeccionPagoPorCambioCesion() {
+        // Fechas de pago
+        if (fechaPagoInput) fechaPagoInput.value = '';
+        if (fechaPagoAM) fechaPagoAM.value = '';
+        if (fechaPagoPM) fechaPagoPM.value = '';
+        try { flatpickrPago && flatpickrPago.clear && flatpickrPago.clear(); } catch (e) {}
+        // Compañeros (su disponibilidad depende de la fecha; verificarDobladaExistente los recarga)
+        if (empleadoReceptorSelect) empleadoReceptorSelect.value = '';
+        if (empleadoReceptorAM) empleadoReceptorAM.value = '';
+        if (empleadoReceptorPM) empleadoReceptorPM.value = '';
+        // Panel "Jornada del Explorador que te Cubrirá" (receptor en fecha de cesión): se invalida
+        // al cambiar fecha o tipo de cesión, así que se oculta hasta elegir compañero de nuevo.
+        if (turnoReceptorInfo) turnoReceptorInfo.style.display = 'none';
+        if (turnoReceptorDetalles) turnoReceptorDetalles.innerHTML = '';
+        if (salasReceptorDetalles) salasReceptorDetalles.innerHTML = '';
+        // Paneles "Tu Jornada / Jornada del receptor para la Fecha de Pago"
+        [
+            turnoSolicitantePagoInfo, turnoReceptorPagoInfo,
+            document.getElementById('turno_solicitante_pago_am_info'),
+            document.getElementById('turno_solicitante_pago_pm_info'),
+            document.getElementById('turno_receptor_pago_am_info'),
+            document.getElementById('turno_receptor_pago_pm_info'),
+        ].forEach(el => { if (el) el.style.display = 'none'; });
+        // Selectores de pago en sábado (cesión parcial y cesión total)
+        [
+            opcionesPagoSabado, mensajeNoNecesarioPagoSabado,
+            document.getElementById('jornada_sabado_am_wrap'),
+            document.getElementById('jornada_sabado_pm_wrap'),
+        ].forEach(el => { if (el) el.style.display = 'none'; });
+        document.querySelectorAll(
+            'input[name="jornada_pago_sabado"], input[name="jornada_pago_sabado_am"], input[name="jornada_pago_sabado_pm"]'
+        ).forEach(r => { r.checked = false; });
+        // Estado de clasificación del pago
+        estadoSolicitantePago = null;
+        estadoReceptorPago = null;
+        ultimaJornadaSolicitantePago = null;
+        ultimaJornadaReceptorPago = null;
+        casoPagoRechazado = false;
+        mensajeRechazoPago = '';
+        casoPagoRequiereRedireccionCT = false;
+        // Ocultar la vista previa del acuerdo (se vuelve a mostrar cuando todo esté completo de nuevo)
+        if (vistaPreviaAcuerdo) vistaPreviaAcuerdo.style.display = 'none';
     }
     
     /**
@@ -2156,6 +2244,11 @@
         const tipoCesionHiddenFresh      = document.getElementById('tipo_cesion');
         const opcionesCesionParcialFresh = document.getElementById('opciones_cesion_parcial');
         const opcionesCesionTotalFresh   = document.getElementById('opciones_cesion_total');
+
+        // Alternar parcial/total invalida los compañeros y el pago elegidos en el otro modo:
+        // limpiar paneles dependientes (jornada del receptor, paneles de pago, selectores de sábado)
+        // para que no quede visible la jornada de un compañero seleccionado antes.
+        resetearSeccionPagoPorCambioCesion();
 
         if (esTotal) {
             // Cesión Total
@@ -2828,6 +2921,27 @@
             }
             if (!fechaPagoPM || !fechaPagoPM.value) {
                 erroresValidacion.push('Fecha de pago para PM es requerida');
+            }
+            // Si una fecha de pago cae en sábado:
+            //  - si el selector está visible (el receptor trabaja) → exigir AM o PM.
+            //  - si está oculto (el receptor descansa ese sábado) → pedir otra fecha.
+            if (fechaPagoAM && fechaPagoAM.value && esSabado(fechaPagoAM.value)) {
+                const wrapAM = document.getElementById('jornada_sabado_am_wrap');
+                const visibleAM = wrapAM && wrapAM.style.display !== 'none';
+                if (visibleAM && !form.querySelector('input[name="jornada_pago_sabado_am"]:checked')) {
+                    erroresValidacion.push('El pago de AM cae en sábado: elige la jornada que pagarás (AM o PM)');
+                } else if (!visibleAM) {
+                    erroresValidacion.push('El compañero de AM descansa ese sábado: elige otra fecha de pago para AM');
+                }
+            }
+            if (fechaPagoPM && fechaPagoPM.value && esSabado(fechaPagoPM.value)) {
+                const wrapPM = document.getElementById('jornada_sabado_pm_wrap');
+                const visiblePM = wrapPM && wrapPM.style.display !== 'none';
+                if (visiblePM && !form.querySelector('input[name="jornada_pago_sabado_pm"]:checked')) {
+                    erroresValidacion.push('El pago de PM cae en sábado: elige la jornada que pagarás (AM o PM)');
+                } else if (!visiblePM) {
+                    erroresValidacion.push('El compañero de PM descansa ese sábado: elige otra fecha de pago para PM');
+                }
             }
         } else {
             // VALIDACIÓN CESIÓN PARCIAL

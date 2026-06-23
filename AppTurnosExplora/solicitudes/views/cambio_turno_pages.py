@@ -77,6 +77,8 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
             'jornada_base': jornada_base,
+            # Para resaltar "tú eres ..." en el distintivo del fin de semana.
+            'mi_jornada': jornada_base,
         }
         return render(request, 'solicitudes/solicitar_cambio_descanso.html', context)
 
@@ -124,8 +126,26 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             'fecha_seleccionada': None,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
+            # Jornada predeterminada del solicitante (AM/PM) para resaltar "tú eres ..." en el distintivo.
+            'mi_jornada': self._obtener_mi_jornada(request),
         }
         return render(request, 'solicitudes/solicitar_d_fds.html', context)
+
+    @staticmethod
+    def _obtener_mi_jornada(request):
+        """Devuelve el nombre de la jornada predeterminada (AM/PM) del usuario actual, o ''."""
+        from turnos.models import AsignarJornadaExplorador
+        empleado = getattr(request.user, 'empleado', None)
+        if not empleado:
+            return ''
+        asignacion = (
+            AsignarJornadaExplorador.objects
+            .filter(explorador=empleado)
+            .select_related('jornada')
+            .order_by('-fecha_inicio')
+            .first()
+        )
+        return (asignacion.jornada.nombre if asignacion and asignacion.jornada else '') or ''
 
     def _render_cambio_turno_normal(self, request, tipo_solicitud):
         """Renderizar formulario para cambio de turno normal"""

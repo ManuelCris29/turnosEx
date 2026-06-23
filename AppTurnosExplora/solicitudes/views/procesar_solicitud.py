@@ -283,6 +283,41 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                         return json_error('La fecha de pago para AM es obligatoria', status=400, code='missing_fields')
                     if not fecha_pago_pm:
                         return json_error('La fecha de pago para PM es obligatoria', status=400, code='missing_fields')
+                    # Pago en SÁBADO: cada subpago es una cesión parcial (se debe 1 jornada), así que
+                    # el emisor (que ese sábado está libre por alternancia) debe ELEGIR la jornada que
+                    # paga: solo AM o PM. "AMBAS" (día completo) no aplica en cesión total → para eso se
+                    # usa una Doblada normal. Validamos que la elección exista y sea válida.
+                    # (Se omite cuando es el MISMO receptor y MISMA fecha de pago: ese caso es una
+                    #  cesión completa normal y sigue el flujo de doblada con su propio jornada_pago_sabado.)
+                    from datetime import datetime as _dt_sab
+                    jornada_pago_sabado_am = request.POST.get('jornada_pago_sabado_am')
+                    jornada_pago_sabado_pm = request.POST.get('jornada_pago_sabado_pm')
+                    _es_mismo_receptor_fecha = (
+                        str(empleado_receptor_am) == str(empleado_receptor_pm)
+                        and str(fecha_pago_am) == str(fecha_pago_pm)
+                    )
+                    for _fpago, _etq, _jsab in (() if _es_mismo_receptor_fecha else (
+                        (fecha_pago_am, 'AM', jornada_pago_sabado_am),
+                        (fecha_pago_pm, 'PM', jornada_pago_sabado_pm),
+                    )):
+                        try:
+                            es_sabado = _dt_sab.strptime(_fpago, '%Y-%m-%d').date().weekday() == 5
+                        except (ValueError, TypeError):
+                            es_sabado = False
+                        if not es_sabado:
+                            continue
+                        jsab = (_jsab or '').strip().upper()
+                        if jsab == 'AMBAS':
+                            return json_error(
+                                f'Para el pago en sábado de {_etq} no puedes pagar el día completo (ambas jornadas) '
+                                f'en una cesión total. Si necesitas pagar ambas, hazlo con una Doblada normal.',
+                                status=400, code='cesion_total_sabado_ambas',
+                            )
+                        if jsab not in ('AM', 'PM'):
+                            return json_error(
+                                f'El pago de {_etq} cae en sábado: elige la jornada que pagarás (AM o PM).',
+                                status=400, code='missing_fields',
+                            )
                 else:
                     # Cesión parcial o completa normal
                     if not empleado_receptor_id:
@@ -495,6 +530,17 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                             'una_solicitud': True
                         }, status=201)
                     # Cesión total con receptores o fechas distintas: 2 solicitudes independientes
+                    # Si un subpago cae en sábado, se pasa la jornada elegida (AM o PM) para que la
+                    # doblada use el camino de "pago en sábado" (el emisor trabaja la jornada que eligió),
+                    # en vez del camino de cesión parcial entre semana.
+                    from datetime import datetime as _dt_sab2
+
+                    def _es_sabado(fstr):
+                        try:
+                            return _dt_sab2.strptime(fstr, '%Y-%m-%d').date().weekday() == 5
+                        except (ValueError, TypeError):
+                            return False
+
                     # Solicitud 1: Cesión AM
                     datos_solicitud_am = datos_solicitud_base.copy()
                     datos_solicitud_am.update({
@@ -505,7 +551,9 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                         'tipo_cesion': 'cesion_parcial_am',
                         'fecha_creacion_solicitud': timezone.now().date()
                     })
-                    
+                    if _es_sabado(fecha_pago_am) and (jornada_pago_sabado_am or '').strip().upper() in ('AM', 'PM'):
+                        datos_solicitud_am['jornada_pago_sabado'] = jornada_pago_sabado_am.strip().upper()
+
                     # Solicitud 2: Cesión PM
                     datos_solicitud_pm = datos_solicitud_base.copy()
                     datos_solicitud_pm.update({
@@ -516,6 +564,8 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                         'tipo_cesion': 'cesion_parcial_pm',
                         'fecha_creacion_solicitud': timezone.now().date()
                     })
+                    if _es_sabado(fecha_pago_pm) and (jornada_pago_sabado_pm or '').strip().upper() in ('AM', 'PM'):
+                        datos_solicitud_pm['jornada_pago_sabado'] = jornada_pago_sabado_pm.strip().upper()
                     
                     # Validar ambas solicitudes
                     es_valida_am, mensaje_am = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud_am)

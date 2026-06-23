@@ -956,14 +956,19 @@ class SolicitudValidator:
         """
         from core.utils.date_utils import DateUtils
         from turnos.services.jornada_service import JornadaService
+        from turnos.services.turno_service import TurnoService
         from turnos.models import Turno
-        
+
         fecha_obj = DateUtils.parse_date(fecha)
         fecha_str = fecha_obj.strftime('%Y-%m-%d')
-        
-        # Obtener jornada del solicitante
+
+        # Obtener jornada del solicitante (predeterminada, para el NOMBRE en la regla de contrarias)
         jornada_solicitante = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha_str)
-        
+        # ¿Trabaja REALMENTE ese día? obtener_jornada_display devuelve None si descansa, incluido
+        # el descanso de FIN DE SEMANA por alternancia (que la jornada predeterminada no refleja).
+        sol_trabaja = TurnoService.obtener_jornada_display(solicitante, fecha_obj)
+        rec_trabaja = TurnoService.obtener_jornada_display(receptor, fecha_obj)
+
         # Si solicitante está en doblada, usar jornada_cedida
         if jornada_cedida:
             # Verificar si realmente está en doblada (tiene AM y PM)
@@ -971,31 +976,31 @@ class SolicitudValidator:
                 explorador=solicitante,
                 fecha=fecha_obj
             ).select_related('jornada')
-            
+
             jornadas_solicitante = [t.jornada.nombre.upper() for t in turnos_solicitante]
             tiene_doblada = 'AM' in jornadas_solicitante and 'PM' in jornadas_solicitante
-            
+
             if tiene_doblada:
                 jornada_a_ceder = jornada_cedida.upper()
             else:
-                # No está en doblada, usar jornada predeterminada
-                if not jornada_solicitante:
+                # No está en doblada: debe TRABAJAR ese día para tener una jornada que ceder.
+                if not sol_trabaja:
                     raise ValidationError('El solicitante no tiene jornada asignada para esa fecha')
                 jornada_a_ceder = jornada_solicitante.nombre.upper()
         else:
-            # No hay jornada_cedida, usar jornada predeterminada
-            if not jornada_solicitante:
+            # No hay jornada_cedida: debe trabajar ese día para ceder.
+            if not sol_trabaja:
                 raise ValidationError('El solicitante no tiene jornada asignada para esa fecha')
             jornada_a_ceder = jornada_solicitante.nombre.upper()
-        
-        # Obtener jornada del receptor
-        jornada_receptor = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_str)
-        if not jornada_receptor:
-            # CASO 3 / 6: receptor en descanso (sin turno efectivo) en fecha de cesión;
+
+        # Receptor: ¿trabaja realmente ese día? (considera descanso de fin de semana)
+        if not rec_trabaja:
+            # CASO 3 / 6: receptor en descanso (sin jornada efectiva) en fecha de cesión;
             # la cesión queda cubierta por el acuerdo de pago en otra fecha.
             if jornada_a_ceder in ('AM', 'PM'):
                 return
             raise ValidationError('El receptor no tiene jornada asignada para esa fecha')
+        jornada_receptor = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_str)
         
         jornada_receptor_nombre = jornada_receptor.nombre.upper()
         
@@ -1211,15 +1216,18 @@ class SolicitudValidator:
             ValidationError: Si ambos están descansando en fecha_pago
         """
         from core.utils.date_utils import DateUtils
-        from turnos.services.jornada_service import JornadaService
+        from turnos.services.turno_service import TurnoService
 
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
-        fecha_pago_str = fecha_pago_obj.strftime('%Y-%m-%d')
-        jornada_sol = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha_pago_str)
-        jornada_rec = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_pago_str)
-        if not jornada_sol and not jornada_rec:
+        # obtener_jornada_display devuelve None cuando la persona realmente DESCANSA ese día,
+        # incluyendo el descanso de FIN DE SEMANA por alternancia (que la jornada predeterminada
+        # no refleja). Así detectamos correctamente "ambos descansando" también en sábados.
+        trabaja_sol = TurnoService.obtener_jornada_display(solicitante, fecha_pago_obj)
+        trabaja_rec = TurnoService.obtener_jornada_display(receptor, fecha_pago_obj)
+        if not trabaja_sol and not trabaja_rec:
             raise ValidationError(
-                'Los dos están descansando en la fecha de pago. No se puede realizar el pago en esa fecha.'
+                'Los dos están descansando en la fecha de pago. No se puede realizar el pago en esa fecha. '
+                'Elige otra fecha de pago.'
             )
 
     @staticmethod
@@ -1236,14 +1244,18 @@ class SolicitudValidator:
             ValidationError: Si el receptor no tiene jornada en fecha_pago
         """
         from core.utils.date_utils import DateUtils
-        from turnos.services.jornada_service import JornadaService
+        from turnos.services.turno_service import TurnoService
 
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
-        fecha_pago_str = fecha_pago_obj.strftime('%Y-%m-%d')
-        jornada = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_pago_str)
-        if not jornada:
+        # Usar obtener_jornada_display (no la jornada predeterminada): devuelve None cuando el
+        # receptor DESCANSA realmente ese día, incluido el descanso de FIN DE SEMANA por
+        # alternancia. Si el receptor no trabaja, no hay jornada que cubrir → no se le puede pagar.
+        trabaja_receptor = TurnoService.obtener_jornada_display(receptor, fecha_pago_obj)
+        if not trabaja_receptor:
             raise ValidationError(
-                'El receptor no tiene jornada asignada para la fecha de pago. No puedes pagarle en esta fecha. Elige otra fecha de pago.'
+                f'El receptor ({receptor.nombre} {receptor.apellido}) no trabaja en la fecha de pago '
+                f'({fecha_pago_obj.strftime("%d/%m/%Y")}): ese día descansa, así que no hay jornada que '
+                f'cubrir y no se le puede pagar. Elige otra fecha de pago en la que el receptor sí trabaje.'
             )
 
     @staticmethod
@@ -1316,7 +1328,28 @@ class SolicitudValidator:
         
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
         fecha_pago_str = fecha_pago_obj.strftime('%Y-%m-%d')
-        
+
+        # ===========================
+        # Pago en SÁBADO: no aplica la coincidencia de "misma jornada"
+        # ===========================
+        # La regla de "no se puede pagar trabajando dos veces la misma jornada" es un concepto
+        # de DÍA DE SEMANA, donde cada explorador tiene una jornada fija (AM o PM). En un SÁBADO
+        # la jornada la gobierna la ALTERNANCIA de fines de semana: el explorador o DESCANSA
+        # (y entonces paga eligiendo libremente AM/PM/AMBAS, sin conflicto posible) o trabaja la
+        # doblada completa (AM+PM, que se valida aparte como 'doblada activa'). Por eso, usar la
+        # jornada PREDETERMINADA (que ignora el descanso de fin de semana) daba falsos positivos
+        # como "ambos tienen PM" cuando en realidad ambos descansan ese sábado.
+        if fecha_pago_obj.weekday() == 5:
+            logger.info(
+                "Validación coincidencia jornadas pago - OMITIDA por pago en sábado (alternancia)",
+                extra={'deudor_id': deudor.id, 'acreedor_id': acreedor.id, 'fecha_pago': fecha_pago_str},
+            )
+            return {
+                'coinciden': False,
+                'jornada_comun': None,
+                'requiere_cambio_turno': False,
+            }
+
         # Obtener todos los turnos del deudor en fecha de pago para detectar dobladas
         turnos_deudor = Turno.objects.filter(explorador=deudor, fecha=fecha_pago_obj).select_related('jornada')
         turnos_acreedor = Turno.objects.filter(explorador=acreedor, fecha=fecha_pago_obj).select_related('jornada')

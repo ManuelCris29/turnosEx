@@ -92,7 +92,7 @@ class DeudaCorporativaService:
             supervisor = getattr(explorador, 'supervisor', None) or explorador
             mes_nombre = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
                           'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][info['fecha_doblada'].month - 1]
-            SancionEmpleado.objects.create(
+            nueva = SancionEmpleado.objects.create(
                 explorador=explorador,
                 supervisor=supervisor,
                 fecha_inicio=hoy,
@@ -103,10 +103,44 @@ class DeudaCorporativaService:
                     f"Paga la deuda (PDH) para levantarla."
                 ),
             )
+            # Refrescar Mis Turnos para que la sanción se vea al instante (sin esperar al TTL).
+            DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(nueva)
         elif (not info) and auto:
             # Ya no hay deuda vencida: levantar la sanción automática
             auto.fecha_fin = hoy - timedelta(days=1)
             auto.save(update_fields=['fecha_fin', 'actualizado_en'])
+            # CLAVE: la sanción era indefinida y se mostraba en meses futuros; al levantarla hay
+            # que invalidar también esos meses para que desaparezca al instante (no hasta el TTL).
+            DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(auto)
+
+    @staticmethod
+    def _invalidar_cache_mis_turnos_sancion(sancion) -> None:
+        """
+        Invalida la caché de Mis Turnos del explorador en TODOS los meses que la sanción
+        pudo afectar. Para sanciones indefinidas (o recién levantadas que antes lo eran),
+        se cubre además un año hacia adelante, porque una sanción indefinida se muestra en
+        todos los meses futuros y, al levantarla, esos meses cacheados deben refrescarse.
+        """
+        try:
+            from core.services.cache_service import CacheService
+            hoy = date.today()
+            desde = sancion.fecha_inicio
+            # Cubrir hasta el mayor entre su fecha_fin y un año adelante (para indefinidas/levantadas).
+            hasta = max(sancion.fecha_fin or hoy, hoy + timedelta(days=365))
+            meses = set()
+            d = date(desde.year, desde.month, 1)
+            while d <= hasta:
+                meses.add((d.month, d.year))
+                # avanzar al primer día del mes siguiente
+                if d.month == 12:
+                    d = date(d.year + 1, 1, 1)
+                else:
+                    d = date(d.year, d.month + 1, 1)
+            for m, y in meses:
+                CacheService.invalidar_cache_turnos_empleado(sancion.explorador_id, m, y)
+        except Exception:
+            # La invalidación de caché nunca debe romper el flujo principal.
+            pass
 
     @staticmethod
     def crear_deuda_corporativa(

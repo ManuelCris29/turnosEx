@@ -507,23 +507,55 @@
                             <label for="fecha_pago_am">
                                 <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago para AM <span class="text-danger">*</span>
                             </label>
-                            <input type="text" class="form-control" id="fecha_pago_am" name="fecha_pago_am" 
+                            <input type="text" class="form-control" id="fecha_pago_am" name="fecha_pago_am"
                                    placeholder="Fecha de pago para jornada AM" readonly
                                    data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
                             <small class="form-text text-muted">
                                 Fecha en que devolverás la doblada de AM
                             </small>
+                            <div id="jornada_sabado_am_wrap" class="mt-2 p-2" style="display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px;">
+                                <label class="d-block mb-1" style="font-size:.85rem;">
+                                    <i class="fas fa-sun mr-1"></i>Pago en sábado — elige la jornada que pagarás <span class="text-danger">*</span>
+                                </label>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_am" id="jps_am_am" value="AM">
+                                    <label class="form-check-label" for="jps_am_am">AM</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_am" id="jps_am_pm" value="PM">
+                                    <label class="form-check-label" for="jps_am_pm">PM</label>
+                                </div>
+                                <small class="form-text text-muted">
+                                    Solo debes 1 jornada: elige AM o PM. Para pagar el día completo (ambas), usa una <strong>Doblada</strong> normal.
+                                </small>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label for="fecha_pago_pm">
                                 <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago para PM <span class="text-danger">*</span>
                             </label>
-                            <input type="text" class="form-control" id="fecha_pago_pm" name="fecha_pago_pm" 
+                            <input type="text" class="form-control" id="fecha_pago_pm" name="fecha_pago_pm"
                                    placeholder="Fecha de pago para jornada PM" readonly
                                    data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
                             <small class="form-text text-muted">
                                 Fecha en que devolverás la doblada de PM
                             </small>
+                            <div id="jornada_sabado_pm_wrap" class="mt-2 p-2" style="display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px;">
+                                <label class="d-block mb-1" style="font-size:.85rem;">
+                                    <i class="fas fa-sun mr-1"></i>Pago en sábado — elige la jornada que pagarás <span class="text-danger">*</span>
+                                </label>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_pm" id="jps_pm_am" value="AM">
+                                    <label class="form-check-label" for="jps_pm_am">AM</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_pm" id="jps_pm_pm" value="PM">
+                                    <label class="form-check-label" for="jps_pm_pm">PM</label>
+                                </div>
+                                <small class="form-text text-muted">
+                                    Solo debes 1 jornada: elige AM o PM. Para pagar el día completo (ambas), usa una <strong>Doblada</strong> normal.
+                                </small>
+                            </div>
                         </div>
                     </div>
                 </div>

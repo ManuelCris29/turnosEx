@@ -17,6 +17,9 @@
     const URL_ALTERNANCIA = '/solicitudes/alternancia-finde/';
     const URL_DESCANSOS_SEMANA = '/solicitudes/descansos-semana-usuario/';
 
+    // Jornada predeterminada del solicitante (AM/PM), para resaltar "tú eres ...".
+    const MI_JORNADA = (window.MI_JORNADA || '').toUpperCase();
+
     // Descansos de entre semana del usuario por año (temporada/mantenimiento), para marcar el calendario.
     const descansosSemana = {};   // { 'YYYY-MM-DD': 'temporada'|'mantenimiento' }
     const aniosDescansoCargados = {};
@@ -109,7 +112,12 @@
             .then((res) => {
                 const d = (res && res.data) ? res.data : res;
                 if (!d || !d.sabado || !d.domingo) { contenedor.style.display = 'none'; return; }
-                const chip = (label, dia, jor) => `<span class="fds-dia">${label} ${dia} <span class="jor jor-${jor}">${jor || '?'}</span></span>`;
+                const chip = (label, dia, jor) => {
+                    const esMio = MI_JORNADA && (jor || '').toUpperCase() === MI_JORNADA;
+                    const tuTag = esMio ? ` <span class="tu-tag"><i class="fas fa-user"></i> Tú</span>` : '';
+                    return `<span class="fds-dia${esMio ? ' es-mio' : ''}">${label} ${dia} ` +
+                           `<span class="jor jor-${jor}">${jor || '?'}</span>${tuTag}</span>`;
+                };
                 contenedor.innerHTML = chip('Sáb', d.sabado.dia, d.sabado.jornada) + chip('Dom', d.domingo.dia, d.domingo.jornada);
                 contenedor.style.display = 'flex';
             })

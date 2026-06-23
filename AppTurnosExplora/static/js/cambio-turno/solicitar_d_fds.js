@@ -32,7 +32,11 @@
     // Día de la semana del finde cedido (0=domingo, 6=sábado) para exigir el mismo en el pago.
     let diaCesion = null;
 
+    // Jornada predeterminada del solicitante (AM/PM), para resaltar "tú eres ...".
+    const MI_JORNADA = (window.MI_JORNADA || '').toUpperCase();
+
     // Pinta el distintivo AM/PM del fin de semana de una fecha en el contenedor dado.
+    // El día/jornada que le corresponde al propio solicitante se resalta con una etiqueta "Tú".
     function mostrarDistintivo(contenedor, fechaStr) {
         if (!contenedor) return;
         if (!fechaStr) { contenedor.style.display = 'none'; contenedor.innerHTML = ''; return; }
@@ -41,8 +45,12 @@
             .then((res) => {
                 const d = (res && res.data) ? res.data : res;
                 if (!d || !d.sabado || !d.domingo) { contenedor.style.display = 'none'; return; }
-                const chip = (label, dia, jor) =>
-                    `<span class="fds-dia">${label} ${dia} <span class="jor jor-${jor}">${jor || '?'}</span></span>`;
+                const chip = (label, dia, jor) => {
+                    const esMio = MI_JORNADA && (jor || '').toUpperCase() === MI_JORNADA;
+                    const tuTag = esMio ? ` <span class="tu-tag"><i class="fas fa-user"></i> Tú</span>` : '';
+                    return `<span class="fds-dia${esMio ? ' es-mio' : ''}">${label} ${dia} ` +
+                           `<span class="jor jor-${jor}">${jor || '?'}</span>${tuTag}</span>`;
+                };
                 contenedor.innerHTML =
                     chip('Sáb', d.sabado.dia, d.sabado.jornada) + chip('Dom', d.domingo.dia, d.domingo.jornada);
                 contenedor.style.display = 'flex';

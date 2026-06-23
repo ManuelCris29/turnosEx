@@ -145,6 +145,10 @@ class DobladaStrategy(SolicitudStrategy):
             fecha_pago = datos.get('fecha_pago')
             jornada_cedida = datos.get('jornada_cedida')
             jornada_pago_sabado = datos.get('jornada_pago_sabado')
+            # Día de semana para devolver la jornada cuando se paga el sábado completo (AMBAS).
+            # Debe extraerse aquí: se usa más abajo al validar el caso AMBAS (antes solo se leía
+            # en crear_solicitud, lo que provocaba un NameError al validar un pago AMBAS).
+            fecha_pago_semana = datos.get('fecha_pago_semana')
             jornada_cubre_en_pago = (datos.get('jornada_cubre_en_pago') or '').strip().upper()
             tipo_cesion = datos.get('tipo_cesion', 'cesion_completa')
             fecha_creacion_solicitud = datos.get('fecha_creacion_solicitud')
