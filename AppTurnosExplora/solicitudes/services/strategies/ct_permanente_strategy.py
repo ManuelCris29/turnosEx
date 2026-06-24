@@ -689,11 +689,14 @@ class CTPermanenteStrategy(SolicitudStrategy):
             if not jornada_base:
                 return False
             
-            # Calcular jornada del día
-            jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
-            
-            # Si la jornada del día es "Descanso", el explorador está descansando
-            return jornada_dia == "Descanso"
+            # Descanso por rotación predeterminada (fin de semana).
+            if JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha) == "Descanso":
+                return True
+            # Descanso de SEMANA manual (temporada/festivo configurado por jornada) entre semana.
+            from turnos.services.descanso_semana_service import DescansoSemanaService
+            if DescansoSemanaService.es_descanso_semana_manual(jornada_base.nombre, fecha):
+                return True
+            return False
         except Exception:
             return False
     

@@ -386,7 +386,9 @@ class DobladaStrategy(SolicitudStrategy):
                 return False, "Valor inválido para la jornada que cubrirás en la fecha de pago."
             if fecha_pago_obj.weekday() == 5 and jornada_pago_sabado and jornada_cubre_en_pago:
                 return False, "No uses la opción AM/PM/toda la doblada junto con el pago en sábado; elige solo la jornada del sábado."
-            if tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm') and not (
+            # La elección "¿qué cubrirás?" (jornada_cubre_en_pago) aplica siempre que el receptor
+            # tenga doblada en la fecha de pago, sin importar el tipo de cesión (parcial o completa).
+            if jornada_cubre_en_pago and not (
                 fecha_pago_obj.weekday() == 5 and jornada_pago_sabado
             ):
                 from turnos.models import Turno as TurnoModel
@@ -403,38 +405,37 @@ class DobladaStrategy(SolicitudStrategy):
                         "doblada (AM+PM) en la fecha de pago."
                     )
 
-                # Si el deudor ya tiene AM o PM en fecha de pago, no puede elegir cubrir AMBAS (doblada completa).
+                # El deudor SOLO puede cubrir la jornada CONTRARIA a la que él trabaja ese día.
+                # IMPORTANTE: usar la jornada REAL del deudor (incluida la PREDETERMINADA/virtual,
+                # sin fila Turno), no solo turnos explícitos. Si ese día el deudor trabaja una jornada:
+                #   - No puede cubrir AMBAS (su propia jornada quedaría sin cubrir).
+                #   - No puede cubrir la MISMA jornada que ya trabaja (la haría dos veces).
                 if receptor_doblada_pago and jornada_cubre_en_pago:
                     jcp_u = str(jornada_cubre_en_pago).strip().upper()
-                    deudor_tiene_turno_fp = TurnoModel.objects.filter(
-                        explorador=explorador_solicitante, fecha=fecha_pago_obj
-                    ).exists()
-                    if jcp_u == 'AMBAS' and deudor_tiene_turno_fp:
-                        return False, (
-                            'En la fecha de pago ya tienes un turno (AM o PM). '
-                            'No puedes cubrir la doblada completa del compañero: solo puedes pagar con una media jornada '
-                            '(elige AM o PM), o elige otra fecha de pago en la que estés libre.'
-                        )
-                    # jcp = media jornada que el deudor trabajará al pagar; no puede ser la misma que su único turno actual
-                    if jcp_u in ('AM', 'PM') and deudor_tiene_turno_fp:
-                        deudor_turnos = list(
-                            TurnoModel.objects.filter(
-                                explorador=explorador_solicitante, fecha=fecha_pago_obj
-                            ).select_related('jornada')
-                        )
-                        if len(deudor_turnos) == 1:
-                            j_d = deudor_turnos[0].jornada.nombre.upper()
-                            if j_d == jcp_u:
-                                return False, json.dumps({
-                                    'code': 'requiere_cambio_turno_previo',
-                                    'message': (
-                                        'La media jornada con la que quieres pagar coincide con el turno que ya tienes '
-                                        'en la fecha de pago. Primero realiza un cambio de turno sencillo para '
-                                        'tener la jornada contraria y poder pagar.'
-                                    ),
-                                    'fecha_pago': str(fecha_pago),
-                                    'jornada_comun': j_d,
-                                })
+                    from turnos.services.turno_service import TurnoService as _TS_pago
+                    jornada_deudor_pago = _TS_pago.obtener_jornada_display(
+                        explorador_solicitante, fecha_pago_obj
+                    )
+                    if jornada_deudor_pago in ('AM', 'PM'):
+                        contraria = 'PM' if jornada_deudor_pago == 'AM' else 'AM'
+                        if jcp_u == 'AMBAS':
+                            return False, (
+                                f'Ese día ya trabajas tu jornada {jornada_deudor_pago}. No puedes cubrir la '
+                                f'doblada completa del compañero porque tu propia jornada quedaría sin cubrir. '
+                                f'Solo puedes cubrir la jornada contraria ({contraria}), o elige otra fecha de pago '
+                                f'en la que estés libre.'
+                            )
+                        if jcp_u == jornada_deudor_pago:
+                            return False, json.dumps({
+                                'code': 'requiere_cambio_turno_previo',
+                                'message': (
+                                    f'La jornada que quieres cubrir ({jcp_u}) es la MISMA que ya trabajas ese día: '
+                                    f'no puedes hacerla dos veces. Solo puedes cubrir la jornada contraria ({contraria}). '
+                                    f'Si necesitas cambiar tu jornada, primero realiza un cambio de turno sencillo.'
+                                ),
+                                'fecha_pago': str(fecha_pago),
+                                'jornada_comun': jcp_u,
+                            })
 
             # Validar jornadas contrarias — se omite para festivos de semana porque en esos días
             # el grupo que descansa (misma jornada base) cubre válidamente al grupo que trabaja.

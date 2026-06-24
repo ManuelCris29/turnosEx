@@ -286,12 +286,66 @@
         }
         cont.style.display = 'block';
         radios.forEach(r => r.setAttribute('required', 'required'));
-        const anyChecked = Array.from(radios).some(r => r.checked);
+
+        // Si el deudor TRABAJA una jornada ese día, solo puede cubrir la CONTRARIA:
+        //  - no la MISMA (la haría dos veces),
+        //  - no AMBAS (su propia jornada quedaría sin cubrir).
+        const radioAM = cont.querySelector('input[name="jornada_cubre_en_pago"][value="AM"]');
+        const radioPM = cont.querySelector('input[name="jornada_cubre_en_pago"][value="PM"]');
+        const radioAmbas = cont.querySelector('input[name="jornada_cubre_en_pago"][value="AMBAS"]');
+        const setEnabled = (radio, enabled) => {
+            if (!radio) return;
+            radio.disabled = !enabled;
+            const wrap = radio.closest('.form-check') || radio.parentElement;
+            if (wrap) wrap.style.opacity = enabled ? '1' : '0.45';
+            if (!enabled && radio.checked) radio.checked = false;
+        };
+        const trabajaUna = estadoSolicitantePago === 'una_jornada'
+            && (ultimaJornadaSolicitantePago === 'AM' || ultimaJornadaSolicitantePago === 'PM');
+        // Nota explicativa dentro del contenedor
+        let nota = cont.querySelector('.nota-cubre-jornada');
+        if (!nota) {
+            nota = document.createElement('small');
+            nota.className = 'nota-cubre-jornada form-text';
+            nota.style.cssText = 'display:block; margin-top:4px; color:#92400e;';
+            cont.appendChild(nota);
+        }
+        let contrariaPago = null;
+        if (trabajaUna) {
+            const propia = ultimaJornadaSolicitantePago;
+            const contraria = propia === 'AM' ? 'PM' : 'AM';
+            contrariaPago = contraria;
+            // La contraria y la misma quedan SELECCIONABLES:
+            //  - contraria → cubre normal (válido).
+            //  - misma → al enviar pide un cambio de turno sencillo (bloqueo suave).
+            // Solo AMBAS se BLOQUEA (tu propia jornada quedaría sin cubrir).
+            setEnabled(radioAM, true);
+            setEnabled(radioPM, true);
+            setEnabled(radioAmbas, false);
+            nota.innerHTML = `<i class="fas fa-info-circle mr-1"></i>Ese día tú trabajas <strong>${propia}</strong>. `
+                + `Lo normal es cubrir la jornada contraria (<strong>${contraria}</strong>). `
+                + `Si eliges <strong>${propia}</strong> (tu misma jornada), primero deberás hacer un `
+                + `<strong>cambio de turno sencillo</strong>. No puedes cubrir el día completo (tu ${propia} quedaría sin cubrir).`;
+            nota.style.display = 'block';
+        } else {
+            setEnabled(radioAM, true);
+            setEnabled(radioPM, true);
+            setEnabled(radioAmbas, true);
+            nota.style.display = 'none';
+        }
+
+        // Selección por defecto: preferir la jornada CONTRARIA (la opción limpia); si no, la
+        // primera habilitada. Evita dejar marcada AMBAS (deshabilitada).
+        const anyChecked = Array.from(radios).some(r => r.checked && !r.disabled);
         if (!anyChecked) {
             const jc = document.querySelector('input[name="jornada_cedida"]:checked');
-            const def = jc && (jc.value === 'AM' || jc.value === 'PM') ? jc.value : 'AM';
-            const rSel = cont.querySelector(`input[name="jornada_cubre_en_pago"][value="${def}"]`);
-            if (rSel) rSel.checked = true;
+            const preferida = contrariaPago
+                || (jc && (jc.value === 'AM' || jc.value === 'PM') ? jc.value : 'AM');
+            const candidatos = [preferida, 'AM', 'PM', 'AMBAS'];
+            for (const v of candidatos) {
+                const rSel = cont.querySelector(`input[name="jornada_cubre_en_pago"][value="${v}"]`);
+                if (rSel && !rSel.disabled) { rSel.checked = true; break; }
+            }
         }
         actualizarVistaPrevia();
     }

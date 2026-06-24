@@ -168,15 +168,21 @@ def _es_temporada(fecha: date) -> bool:
 
 
 def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
-    """Verificar si un explorador está descansando en una fecha específica"""
+    """Verificar si un explorador está descansando en una fecha específica (estado REAL)."""
     try:
         jornada_base = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
 
         if not jornada_base:
             return False
 
-        jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
-        return jornada_dia == "Descanso"
+        # Descanso por rotación predeterminada (fin de semana).
+        if JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha) == "Descanso":
+            return True
+        # Descanso de SEMANA manual (temporada/festivo configurado por jornada) entre semana.
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        if DescansoSemanaService.es_descanso_semana_manual(jornada_base.nombre, fecha):
+            return True
+        return False
     except Exception:
         return False
 

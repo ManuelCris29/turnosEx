@@ -956,7 +956,6 @@ class SolicitudValidator:
         """
         from core.utils.date_utils import DateUtils
         from turnos.services.jornada_service import JornadaService
-        from turnos.services.turno_service import TurnoService
         from turnos.models import Turno
 
         fecha_obj = DateUtils.parse_date(fecha)
@@ -964,10 +963,10 @@ class SolicitudValidator:
 
         # Obtener jornada del solicitante (predeterminada, para el NOMBRE en la regla de contrarias)
         jornada_solicitante = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha_str)
-        # ¿Trabaja REALMENTE ese día? obtener_jornada_display devuelve None si descansa, incluido
-        # el descanso de FIN DE SEMANA por alternancia (que la jornada predeterminada no refleja).
-        sol_trabaja = TurnoService.obtener_jornada_display(solicitante, fecha_obj)
-        rec_trabaja = TurnoService.obtener_jornada_display(receptor, fecha_obj)
+        # ¿Trabaja REALMENTE ese día? Considera TODO descanso: fin de semana por alternancia,
+        # descanso de semana manual y mantenimiento (la jornada predeterminada no los refleja).
+        sol_trabaja = SolicitudValidator._explorador_trabaja(solicitante, fecha_obj)
+        rec_trabaja = SolicitudValidator._explorador_trabaja(receptor, fecha_obj)
 
         # Si solicitante está en doblada, usar jornada_cedida
         if jornada_cedida:
@@ -1202,10 +1201,43 @@ class SolicitudValidator:
             return False
 
     @staticmethod
+    def _explorador_trabaja(explorador: Empleado, fecha_obj) -> bool:
+        """
+        Devuelve True si el explorador TRABAJA ese día, considerando TODOS los tipos de descanso:
+          - Turnos explícitos en BD → trabaja.
+          - Descanso de FIN DE SEMANA por alternancia (obtener_jornada_display == None).
+          - Descanso de SEMANA manual (temporada/festivo configurado por jornada) — entre semana.
+          - Mantenimiento efectivo — entre semana (todos descansan).
+
+        Cierra el hueco de que obtener_jornada_display NO reflejaba el descanso de semana entre
+        semana, lo que permitía pagar/ceder a alguien que en realidad descansa ese día.
+        """
+        from turnos.services.turno_service import TurnoService
+        from turnos.services.jornada_service import JornadaService
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        from turnos.models import DiaEspecial, Turno
+
+        # 1) Turnos explícitos → trabaja (un cambio/CT puede ponerle turno aunque sea descanso de semana).
+        if Turno.objects.filter(explorador=explorador, fecha=fecha_obj).exists():
+            return True
+        # 2) Fin de semana / festivo donde descansa → obtener_jornada_display devuelve None.
+        if TurnoService.obtener_jornada_display(explorador, fecha_obj) is None:
+            return False
+        # 3) Entre semana: descanso de semana manual o mantenimiento efectivo.
+        if fecha_obj.weekday() < 5:
+            if DiaEspecial.es_mantenimiento_efectivo(fecha_obj):
+                return False
+            base = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha_obj.strftime('%Y-%m-%d'))
+            base_nombre = base.nombre.upper() if base else None
+            if base_nombre and DescansoSemanaService.es_descanso_semana_manual(base_nombre, fecha_obj):
+                return False
+        return True
+
+    @staticmethod
     def validar_ambos_descansando_fecha_pago(solicitante: Empleado, receptor: Empleado, fecha_pago):
         """
         Caso 1.2: Rechazar cuando deudor y acreedor están descansando en la fecha de pago.
-        Si ninguno tiene turno/jornada en fecha_pago, no se puede realizar el pago.
+        Si ninguno trabaja en fecha_pago (cualquier tipo de descanso), no se puede pagar.
 
         Args:
             solicitante: Explorador deudor (emisor)
@@ -1216,15 +1248,11 @@ class SolicitudValidator:
             ValidationError: Si ambos están descansando en fecha_pago
         """
         from core.utils.date_utils import DateUtils
-        from turnos.services.turno_service import TurnoService
 
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
-        # obtener_jornada_display devuelve None cuando la persona realmente DESCANSA ese día,
-        # incluyendo el descanso de FIN DE SEMANA por alternancia (que la jornada predeterminada
-        # no refleja). Así detectamos correctamente "ambos descansando" también en sábados.
-        trabaja_sol = TurnoService.obtener_jornada_display(solicitante, fecha_pago_obj)
-        trabaja_rec = TurnoService.obtener_jornada_display(receptor, fecha_pago_obj)
-        if not trabaja_sol and not trabaja_rec:
+        # _explorador_trabaja considera TODO descanso (fin de semana, semana manual, mantenimiento).
+        if (not SolicitudValidator._explorador_trabaja(solicitante, fecha_pago_obj)
+                and not SolicitudValidator._explorador_trabaja(receptor, fecha_pago_obj)):
             raise ValidationError(
                 'Los dos están descansando en la fecha de pago. No se puede realizar el pago en esa fecha. '
                 'Elige otra fecha de pago.'
@@ -1244,14 +1272,11 @@ class SolicitudValidator:
             ValidationError: Si el receptor no tiene jornada en fecha_pago
         """
         from core.utils.date_utils import DateUtils
-        from turnos.services.turno_service import TurnoService
 
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
-        # Usar obtener_jornada_display (no la jornada predeterminada): devuelve None cuando el
-        # receptor DESCANSA realmente ese día, incluido el descanso de FIN DE SEMANA por
-        # alternancia. Si el receptor no trabaja, no hay jornada que cubrir → no se le puede pagar.
-        trabaja_receptor = TurnoService.obtener_jornada_display(receptor, fecha_pago_obj)
-        if not trabaja_receptor:
+        # _explorador_trabaja considera TODO descanso (fin de semana por alternancia, descanso de
+        # semana manual y mantenimiento). Si el receptor no trabaja, no hay jornada que cubrir.
+        if not SolicitudValidator._explorador_trabaja(receptor, fecha_pago_obj):
             raise ValidationError(
                 f'El receptor ({receptor.nombre} {receptor.apellido}) no trabaja en la fecha de pago '
                 f'({fecha_pago_obj.strftime("%d/%m/%Y")}): ese día descansa, así que no hay jornada que '

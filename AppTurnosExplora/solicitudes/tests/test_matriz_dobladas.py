@@ -947,6 +947,55 @@ class TestPagoSabadoCesionParcial(MatrizDobladasTestCase):
 
 
 # ===========================================================================
+# Cubrir pago de receptor con DOBLADA: emisor con jornada VIRTUAL (predeterminada)
+# ===========================================================================
+class TestCubrePagoReceptorDobladaJornadaVirtual(MatrizDobladasTestCase):
+    """
+    Si el receptor tiene DOBLADA en la fecha de pago y el emisor trabaja UNA jornada ese día
+    —aunque sea VIRTUAL (predeterminada, sin fila Turno)— solo puede cubrir la CONTRARIA:
+    no la misma (la haría dos veces) ni AMBAS (su propia jornada quedaría sin cubrir).
+    Antes el chequeo solo miraba turnos explícitos, así que con jornada virtual dejaba pasar.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    def _datos(self, jcp):
+        return {
+            'explorador_solicitante': self.emisor,
+            'explorador_receptor': self.receptor,
+            'fecha_cambio_turno': str(FECHA_CESION),
+            'fecha_pago': str(FECHA_PAGO),
+            'comentario': 'test cubre pago',
+            'tipo_cesion': 'cesion_completa',
+            'jornada_cubre_en_pago': jcp,
+            'fecha_creacion_solicitud': date.today(),
+        }
+
+    def test_solo_puede_cubrir_la_contraria(self):
+        from turnos.services.turno_service import TurnoService
+        # Cesión válida: emisor PM, receptor AM (contrarios, explícitos).
+        self._crear_turno(self.emisor, FECHA_CESION, self.jornada_pm)
+        self._crear_turno(self.receptor, FECHA_CESION, self.jornada_am)
+        # Pago: receptor con DOBLADA; emisor SIN turno (jornada virtual/predeterminada).
+        self._crear_doblada_turnos(self.receptor, FECHA_PAGO)
+        emisor_j = TurnoService.obtener_jornada_display(self.emisor, FECHA_PAGO)
+        self.assertIn(emisor_j, ('AM', 'PM'))
+        contraria = 'PM' if emisor_j == 'AM' else 'AM'
+
+        ok_misma, _ = self.strategy.validar_solicitud(self._datos(emisor_j))
+        self.assertFalse(ok_misma, 'Cubrir la MISMA jornada que trabaja el emisor debe rechazarse')
+
+        ok_ambas, _ = self.strategy.validar_solicitud(self._datos('AMBAS'))
+        self.assertFalse(ok_ambas, 'Cubrir AMBAS debe rechazarse cuando el emisor trabaja una jornada')
+
+        ok_contra, msg = self.strategy.validar_solicitud(self._datos(contraria))
+        self.assertTrue(ok_contra, f'Cubrir la jornada CONTRARIA debe permitirse: {msg}')
+
+
+# ===========================================================================
 # Receptor descansa por ALTERNANCIA de fin de semana en la fecha de pago
 # ===========================================================================
 class TestReceptorDescansaFinDeSemanaEnPago(MatrizDobladasTestCase):

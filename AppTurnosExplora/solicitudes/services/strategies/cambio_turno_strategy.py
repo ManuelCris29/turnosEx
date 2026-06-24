@@ -76,6 +76,17 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 return False, 'El solicitante no tiene jornada asignada para esa fecha'
             if not jornada_receptor:
                 return False, 'El receptor no tiene jornada asignada para esa fecha'
+
+            # Validar que AMBOS realmente TRABAJEN esa fecha (estado real, no solo la jornada
+            # predeterminada): un descanso de semana manual o mantenimiento significa que no hay
+            # jornada que intercambiar, aunque la predeterminada exista.
+            if not SolicitudValidator._explorador_trabaja(explorador_solicitante, _fecha_obj):
+                return False, 'No trabajas esa fecha (ese día descansas): no hay jornada para intercambiar. Elige otra fecha.'
+            if not SolicitudValidator._explorador_trabaja(explorador_receptor, _fecha_obj):
+                return False, (
+                    f'El compañero ({explorador_receptor.nombre} {explorador_receptor.apellido}) descansa esa fecha: '
+                    f'no tiene jornada para intercambiar. Elige otra fecha o compañero.'
+                )
             
             SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
 
