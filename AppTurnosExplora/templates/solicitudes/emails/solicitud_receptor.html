@@ -339,7 +339,10 @@
                     {% endif %}
                 </ul>
             </div>
-            
+
+            <!-- Detalle específico por tipo: qué se cede, qué se paga/devuelve -->
+            {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+
             <!-- Botones de acción -->
             <div class="action-buttons">
                 <p style="margin-bottom: 20px; color: #5a6c7d; font-size: 15px;">

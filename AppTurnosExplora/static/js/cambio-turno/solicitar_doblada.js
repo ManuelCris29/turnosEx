@@ -1851,6 +1851,17 @@
         document.querySelectorAll(
             'input[name="jornada_pago_sabado"], input[name="jornada_pago_sabado_am"], input[name="jornada_pago_sabado_pm"]'
         ).forEach(r => { r.checked = false; });
+        // Bloque "¿Qué cubrirás ese día?" (receptor con doblada en el pago): ocultar y desmarcar.
+        const cubreBlock = document.getElementById('opciones_cubre_pago_receptor_doblada');
+        if (cubreBlock) {
+            cubreBlock.style.display = 'none';
+            cubreBlock.querySelectorAll('input[name="jornada_cubre_en_pago"]').forEach(r => {
+                r.checked = false;
+                r.removeAttribute('required');
+            });
+            const notaCubre = cubreBlock.querySelector('.nota-cubre-jornada');
+            if (notaCubre) notaCubre.style.display = 'none';
+        }
         // Estado de clasificación del pago
         estadoSolicitantePago = null;
         estadoReceptorPago = null;

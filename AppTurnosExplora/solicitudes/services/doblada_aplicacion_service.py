@@ -635,42 +635,44 @@ class DobladaAplicacionService:
             return
 
         if jcp in ('AM', 'PM'):
-            j_deudor_trabaja = jcp
-            j_acreedor_conserva = 'PM' if j_deudor_trabaja == 'AM' else 'AM'
+            # jcp = jornada del ACREEDOR (que tiene doblada) que el deudor CUBRE al pagar.
+            # El deudor, al pagar, DOBLA: trabaja su propia jornada (la contraria a jcp) MÁS la
+            # que cubre. El acreedor pierde la jornada cubierta y conserva la otra.
+            j_cubre = jcp                                   # ej. AM (la del acreedor que cubro)
+            j_propia = 'PM' if j_cubre == 'AM' else 'AM'    # mi propia jornada ese día (contraria)
             jornadas_cache = _obtener_jornadas_cache()
-            j_deudor_obj = jornadas_cache[j_deudor_trabaja]
-            j_acr_cons_obj = jornadas_cache[j_acreedor_conserva]
+            j_cubre_obj = jornadas_cache[j_cubre]
+            j_propia_obj = jornadas_cache[j_propia]
 
-            if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, j_deudor_obj):
-                sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
-                Turno.objects.create(
-                    explorador=solicitante,
-                    fecha=fecha_pago,
-                    jornada=j_deudor_obj,
-                    sala=sala_solicitante,
-                    tipo_cambio="DOBLADA",
-                )
+            # Deudor: queda con AM+PM (su propia + la que cubre) → doblada.
+            for j_obj in (j_propia_obj, j_cubre_obj):
+                if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, j_obj):
+                    sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
+                    Turno.objects.create(
+                        explorador=solicitante,
+                        fecha=fecha_pago,
+                        jornada=j_obj,
+                        sala=sala_solicitante,
+                        tipo_cambio="DOBLADA",
+                    )
+
+            # Acreedor: pierde la jornada que cubre el deudor (jcp) y conserva la otra.
             Turno.objects.filter(
-                explorador=solicitante,
-                fecha=fecha_pago,
-                jornada=j_acr_cons_obj,
+                explorador=receptor, fecha=fecha_pago, jornada=j_cubre_obj
             ).delete()
-            Turno.objects.filter(
-                explorador=receptor, fecha=fecha_pago, jornada=j_deudor_obj
-            ).delete()
-            if not DobladaTurnoService.tiene_jornada_en_fecha(receptor, fecha_pago, j_acr_cons_obj):
+            if not DobladaTurnoService.tiene_jornada_en_fecha(receptor, fecha_pago, j_propia_obj):
                 sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_pago)
                 Turno.objects.create(
                     explorador=receptor,
                     fecha=fecha_pago,
-                    jornada=j_acr_cons_obj,
+                    jornada=j_propia_obj,
                     sala=sala_receptor,
                     tipo_cambio="DOBLADA",
                 )
 
             logger.info(
-                f"Doblada pago (jcp={j_deudor_trabaja}): deudor solo {j_deudor_trabaja}, "
-                f"acreedor conserva {j_acreedor_conserva}; {solicitante.nombre} / {receptor.nombre} en {fecha_pago}"
+                f"Doblada pago (jcp={j_cubre}): {solicitante.nombre} dobla (su {j_propia} + cubre {j_cubre}); "
+                f"{receptor.nombre} conserva {j_propia} en {fecha_pago}"
             )
             return
 

@@ -384,7 +384,15 @@ document.addEventListener('DOMContentLoaded', function() {
 function cargarEmpleadosDisponibles(fecha) {
     const tipoSolicitudId = document.getElementById('tipo_solicitud_id').value;
     const fechaFin = document.getElementById('fecha_fin').value;
-    
+
+    // Al recargar compañeros (cambió fecha/rango/días) la selección anterior se invalida:
+    // ocultar los paneles dependientes del receptor para que no queden datos viejos visibles.
+    const _tci = document.getElementById('turno_companero_info');
+    if (_tci) _tci.style.display = 'none';
+    const _ri = document.getElementById('resumen_intercambio');
+    if (_ri) _ri.style.display = 'none';
+
+
     // Para CT PERMANENTE, solo cargar empleados si hay rango completo (fecha_inicio Y fecha_fin)
     if (!fechaFin) {
         console.log('No se cargan empleados: falta fecha de fin para completar el rango');

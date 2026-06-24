@@ -347,7 +347,10 @@
                     {% endif %}
                 </ul>
             </div>
-            
+
+            <!-- Detalle específico por tipo: qué se cede, qué se paga/devuelve -->
+            {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+
             <!-- Próximos pasos -->
             <div class="info-card steps-card">
                 <h3>Próximos Pasos</h3>

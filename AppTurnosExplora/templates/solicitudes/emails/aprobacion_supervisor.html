@@ -311,7 +311,10 @@
                     {% endif %}
                 </ul>
             </div>
-            
+
+            <!-- Detalle específico por tipo: qué se cede, qué se paga/devuelve -->
+            {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+
             <!-- Estado actual -->
             <div class="info-card status-card">
                 <h3>Estado Actual</h3>

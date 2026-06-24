@@ -81,6 +81,11 @@ class MatrizDobladasTestCase(TestCase):
     # setUp
     # ------------------------------------------------------------------
     def setUp(self):
+        # Limpiar la caché de jornadas (LocMemCache) entre tests: _obtener_jornadas_cache guarda
+        # objetos Jornada por 1h y, al crear jornadas nuevas por test, los IDs cacheados quedan
+        # obsoletos (rollback) y provocan IntegrityError de FK al aplicar dobladas.
+        from django.core.cache import cache as _django_cache
+        _django_cache.clear()
         # Jornadas
         self.jornada_am = Jornada.objects.create(
             nombre='AM', hora_inicio='06:00:00', hora_fin='14:00:00'
@@ -993,6 +998,31 @@ class TestCubrePagoReceptorDobladaJornadaVirtual(MatrizDobladasTestCase):
 
         ok_contra, msg = self.strategy.validar_solicitud(self._datos(contraria))
         self.assertTrue(ok_contra, f'Cubrir la jornada CONTRARIA debe permitirse: {msg}')
+
+    def test_aplicar_pago_el_deudor_queda_doblada(self):
+        """Al pagar cubriendo una jornada del receptor (con doblada), el DEUDOR DOBLA
+        (su jornada + la que cubre); el receptor conserva la otra."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from solicitudes.models import DobladaDetalle
+        from empleados.models import CompetenciaEmpleado
+        # El emisor necesita una sala (vía competencia) porque su jornada en el pago es virtual.
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        # Pago: receptor con DOBLADA (AM+PM); emisor sin turno (su PM es virtual).
+        self._crear_doblada_turnos(self.receptor, FECHA_PAGO)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION, comentario='t',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, fecha_pago=FECHA_PAGO, tipo_cesion='cesion_completa',
+            jornada_cedida='PM', jornada_cubre_en_pago='AM', empleado_receptor=self.receptor,
+        )
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        em = {j.upper() for j in Turno.objects.filter(explorador=self.emisor, fecha=FECHA_PAGO).values_list('jornada__nombre', flat=True)}
+        rec = {j.upper() for j in Turno.objects.filter(explorador=self.receptor, fecha=FECHA_PAGO).values_list('jornada__nombre', flat=True)}
+        self.assertEqual({'AM', 'PM'}, em, 'El deudor debe quedar con doblada (su PM + el AM que cubre).')
+        self.assertEqual({'PM'}, rec, 'El receptor conserva solo PM (el deudor cubrió su AM).')
 
 
 # ===========================================================================

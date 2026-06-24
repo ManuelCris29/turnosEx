@@ -58,7 +58,10 @@
                     {% endif %}
                 </ul>
             </div>
-            
+
+            <!-- Detalle específico por tipo: qué se cede, qué se paga/devuelve -->
+            {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+
             <div class="role-section">
                 <div class="role-title">👨‍💼 Como SUPERVISOR {{ supervisor_receptor.nombre|upper }} {{ supervisor_receptor.apellido|upper }}:</div>
                 <p>Debes aprobar/rechazar la solicitud desde tu rol de supervisor.</p>

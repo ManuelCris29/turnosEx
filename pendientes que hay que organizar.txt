@@ -114,8 +114,8 @@ si yo realizo un cambio sencillo, no puedo solicitarlo para el sábado. pues no 
 
 
 para que exista el cambio de doblada de un día de la semana por un sábado, pasa lo siguiente: 
-Ejemplo El martes Manuel esta en jornada Am y el miércoles yesika esta en jornada pm. Yo no quiero ir el martes y voy a buscar a alguien que este trabajando el sábado para que esa persona trabaje el martes por mí y yo le pago el sábado. EN ese caso seria yesika. Entonces el martes yesika trabaja am y pm porque ese día ella esta en pm. entonces el martes ella trabajara am y pm y el sábado yesika solo trabajara pm porque yo le cubrire la jornada am. y eso pasaría con. 
-Esto quiere decir que si yo el martes hubiese tenido la jornada pm pues debería buscar a los que tienen el martes jornada am , medio turno que seria jornada am y que trabaje el sábado para realizar el cambio. En ese caso esa persona el martes trabaja su jornada am y pm y yo trabajaría el sábado la jornada pm de esa persona en ese caso esa persona el sábado solo trabajaría media jornada que seria am 
+Ejemplo El martes Manuel esta en jornada Am y el miércoles yesika esta en jornada pm. Yo no quiero ir el martes y voy a buscar a alguien que este trabajando el sábado para que esa persona trabaje el martes por mí y yo le pago el sábado. EN ese caso seria yesika. Entonces el martes yesika trabaja am y pm porque ese día ella esta en pm. entonces el martes ella trabajara am y pm y el sábado yesika solo trabajara pm porque yo le cubrire la jornada am. y eso pasaría con 
+esto quiere decir que si yo el martes hubiese tenido la jornada pm pues debería buscar a los que tienen el martes jornada am , medio turno que seria jornada am y que trabaje el sábado para realizar el cambio. En ese caso esa persona el martes trabaja su jornada am y pm y yo trabajaría el sábado la jornada pm de esa persona en ese caso esa persona el sábado solo trabajaría media jornada que seria am 
 
 
 Si cambio el turno, debo saber que horario tiene persona X el martes porque si quiero cambiar PM pues ella ese día, deberá tener Am para que pueda doblar. Si tengo Am pues ese día ella deberá tener un turno Pm para que me doble.
