@@ -272,6 +272,15 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                             f'Si quieres ceder una doblada, elige una fecha en la que sí tengas turno (o un festivo en el que le toque doblar al grupo {grupo_descansa}).'
                         )
                     tiene_doblada_real_bd = set(jornadas) == {'AM', 'PM'}
+                    # Mensaje único para festivo: el día se trabaja COMPLETO (AM + PM) y, por la regla
+                    # de negocio de festivos, solo se puede ceder el día entero (no media jornada) y la
+                    # fecha de pago debe ser otro festivo del mismo mes. El frontend usa `es_festivo`
+                    # para ocultar el selector de "Tipo de Cesión" (parcial/total) y forzar cesión completa.
+                    mensaje_festivo_doblada = (
+                        f'Este día es festivo: trabajas la jornada completa (AM + PM) porque le corresponde '
+                        f'doblar al grupo {grupo_que_dobla}. Por regla de festivos solo puedes ceder el día '
+                        f'completo a un compañero, y la fecha de pago debe ser otro día festivo del mismo mes.'
+                    )
                     # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
                     if not jornadas and jornada_usuario and jornada_usuario == grupo_que_dobla.upper():
                         return json_ok({
@@ -279,11 +288,8 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                             'esta_descansando': False,
                             'puede_ceder': True,
                             'jornadas': ['AM', 'PM'],
-                            'mensaje': (
-                                f'Tienes jornada doblada (AM, PM) por regla de festivo. '
-                                f'Ese día festivo le corresponde trabajar al grupo {grupo_que_dobla}. '
-                                'Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).'
-                            ),
+                            'es_festivo': True,
+                            'mensaje': mensaje_festivo_doblada,
                             'solicitud_id': None,
                             'datos_inconsistentes': False,
                             'requiere_atencion_admin': False
@@ -295,11 +301,8 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                             'esta_descansando': False,
                             'puede_ceder': True,
                             'jornadas': ['AM', 'PM'],
-                            'mensaje': (
-                                f'Tienes jornada doblada (AM, PM) por regla de festivo. '
-                                f'Ese día festivo le corresponde trabajar al grupo {grupo_que_dobla}. '
-                                'Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).'
-                            ),
+                            'es_festivo': True,
+                            'mensaje': mensaje_festivo_doblada,
                             'solicitud_id': None,
                             'datos_inconsistentes': False,
                             'requiere_atencion_admin': False

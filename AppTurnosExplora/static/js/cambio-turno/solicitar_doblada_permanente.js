@@ -68,15 +68,16 @@
             .then((r) => r.json())
             .then((data) => {
                 companeros = (data && (data.empleados || (data.data && data.data.empleados))) || [];
+                // Cambió la base de compañeros: limpiar filas previas SIEMPRE (evita
+                // que queden filas obsoletas apuntando a compañeros de la fecha anterior).
+                cesionRows.innerHTML = '';
+                devolucionRows.innerHTML = '';
                 if (!companeros.length) {
                     if (cesionHint) cesionHint.textContent = 'No hay compañeros de jornada contraria disponibles.';
                     return;
                 }
                 if (cesionHint) cesionHint.textContent = 'Agrega los días que cedes y elige el compañero de cada uno.';
                 setHabilitado(true);
-                // Limpiar filas previas (cambió la base de compañeros)
-                cesionRows.innerHTML = '';
-                devolucionRows.innerHTML = '';
             })
             .catch(() => { if (cesionHint) cesionHint.textContent = 'Error cargando compañeros.'; });
     }

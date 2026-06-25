@@ -1218,3 +1218,86 @@ class TestDeudaEmisorContinuacion(MatrizDobladasTestCase):
             ).exists(),
             "El emisor NO debe recibir 30 min si no tenía una doblada de semana.",
         )
+
+
+# ===========================================================================
+# FESTIVO: jornada completa por alternancia, pero SIN deuda corporativa (30 min)
+# ===========================================================================
+class TestDobladaFestivoSinDeudaCorporativa(MatrizDobladasTestCase):
+    """
+    Regla de negocio: en un día FESTIVO se trabaja la jornada completa (AM+PM) por
+    alternancia, pero NO se generan los 30 minutos de deuda corporativa porque es
+    festivo. Debe cumplirse aunque la persona quede físicamente DOBLADA en esa fecha.
+
+    Se fija aquí para que el guard único `DeudaCorporativaService.aplica_deuda_doblada`
+    (que excluye festivos vía DiaEspecial tipo='festivo') no se rompa a futuro.
+    FECHA_CESION y FECHA_PAGO ya son DÍAS DE SEMANA del mismo mes; al marcarlas festivo,
+    el ÚNICO motivo para no generar la deuda es el festivo (no el fin de semana).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    def _marcar_festivo(self, fecha):
+        from turnos.models import DiaEspecial
+        DiaEspecial.objects.create(
+            fecha=fecha, tipo='festivo', descripcion='Festivo test', activo=True
+        )
+
+    def test_festivo_no_genera_deuda_corporativa(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.models import DeudaCorporativa
+
+        # Marcar como festivo ambas fechas (días de semana del mismo mes).
+        self._marcar_festivo(FECHA_CESION)
+        self._marcar_festivo(FECHA_PAGO)
+
+        # Sanidad: son días de semana → el único motivo de exclusión es el festivo.
+        self.assertLess(FECHA_CESION.weekday(), 5)
+        self.assertLess(FECHA_PAGO.weekday(), 5)
+        self.assertFalse(DeudaCorporativaService.aplica_deuda_doblada(FECHA_CESION))
+        self.assertFalse(DeudaCorporativaService.aplica_deuda_doblada(FECHA_PAGO))
+
+        # Ambos quedan físicamente DOBLADOS (AM+PM) en su festivo. Sin la regla de
+        # festivo, esto generaría 30 min para cada uno (receptor en cesión, emisor en pago).
+        self._crear_doblada_turnos(self.receptor, FECHA_CESION)
+        self._crear_doblada_turnos(self.emisor, FECHA_PAGO)
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION,
+            comentario='Test festivo sin 30 min',
+        )
+        detalle = DobladaDetalle.objects.create(
+            solicitud=sol,
+            fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_completa',
+            jornada_cedida='AM',  # evita el path None->.nombre; no afecta la deuda corporativa
+            empleado_receptor=self.receptor,
+        )
+
+        DobladaAplicacionService.generar_deudas_doblada(sol, detalle)
+
+        # Ninguna deuda corporativa (ni emisor ni receptor) en los festivos.
+        self.assertFalse(
+            DeudaCorporativa.objects.filter(
+                explorador=self.receptor, fecha_doblada=FECHA_CESION
+            ).exists(),
+            "El receptor NO debe recibir 30 min: la fecha de cesión es festivo.",
+        )
+        self.assertFalse(
+            DeudaCorporativa.objects.filter(
+                explorador=self.emisor, fecha_doblada=FECHA_PAGO
+            ).exists(),
+            "El emisor NO debe recibir 30 min: la fecha de pago es festivo.",
+        )
+        self.assertEqual(
+            DeudaCorporativa.objects.count(), 0,
+            "Un día festivo no debe generar ninguna deuda corporativa (30 min).",
+        )
