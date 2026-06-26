@@ -2750,6 +2750,10 @@
     function enviarFormulario() {
         const formData = new FormData(form);
 
+        // Loading bloqueante: evita doble envío y avisa que se está procesando.
+        // Cualquier Swal.fire posterior (éxito/error) reemplaza este modal.
+        LoadingUI.mostrar('Enviando solicitud...');
+
         // Cesión total con un solo receptor en descanso: sincronizar campos para que el backend
         // detecte mismo_receptor_y_misma_fecha y cree una sola solicitud cesion_completa.
         const chkAm = document.getElementById('cubre_completa_am');
@@ -2819,7 +2823,9 @@
             // Advertencia (no bloqueo) por restricción médica: avisar y reenviar al confirmar
             if (data.code === 'advertencia_restriccion') {
                 if (window.RestriccionAdvertencia) {
+                    // RestriccionAdvertencia usa Swal.fire, que reemplaza el modal de carga.
                     RestriccionAdvertencia.mostrar(data.restricciones, function () {
+                        LoadingUI.mostrar('Enviando solicitud...');
                         formData.set('confirmar_restriccion', '1');
                         fetch('/solicitudes/procesar-solicitud/', {
                             method: 'POST', body: formData,

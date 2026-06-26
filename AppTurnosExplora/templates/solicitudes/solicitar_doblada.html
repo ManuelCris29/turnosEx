@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Solicitar Doblada{% endblock %}
 
@@ -729,7 +729,7 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 <script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
 <script src="{% static 'js/cambio-turno/doblada/doblada_cesion_total_ui.js' %}"></script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
-<script src="{% static 'js/cambio-turno/solicitar_doblada.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/solicitar_doblada.js' %}"></script>
 <script>
 // Pago en sábado "Ambas": mostrar y limitar el selector del día de pago en semana.
 (function () {

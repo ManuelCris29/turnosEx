@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Solicitar Doblada Permanente{% endblock %}
 
@@ -115,5 +115,5 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 <script src="{% static 'js/festivos_colombia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
-<script src="{% static 'js/cambio-turno/solicitar_doblada_permanente.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/solicitar_doblada_permanente.js' %}"></script>
 {% endblock %}

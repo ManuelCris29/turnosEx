@@ -86,13 +86,15 @@ class CambioDescansoAplicacionService:
         otro_w1 = _otro_dia(fecha_cesion)
         otro_w2 = _otro_dia(fecha_pago)
 
-        # Snapshot para revertir
-        snap = CambioDescansoAplicacionService._capturar_snapshot(
-            solicitante, receptor, [fecha_cesion, otro_w1, fecha_pago, otro_w2]
-        )
-        from solicitudes.models import DobladaDetalle as _DD
-        _DD.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snap)
-        detalle.snapshot_turnos_previos = snap
+        # Snapshot para revertir. Solo la PRIMERA vez: si ya existe, no sobrescribir
+        # (una doble aplicación grabaría el estado ya aplicado como "previo").
+        if not getattr(detalle, 'snapshot_turnos_previos', None):
+            snap = CambioDescansoAplicacionService._capturar_snapshot(
+                solicitante, receptor, [fecha_cesion, otro_w1, fecha_pago, otro_w2]
+            )
+            from solicitudes.models import DobladaDetalle as _DD
+            _DD.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snap)
+            detalle.snapshot_turnos_previos = snap
 
         # --- W1 (cesión): se intercambian el finde ---
         # receptor toma el día del solicitante; solicitante toma el otro día.
@@ -125,12 +127,14 @@ class CambioDescansoAplicacionService:
         fecha_cesion = solicitud.fecha_cambio_turno
         fecha_pago = detalle.fecha_pago
 
-        snap = CambioDescansoAplicacionService._capturar_snapshot(
-            solicitante, receptor, [fecha_cesion, fecha_pago]
-        )
-        from solicitudes.models import DobladaDetalle as _DD
-        _DD.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snap)
-        detalle.snapshot_turnos_previos = snap
+        # Solo capturar la PRIMERA vez (idempotente ante doble aplicación accidental).
+        if not getattr(detalle, 'snapshot_turnos_previos', None):
+            snap = CambioDescansoAplicacionService._capturar_snapshot(
+                solicitante, receptor, [fecha_cesion, fecha_pago]
+            )
+            from solicitudes.models import DobladaDetalle as _DD
+            _DD.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snap)
+            detalle.snapshot_turnos_previos = snap
 
         CambioDescansoAplicacionService._trabaja_jornada_simple(solicitante, fecha_cesion)
         CambioDescansoAplicacionService._descansa_dia(receptor, fecha_cesion)

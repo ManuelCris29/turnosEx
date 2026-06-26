@@ -207,6 +207,8 @@
 
             btnEnviar.disabled = true;
             btnEnviar.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
+            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+            LoadingUI.mostrar('Enviando solicitud...');
 
             fetch(URL_PROCESAR, {
                 method: 'POST',

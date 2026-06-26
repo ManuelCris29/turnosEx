@@ -626,9 +626,13 @@ class DobladaStrategy(SolicitudStrategy):
                 detalle = solicitud.doblada
                 
                 # Snapshot de turnos antes de mutar (revertir cancelación 30 min debe restaurar CT sencillos, etc.)
-                snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(solicitud, detalle)
-                DobladaDetalle.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
-                detalle.snapshot_turnos_previos = snapshot
+                # Solo se captura la PRIMERA vez: si ya existe un snapshot (p. ej. una doble aplicación
+                # accidental por reintento/doble clic), NO se sobrescribe. De lo contrario grabaríamos el
+                # estado YA aplicado (DOBLADA) como si fuera el previo, y la cancelación no revertiría nada.
+                if not getattr(detalle, 'snapshot_turnos_previos', None):
+                    snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(solicitud, detalle)
+                    DobladaDetalle.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
+                    detalle.snapshot_turnos_previos = snapshot
 
                 # Aplicar doblada en fecha de cesión
                 DobladaAplicacionService.aplicar_doblada_cesion(solicitud, detalle)

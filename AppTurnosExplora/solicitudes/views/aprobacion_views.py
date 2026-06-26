@@ -111,95 +111,102 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
 
     def post(self, request, solicitud_id):
         try:
-            # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
-            solicitud = (
-                SolicitudCambio.objects
-                .select_related(
-                    'explorador_solicitante',
-                    'explorador_receptor',
-                    'explorador_solicitante__supervisor',
-                    'tipo_cambio',
-                    'doblada',
+            from django.db import transaction
+            # Lock de fila + lógica de cancelación dentro de UNA transacción: serializa
+            # cancelaciones concurrentes (doble clic / reintento). La segunda espera a la
+            # primera y, al ver el estado ya cambiado, cae en el caso correspondiente sin
+            # revertir dos veces.
+            with transaction.atomic():
+                # OPTIMIZACIÓN: Pre-cargar relaciones frecuentes
+                solicitud = (
+                    SolicitudCambio.objects
+                    .select_for_update()
+                    .select_related(
+                        'explorador_solicitante',
+                        'explorador_receptor',
+                        'explorador_solicitante__supervisor',
+                        'tipo_cambio',
+                        'doblada',
+                    )
+                    .get(id=solicitud_id)
                 )
-                .get(id=solicitud_id)
-            )
 
-            # Solo el solicitante puede cancelar su propia solicitud
-            if solicitud.explorador_solicitante != request.user.empleado:
-                return json_error('Solo puedes cancelar tus propias solicitudes', status=403, code='forbidden')
+                # Solo el solicitante puede cancelar su propia solicitud
+                if solicitud.explorador_solicitante != request.user.empleado:
+                    return json_error('Solo puedes cancelar tus propias solicitudes', status=403, code='forbidden')
 
-            if solicitud.estado == 'pendiente':
-                # Cancelación normal: sin restricción de tiempo
-                solicitud.estado = 'cancelada'
-                solicitud.fecha_resolucion = timezone.now()
-                solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
-                solicitud.save()
+                if solicitud.estado == 'pendiente':
+                    # Cancelación normal: sin restricción de tiempo
+                    solicitud.estado = 'cancelada'
+                    solicitud.fecha_resolucion = timezone.now()
+                    solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
+                    solicitud.save()
 
-            elif solicitud.estado == 'aprobada':
-                # Cancelación de solicitud aprobada: solo dentro de la ventana de 30 minutos
-                if not solicitud.fecha_resolucion:
+                elif solicitud.estado == 'aprobada':
+                    # Cancelación de solicitud aprobada: solo dentro de la ventana de 30 minutos
+                    if not solicitud.fecha_resolucion:
+                        return json_error(
+                            'No se puede cancelar: la solicitud no tiene fecha de aprobación registrada.',
+                            status=400, code='invalid_state'
+                        )
+
+                    tiempo_transcurrido = timezone.now() - solicitud.fecha_resolucion
+                    minutos_transcurridos = tiempo_transcurrido.total_seconds() / 60
+
+                    if minutos_transcurridos > self.VENTANA_CANCELACION_MINUTOS:
+                        return json_error(
+                            f'Ya no es posible cancelar esta solicitud. Solo se puede cancelar dentro de los '
+                            f'{self.VENTANA_CANCELACION_MINUTOS} minutos posteriores a su aprobación '
+                            f'(han pasado {int(minutos_transcurridos)} minutos).',
+                            status=400, code='ventana_expirada'
+                        )
+
+                    # Revertir cambios de la doblada si aplica
+                    tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
+                    es_doblada = (
+                        tipo_nombre == 'DOBLADA' and
+                        hasattr(solicitud, 'doblada') and
+                        solicitud.doblada is not None
+                    )
+                    if es_doblada:
+                        from ..services.doblada_aplicacion_service import DobladaAplicacionService
+                        DobladaAplicacionService.revertir_doblada_aplicada(solicitud)
+                        # Limpiar caché de turnos
+                        from core.services.cache_service import CacheService as CS
+                        detalle = solicitud.doblada
+                        for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+
+                    elif tipo_nombre == 'DOBLADA PERMANENTE' and getattr(solicitud, 'doblada_permanente', None):
+                        from ..services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
+                        DobladaPermanenteAplicacionService.revertir(solicitud)
+                        # Limpiar caché de turnos en los meses del rango
+                        from core.services.cache_service import CacheService as CS
+                        from datetime import timedelta as _td
+                        det = solicitud.doblada_permanente
+                        meses = set()
+                        d = det.fecha_inicio
+                        while d <= det.fecha_fin:
+                            meses.add((d.month, d.year)); d += _td(days=28)
+                        meses.add((det.fecha_fin.month, det.fecha_fin.year))
+                        for (m, y) in meses:
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
+
+                    solicitud.estado = 'cancelada'
+                    solicitud.comentario = (
+                        f"{solicitud.comentario or ''}\n\n"
+                        f"Cancelada por el solicitante dentro de la ventana de "
+                        f"{self.VENTANA_CANCELACION_MINUTOS} minutos."
+                    )
+                    solicitud.save()
+
+                else:
                     return json_error(
-                        'No se puede cancelar: la solicitud no tiene fecha de aprobación registrada.',
+                        f'No se puede cancelar una solicitud en estado "{solicitud.estado}".',
                         status=400, code='invalid_state'
                     )
-
-                tiempo_transcurrido = timezone.now() - solicitud.fecha_resolucion
-                minutos_transcurridos = tiempo_transcurrido.total_seconds() / 60
-
-                if minutos_transcurridos > self.VENTANA_CANCELACION_MINUTOS:
-                    return json_error(
-                        f'Ya no es posible cancelar esta solicitud. Solo se puede cancelar dentro de los '
-                        f'{self.VENTANA_CANCELACION_MINUTOS} minutos posteriores a su aprobación '
-                        f'(han pasado {int(minutos_transcurridos)} minutos).',
-                        status=400, code='ventana_expirada'
-                    )
-
-                # Revertir cambios de la doblada si aplica
-                tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
-                es_doblada = (
-                    tipo_nombre == 'DOBLADA' and
-                    hasattr(solicitud, 'doblada') and
-                    solicitud.doblada is not None
-                )
-                if es_doblada:
-                    from ..services.doblada_aplicacion_service import DobladaAplicacionService
-                    DobladaAplicacionService.revertir_doblada_aplicada(solicitud)
-                    # Limpiar caché de turnos
-                    from core.services.cache_service import CacheService as CS
-                    detalle = solicitud.doblada
-                    for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
-                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
-                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
-
-                elif tipo_nombre == 'DOBLADA PERMANENTE' and getattr(solicitud, 'doblada_permanente', None):
-                    from ..services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
-                    DobladaPermanenteAplicacionService.revertir(solicitud)
-                    # Limpiar caché de turnos en los meses del rango
-                    from core.services.cache_service import CacheService as CS
-                    from datetime import timedelta as _td
-                    det = solicitud.doblada_permanente
-                    meses = set()
-                    d = det.fecha_inicio
-                    while d <= det.fecha_fin:
-                        meses.add((d.month, d.year)); d += _td(days=28)
-                    meses.add((det.fecha_fin.month, det.fecha_fin.year))
-                    for (m, y) in meses:
-                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
-                        CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
-
-                solicitud.estado = 'cancelada'
-                solicitud.comentario = (
-                    f"{solicitud.comentario or ''}\n\n"
-                    f"Cancelada por el solicitante dentro de la ventana de "
-                    f"{self.VENTANA_CANCELACION_MINUTOS} minutos."
-                )
-                solicitud.save()
-
-            else:
-                return json_error(
-                    f'No se puede cancelar una solicitud en estado "{solicitud.estado}".',
-                    status=400, code='invalid_state'
-                )
 
             # Invalidar cache de contadores para todos los afectados
             from core.services.cache_service import CacheService

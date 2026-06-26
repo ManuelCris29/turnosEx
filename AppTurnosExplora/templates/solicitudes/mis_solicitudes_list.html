@@ -539,7 +539,9 @@ function cancelarSolicitud(solicitudId) {
         if (result.isConfirmed) {
             const formData = new FormData();
             formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
-            
+            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+            LoadingUI.mostrar('Cancelando solicitud...');
+
             fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
                 method: 'POST',
                 body: formData,
@@ -626,6 +628,8 @@ function cancelarSolicitudAprobada(solicitudId, fechaResolucionIso) {
         if (result.isConfirmed) {
             const formData = new FormData();
             formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+            LoadingUI.mostrar('Cancelando y revirtiendo cambios...');
 
             fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
                 method: 'POST',

@@ -525,6 +525,8 @@ function aprobarSolicitudAmbos(solicitudId) {
         if (result.isConfirmed) {
             const formData = new FormData();
             formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+            LoadingUI.mostrar('Aprobando solicitud...');
 
             fetch(`/solicitudes/aprobar-solicitud-ambos/${solicitudId}/`, {
                 method: 'POST',
@@ -585,7 +587,9 @@ function cancelarSolicitud(solicitudId) {
         if (result.isConfirmed) {
             const formData = new FormData();
             formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
-            
+            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+            LoadingUI.mostrar('Cancelando solicitud...');
+
             fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
                 method: 'POST',
                 body: formData,
@@ -1013,12 +1017,17 @@ function renderizarDetalleSolicitud(data) {
 // Confirmar acción del modal
 $('#confirmarAccion').click(function() {
     if (!solicitudActual || !accionActual) return;
-    
+
+    // Evitar doble envío: si el botón ya está procesando, ignorar clics extra.
+    const $btnConfirmar = $(this);
+    if ($btnConfirmar.prop('disabled')) return;
+    $btnConfirmar.prop('disabled', true).data('textoPrevio', $btnConfirmar.text()).text('Procesando...');
+
     const comentario = $('#comentario_respuesta').val();
     const formData = new FormData();
     formData.append('csrfmiddlewaretoken', '{{ csrf_token }}');
     formData.append('comentario', comentario);
-    
+
     let url = '';
     if (rolActual === 'receptor') {
         if (accionActual === 'aprobar') {
@@ -1034,6 +1043,11 @@ $('#confirmarAccion').click(function() {
         }
     }
     
+    // Ocultar el modal y mostrar loading bloqueante mientras se procesa.
+    $('#accionSolicitudModal').modal('hide');
+    const textoAccion = accionActual === 'aprobar' ? 'Aprobando solicitud...' : 'Rechazando solicitud...';
+    LoadingUI.mostrar(textoAccion);
+
     fetch(url, {
         method: 'POST',
         body: formData,
@@ -1082,6 +1096,10 @@ $('#confirmarAccion').click(function() {
             showConfirmButton: true,
             confirmButtonText: 'Reintentar'
         });
+    })
+    .finally(() => {
+        // Rehabilitar el botón para permitir otra acción (en éxito la página recarga igualmente).
+        $btnConfirmar.prop('disabled', false).text($btnConfirmar.data('textoPrevio') || 'Confirmar');
     });
 });
 </script>

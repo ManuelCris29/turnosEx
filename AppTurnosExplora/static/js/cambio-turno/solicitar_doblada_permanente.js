@@ -248,6 +248,8 @@
         if (confirmarRestriccion) fd.set('confirmar_restriccion', '1');
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
+        // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+        LoadingUI.mostrar('Enviando solicitud...');
 
         fetch(URL_PROCESAR, { method: 'POST', headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
             .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))

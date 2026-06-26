@@ -212,10 +212,13 @@ class DFDSStrategy(SolicitudStrategy):
             with transaction.atomic():
                 detalle = solicitud.doblada
 
-                # Snapshot para poder revertir (cancelación de 30 min, igual que doblada)
-                snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(solicitud, detalle)
-                DobladaDetalle.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
-                detalle.snapshot_turnos_previos = snapshot
+                # Snapshot para poder revertir (cancelación de 30 min, igual que doblada).
+                # Solo la PRIMERA vez: si ya existe, no sobrescribir (una doble aplicación
+                # grabaría el estado ya aplicado como "previo" y rompería la reversión).
+                if not getattr(detalle, 'snapshot_turnos_previos', None):
+                    snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(solicitud, detalle)
+                    DobladaDetalle.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
+                    detalle.snapshot_turnos_previos = snapshot
 
                 DFDSAplicacionService.aplicar(solicitud, detalle)
                 DFDSAplicacionService.generar_deudas(solicitud, detalle)

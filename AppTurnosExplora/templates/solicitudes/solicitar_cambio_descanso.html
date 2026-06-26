@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Cambio de Día de Descanso{% endblock %}
 
@@ -139,5 +139,5 @@
 <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 <script>window.MI_JORNADA = "{{ mi_jornada|escapejs }}";</script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
-<script src="{% static 'js/cambio-turno/solicitar_cambio_descanso.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/solicitar_cambio_descanso.js' %}"></script>
 {% endblock %}

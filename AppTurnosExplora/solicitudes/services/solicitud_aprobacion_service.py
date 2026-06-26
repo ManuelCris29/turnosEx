@@ -82,49 +82,54 @@ class SolicitudAprobacionService:
             Tupla (success: bool, message: str)
         """
         try:
-            solicitud = (
-                SolicitudCambio.objects
-                .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
-                .get(id=solicitud_id)
-            )
-            
-            # Verificar que el aprobador sea el supervisor del solicitante
-            # Permitir auto-supervisión para desarrollo
-            if solicitud.explorador_solicitante.supervisor != supervisor:
-                return False, "No tienes permisos para aprobar esta solicitud"
-            
-            # Verificar que la solicitud esté pendiente
-            if solicitud.estado != 'pendiente':
-                if solicitud.estado == 'cancelada':
-                    return False, "Esta solicitud fue cancelada y ya no puede ser aprobada"
-                elif solicitud.estado == 'aprobada':
-                    return False, "Esta solicitud ya fue aprobada"
-                elif solicitud.estado == 'rechazada':
-                    return False, "Esta solicitud ya fue rechazada"
-                else:
-                    return False, "La solicitud no está pendiente de aprobación"
-            
-            # Marcar como aprobada por supervisor
-            solicitud.aprobado_supervisor = True
-            solicitud.fecha_aprobacion_supervisor = timezone.now()
-            
-            # Si ya fue aprobada por el receptor, cambiar estado a aprobada
-            if solicitud.aprobado_receptor:
-                logger.info(
-                    "Aprobando solicitud completamente - ID: %d, Tipo: %s, Receptor: %d, Solicitante: %d",
-                    solicitud.id,
-                    solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A',
-                    solicitud.explorador_receptor.id,
-                    solicitud.explorador_solicitante.id
+            from django.db import transaction
+            # Lock de fila + re-chequeo de estado bajo el lock (igual que en la aprobación del
+            # receptor): serializa concurrencia y evita doble aplicación por doble clic/reintento.
+            with transaction.atomic():
+                solicitud = (
+                    SolicitudCambio.objects
+                    .select_for_update()
+                    .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
+                    .get(id=solicitud_id)
                 )
-                
-                # Confirmar estado y aplicar cambios atómicamente (revierte si falla)
-                success, message = SolicitudAprobacionService._confirmar_aprobacion_y_aplicar(solicitud)
-                if not success:
-                    return False, message
-            else:
-                # Si no está completamente aprobada, solo guardar
-                solicitud.save()
+
+                # Verificar que el aprobador sea el supervisor del solicitante
+                # Permitir auto-supervisión para desarrollo
+                if solicitud.explorador_solicitante.supervisor != supervisor:
+                    return False, "No tienes permisos para aprobar esta solicitud"
+
+                # Verificar que la solicitud esté pendiente
+                if solicitud.estado != 'pendiente':
+                    if solicitud.estado == 'cancelada':
+                        return False, "Esta solicitud fue cancelada y ya no puede ser aprobada"
+                    elif solicitud.estado == 'aprobada':
+                        return False, "Esta solicitud ya fue aprobada"
+                    elif solicitud.estado == 'rechazada':
+                        return False, "Esta solicitud ya fue rechazada"
+                    else:
+                        return False, "La solicitud no está pendiente de aprobación"
+
+                # Marcar como aprobada por supervisor
+                solicitud.aprobado_supervisor = True
+                solicitud.fecha_aprobacion_supervisor = timezone.now()
+
+                # Si ya fue aprobada por el receptor, cambiar estado a aprobada
+                if solicitud.aprobado_receptor:
+                    logger.info(
+                        "Aprobando solicitud completamente - ID: %d, Tipo: %s, Receptor: %d, Solicitante: %d",
+                        solicitud.id,
+                        solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A',
+                        solicitud.explorador_receptor.id,
+                        solicitud.explorador_solicitante.id
+                    )
+
+                    # Confirmar estado y aplicar cambios atómicamente (revierte si falla)
+                    success, message = SolicitudAprobacionService._confirmar_aprobacion_y_aplicar(solicitud)
+                    if not success:
+                        return False, message
+                else:
+                    # Si no está completamente aprobada, solo guardar
+                    solicitud.save()
 
             # Crear notificación de aprobación del supervisor
             NotificacionService.crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta)
@@ -161,48 +166,54 @@ class SolicitudAprobacionService:
             Tupla (success: bool, message: str)
         """
         try:
-            solicitud = (
-                SolicitudCambio.objects
-                .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
-                .get(id=solicitud_id)
-            )
-            
-            # Verificar que el aprobador sea el receptor de la solicitud
-            if solicitud.explorador_receptor != receptor:
-                return False, "No tienes permisos para aprobar esta solicitud"
-            
-            # Verificar que la solicitud esté pendiente
-            if solicitud.estado != 'pendiente':
-                if solicitud.estado == 'cancelada':
-                    return False, "Esta solicitud fue cancelada y ya no puede ser aprobada"
-                elif solicitud.estado == 'aprobada':
-                    return False, "Esta solicitud ya fue aprobada"
-                elif solicitud.estado == 'rechazada':
-                    return False, "Esta solicitud ya fue rechazada"
-                else:
-                    return False, "La solicitud no está pendiente de aprobación"
-            
-            # Marcar como aprobada por receptor
-            solicitud.aprobado_receptor = True
-            solicitud.fecha_aprobacion_receptor = timezone.now()
-            
-            # Si ya fue aprobada por el supervisor, cambiar estado a aprobada
-            if solicitud.aprobado_supervisor:
-                logger.info(
-                    "Aprobando solicitud completamente - ID: %d, Tipo: %s, Receptor: %d, Solicitante: %d",
-                    solicitud.id,
-                    solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A',
-                    solicitud.explorador_receptor.id,
-                    solicitud.explorador_solicitante.id
+            from django.db import transaction
+            # Lock de fila (select_for_update) + re-chequeo de estado bajo el lock: serializa
+            # peticiones concurrentes (doble clic / reintento). La segunda espera a la primera
+            # y al leer estado != 'pendiente' se rechaza, evitando una doble aplicación.
+            with transaction.atomic():
+                solicitud = (
+                    SolicitudCambio.objects
+                    .select_for_update()
+                    .select_related('explorador_solicitante__supervisor', 'explorador_receptor', 'tipo_cambio')
+                    .get(id=solicitud_id)
                 )
-                
-                # Confirmar estado y aplicar cambios atómicamente (revierte si falla)
-                success, message = SolicitudAprobacionService._confirmar_aprobacion_y_aplicar(solicitud)
-                if not success:
-                    return False, message
-            else:
-                # Si no está completamente aprobada, solo guardar
-                solicitud.save()
+
+                # Verificar que el aprobador sea el receptor de la solicitud
+                if solicitud.explorador_receptor != receptor:
+                    return False, "No tienes permisos para aprobar esta solicitud"
+
+                # Verificar que la solicitud esté pendiente
+                if solicitud.estado != 'pendiente':
+                    if solicitud.estado == 'cancelada':
+                        return False, "Esta solicitud fue cancelada y ya no puede ser aprobada"
+                    elif solicitud.estado == 'aprobada':
+                        return False, "Esta solicitud ya fue aprobada"
+                    elif solicitud.estado == 'rechazada':
+                        return False, "Esta solicitud ya fue rechazada"
+                    else:
+                        return False, "La solicitud no está pendiente de aprobación"
+
+                # Marcar como aprobada por receptor
+                solicitud.aprobado_receptor = True
+                solicitud.fecha_aprobacion_receptor = timezone.now()
+
+                # Si ya fue aprobada por el supervisor, cambiar estado a aprobada
+                if solicitud.aprobado_supervisor:
+                    logger.info(
+                        "Aprobando solicitud completamente - ID: %d, Tipo: %s, Receptor: %d, Solicitante: %d",
+                        solicitud.id,
+                        solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'N/A',
+                        solicitud.explorador_receptor.id,
+                        solicitud.explorador_solicitante.id
+                    )
+
+                    # Confirmar estado y aplicar cambios atómicamente (revierte si falla)
+                    success, message = SolicitudAprobacionService._confirmar_aprobacion_y_aplicar(solicitud)
+                    if not success:
+                        return False, message
+                else:
+                    # Si no está completamente aprobada, solo guardar
+                    solicitud.save()
 
             # Crear notificación de aprobación del receptor
             NotificacionService.crear_notificacion_aprobacion_receptor(solicitud, receptor, comentario_respuesta)

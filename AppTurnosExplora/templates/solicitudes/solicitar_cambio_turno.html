@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Solicitar Cambio de Turno{% endblock %}
 
@@ -284,5 +284,5 @@ window.solicitanteId = {{ request.user.empleado.id }};
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
-<script src="{% static 'js/cambio-turno/solicitar_cambio_turno.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/solicitar_cambio_turno.js' %}"></script>
 {% endblock %} 

@@ -1694,6 +1694,8 @@ function enviarSolicitudCTPermanente() {
     const originalText = submitButton.innerHTML;
     submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
     submitButton.disabled = true;
+    // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+    LoadingUI.mostrar('Enviando solicitud...');
 
     fetch('/solicitudes/procesar-solicitud/', {
         method: 'POST',
@@ -1726,6 +1728,7 @@ function enviarSolicitudCTPermanente() {
         } else if (window.RestriccionAdvertencia && data.code === 'advertencia_restriccion') {
             // Advertencia (no bloqueo) por restricción médica: avisar y reenviar al confirmar
             RestriccionAdvertencia.mostrar(data.restricciones, function () {
+                LoadingUI.mostrar('Enviando solicitud...');
                 formData.set('confirmar_restriccion', '1');
                 fetch('/solicitudes/procesar-solicitud/', {
                     method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }

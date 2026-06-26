@@ -87,10 +87,13 @@ class DobladaPermanenteAplicacionService:
             list(DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, cesion))
             + list(DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, devolucion))
         ))
-        snapshot = DobladaPermanenteAplicacionService._capturar_snapshot(solicitante, receptor, fechas_afectadas)
-        from solicitudes.models import DobladaPermanenteDetalle as _DPD
-        _DPD.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
-        detalle.snapshot_turnos_previos = snapshot
+        # Solo capturar la PRIMERA vez: si ya existe snapshot (doble aplicación accidental),
+        # no sobrescribir, para no grabar el estado ya aplicado como "previo".
+        if not getattr(detalle, 'snapshot_turnos_previos', None):
+            snapshot = DobladaPermanenteAplicacionService._capturar_snapshot(solicitante, receptor, fechas_afectadas)
+            from solicitudes.models import DobladaPermanenteDetalle as _DPD
+            _DPD.objects.filter(pk=detalle.pk).update(snapshot_turnos_previos=snapshot)
+            detalle.snapshot_turnos_previos = snapshot
 
         n_ces = n_dev = 0
 

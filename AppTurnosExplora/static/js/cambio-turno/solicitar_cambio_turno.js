@@ -391,6 +391,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const originalText = submitButton.innerHTML;
         submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Enviando...';
         submitButton.disabled = true;
+        // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+        LoadingUI.mostrar('Enviando solicitud...');
 
         fetch('/solicitudes/procesar-solicitud/', {
             method: 'POST',

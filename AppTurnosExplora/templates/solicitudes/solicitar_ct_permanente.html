@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Solicitar Cambio de Turno Permanente{% endblock %}
 
@@ -414,5 +414,5 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
-<script src="{% static 'js/cambio-turno/solicitar_ct_permanente.js' %}?v=3.0"></script>
+<script src="{% static_v 'js/cambio-turno/solicitar_ct_permanente.js' %}"></script>
 {% endblock %}
