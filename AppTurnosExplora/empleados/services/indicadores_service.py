@@ -7,7 +7,7 @@ con filtros por explorador y jornada predeterminada (AM/PM).
 Categorías (alineadas con el tablero del área):
 - Cambios de turno  : CAMBIO TURNO + CT PERMANENTE
 - Dobladas          : DOBLADA + DOBLADA PERMANENTE
-- Cambio descanso   : (futuro — aún no se implementa esa solicitud; queda en 0)
+- Cambio descanso   : CAMBIO DESCANSO (fin de semana y entre semana)
 - Doblada finde     : D FDS
 - Permisos especiales: PermisoEspecial
 """
@@ -33,6 +33,7 @@ TIPO_A_CATEGORIA = {
     'CAMBIO TURNO': 'cambios_turno', 'CT': 'cambios_turno', 'CT PERMANENTE': 'cambios_turno',
     'DOBLADA': 'dobladas', 'DOBLADA PERMANENTE': 'dobladas',
     'D FDS': 'doblada_finde',
+    'CAMBIO DESCANSO': 'cambio_descanso',
 }
 MESES_NOMBRES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
