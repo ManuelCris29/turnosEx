@@ -91,10 +91,14 @@ class CambioDescansoStrategy(SolicitudStrategy):
     @staticmethod
     def _trabaja_dia(explorador, fecha):
         """
-        Verifica que el explorador TRABAJE ese día, con la regla del sistema:
-        1) Turno REAL del día; si no hay registro →
-        2) si una solicitud de CAMBIO DESCANSO aprobada ya lo dejó descansando ese día → NO trabaja;
-        3) en otro caso, turno VIRTUAL (jornada base + alternancia).
+        Verifica que el explorador TRABAJE ese día y que ese día esté DISPONIBLE para un
+        cambio de descanso, con la regla del sistema:
+        1) ¿El día tiene un turno COMPROMETIDO en otra solicitud (tipo_cambio: doblada, d_fds,
+           CT, doblada permanente, otro cambio de descanso)? → NO disponible (no se puede tocar
+           un día que ya es parte de otra solicitud, aunque ese día se trabaje).
+        2) Turno REAL del día (horario importado, sin tipo_cambio) → trabaja.
+        3) ¿Una solicitud de CAMBIO DESCANSO aprobada ya lo dejó descansando? → NO trabaja.
+        4) En otro caso, turno VIRTUAL (jornada base + alternancia).
 
         Devuelve (True, jornada) o (False, motivo).
         En fin de semana, quien trabaja lo hace el día completo (AM+PM): eso es NORMAL.
@@ -103,16 +107,28 @@ class CambioDescansoStrategy(SolicitudStrategy):
         from turnos.services.turno_service import TurnoService
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
-        # 1) Turno real tiene prioridad
-        if Turno.objects.filter(explorador=explorador, fecha=fecha).exists():
+        turnos = list(Turno.objects.filter(explorador=explorador, fecha=fecha))
+
+        # 1) Día COMPROMETIDO en otra solicitud (turno con tipo_cambio). No se puede usar para
+        #    un cambio de descanso, aunque la persona trabaje ese día (p. ej. media jornada de
+        #    una doblada en sábado). Cubre el caso donde el día se TRABAJA comprometido.
+        comprometidos = sorted({t.tipo_cambio for t in turnos if t.tipo_cambio})
+        if comprometidos:
+            return False, (
+                f"Ese día ya está comprometido en otra solicitud ({', '.join(comprometidos)}). "
+                f"No se puede intercambiar un día que ya es parte de otra gestión."
+            )
+
+        # 2) Turno real sin tipo_cambio (horario base materializado) → trabaja.
+        if turnos:
             t = TurnoService.get_turno_explorador(explorador.id, fecha.strftime('%Y-%m-%d'))
             return True, (t.get('jornada') if t else 'TRABAJA')
 
-        # 2) ¿Ya cedió este día en otra solicitud de cambio de descanso aprobada?
+        # 3) ¿Ya cedió este día en otra solicitud de cambio de descanso aprobada (lado descanso)?
         if fecha in CambioDescansoAplicacionService.dias_en_descanso(explorador, fecha, fecha):
             return False, "Día ya comprometido en otro cambio de descanso"
 
-        # 3) Turno virtual (predeterminado)
+        # 4) Turno virtual (predeterminado)
         t = TurnoService.get_turno_explorador(explorador.id, fecha.strftime('%Y-%m-%d'))
         if not t:
             return False, "Descanso"
@@ -142,6 +158,11 @@ class CambioDescansoStrategy(SolicitudStrategy):
             SolicitudValidator.validar_empleado_activo(receptor)
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'el cambio de día de descanso')
+
+            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente para esa fecha (de
+            # cualquier tipo, como solicitante o receptor) no se puede enviar otra igual.
+            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
+            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
 
             # Detectar modalidad: fin de semana (sáb/dom) o ENTRE SEMANA (lun-vie).
             es_finde = fecha_cesion.weekday() in (5, 6)
@@ -288,6 +309,22 @@ class CambioDescansoStrategy(SolicitudStrategy):
             return False, (
                 f"Tu compañero no tiene descanso asignado el {fecha_pago.strftime('%d/%m/%Y')}. "
                 f"No pueden intercambiar descansos que no están asignados."
+            )
+
+        # FUENTE DE VERDAD (L2): además de estar configurado como descanso de temporada, el
+        # día debe seguir SIENDO descanso HOY (no ya intercambiado ni comprometido por otra
+        # solicitud aprobada). es_descanso_semana_manual mira la CONFIGURACIÓN; estado_dia mira
+        # el ESTADO real (igual que "Mis Turnos").
+        from turnos.services.turno_service import TurnoService
+        if TurnoService.estado_dia(solicitante, fecha_cesion)['trabaja']:
+            return False, (
+                f"Ese día ({fecha_cesion.strftime('%d/%m/%Y')}) ya no es tu descanso disponible "
+                f"(ya lo intercambiaste o está comprometido en otra solicitud). Elige otro."
+            )
+        if TurnoService.estado_dia(receptor, fecha_pago)['trabaja']:
+            return False, (
+                f"Tu compañero ya no descansa el {fecha_pago.strftime('%d/%m/%Y')} "
+                f"(ya lo intercambió o está comprometido). Elige otro día o compañero."
             )
 
         return True, "Solicitud de cambio de descanso (entre semana) válida"

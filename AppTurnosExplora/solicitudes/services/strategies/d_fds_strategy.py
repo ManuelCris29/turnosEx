@@ -89,6 +89,11 @@ class DFDSStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de D FDS')
 
+            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente para esa fecha de
+            # cesión (de cualquier tipo, como solicitante o receptor) no se puede enviar otra igual.
+            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
+            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
+
             # 3. Ambas fechas deben ser fin de semana (sáb/dom)
             if fecha_cesion.weekday() not in (5, 6):
                 return False, "La fecha de cesión debe ser un fin de semana (sábado o domingo)"

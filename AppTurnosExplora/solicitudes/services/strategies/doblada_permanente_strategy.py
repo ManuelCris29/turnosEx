@@ -91,6 +91,10 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de doblada permanente')
 
+            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente que inicia esa fecha
+            # (como solicitante o receptor) no se puede enviar otra igual.
+            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fi)
+
             # Rango válido y no pasado
             from django.utils import timezone
             hoy = timezone.now().date()

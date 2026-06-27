@@ -62,7 +62,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
             # Comentario obligatorio
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de cambio de turno permanente')
-            
+
+            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente que inicia esa fecha
+            # (como solicitante o receptor) no se puede enviar otra igual.
+            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(explorador_solicitante, fecha_inicio)
+
             # Validaciones específicas de CT PERMANENTE
             SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
             

@@ -240,6 +240,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'companero_nombre': f"{companero.nombre} {companero.apellido}",
                             'companero_id': companero.id,
                             'tipo': 'cedio' if es_sol else 'pago',
+                            'origen': 'cambio_descanso',
                             'solicitud_id': s.id,
                         }
 
@@ -428,7 +429,8 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         jornada_cedida = None
                         fecha_cesion = None
                         fecha_pago = None
-                        
+                        origen_descanso = None  # p. ej. 'cambio_descanso' (intercambio de día)
+
                         if solicitud_como_solicitante:
                             # Está descansando porque CEDIÓ su jornada
                             detalle = solicitud_como_solicitante.doblada
@@ -467,6 +469,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             companero_id = descanso_cd['companero_id']
                             tipo_descanso = descanso_cd['tipo']  # 'cedio' o 'pago'
                             solicitud_id = descanso_cd['solicitud_id']
+                            origen_descanso = descanso_cd.get('origen')  # 'cambio_descanso'
 
                         # Usuario está descansando
                         turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
@@ -480,6 +483,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'turno_id': None,
                             'descanso_info': {  # ✅ MEJORADO: Información detallada sobre el descanso
                                 'tipo': tipo_descanso,  # 'cedio' o 'pago'
+                                'origen': origen_descanso,  # 'cambio_descanso' → es un INTERCAMBIO de descanso
                                 'companero_nombre': companero_nombre,
                                 'companero_id': companero_id,
                                 'solicitud_id': solicitud_id,
@@ -513,7 +517,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             }
                         elif (not est.get('trabaja')) and est.get('fuente') in ('temporada', 'mantenimiento'):
                             # Descanso de ENTRE SEMANA (temporada/mantenimiento)
-                            motivo_descanso_semana = 'manual' if est.get('fuente') == 'temporada' else 'mantenimiento'
+                            motivo_descanso_semana = 'temporada' if est.get('fuente') == 'temporada' else 'mantenimiento'
                             turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                                 'jornada': None,
                                 'sala': None,

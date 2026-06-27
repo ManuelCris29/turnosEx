@@ -452,7 +452,8 @@ function aplicarEstilosCambios() {
                         // Cualquier otro descanso (incluido un fin de semana de alternancia
                         // o datos en caché sin 'descanso_info') debe mostrar 😴, nunca ☕.
                         const di = (actual && actual.descanso_info) || {};
-                        const esDiaLibre = (di.tipo === 'cedio' || di.tipo === 'pago');
+                        // Cambio de descanso = intercambio de día → es DESCANSO (😴), no día libre.
+                        const esDiaLibre = di.origen !== 'cambio_descanso' && (di.tipo === 'cedio' || di.tipo === 'pago');
                         const emoji = esDiaLibre ? '☕' : '😴';
                         const titulo = esDiaLibre ? 'Día libre (doblada)' : 'Día de descanso';
 
@@ -649,10 +650,15 @@ function mostrarDetallesDia(fechaStr) {
                 const fechaCesion = descansoInfo.fecha_cesion;
                 const fechaPago = descansoInfo.fecha_pago;
 
-                // Diferenciar DÍA LIBRE (queda libre por una solicitud de doblada: cesión/pago)
-                // del DESCANSO real (el asignado: descanso de semana / mantenimiento / fin de semana).
+                // CAMBIO DE DESCANSO: es un INTERCAMBIO de día de descanso, NO una doblada.
+                // Aunque internamente venga con tipo 'cedio'/'pago', debe verse como DESCANSO
+                // (tu descanso simplemente se movió de día), no como "día libre".
+                const esCambioDescanso = descansoInfo.origen === 'cambio_descanso';
+
+                // Diferenciar DÍA LIBRE (queda libre por una doblada: cesión/pago)
+                // del DESCANSO real (asignado: temporada / mantenimiento / fin de semana / intercambio).
                 // El café/DÍA LIBRE SOLO aplica a doblada (cedio/pago); todo lo demás es DESCANSO.
-                const esDiaLibre = (tipoDescanso === 'cedio' || tipoDescanso === 'pago');
+                const esDiaLibre = !esCambioDescanso && (tipoDescanso === 'cedio' || tipoDescanso === 'pago');
                 const esDescansoReal = !esDiaLibre;
                 const etiqueta = esDescansoReal ? 'DESCANSO' : 'DÍA LIBRE';
                 const encabezado = esDescansoReal ? 'Día de descanso' : 'Día libre';
@@ -660,10 +666,16 @@ function mostrarDetallesDia(fechaStr) {
 
                 // Construir mensaje principal según el tipo (sencillo y profesional)
                 let mensajeDescanso = '';
-                if (esDescansoReal) {
-                    mensajeDescanso = descansoInfo.motivo === 'mantenimiento'
-                        ? 'Descanso por día de mantenimiento.'
-                        : 'Día de descanso asignado.';
+                if (esCambioDescanso) {
+                    mensajeDescanso = `Descanso intercambiado con <strong>${companeroNombre}</strong>.`;
+                } else if (esDescansoReal) {
+                    if (descansoInfo.motivo === 'mantenimiento') {
+                        mensajeDescanso = 'Descanso por día de mantenimiento.';
+                    } else if (descansoInfo.motivo === 'temporada') {
+                        mensajeDescanso = 'Descanso de temporada.';
+                    } else {
+                        mensajeDescanso = 'Día de descanso asignado.';
+                    }
                 } else if (tipoDescanso === 'cedio') {
                     mensajeDescanso = `El compañero <strong>${companeroNombre}</strong> está trabajando por ti este día.`;
                     if (fechaPago) {
@@ -940,9 +952,10 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             
             const crearIconoDescanso = (turnoInfo) => {
-                // ☕ solo para día libre por doblada (cedio/pago); 😴 para cualquier otro descanso.
+                // ☕ solo para día libre por doblada (cedio/pago); 😴 para cualquier otro descanso
+                // (incluido el intercambio de cambio de descanso).
                 const di = (turnoInfo && turnoInfo.descanso_info) || {};
-                const esDiaLibre = (di.tipo === 'cedio' || di.tipo === 'pago');
+                const esDiaLibre = di.origen !== 'cambio_descanso' && (di.tipo === 'cedio' || di.tipo === 'pago');
                 const iconElement = document.createElement('span');
                 iconElement.className = 'descanso-icon';
                 iconElement.innerHTML = esDiaLibre ? '☕' : '😴';

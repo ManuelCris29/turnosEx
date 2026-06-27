@@ -126,6 +126,19 @@ estado_dia(empleado, fecha) -> {
 > `estado_mes()` / `dia_comprometido_por_solicitud()` son la base común.
 
 ### Registro de migración
+- **2026-06-27 — Consistencia del display (ObtenerTurnoExploradorView) + duplicados:**
+  - **Form Cambio de descanso (findes endpoint):** ahora usa `estado_mes` (6 capas) en vez de
+    `get_turno_explorador` (2 capas). Antes ofrecía días que la persona ya había cedido por
+    una doblada (el form decía "trabaja" y Mis Turnos "descansa"). Verificado.
+  - **Display `ObtenerTurnoExploradorView`** (usado por Doblada, Cambio turno, CT permanente):
+    ya cubría temporada/mantenimiento/festivo/finde y DOBLADA, pero su detección de descanso
+    por solicitud era SOLO DOBLADA. Se añadió `dia_comprometido_por_solicitud()` para cubrir
+    también **D FDS, CAMBIO DESCANSO y DOBLADA PERMANENTE**. Verificado (working days intactos).
+  - **Duplicados pendientes:** se añadió `validar_solicitante_sin_solicitud_pendiente_en_fecha`
+    (+ receptor en los de fecha única) a los 4 formularios que faltaban: `cambio_descanso`,
+    `d_fds`, `ct_permanente`, `doblada_permanente`. Ya no se puede enviar dos veces la misma
+    solicitud pendiente. (cambio_turno y doblada ya lo tenían.)
+
 - **2026-06-26 — D FDS** (`d_fds_strategy.py`):
   - Se añadió verificación con `TurnoService.estado_dia()` para que el solicitante
     realmente TRABAJE el día de cesión y el receptor el día de pago (cierra **L2**:

@@ -214,6 +214,26 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                     turno_dict = None
                     turnos_list = []
 
+                # Otros descansos por solicitud APROBADA: D FDS, CAMBIO DESCANSO y
+                # DOBLADA PERMANENTE (el bloque de arriba solo cubre DOBLADA). Usa la fuente
+                # de verdad única para que el display coincida con "Mis Turnos".
+                if not esta_descansando:
+                    from turnos.services.turno_service import TurnoService as _TSv
+                    from empleados.models import Empleado as _Emp
+                    _emp_obj = _Emp.objects.filter(id=explorador_id).first()
+                    _comp = _TSv.dia_comprometido_por_solicitud(_emp_obj, fecha_obj) if _emp_obj else None
+                    if _comp:
+                        esta_descansando = True
+                        _c = _comp.get('companero') or {}
+                        descanso_info = {
+                            'tipo': 'cedio',
+                            'companero_nombre': _c.get('nombre'),
+                            'companero_id': _c.get('id'),
+                            'motivo': _comp.get('motivo'),
+                        }
+                        turno_dict = None
+                        turnos_list = []
+
                 # Descanso de ENTRE SEMANA (manual de temporada/festivo o lunes de mantenimiento).
                 # Debe verse igual que en Mis Turnos: es un descanso, no la jornada predeterminada.
                 if not esta_descansando and fecha_obj.weekday() < 5:
@@ -654,28 +674,41 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
             return json_ok({'findes': [], 'meses': [], 'jornada_base': None})
 
         hoy = _date.today()
-        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
         def findes_de(anio, mes):
-            """Todos los findes cuyo sábado cae en el mes, con el día que trabaja el usuario."""
+            """Todos los findes cuyo sábado cae en el mes, con el día que trabaja el usuario.
+
+            Usa la FUENTE DE VERDAD ÚNICA (estado_mes), las MISMAS 6 capas que pinta "Mis
+            Turnos": Turno real → día comprometido por otra solicitud aprobada (doblada/d_fds/
+            cambio descanso/perm) → festivo → fin de semana → temporada → mantenimiento → base.
+            Así el formulario y "Mis Turnos" siempre coinciden (antes el form usaba
+            get_turno_explorador, que ignoraba las cesiones de doblada y ofrecía días que la
+            persona ya había cedido).
+            """
+            estados = TurnoService.estado_mes(emp, anio, mes)
+
+            # Días con turno COMPROMETIDO en otra solicitud (tipo_cambio: doblada, d_fds, CT,
+            # doblada permanente, otro cambio de descanso). Esos días NO se pueden intercambiar
+            # aunque la persona trabaje (p. ej. media jornada de una doblada en sábado).
+            from turnos.models import Turno as _Turno
+            comprometidos = set(
+                _Turno.objects
+                .filter(explorador=emp, fecha__year=anio, fecha__month=mes)
+                .exclude(tipo_cambio__isnull=True).exclude(tipo_cambio='')
+                .values_list('fecha', flat=True)
+            )
+
+            def trabaja(fecha):
+                e = estados.get(fecha)
+                if e is None:  # p. ej. domingo que cae en el mes siguiente
+                    e = TurnoService.estado_dia(emp, fecha)
+                return e['trabaja']
+
             out = []
             d = _date(anio, mes, 1)
             while d.weekday() != 5:  # primer sábado
                 d += _td(days=1)
             ultimo = _date(anio, mes, monthrange(anio, mes)[1])
-            # Días ya comprometidos en otro cambio de descanso aprobado (no se vuelven a ofrecer).
-            cedidos = CambioDescansoAplicacionService.dias_en_descanso(
-                emp, _date(anio, mes, 1), ultimo + _td(days=1))
-
-            def trabaja(fecha):
-                # Regla del sistema: Turno real → si no, ¿ya cedido? → si no, virtual.
-                from turnos.models import Turno
-                if Turno.objects.filter(explorador=emp, fecha=fecha).exists():
-                    return True
-                if fecha in cedidos:
-                    return False
-                return TurnoService.get_turno_explorador(emp.id, fecha.isoformat()) is not None
-
             while d <= ultimo:
                 sabado = d
                 domingo = d + _td(days=1)
@@ -686,11 +719,16 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
                     dia_trabajo = 'sabado'
                 elif trabaja_dom and not trabaja_sab:
                     dia_trabajo = 'domingo'
+                # Si el día que trabaja está comprometido en otra solicitud, NO es seleccionable.
+                dia_comprometido = (
+                    (dia_trabajo == 'sabado' and sabado in comprometidos)
+                    or (dia_trabajo == 'domingo' and domingo in comprometidos)
+                )
                 out.append({
                     'sabado': sabado.isoformat(),
                     'domingo': domingo.isoformat(),
                     'dia_trabajo': dia_trabajo,
-                    'seleccionable': bool(dia_trabajo) and sabado >= hoy,
+                    'seleccionable': bool(dia_trabajo) and sabado >= hoy and not dia_comprometido,
                 })
                 d += _td(days=7)
             return out
