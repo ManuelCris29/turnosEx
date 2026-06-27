@@ -458,11 +458,19 @@
                     {% if tiene_dias %}
                     <div class="alert alert-warning alert-dismissible fade show" role="alert">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <strong>Advertencia:</strong> Este año ya tiene {{ tipo_seleccionado }}s configurados. 
+                        <strong>Advertencia:</strong> Este año ya tiene {{ tipo_seleccionado }}s configurados.
                         Al guardar se reemplazarán los {{ tipo_seleccionado }}s existentes.
                         <button type="button" class="close" data-dismiss="alert" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-info" role="alert" style="border-left:4px solid #0ea5e9;">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Sugerencia automática (aún NO guardada).</strong>
+                        Los {{ tipo_seleccionado }}s que ves para <strong>{{ anio_seleccionado }}</strong> son una
+                        propuesta calculada automáticamente. <strong>No aplican todavía</strong> (no se reflejan en
+                        "Mis Turnos") hasta que presiones <strong>Guardar</strong>. Puedes ajustarlos antes de guardar.
                     </div>
                     {% endif %}
                     
@@ -657,18 +665,13 @@
         });
         
         // Event listener para botón cargar año
+        // Recarga COMPLETA (igual que el selector de año): usa el render del servidor, que
+        // incluye la sugerencia auto-calculada cuando el año no tiene días guardados. Antes
+        // hacía una carga por API que solo traía lo GUARDADO y borraba la sugerencia mostrada.
         document.getElementById('btn-cargar-anio').addEventListener('click', function() {
             const tipo = document.getElementById('id_tipo').value;
-            const anio = parseInt(document.getElementById('id_anio').value);
-            
-            // Limpiar días seleccionados antes de cargar
-            diasSeleccionadosPorMes = {};
-            
-            // Recargar festivos y temporadas para el nuevo año
-            recargarFestivosYTemporadas(anio);
-            
-            // Cargar días existentes desde el servidor
-            cargarDiasExistentes(tipo, anio);
+            const anio = document.getElementById('id_anio').value;
+            window.location.href = '{% url "dias_especiales_festivos_mantenimiento_anual" %}?tipo=' + tipo + '&anio=' + anio;
         });
         
         // Event listener para año personalizado
