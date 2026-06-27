@@ -609,10 +609,15 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
         emp = getattr(request.user, 'empleado', None)
         if not emp:
             return json_ok({'descansos': {}})
-        asg = (AsignarJornadaExplorador.objects
-               .filter(explorador=emp, fecha_inicio__lte=_date(anio, 12, 31))
-               .select_related('jornada').order_by('-fecha_inicio').first())
-        jornada = asg.jornada.nombre.upper() if asg else None
+        # Permite consultar el grupo contrario (?jornada=PM) para el intercambio entre semana.
+        jornada_param = (request.GET.get('jornada') or '').upper()
+        if jornada_param in ('AM', 'PM'):
+            jornada = jornada_param
+        else:
+            asg = (AsignarJornadaExplorador.objects
+                   .filter(explorador=emp, fecha_inicio__lte=_date(anio, 12, 31))
+                   .select_related('jornada').order_by('-fecha_inicio').first())
+            jornada = asg.jornada.nombre.upper() if asg else None
         res = {}
         if jornada:
             for d in DescansoSemanaManual.objects.filter(
@@ -623,3 +628,108 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
             if de.fecha.weekday() < 5 and DiaEspecial.es_mantenimiento_efectivo(de.fecha):
                 res.setdefault(de.fecha.isoformat(), 'mantenimiento')
         return json_ok({'descansos': res, 'jornada': jornada})
+
+
+class CambioDescansoFindesView(LoginRequiredMixin, View):
+    """
+    Fines de semana del usuario para el Cambio de Día de Descanso (modalidad fin de semana).
+
+    - Sin parámetros: devuelve la lista de MESES disponibles (desde el mes actual, 7 meses)
+      para llenar el selector de mes, además de los findes del primer mes con opciones.
+    - Con ?anio=2026&mes=7: devuelve TODOS los fines de semana de ese mes con el día que el
+      usuario TRABAJA según sus TURNOS REALES.
+
+    Cada finde: {sabado, domingo, dia_trabajo: 'sabado'|'domingo'|null, seleccionable: bool}
+      - dia_trabajo: el día con turnos (null si descansa ambos o trabaja ambos).
+      - seleccionable: True si trabaja exactamente un día y el sábado no es pasado.
+    """
+    def get(self, request):
+        from datetime import date as _date, timedelta as _td
+        from calendar import monthrange
+        from turnos.models import AsignarJornadaExplorador
+        from turnos.services.turno_service import TurnoService
+
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_ok({'findes': [], 'meses': [], 'jornada_base': None})
+
+        hoy = _date.today()
+        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
+
+        def findes_de(anio, mes):
+            """Todos los findes cuyo sábado cae en el mes, con el día que trabaja el usuario."""
+            out = []
+            d = _date(anio, mes, 1)
+            while d.weekday() != 5:  # primer sábado
+                d += _td(days=1)
+            ultimo = _date(anio, mes, monthrange(anio, mes)[1])
+            # Días ya comprometidos en otro cambio de descanso aprobado (no se vuelven a ofrecer).
+            cedidos = CambioDescansoAplicacionService.dias_en_descanso(
+                emp, _date(anio, mes, 1), ultimo + _td(days=1))
+
+            def trabaja(fecha):
+                # Regla del sistema: Turno real → si no, ¿ya cedido? → si no, virtual.
+                from turnos.models import Turno
+                if Turno.objects.filter(explorador=emp, fecha=fecha).exists():
+                    return True
+                if fecha in cedidos:
+                    return False
+                return TurnoService.get_turno_explorador(emp.id, fecha.isoformat()) is not None
+
+            while d <= ultimo:
+                sabado = d
+                domingo = d + _td(days=1)
+                trabaja_sab = trabaja(sabado)
+                trabaja_dom = trabaja(domingo)
+                dia_trabajo = None
+                if trabaja_sab and not trabaja_dom:
+                    dia_trabajo = 'sabado'
+                elif trabaja_dom and not trabaja_sab:
+                    dia_trabajo = 'domingo'
+                out.append({
+                    'sabado': sabado.isoformat(),
+                    'domingo': domingo.isoformat(),
+                    'dia_trabajo': dia_trabajo,
+                    'seleccionable': bool(dia_trabajo) and sabado >= hoy,
+                })
+                d += _td(days=7)
+            return out
+
+        # Lista de meses (mes actual + 6 siguientes). El calendario es calculado: siempre existe.
+        MESES_ES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        meses = []
+        y, m = hoy.year, hoy.month
+        for _ in range(7):
+            meses.append({'anio': y, 'mes': m, 'label': f'{MESES_ES[m]} {y}', 'tiene_turnos': True})
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+        # Mes solicitado: el del request, o el PRIMERO con findes seleccionables, o el actual.
+        mes_param = request.GET.get('mes')
+        anio_param = request.GET.get('anio')
+        if mes_param and anio_param:
+            try:
+                anio, mes = int(anio_param), int(mes_param)
+            except (TypeError, ValueError):
+                anio, mes = hoy.year, hoy.month
+            findes = findes_de(anio, mes)
+        else:
+            anio, mes = hoy.year, hoy.month
+            findes = findes_de(anio, mes)
+            if not any(f['seleccionable'] for f in findes):
+                for mm in meses:
+                    cand = findes_de(mm['anio'], mm['mes'])
+                    if any(f['seleccionable'] for f in cand):
+                        anio, mes, findes = mm['anio'], mm['mes'], cand
+                        break
+
+        asg = (AsignarJornadaExplorador.objects
+               .filter(explorador=emp, fecha_inicio__lte=_date(anio, mes, monthrange(anio, mes)[1]))
+               .select_related('jornada').order_by('-fecha_inicio').first())
+        jornada_base = asg.jornada.nombre.upper() if asg else None
+
+        return json_ok({'findes': findes, 'meses': meses, 'anio': anio, 'mes': mes,
+                        'sin_turnos_mes': False, 'jornada_base': jornada_base})

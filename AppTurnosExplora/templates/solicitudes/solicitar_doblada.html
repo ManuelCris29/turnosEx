@@ -407,10 +407,9 @@
                     <!-- Selección de jornada cuando la fecha de pago es sábado y NO te corresponde trabajar (regla especial) -->
                     <div id="opciones_pago_sabado" class="mt-3" style="display: none;">
                         <div class="alert alert-warning mb-2">
-                            <strong>Pago en Sábado:</strong> Selecciona qué cubrirás ese sábado.
-                            Si eliges <strong>AM</strong> o <strong>PM</strong>, el receptor trabajará la jornada contraria.
-                            Si eliges <strong>ambas</strong>, cubres el día completo, el receptor descansa
-                            y te quedará debiendo media jornada (a pagar en semana).
+                            <strong>Pago en Sábado:</strong> Selecciona la jornada que cubrirás ese sábado (AM o PM).
+                            El receptor trabajará la jornada contraria. Cada uno trabaja media jornada extra,
+                            así que ambos quedan a paz y salvo (30 min c/u).
                         </div>
                         <label class="mb-1">
                             <i class="fas fa-clock mr-1"></i>Jornada que cubrirás el sábado <span class="text-danger">*</span>
@@ -422,21 +421,6 @@
                         <div class="form-check">
                             <input class="form-check-input" type="radio" name="jornada_pago_sabado" id="jornada_pago_sabado_pm" value="PM">
                             <label class="form-check-label" for="jornada_pago_sabado_pm">PM (Tarde)</label>
-                        </div>
-                        <div class="form-check">
-                            <input class="form-check-input" type="radio" name="jornada_pago_sabado" id="jornada_pago_sabado_ambas" value="AMBAS">
-                            <label class="form-check-label" for="jornada_pago_sabado_ambas">Ambas (cubro el día completo; el receptor descansa)</label>
-                        </div>
-                        <div id="contenedor_fecha_pago_semana" class="mt-3 ml-4" style="display: none;">
-                            <label class="mb-1" for="fecha_pago_semana">
-                                <i class="fas fa-calendar-week mr-1"></i>Día en que el compañero te pagará en semana <span class="text-danger">*</span>
-                            </label>
-                            <input type="text" class="form-control" id="fecha_pago_semana" name="fecha_pago_semana" readonly autocomplete="off" placeholder="Selecciona el día (lun–vie)">
-                            <small class="form-text text-muted">
-                                Solo días <strong>lun–vie del mismo mes</strong>, sin festivos ni mantenimiento.
-                                Ese día el compañero se <strong>dobla</strong> por ti y tú <strong>descansas</strong> tu jornada.
-                                Deben tener jornadas contrarias ese día (si no, primero un cambio de turno sencillo).
-                            </small>
                         </div>
                     </div>
 
@@ -730,83 +714,5 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 <script src="{% static 'js/cambio-turno/doblada/doblada_cesion_total_ui.js' %}"></script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_doblada.js' %}"></script>
-<script>
-// Pago en sábado "Ambas": mostrar y limitar el selector del día de pago en semana.
-(function () {
-    var radios = document.querySelectorAll('input[name="jornada_pago_sabado"]');
-    var cont = document.getElementById('contenedor_fecha_pago_semana');
-    var input = document.getElementById('fecha_pago_semana');
-    var fechaPago = document.getElementById('fecha_pago');
-    if (!radios.length || !cont || !input || !fechaPago) return;
-
-    var fpSemana = null;
-
-    function limitesMesDe(fechaStr) {
-        // fechaStr = 'YYYY-MM-DD' (el sábado). Devuelve [primerDía, últimoDía] de ese mes.
-        var p = (fechaStr || '').split('-');
-        if (p.length !== 3) return null;
-        var y = parseInt(p[0], 10), m = parseInt(p[1], 10);
-        var primero = y + '-' + String(m).padStart(2, '0') + '-01';
-        var ultimoD = new Date(y, m, 0).getDate();
-        var ultimo = y + '-' + String(m).padStart(2, '0') + '-' + String(ultimoD).padStart(2, '0');
-        return [primero, ultimo];
-    }
-
-    function initPicker() {
-        if (!window.DatepickerFestivos || !fechaPago.value) return;
-        var lim = limitesMesDe(fechaPago.value);
-        if (!lim) return;
-        var hoy = new Date().toISOString().split('T')[0];
-        var minDate = lim[0] < hoy ? hoy : lim[0];
-        if (fpSemana) { try { fpSemana.destroy(); } catch (e) {} fpSemana = null; }
-        input.value = '';
-        window.DatepickerFestivos.inicializar({
-            input: input,
-            minDate: minDate,
-            maxDate: lim[1],
-            bloquearDiasEspeciales: true,   // bloquea festivos, mantenimiento, domingos
-            bloquearSabados: true,          // y sábados → solo lun-vie
-            permitirTemporada: true,        // temporada en semana sí es día hábil
-        }).then(function (inst) { fpSemana = inst; });
-    }
-
-    function onCambio() {
-        var sel = document.querySelector('input[name="jornada_pago_sabado"]:checked');
-        var esAmbas = sel && sel.value === 'AMBAS';
-        cont.style.display = esAmbas ? 'block' : 'none';
-        if (esAmbas) {
-            initPicker();
-        } else {
-            input.value = '';
-            if (fpSemana) { try { fpSemana.destroy(); } catch (e) {} fpSemana = null; }
-        }
-    }
-
-    radios.forEach(function (r) { r.addEventListener('change', onCambio); });
-    // Si cambia la fecha de pago (el sábado) y ya estaba en "ambas", recalcular el mes
-    fechaPago.addEventListener('change', function () {
-        var sel = document.querySelector('input[name="jornada_pago_sabado"]:checked');
-        if (sel && sel.value === 'AMBAS') initPicker();
-    });
-
-    // Validación al enviar: si es "ambas", exigir el día de semana
-    var form = document.getElementById('dobladaForm') || (input.closest && input.closest('form'));
-    if (form) {
-        form.addEventListener('submit', function (ev) {
-            var sel = document.querySelector('input[name="jornada_pago_sabado"]:checked');
-            if (sel && sel.value === 'AMBAS' && !input.value) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                if (window.Swal) {
-                    Swal.fire({ icon: 'warning', title: 'Falta el día de pago en semana',
-                        text: 'Elegiste cubrir ambas jornadas el sábado. Indica el día de la semana en que el compañero te pagará.' });
-                } else {
-                    alert('Indica el día de la semana en que el compañero te pagará.');
-                }
-            }
-        }, true);  // captura: corre antes que el submit principal
-    }
-})();
-</script>
 {% endblock %}
 

@@ -126,6 +126,13 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             from core.utils.jornada_utils import JornadaUtils
             def calcular_jornada_dia(j_base, fecha):
                 return JornadaUtils.calcular_jornada_dia(j_base, fecha)
+
+            # FUENTE DE VERDAD ÚNICA (batch): estado predeterminado/calculado por día
+            # (alternancia de finde, temporada, mantenimiento, base). Reemplaza la lógica
+            # de capas duplicada que antes vivía en este bucle. Ver
+            # docs/AUDITORIA_FUENTE_VERDAD_TURNOS.md
+            from turnos.services.turno_service import TurnoService as _TSestado
+            estados_mes = _TSestado.estado_mes(empleado, int(anio), int(mes))
             
             # La sala es informativa (especialidad del explorador vía CompetenciaEmpleado);
             # ya no existe asignación de sala por período.
@@ -189,6 +196,52 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'tipo': 'cedio' if es_sol else 'pago',
                         }
                     d += timedelta(days=1)
+
+            # CAMBIO DESCANSO: el empleado pasa a DESCANSAR el día que cedió (su trabajo se
+            # materializó como Turno en el otro día). Aquí marcamos el día de descanso, que el
+            # calendario calcularía como trabajado. Se mira Turno primero (arriba); esto cubre
+            # el día sin Turno que ahora descansa.
+            descansos_cd = {}  # fecha -> {'companero_nombre','companero_id','tipo','solicitud_id'}
+
+            def _otro_dia_cd(f):
+                if not f:
+                    return None
+                if f.weekday() == 5:
+                    return f + timedelta(days=1)
+                if f.weekday() == 6:
+                    return f - timedelta(days=1)
+                return None
+
+            cd_qs = (
+                SolicitudCambio.objects
+                .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
+                .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
+                .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')
+            )
+            for s in cd_qs:
+                det = getattr(s, 'doblada', None)
+                if not det:
+                    continue
+                fc = s.fecha_cambio_turno
+                fp = det.fecha_pago
+                es_sol = s.explorador_solicitante_id == empleado.id
+                es_finde = bool(fc) and fc.weekday() in (5, 6)
+                if es_finde:
+                    # Solicitante descansa sus días originales (cesión y pago);
+                    # receptor descansa los días contrarios de cada finde.
+                    rest_days = [fc, fp] if es_sol else [_otro_dia_cd(fc), _otro_dia_cd(fp)]
+                else:
+                    # Entre semana (intercambio directo, sin devolución).
+                    rest_days = [fp] if es_sol else [fc]
+                companero = s.explorador_receptor if es_sol else s.explorador_solicitante
+                for rd in rest_days:
+                    if rd and fecha_inicio <= rd <= fecha_fin:
+                        descansos_cd[rd] = {
+                            'companero_nombre': f"{companero.nombre} {companero.apellido}",
+                            'companero_id': companero.id,
+                            'tipo': 'cedio' if es_sol else 'pago',
+                            'solicitud_id': s.id,
+                        }
 
             # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
             # No cambian la jornada; se muestran como indicador en el día.
@@ -265,7 +318,40 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             for i in range(dias_mes):
                 fecha = fecha_inicio + timedelta(days=i)
                 turnos_dia = turnos_por_fecha.get(fecha, [])
-                
+
+                # FESTIVO entre semana: la fuente de verdad manda sobre el horario
+                # predeterminado (la jornada que dobla por rotación trabaja AM+PM, la otra
+                # descansa). Solo un cambio EXPLÍCITO se respeta: en ese caso estado_mes
+                # devuelve fuente='turno' y caemos al flujo normal de abajo.
+                _est_fv = estados_mes.get(fecha)
+                if _est_fv and _est_fv.get('fuente') == 'festivo':
+                    if _est_fv['trabaja']:
+                        turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                            'jornada': 'DOBLADA',
+                            'sala': 'Por asignar',
+                            'tipo': 'predeterminado',
+                            'es_cambio': False,
+                            'es_doblada': True,
+                            'jornada_predeterminada': 'DOBLADA',
+                            'coincide_con_predeterminada': True,
+                            'turno_id': None,
+                            'es_festivo': True,
+                        }
+                    else:
+                        turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                            'jornada': None,
+                            'sala': None,
+                            'tipo': 'descanso',
+                            'es_cambio': False,
+                            'es_descanso': True,
+                            'jornada_predeterminada': None,
+                            'coincide_con_predeterminada': False,
+                            'turno_id': None,
+                            'es_festivo': True,
+                            'descanso_info': {'tipo': 'festivo'},
+                        }
+                    continue
+
                 if turnos_dia:
                     # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
                     # OPTIMIZACIÓN: Calcular jornada_display desde turnos_dia sin consultas extra
@@ -321,10 +407,12 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     solicitud_como_solicitante = solicitudes_descanso_solicitante.get(fecha)
                     solicitud_como_receptor = solicitudes_descanso_receptor.get(fecha)
                     descanso_perm = descansos_perm.get(fecha)
+                    descanso_cd = descansos_cd.get(fecha)
                     esta_descansando = (
                         solicitud_como_solicitante is not None
                         or solicitud_como_receptor is not None
                         or descanso_perm is not None
+                        or descanso_cd is not None
                     )
 
                     if esta_descansando:
@@ -373,6 +461,12 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             # Descanso recurrente por DOBLADA PERMANENTE (cubierto por el compañero)
                             companero_nombre = descanso_perm['companero_nombre']
                             tipo_descanso = descanso_perm['tipo']  # 'cedio' o 'pago'
+                        elif descanso_cd:
+                            # Descanso por CAMBIO DE DÍA DE DESCANSO (intercambio de día con compañero)
+                            companero_nombre = descanso_cd['companero_nombre']
+                            companero_id = descanso_cd['companero_id']
+                            tipo_descanso = descanso_cd['tipo']  # 'cedio' o 'pago'
+                            solicitud_id = descanso_cd['solicitud_id']
 
                         # Usuario está descansando
                         turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
@@ -399,30 +493,14 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             }
                         }
                     else:
-                        # No hay turno asignado
-                        # Verificar si es sábado o domingo y corresponde trabajar (jornada predeterminada = DOBLADA)
-                        es_fin_semana_doblada = False
-                        if fecha.weekday() == 5:  # Sábado
-                            from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                            jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha)
-                            if jornada_trabaja_sabado:
-                                # jornada_base ya es un string (nombre de la jornada), no un objeto
-                                jornada_base_nombre = jornada_base.upper() if jornada_base else None
-                                if jornada_base_nombre == jornada_trabaja_sabado.upper():
-                                    # Le corresponde trabajar ese sábado → jornada predeterminada es DOBLADA
-                                    es_fin_semana_doblada = True
-                        elif fecha.weekday() == 6:  # Domingo
-                            from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                            jornada_trabaja_domingo = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha)
-                            if jornada_trabaja_domingo:
-                                # jornada_base ya es un string (nombre de la jornada), no un objeto
-                                jornada_base_nombre = jornada_base.upper() if jornada_base else None
-                                if jornada_base_nombre == jornada_trabaja_domingo.upper():
-                                    # Le corresponde trabajar ese domingo → jornada predeterminada es DOBLADA
-                                    es_fin_semana_doblada = True
-                        
-                        if es_fin_semana_doblada:
-                            # Sábado o domingo con jornada predeterminada = DOBLADA
+                        # No hay turno asignado: el estado lo resuelve la FUENTE DE VERDAD
+                        # única (estado_mes), que ya aplica alternancia de finde, temporada y
+                        # mantenimiento en el orden correcto. Antes esta lógica estaba duplicada
+                        # aquí; ahora solo se mapea su resultado al formato de la respuesta.
+                        est = estados_mes.get(fecha) or {}
+
+                        if est.get('trabaja') and est.get('jornada') == 'DOBLADA':
+                            # Fin de semana que le corresponde trabajar → jornada predeterminada DOBLADA
                             turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                                 'jornada': 'DOBLADA',
                                 'sala': 'Por asignar',
@@ -433,54 +511,42 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                                 'coincide_con_predeterminada': True,
                                 'turno_id': None
                             }
+                        elif (not est.get('trabaja')) and est.get('fuente') in ('temporada', 'mantenimiento'):
+                            # Descanso de ENTRE SEMANA (temporada/mantenimiento)
+                            motivo_descanso_semana = 'manual' if est.get('fuente') == 'temporada' else 'mantenimiento'
+                            turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                                'jornada': None,
+                                'sala': None,
+                                'tipo': 'descanso',
+                                'es_cambio': False,
+                                'es_descanso': True,
+                                'jornada_predeterminada': calcular_jornada_dia(jornada_base, fecha),
+                                'coincide_con_predeterminada': False,
+                                'turno_id': None,
+                                'descanso_info': {
+                                    'tipo': 'descanso_semana',
+                                    'motivo': motivo_descanso_semana,  # 'manual' o 'mantenimiento'
+                                },
+                            }
                         else:
-                            # ¿Descanso de ENTRE SEMANA? (lunes-viernes)
-                            #  - Lunes de mantenimiento efectivo → descansan AM y PM.
-                            #  - Día manual (temporada/festivo) → descansa la jornada configurada.
-                            motivo_descanso_semana = None
-                            if fecha.weekday() < 5:
-                                from turnos.services.descanso_semana_service import DescansoSemanaService
-                                from turnos.models import DiaEspecial
-                                if DescansoSemanaService.es_descanso_semana_manual(jornada_base, fecha):
-                                    motivo_descanso_semana = 'manual'
-                                elif DiaEspecial.es_mantenimiento_efectivo(fecha):
-                                    motivo_descanso_semana = 'mantenimiento'
+                            # Día normal (jornada base entre semana) o descanso de fin de semana
+                            # (que conserva el comportamiento histórico: jornada = "Descanso").
+                            jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
 
-                            if motivo_descanso_semana:
-                                # Día de descanso de entre semana
-                                turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                                    'jornada': None,
-                                    'sala': None,
-                                    'tipo': 'descanso',
-                                    'es_cambio': False,
-                                    'es_descanso': True,
-                                    'jornada_predeterminada': calcular_jornada_dia(jornada_base, fecha),
-                                    'coincide_con_predeterminada': False,
-                                    'turno_id': None,
-                                    'descanso_info': {
-                                        'tipo': 'descanso_semana',
-                                        'motivo': motivo_descanso_semana,  # 'manual' o 'mantenimiento'
-                                    },
-                                }
-                            else:
-                                # No hay turno, usar jornada predeterminada (día normal)
-                                jornada_nombre = calcular_jornada_dia(jornada_base, fecha)
+                            sala_nombre = 'Por asignar'
+                            if asignaciones_activas:
+                                sala_nombre = asignaciones_activas.sala.nombre
 
-                                # Intentar obtener sala de asignación activa
-                                sala_nombre = 'Por asignar'
-                                if asignaciones_activas:
-                                    sala_nombre = asignaciones_activas.sala.nombre
-
-                                turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                                    'jornada': jornada_nombre,
-                                    'sala': sala_nombre,
-                                    'tipo': 'predeterminado',
-                                    'es_cambio': False,
-                                    'es_descanso': False,
-                                    'jornada_predeterminada': jornada_nombre,
-                                    'coincide_con_predeterminada': True,
-                                    'turno_id': None
-                                }
+                            turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
+                                'jornada': jornada_nombre,
+                                'sala': sala_nombre,
+                                'tipo': 'predeterminado',
+                                'es_cambio': False,
+                                'es_descanso': False,
+                                'jornada_predeterminada': jornada_nombre,
+                                'coincide_con_predeterminada': True,
+                                'turno_id': None
+                            }
             
             # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
             # Limitar a las solicitudes más recientes para mejorar rendimiento

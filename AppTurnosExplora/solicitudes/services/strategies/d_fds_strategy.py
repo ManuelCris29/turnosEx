@@ -46,11 +46,16 @@ class DFDSStrategy(SolicitudStrategy):
 
     @staticmethod
     def _grupo_base(explorador: Empleado, fecha) -> Optional[str]:
-        """Jornada base (AM/PM) del explorador. En findes devuelve su grupo."""
-        j = JornadaService.get_jornada_explorador_fecha(
-            explorador.id, fecha.strftime('%Y-%m-%d')
-        )
-        return j.nombre.upper() if j else None
+        """
+        Jornada BASE (grupo AM/PM) del explorador según su ASIGNACIÓN, no según el Turno del
+        día. En fin de semana quien trabaja lo hace AM+PM, así que mirar el Turno del día da
+        un grupo equivocado: hay que usar la asignación base (AsignarJornadaExplorador).
+        """
+        from turnos.models import AsignarJornadaExplorador
+        asg = (AsignarJornadaExplorador.objects
+               .filter(explorador=explorador, fecha_inicio__lte=fecha)
+               .select_related('jornada').order_by('-fecha_inicio').first())
+        return asg.jornada.nombre.upper() if asg else None
 
     # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
@@ -148,6 +153,26 @@ class DFDSStrategy(SolicitudStrategy):
                     f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) debes cubrir el día "
                     f"que trabaja tu compañero (grupo {grupo_rec}). Ese día por alternancia trabaja "
                     f"el grupo {trabaja_pago}; elige el día del fin de semana que le corresponde a tu compañero."
+                )
+
+            # 9b. FUENTE DE VERDAD ÚNICA (estado_dia): valida con TODAS las capas
+            #     (Turno real → día ya comprometido por otra solicitud → especiales → virtual).
+            #     Cierra el hueco L2: un día ya cedido/comprometido no se puede volver a usar.
+            from turnos.services.turno_service import TurnoService
+
+            est_sol_ces = TurnoService.estado_dia(solicitante, fecha_cesion)
+            if not est_sol_ces['trabaja']:
+                motivo = est_sol_ces.get('motivo') or 'descansas ese día'
+                return False, (
+                    f"No tienes un turno que ceder el {fecha_cesion.strftime('%d/%m/%Y')} ({motivo})."
+                )
+
+            est_rec_pago = TurnoService.estado_dia(receptor, fecha_pago)
+            if not est_rec_pago['trabaja']:
+                motivo = est_rec_pago.get('motivo') or 'descansa ese día'
+                return False, (
+                    f"Tu compañero no trabaja el {fecha_pago.strftime('%d/%m/%Y')} ({motivo}); "
+                    f"no hay día que cubrir."
                 )
 
             # 10. Evitar triple turno: receptor sin doblada ya en cesión; solicitante sin doblada ya en pago

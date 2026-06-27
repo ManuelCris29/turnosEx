@@ -1,13 +1,18 @@
 """
-Cambio de Día de Descanso (fin de semana).
+Cambio de Día de Descanso (fin de semana y entre semana).
 
-Intercambio de descansos (descanso por descanso) entre dos exploradores de grupos
-contrarios, con mutuo acuerdo. Es IDA Y VUELTA dentro del mismo mes para conservar el
-balance de domingos: el finde de cesión y el de devolución son del MISMO tipo de día
-(sáb↔sáb o dom↔dom), lo que garantiza que cada quien quede con los mismos domingos.
+MODALIDAD FIN DE SEMANA:
+- Intercambio IDA Y VUELTA de días trabajados en el fin de semana.
+- Ej: Mariana trabaja SAB 4, Jhon trabaja DOM 5 → después: Mariana trabaja DOM 5, Jhon trabaja SAB 4.
+- En otra semana del mismo mes se revierte.
+- No hay dobladas ni deudas: cada explorador sigue trabajando UN solo día por finde, solo cambia CUÁL.
+- Validación de balance: si el mes tiene 5 domingos (impar), se muestra advertencia.
 
-No hay doblada ni deudas: cada explorador sigue trabajando un solo día por finde, solo
-cambia cuál.
+MODALIDAD ENTRE SEMANA (Temporada):
+- Intercambio DIRECTO de descansos asignados por el supervisor.
+- Ej: Mariana descansa martes, Jhon descansa viernes → después: Mariana descansa viernes, Jhon descansa martes.
+- SIN devolución, es un intercambio simple.
+- Ambos deben estar en el mismo rango de temporada.
 """
 from typing import Dict, Any, Tuple, Optional
 from datetime import datetime
@@ -40,13 +45,78 @@ class CambioDescansoStrategy(SolicitudStrategy):
 
     @staticmethod
     def _grupo_base(explorador: Empleado, fecha) -> Optional[str]:
-        j = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
-        return j.nombre.upper() if j else None
+        """
+        Jornada BASE (grupo AM/PM) del explorador según su asignación, NO según los turnos
+        del día. En fin de semana quien trabaja lo hace AM+PM, así que los turnos no sirven
+        para distinguir el grupo: hay que mirar la asignación base.
+        """
+        from turnos.models import AsignarJornadaExplorador
+        asg = (AsignarJornadaExplorador.objects
+               .filter(explorador=explorador, fecha_inicio__lte=fecha)
+               .select_related('jornada').order_by('-fecha_inicio').first())
+        return asg.jornada.nombre.upper() if asg else None
 
     @staticmethod
     def _es_festivo(fecha) -> bool:
         from turnos.models import DiaEspecial
         return DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
+
+    @staticmethod
+    def _otro_dia_finde(fecha):
+        """Retorna el otro día del fin de semana (sábado <-> domingo)."""
+        from datetime import timedelta
+        if fecha.weekday() == 5:  # sábado
+            return fecha + timedelta(days=1)  # domingo
+        elif fecha.weekday() == 6:  # domingo
+            return fecha - timedelta(days=1)  # sábado
+        return None
+
+    @staticmethod
+    def _contar_domingos_mes(fecha):
+        """Cuenta cuántos domingos hay en el mes de fecha."""
+        from datetime import timedelta
+        from calendar import monthrange
+        year, month = fecha.year, fecha.month
+        _, ultimo_dia = monthrange(year, month)
+        inicio = fecha.replace(day=1)
+        fin = fecha.replace(day=ultimo_dia)
+        contador = 0
+        actual = inicio
+        while actual <= fin:
+            if actual.weekday() == 6:  # domingo
+                contador += 1
+            actual += timedelta(days=1)
+        return contador
+
+    @staticmethod
+    def _trabaja_dia(explorador, fecha):
+        """
+        Verifica que el explorador TRABAJE ese día, con la regla del sistema:
+        1) Turno REAL del día; si no hay registro →
+        2) si una solicitud de CAMBIO DESCANSO aprobada ya lo dejó descansando ese día → NO trabaja;
+        3) en otro caso, turno VIRTUAL (jornada base + alternancia).
+
+        Devuelve (True, jornada) o (False, motivo).
+        En fin de semana, quien trabaja lo hace el día completo (AM+PM): eso es NORMAL.
+        """
+        from turnos.models import Turno
+        from turnos.services.turno_service import TurnoService
+        from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
+
+        # 1) Turno real tiene prioridad
+        if Turno.objects.filter(explorador=explorador, fecha=fecha).exists():
+            t = TurnoService.get_turno_explorador(explorador.id, fecha.strftime('%Y-%m-%d'))
+            return True, (t.get('jornada') if t else 'TRABAJA')
+
+        # 2) ¿Ya cedió este día en otra solicitud de cambio de descanso aprobada?
+        if fecha in CambioDescansoAplicacionService.dias_en_descanso(explorador, fecha, fecha):
+            return False, "Día ya comprometido en otro cambio de descanso"
+
+        # 3) Turno virtual (predeterminado)
+        t = TurnoService.get_turno_explorador(explorador.id, fecha.strftime('%Y-%m-%d'))
+        if not t:
+            return False, "Descanso"
+        return True, t.get('jornada') or 'TRABAJA'
 
     # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
@@ -93,12 +163,15 @@ class CambioDescansoStrategy(SolicitudStrategy):
             if fecha_pago == fecha_cesion:
                 return False, "La devolución debe ser un fin de semana distinto al que cambias"
 
-            # MISMO tipo de día (sáb↔sáb o dom↔dom): conserva el balance de domingos.
-            if fecha_cesion.weekday() != fecha_pago.weekday():
+            # DÍA OPUESTO (sáb↔dom): el balance de domingos se conserva porque en la cesión
+            # trabajas un día y en la devolución trabajas el día contrario por alternancia.
+            # Ej: cesión sábado (trabajas) → devolución domingo (trabajas el otro finde).
+            if fecha_cesion.weekday() == fecha_pago.weekday():
                 dia = 'domingo' if fecha_cesion.weekday() == 6 else 'sábado'
+                otro = 'sábado' if fecha_cesion.weekday() == 6 else 'domingo'
                 return False, (
-                    f"Cambiaste un {dia}: la devolución también debe ser un {dia}, "
-                    f"para que ambos queden con la misma cantidad de domingos/sábados en el mes."
+                    f"Cambiaste un {dia}: la devolución debe ser un {otro} "
+                    f"(el día contrario), para mantener tu balance de domingos en el mes."
                 )
 
             # Mismo mes que la cesión
@@ -115,37 +188,46 @@ class CambioDescansoStrategy(SolicitudStrategy):
                     "fin de semana). No puedes intercambiar con alguien de tu mismo grupo."
                 )
 
-            # En la cesión, el día que cambias es el TUYO (tú lo trabajas por alternancia)
-            trabaja_cesion = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_cesion)
-            if grupo_sol != trabaja_cesion:
+            # VALIDACIÓN CRÍTICA: Verificar que AMBOS tengan turnos REALES en las fechas.
+            # El solicitante debe tener UN turno (su jornada base) en fecha_cesion
+            tiene_turno_sol_ces, jor_sol_ces = self._trabaja_dia(solicitante, fecha_cesion)
+            if not tiene_turno_sol_ces:
                 return False, (
-                    f"Ese día ({fecha_cesion.strftime('%d/%m/%Y')}) no te corresponde trabajar por "
-                    f"alternancia; no es tu día para cambiarlo. Elige el día del finde que trabajas."
+                    f"No tienes un turno válido el {fecha_cesion.strftime('%d/%m/%Y')}. "
+                    f"No puedes cambiar descanso sin tu turno normal."
                 )
 
-            # En la devolución, el día debe ser el del RECEPTOR (él lo trabaja por alternancia)
-            trabaja_pago = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_pago)
-            if grupo_rec != trabaja_pago:
+            otro_dia_cesion = self._otro_dia_finde(fecha_cesion)
+            tiene_turno_rec_otro, jor_rec_otro = self._trabaja_dia(receptor, otro_dia_cesion)
+            if not tiene_turno_rec_otro:
                 return False, (
-                    f"En la devolución ({fecha_pago.strftime('%d/%m/%Y')}) debes tomar el día que "
-                    f"trabaja tu compañero. Ese día por alternancia trabaja el grupo {trabaja_pago}; "
-                    f"elige el día del finde que le corresponde a tu compañero."
+                    f"Tu compañero no tiene un turno válido el {otro_dia_cesion.strftime('%d/%m/%Y')}. "
+                    f"No puede hacer el intercambio."
                 )
 
-            # Evitar conflictos: ninguno debe tener ya una doblada (AM+PM por otro cambio)
-            # en los días afectados.
-            from turnos.models import Turno
-            from datetime import timedelta
+            # El solicitante debe tener UN turno (su jornada base) en fecha_pago
+            tiene_turno_sol_pago, jor_sol_pago = self._trabaja_dia(solicitante, fecha_pago)
+            if not tiene_turno_sol_pago:
+                return False, (
+                    f"No tienes un turno válido el {fecha_pago.strftime('%d/%m/%Y')} (devolución). "
+                    f"No puedes completar el intercambio."
+                )
 
-            def _ya_doblada(emp, fecha):
-                js = {t.jornada.nombre.upper() for t in Turno.objects.filter(explorador=emp, fecha=fecha)
-                      .select_related('jornada') if t.tipo_cambio}
-                return 'AM' in js and 'PM' in js
+            otro_dia_pago = self._otro_dia_finde(fecha_pago)
+            tiene_turno_rec_otro_pago, jor_rec_otro_pago = self._trabaja_dia(receptor, otro_dia_pago)
+            if not tiene_turno_rec_otro_pago:
+                return False, (
+                    f"Tu compañero no tiene un turno válido el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución). "
+                    f"No puede completar el intercambio."
+                )
 
-            for f in (fecha_cesion, fecha_pago, fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5 else fecha_cesion - timedelta(days=1)):
-                if _ya_doblada(solicitante, f) or _ya_doblada(receptor, f):
-                    return False, ("Hay una doblada existente en uno de esos días que impide el "
-                                   "intercambio. Resuélvela primero o elige otro fin de semana.")
+            # ADVERTENCIA (no bloqueo): si el mes tiene 5 domingos, el balance es impar
+            if fecha_cesion.weekday() == 6:  # Si estamos intercambiando domingos
+                domingos_mes = self._contar_domingos_mes(fecha_cesion)
+                if domingos_mes == 5:
+                    # Es una advertencia informativa, pero no bloqueamos
+                    # El frontend debería mostrar esto, pero no es un error de validación
+                    pass  # No es error, solo información
 
             return True, "Solicitud de cambio de descanso válida"
 
@@ -156,25 +238,34 @@ class CambioDescansoStrategy(SolicitudStrategy):
 
     def _validar_entre_semana(self, solicitante, receptor, fecha_cesion, fecha_pago):
         """
-        Validación del cambio de descanso ENTRE SEMANA (lun-vie), con la regla
-        FESTIVO POR FESTIVO: si el día que cambias es festivo, la devolución también debe
-        ser un festivo del mismo mes (dentro de 30 días).
+        Validación del cambio de descanso ENTRE SEMANA (lun-vie) en temporada.
+
+        Es un intercambio DIRECTO de descansos (SIN devolución):
+        Solicitante descansa fecha_cesion, Receptor descansa fecha_pago.
+        Después del intercambio: Solicitante descansa fecha_pago, Receptor descansa fecha_cesion.
+
+        NOTA: fecha_pago en este contexto es el "otro descanso" que intercambian,
+        no una devolución posterior (no hay ida y vuelta como en fin de semana).
         """
         from django.utils import timezone
+        from turnos.services.descanso_semana_service import DescansoSemanaService
         hoy = timezone.now().date()
 
+        if fecha_cesion.weekday() >= 5:
+            return False, "El día que cambias debe ser de lunes a viernes."
         if fecha_pago.weekday() >= 5:
-            return False, "Para un cambio entre semana, la devolución también debe ser de lunes a viernes."
+            return False, "El compañero solo puede descansar de lunes a viernes."
         if fecha_cesion < hoy:
             return False, "No se puede cambiar el descanso de un día pasado."
         if fecha_pago <= hoy:
-            return False, "La fecha de devolución debe ser posterior a hoy."
+            return False, "El descanso del compañero debe ser posterior a hoy."
         if fecha_pago == fecha_cesion:
-            return False, "La devolución debe ser un día distinto al que cambias."
+            return False, "Los descansos deben ser días distintos."
 
-        # Mismo mes
-        if (fecha_cesion.year, fecha_cesion.month) != (fecha_pago.year, fecha_pago.month):
-            return False, "El cambio de descanso debe ser dentro del mismo mes."
+        # Deben estar en el mismo rango (temporada): máximo 30-45 días
+        dias_diff = abs((fecha_pago - fecha_cesion).days)
+        if dias_diff > 45:
+            return False, "Los descansos deben estar en el mismo rango de temporada (máximo 45 días)."
 
         # Grupos contrarios
         grupo_sol = self._grupo_base(solicitante, fecha_cesion)
@@ -182,19 +273,22 @@ class CambioDescansoStrategy(SolicitudStrategy):
         if not grupo_sol or not grupo_rec:
             return False, "No se pudo determinar la jornada base de los exploradores."
         if grupo_sol == grupo_rec:
-            return False, "El compañero debe ser del grupo contrario para intercambiar el descanso."
+            return False, "El compañero debe ser del grupo contrario para intercambiar."
 
-        # Regla FESTIVO POR FESTIVO
-        ces_fest = self._es_festivo(fecha_cesion)
-        pago_fest = self._es_festivo(fecha_pago)
-        if ces_fest != pago_fest:
-            cual = 'El día que cambias' if ces_fest else 'La devolución'
+        # VALIDACIÓN CRÍTICA: Ambos deben tener DescansoSemanaManual en sus fechas
+        # El solicitante debe tener descanso en fecha_cesion
+        if not DescansoSemanaService.es_descanso_semana_manual(grupo_sol, fecha_cesion):
             return False, (
-                f"{cual} es festivo: el cambio debe ser FESTIVO POR FESTIVO. "
-                f"Elige otro festivo del mismo mes (dentro de 30 días) para intercambiar."
+                f"No tienes un descanso asignado el {fecha_cesion.strftime('%d/%m/%Y')}. "
+                f"No puedes cambiar un descanso que no existe."
             )
-        if ces_fest and pago_fest and abs((fecha_pago - fecha_cesion).days) > 30:
-            return False, "Festivo por festivo: ambos festivos deben estar dentro de un lapso de 30 días."
+
+        # El receptor debe tener descanso en fecha_pago
+        if not DescansoSemanaService.es_descanso_semana_manual(grupo_rec, fecha_pago):
+            return False, (
+                f"Tu compañero no tiene descanso asignado el {fecha_pago.strftime('%d/%m/%Y')}. "
+                f"No pueden intercambiar descansos que no están asignados."
+            )
 
         return True, "Solicitud de cambio de descanso (entre semana) válida"
 

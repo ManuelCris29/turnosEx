@@ -5,40 +5,55 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
 <style>
-    .solicitud-layout { max-width: 960px; margin: 0 auto; padding: 24px 16px 40px; }
+    .solicitud-layout { max-width: 1000px; margin: 0 auto; padding: 24px 16px 40px; }
     .solicitud-card { background:#fff; border-radius:12px; box-shadow:0 8px 24px rgba(15,23,42,.08); overflow:hidden; }
     .solicitud-header { display:flex; justify-content:space-between; align-items:center; padding:18px 24px; background:linear-gradient(135deg,#6366f1,#4f46e5); color:#f9fafb; }
     .solicitud-header-main { display:flex; align-items:center; gap:16px; }
     .solicitud-header-icon { width:40px; height:40px; border-radius:999px; background:rgba(15,23,42,.15); display:flex; align-items:center; justify-content:center; font-size:20px; }
     .solicitud-title { font-size:1.35rem; font-weight:600; margin:0 0 2px; }
     .solicitud-subtitle { margin:0; font-size:.9rem; opacity:.9; }
-    .permanente-info { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:15px; border-radius:10px; margin-bottom:20px; }
-    .permanente-info h5 { margin:0; font-weight:600; }
-    .permanente-info p { margin:5px 0 0 0; opacity:.95; }
-    .flatpickr-day.prevMonthDay, .flatpickr-day.nextMonthDay,
-    .flatpickr-day.flatpickr-prevMonth, .flatpickr-day.flatpickr-nextMonth { visibility:hidden !important; pointer-events:none !important; }
-    .flatpickr-day.flatpickr-disabled { background-color:#f5f5f5 !important; color:#ccc !important; cursor:not-allowed !important; }
-    #cd_resumen { display:none; background-color:#f8f9fa; border-left:4px solid #6366f1; padding:12px 15px; margin-top:12px; border-radius:4px; color:#3730a3; }
-    .fds-distintivo { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-    .fds-dia { display:inline-flex; align-items:center; gap:6px; background:#f1f5f9; border:1px solid #e2e8f0; border-radius:8px; padding:4px 10px; font-size:.82rem; color:#334155; }
-    .fds-dia .jor { font-weight:700; padding:1px 7px; border-radius:5px; color:#fff; font-size:.75rem; }
-    .jor-AM { background:#0d6efd; } .jor-PM { background:#f59e0b; }
-    /* Resalta el día/jornada que le corresponde al propio solicitante */
-    .fds-dia.es-mio { background:#ecfdf5; border-color:#10b981; color:#065f46; font-weight:600; box-shadow:0 0 0 1px #10b981 inset; }
-    .fds-dia .tu-tag { display:inline-flex; align-items:center; gap:3px; background:#10b981; color:#fff; font-weight:700; font-size:.68rem; padding:1px 7px; border-radius:999px; }
-    /* Distintivo trabaja/descansa en el calendario */
-    .flatpickr-day.cd-trabaja { box-shadow: inset 0 -3px 0 #16a34a; font-weight:600; }
-    .flatpickr-day.cd-descansa { box-shadow: inset 0 -3px 0 #94a3b8; color:#64748b; }
-    .flatpickr-day.cd-trabaja.selected, .flatpickr-day.cd-descansa.selected { color:#fff; }
-    .cd-leyenda { display:flex; gap:14px; align-items:center; margin-top:8px; font-size:.82rem; color:#475569; }
-    .cd-leyenda span { display:inline-flex; align-items:center; gap:5px; }
-    .cd-leyenda i.box { width:14px; height:14px; border-radius:3px; display:inline-block; }
-    .cd-box-trab { background:#16a34a; } .cd-box-desc { background:#94a3b8; }
+    .info-box { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:15px; border-radius:10px; margin-bottom:20px; }
+    .info-box h5 { margin:0; font-weight:600; }
+    .info-box p { margin:5px 0 0 0; opacity:.95; }
+
+    .modo-toggle { display:flex; gap:10px; margin-bottom:20px; }
+    .modo-btn { flex:1; padding:12px; border:2px solid #e2e8f0; border-radius:8px; background:#f8fafc; cursor:pointer; text-align:center; font-weight:500; transition:all 0.2s; }
+    .modo-btn:hover { border-color:#6366f1; background:#f0f4ff; }
+    .modo-btn.active { border-color:#6366f1; background:#6366f1; color:#fff; }
+
+    .semanas-container { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; margin-bottom:20px; }
+    .semana-card { border:2px solid #e2e8f0; border-radius:10px; padding:16px; cursor:pointer; transition:all 0.2s; background:#f9fafb; }
+    .semana-card:hover { border-color:#6366f1; background:#f0f4ff; }
+    .semana-card.selected { border-color:#6366f1; background:#e0e7ff; box-shadow:0 4px 12px rgba(99,102,241,0.2); }
+    .semana-card.disabled { opacity:0.5; cursor:not-allowed; }
+    .semana-fecha { font-size:.85rem; color:#64748b; margin-bottom:6px; font-weight:500; }
+    .semana-info { display:flex; gap:8px; flex-wrap:wrap; }
+    .semana-jor { display:inline-flex; align-items:center; gap:4px; font-size:.78rem; padding:4px 8px; border-radius:6px; }
+    .semana-jor.yo { background:#dcfce7; color:#166534; font-weight:600; }
+    .semana-jor.compa { background:#fef3c7; color:#92400e; }
+    .semana-jor.descanso { background:#e2e8f0; color:#475569; }
+    .semana-jor.neutro { background:#f1f5f9; color:#94a3b8; font-style:italic; }
+    .semana-card.disabled { opacity:0.55; cursor:not-allowed; background:#f1f5f9; }
+    .semana-card.disabled:hover { border-color:#e2e8f0; background:#f1f5f9; }
+
+    .compa-container { margin:20px 0; }
+    .compa-selector { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; }
+    .compa-nombre { font-size:1.1rem; font-weight:600; color:#1e293b; }
+    .compa-grupo { font-size:.85rem; color:#64748b; }
+
+    .alert-warning-info { background:#fef3c7; border-left:4px solid #eab308; padding:12px; border-radius:6px; margin:12px 0; color:#92400e; }
+
+    .resumen-box { background:#f0f4ff; border-left:4px solid #6366f1; padding:12px 15px; margin-top:12px; border-radius:4px; color:#3730a3; display:none; }
+    .resumen-box.show { display:block; }
+
+    .descansos-container { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; margin-bottom:20px; }
+    .descanso-card { border:2px solid #e2e8f0; border-radius:10px; padding:14px; cursor:pointer; transition:all 0.2s; background:#f9fafb; }
+    .descanso-card:hover { border-color:#6366f1; background:#f0f4ff; }
+    .descanso-card.selected { border-color:#6366f1; background:#e0e7ff; }
+    .descanso-dia { font-weight:600; color:#1e293b; margin-bottom:4px; }
+    .descanso-grupo { font-size:.85rem; color:#64748b; }
 </style>
-<script>window.jornadaBase = "{{ jornada_base }}";</script>
 {% endblock %}
 
 {% block content %}
@@ -51,69 +66,105 @@
             <div class="solicitud-header-icon"><i class="fas fa-bed"></i></div>
             <div>
               <h1 class="solicitud-title">Cambio de Día de Descanso</h1>
-              <p class="solicitud-subtitle">Intercambia tu descanso del fin de semana con un compañero, ida y vuelta dentro del mismo mes.</p>
+              <p class="solicitud-subtitle">Intercambia tu descanso con un compañero del grupo contrario</p>
             </div>
           </div>
-          <div class="solicitud-header-meta"></div>
         </div>
         <div class="p-4">
-          <div class="permanente-info mb-3">
-            <h5 class="mb-1"><i class="fas fa-info-circle mr-2"></i>¿Qué es un Cambio de Día de Descanso?</h5>
+          <div class="info-box mb-3" id="infoBox">
+            <h5 class="mb-1"><i class="fas fa-info-circle mr-2"></i>Fin de semana</h5>
             <p class="mb-0">
-              Descanso por descanso: si descansas el sábado, lo cambias al domingo (o viceversa) con un compañero
-              del grupo contrario. Es <strong>ida y vuelta</strong> en el mismo mes (cambias este finde y devuelves
-              en otro del <strong>mismo día</strong>), para que ambos queden con los <strong>mismos domingos</strong>.
-              No hay doblada ni deuda: cada quien sigue trabajando un solo día por finde.
+              Intercambia el día que trabajas: si trabajas sábado, cambias para trabajar domingo (y viceversa).
+              Es <strong>ida y vuelta</strong> en el mismo mes para que ambos queden con los <strong>mismos domingos</strong>.
             </p>
           </div>
 
           <form method="post" id="cdForm" class="solicitud-form">
             {% csrf_token %}
             <input type="hidden" id="tipo_solicitud_id" name="tipo_solicitud_id" value="{{ tipo_solicitud.id }}">
-            <input type="hidden" data-tipo-nombre="{{ tipo_solicitud.nombre }}" id="tipo_solicitud_nombre">
 
             <div class="form-group">
               <label><i class="fas fa-sliders-h mr-1"></i>Modalidad</label>
-              <div class="btn-group btn-group-toggle d-flex" data-toggle="buttons">
-                <label class="btn btn-outline-primary active" id="lbl_modo_finde">
-                  <input type="radio" name="modo_descanso" value="finde" checked> <i class="fas fa-calendar-week"></i> Fin de semana
-                </label>
-                <label class="btn btn-outline-primary" id="lbl_modo_semana">
-                  <input type="radio" name="modo_descanso" value="semana"> <i class="fas fa-calendar-day"></i> Entre semana
-                </label>
+              <div class="modo-toggle">
+                <div class="modo-btn active" data-modo="finde">
+                  <i class="fas fa-calendar-week"></i> Fin de semana
+                </div>
+                <div class="modo-btn" data-modo="semana">
+                  <i class="fas fa-calendar-day"></i> Entre semana
+                </div>
               </div>
-              <small class="form-text text-muted" id="modo_ayuda">Intercambia tu descanso de sábado o domingo (ida y vuelta, mismos domingos).</small>
             </div>
+            <input type="hidden" name="modo_descanso" id="modo_descanso" value="finde">
 
-            <div class="form-group">
-              <label for="fecha_solicitud"><i class="fas fa-calendar mr-1"></i><span id="lbl_cesion">Fin de Semana que Cambias</span> <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" id="fecha_solicitud" name="fecha_solicitud" required
-                     placeholder="Selecciona el día del finde que trabajas" autocomplete="off" readonly>
-              <small class="form-text text-muted">Es el día del finde que te corresponde trabajar por alternancia (el que vas a cambiar).</small>
-              <div class="cd-leyenda" id="cd_leyenda">
-                <span><i class="box cd-box-trab"></i> Trabajas</span>
-                <span><i class="box cd-box-desc"></i> Descansas</span>
+            <!-- MODO FIN DE SEMANA -->
+            <div id="modo-finde" class="modo-content">
+              <div class="form-group">
+                <label for="selector-mes"><i class="fas fa-calendar-alt mr-1"></i>Mes</label>
+                <select class="form-control" id="selector-mes"></select>
+                <small class="form-text text-muted">Elige el mes y verás todos sus fines de semana.</small>
               </div>
-              <div id="cd_distintivo_cesion" class="fds-distintivo" style="display:none;"></div>
+
+              <div class="form-group">
+                <label><i class="fas fa-calendar mr-1"></i>Semana que Cambias <span class="text-danger">*</span></label>
+                <small class="d-block text-muted mb-2">Toca la semana donde trabajas y quieres intercambiar tu día.</small>
+                <div id="semanas-cesion" class="semanas-container"></div>
+              </div>
+
+              <div class="form-group compa-container" id="compa-container-finde" style="display:none;">
+                <label><i class="fas fa-user mr-1"></i>Compañero con quien intercambias <span class="text-danger">*</span></label>
+                <select class="form-control" id="select-receptor-finde">
+                  <option value="">Selecciona un compañero…</option>
+                </select>
+                <small class="form-text text-muted">Compañeros del grupo contrario que trabajan el otro día del finde.</small>
+              </div>
+
+              <div class="form-group" id="grupo-devolucion-finde" style="display:none;">
+                <label><i class="fas fa-calendar-check mr-1"></i>Semana de Devolución <span class="text-danger">*</span></label>
+                <small class="d-block text-muted mb-2">Otra semana del mismo mes, donde trabajas el día contrario</small>
+                <div id="semanas-pago" class="semanas-container"></div>
+                <div id="advertencia-domingos" class="alert-warning-info" style="display:none;"></div>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label for="empleado_receptor"><i class="fas fa-user mr-1"></i>Compañero con quien intercambias <span class="text-danger">*</span></label>
-              <select class="form-control" id="empleado_receptor" name="empleado_receptor" required disabled>
-                <option value="">Primero selecciona el fin de semana...</option>
-              </select>
-              <small class="form-text text-muted">Solo compañeros del grupo contrario (los que trabajan el otro día del fin de semana).</small>
+            <!-- MODO ENTRE SEMANA -->
+            <div id="modo-semana" class="modo-content" style="display:none;">
+              <div class="form-group">
+                <label for="selector-mes-semana"><i class="fas fa-calendar-alt mr-1"></i>Mes</label>
+                <select class="form-control" id="selector-mes-semana"></select>
+                <small class="form-text text-muted">Elige el mes y verás tus días de descanso de temporada.</small>
+              </div>
+
+              <div class="form-group">
+                <label><i class="fas fa-calendar mr-1"></i>Tu Descanso <span class="text-danger">*</span></label>
+                <small class="d-block text-muted mb-2">Toca el día de descanso que quieres intercambiar (ej. martes por viernes).</small>
+                <div id="descansos-solicitante" class="descansos-container"></div>
+              </div>
+
+              <div class="form-group" id="descanso-contrario-info" style="display:none;">
+                <div class="descanso-card" style="cursor:default;border-color:#fcd34d;background:#fffbeb;">
+                  <div class="descanso-dia" id="descanso-contrario-dia">—</div>
+                  <div class="descanso-grupo">Descanso del grupo contrario esa semana (lo tomarás tú)</div>
+                </div>
+              </div>
+
+              <div class="form-group compa-container" id="compa-container-semana" style="display:none;">
+                <label><i class="fas fa-user mr-1"></i>Compañero (intercambia su descanso) <span class="text-danger">*</span></label>
+                <select class="form-control" id="select-receptor-semana">
+                  <option value="">Selecciona un compañero…</option>
+                </select>
+                <small class="form-text text-muted">Compañeros del grupo contrario que descansan ese día.</small>
+              </div>
             </div>
 
-            <div class="form-group">
-              <label for="fecha_pago"><i class="fas fa-calendar-check mr-1"></i>Fin de Semana de Devolución <span class="text-danger">*</span></label>
-              <input type="text" class="form-control" id="fecha_pago" name="fecha_pago" required disabled
-                     placeholder="Otro finde del mismo mes, mismo día" autocomplete="off" readonly>
-              <small class="form-text text-muted">Otro <strong>mismo día</strong> (sáb→sáb, dom→dom) del <strong>mismo mes</strong>, donde tomarás el día de tu compañero.</small>
-              <div id="cd_distintivo_pago" class="fds-distintivo" style="display:none;"></div>
-              <div id="cd_resumen"></div>
-            </div>
+            <!-- CAMPOS OCULTOS -->
+            <input type="hidden" id="fecha_solicitud" name="fecha_solicitud">
+            <input type="hidden" id="fecha_pago" name="fecha_pago">
+            <input type="hidden" id="empleado_receptor" name="empleado_receptor">
 
+            <!-- RESUMEN -->
+            <div id="resumen-box" class="resumen-box"></div>
+
+            <!-- COMENTARIOS -->
             <div class="form-group">
               <label for="comentarios"><i class="fas fa-comment mr-1"></i>Comentarios <span class="text-danger">*</span></label>
               <textarea class="form-control" id="comentarios" name="comentarios" rows="4" maxlength="1000" required
@@ -135,8 +186,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
 <script>window.MI_JORNADA = "{{ mi_jornada|escapejs }}";</script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_cambio_descanso.js' %}"></script>

@@ -696,6 +696,12 @@ class CTPermanenteStrategy(SolicitudStrategy):
             from turnos.services.descanso_semana_service import DescansoSemanaService
             if DescansoSemanaService.es_descanso_semana_manual(jornada_base.nombre, fecha):
                 return True
+            # L2: día YA comprometido (descanso) por otra solicitud aprobada — cambio descanso /
+            # d_fds / doblada / doblada permanente — que dejó el día sin turno. No se puede
+            # aplicar un CT permanente sobre un día que el explorador ya cedió.
+            from turnos.services.turno_service import TurnoService
+            if TurnoService.dia_comprometido_por_solicitud(explorador, fecha):
+                return True
             return False
         except Exception:
             return False

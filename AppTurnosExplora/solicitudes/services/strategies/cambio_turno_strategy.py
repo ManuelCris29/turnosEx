@@ -87,7 +87,38 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     f'El compañero ({explorador_receptor.nombre} {explorador_receptor.apellido}) descansa esa fecha: '
                     f'no tiene jornada para intercambiar. Elige otra fecha o compañero.'
                 )
-            
+
+            # El cambio de turno SOLO intercambia AM↔PM (jornadas single). Si alguno ya tiene
+            # DOBLADA (AM+PM) ese día, no hay una sola jornada que intercambiar → bloquear con
+            # un mensaje claro (fuente de verdad: estado_dia).
+            from turnos.services.turno_service import TurnoService as _TSv
+            if _TSv.estado_dia(explorador_solicitante, _fecha_obj).get('jornada') == 'DOBLADA':
+                return False, (
+                    f"Tienes una jornada doblada (AM+PM) el {_fecha_obj.strftime('%d/%m/%Y')}. "
+                    f"El cambio de turno solo intercambia AM por PM; no aplica sobre una doblada."
+                )
+            if _TSv.estado_dia(explorador_receptor, _fecha_obj).get('jornada') == 'DOBLADA':
+                return False, (
+                    f"{explorador_receptor.nombre} {explorador_receptor.apellido} tiene una jornada "
+                    f"doblada (AM+PM) el {_fecha_obj.strftime('%d/%m/%Y')}. El cambio de turno solo "
+                    f"intercambia AM por PM; elige otra fecha o compañero."
+                )
+
+            # L2 (fuente de verdad): el día no puede estar YA comprometido (descanso) por otra
+            # solicitud APROBADA (cambio descanso / d_fds / doblada / doblada permanente).
+            _c1 = _TSv.dia_comprometido_por_solicitud(explorador_solicitante, _fecha_obj)
+            if _c1:
+                return False, (
+                    f"Tienes el {_fecha_obj.strftime('%d/%m/%Y')} comprometido en otra solicitud "
+                    f"aprobada ({_c1['motivo']}); no puedes cambiar ese turno."
+                )
+            _c2 = _TSv.dia_comprometido_por_solicitud(explorador_receptor, _fecha_obj)
+            if _c2:
+                return False, (
+                    f"Tu compañero tiene el {_fecha_obj.strftime('%d/%m/%Y')} comprometido en otra "
+                    f"solicitud aprobada ({_c2['motivo']}); elige otra fecha o compañero."
+                )
+
             SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
 
             # Caso C: una solicitud pendiente a la vez — bloquear si el receptor ya tiene
@@ -121,44 +152,16 @@ class CambioTurnoStrategy(SolicitudStrategy):
             # 3.1. Validar que no sea sábado (no se puede cambiar sábado por día de semana)
             SolicitudValidator.validar_no_sabado_ct_sencillo(fecha)
 
-            # 3.2. Validar rotación de festivos si la fecha es festivo de semana
-            # Los festivos ahora están permitidos, pero debemos verificar la rotación
+            # 3.2. FESTIVO: no se permite cambio de turno en día festivo.
+            # En festivo, una jornada trabaja el día completo (AM+PM) por rotación y la otra
+            # DESCANSA, así que no hay dos jornadas single que intercambiar. El único cambio
+            # válido en festivo es FESTIVO POR FESTIVO, que se hace con una DOBLADA.
             if SolicitudValidator.es_festivo_semana(fecha):
-                try:
-                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                    from datetime import datetime
-                    
-                    if isinstance(fecha, str):
-                        fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
-                    else:
-                        fecha_obj = fecha
-                    
-                    # Obtener qué grupo debe doblar ese festivo según la rotación global
-                    grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
-                    
-                    # Log para debugging (opcional)
-                    logger.info(
-                        f"CambioTurnoStrategy: Fecha festiva {fecha_obj} - Grupo que debe doblar: {grupo_que_dobla}",
-                        extra={
-                            'fecha': str(fecha_obj),
-                            'grupo_que_dobla': grupo_que_dobla,
-                            'solicitante_id': explorador_solicitante.id,
-                            'receptor_id': explorador_receptor.id
-                        }
-                    )
-                    
-                    # Nota: La validación de rotación se puede usar para:
-                    # - Verificar que el cambio respeta la rotación (si aplica)
-                    # - Por ahora solo registramos la información, las reglas específicas
-                    #   de qué cambios se permiten en festivos se pueden agregar después
-                    
-                except Exception as e:
-                    # Si hay error al obtener rotación, no bloquear la solicitud
-                    # pero registrar el error para debugging
-                    logger.warning(
-                        f"Error al obtener rotación de festivo para {fecha}: {str(e)}",
-                        exc_info=True
-                    )
+                return False, (
+                    "No se puede hacer un cambio de turno en un día festivo. En festivo una "
+                    "jornada trabaja completa (AM+PM) y la otra descansa. Si necesitas "
+                    "intercambiar un festivo, hazlo con una Doblada (festivo por festivo)."
+                )
 
             # 4. Validar que ni solicitante ni receptor tengan doblada activa para esa fecha
             error_doblada_solicitante = None

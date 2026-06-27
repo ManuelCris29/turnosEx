@@ -38,13 +38,16 @@
     let fpInicio = null;
     let fpFin = null;
 
-    // Calendarios Desde/Hasta (festivos/mantenimiento/temporada como en la doblada normal)
+    // Calendarios Desde/Hasta. Se bloquean días especiales: domingos, festivos,
+    // mantenimiento y TEMPORADA (igual que CT Permanente). En doblada permanente se parte de
+    // UNA jornada y se dobla; en temporada/festivo el día no está en jornada predeterminada,
+    // así que no se permite seleccionarlos.
     if (window.DatepickerFestivos && window.DatepickerFestivos.inicializar) {
         window.DatepickerFestivos.inicializar({
-            input: inputFin, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: true, permitirTemporada: true,
+            input: inputFin, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: false, permitirTemporada: false,
         }).then(function (inst) { fpFin = inst; });
         window.DatepickerFestivos.inicializar({
-            input: inputInicio, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: true, permitirTemporada: true,
+            input: inputInicio, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: false, permitirTemporada: false,
             onDateChange: function (str) {
                 if (fpFin) fpFin.set('minDate', str || 'today');
                 cargarCompaneros(str);

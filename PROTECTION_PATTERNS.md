@@ -33,7 +33,8 @@ button.textContent = 'Procesando...';
 
 **Estado:** ✅ **APLICADO**
 - `solicitudes_pendientes_list.html` - botón `#confirmarAccion` (aprobar/rechazar)
-- 6 formularios de "solicitar" (doblada, CT, D FDS, cambio descanso, etc.)
+- 7 formularios de "solicitar" (doblada, CT, D FDS, cambio descanso, etc.)
+- `solicitar_cambio_descanso.js` - botón `#btnEnviarCd` (nuevamente implementado con LoadingUI)
 
 ---
 
@@ -101,6 +102,7 @@ Swal.fire({ title: '¿Confirmar?', icon: 'warning', showCancelButton: true })
 **Estado:** ✅ **APLICADO**
 - `solicitudes_pendientes_list.html` - modal `#accionSolicitudModal`
 - `mis_solicitudes_list.html` - `cancelarSolicitud()`, `cancelarSolicitudAprobada()`
+- `solicitar_cambio_descanso.js` - función `mostrarConfirmacion()` (2026-06-26 - nuevo formulario cambio descanso)
 
 ---
 
@@ -632,6 +634,9 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | **2026-06-25** | Agregados patrones #1-#20 (lista completa) | Todos | Sesión debugging - Bug #287 (snapshot corruption) |
 | | Implementado Button Disable + Select-For-Update + Snapshot Guard | #1, #2, #3 | Prevenir doble aplicación de dobladas |
 | | Implementado Cache Invalidation en todas las strategies | #6 | Evitar datos stale en MisTurnos y contadores |
+| **2026-06-26** | Reescrito formulario "Cambio de Día de Descanso" | #1, #4, #5 | Lógica correcta: intercambio real sin dobladas |
+| | Implementados patrones #4 (SweetAlert) + #5 (Form Disable) completo | #4, #5 | Confirmación modal + deshabilitar todos los inputs durante envío |
+| | Aplicados patrones #2, #3, #6, #7, #10, #11 en strategies | #2, #3, #6, #7, #10, #11 | Transacciones, snapshot guard, invalidación caché, logging, notificaciones |
 
 ---
 

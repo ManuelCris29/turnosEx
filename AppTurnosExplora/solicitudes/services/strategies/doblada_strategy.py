@@ -217,7 +217,27 @@ class DobladaStrategy(SolicitudStrategy):
 
             # Validar que fecha_pago no sea el mismo día que fecha_cesion
             SolicitudValidator.validar_fecha_pago_diferente_cesion(fecha_cesion, fecha_pago)
-            
+
+            # L2 (fuente de verdad): el día no puede estar YA comprometido en otra solicitud
+            # APROBADA (cambio descanso / d_fds / doblada / doblada permanente). Evita el
+            # doble-compromiso del mismo día. (DOBLADA sí permite temporada/festivo, por eso
+            # no se usa estado_dia completo, solo la capa de solicitudes.)
+            from turnos.services.turno_service import TurnoService as _TSv
+            _fc_obj = DateUtils.parse_date(fecha_cesion)
+            _fp_obj = DateUtils.parse_date(fecha_pago)
+            _comp_ces = _TSv.dia_comprometido_por_solicitud(explorador_solicitante, _fc_obj)
+            if _comp_ces:
+                return False, (
+                    f"Ya tienes el {_fc_obj.strftime('%d/%m/%Y')} comprometido en otra "
+                    f"solicitud aprobada ({_comp_ces['motivo']}); no puedes cederlo de nuevo."
+                )
+            _comp_pago = _TSv.dia_comprometido_por_solicitud(explorador_receptor, _fp_obj)
+            if _comp_pago:
+                return False, (
+                    f"Tu compañero ya tiene el {_fp_obj.strftime('%d/%m/%Y')} comprometido en "
+                    f"otra solicitud aprobada ({_comp_pago['motivo']}); no puede cubrir ese día."
+                )
+
             # Validar días especiales para fecha de cesión
             SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
             

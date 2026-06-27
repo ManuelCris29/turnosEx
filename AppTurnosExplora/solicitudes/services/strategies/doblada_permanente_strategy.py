@@ -223,7 +223,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 DobladaPermanenteAplicacionService as _DPAS,
             )
             from turnos.models import Turno as _T
-            from turnos.services.descanso_semana_service import DescansoSemanaService as _DSS
+            from turnos.services.turno_service import TurnoService as _TSv
 
             ocurrencias = sorted(set(
                 list(_DPAS._ocurrencias(fi, ff, dias_cesion))
@@ -231,17 +231,17 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             ))
 
             def _estado_jornada(emp, fecha):
-                """Devuelve 'doblada' (2), 'libre' (0) o None (1 jornada = ok)."""
+                """Devuelve 'doblada' (2 turnos), 'libre' (descanso) o None (1 jornada = ok)."""
                 n = _T.objects.filter(explorador=emp, fecha=fecha).count()
                 if n >= 2:
                     return 'doblada'
                 if n == 1:
                     return None
-                # n == 0: día predeterminado (1 jornada) salvo que sea descanso de semana manual.
-                jb = self._grupo_base(emp, fecha)
-                if _DSS.es_descanso_semana_manual(jb, fecha):
-                    return 'libre'
-                return None
+                # n == 0 (sin Turno real): usar la FUENTE DE VERDAD única. Marca 'libre' si
+                # descansa por CUALQUIER motivo: temporada, mantenimiento, fin de semana o un
+                # día ya comprometido en otra solicitud aprobada (L2). Si trabaja → 1 jornada ok.
+                est = _TSv.estado_dia(emp, fecha)
+                return 'libre' if not est['trabaja'] else None
 
             for d in ocurrencias:
                 if d.weekday() == 5:  # los sábados los maneja la regla del sábado de arriba

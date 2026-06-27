@@ -1,295 +1,646 @@
 /**
- * Solicitar Cambio de Día de Descanso (fin de semana).
+ * Solicitar Cambio de Día de Descanso (REORGANIZADO).
  *
- * Intercambio de descansos (descanso por descanso), ida y vuelta el mismo mes:
- *  1. Elegir el finde que cambias (día que trabajas por alternancia).
- *  2. Cargar compañeros del grupo contrario.
- *  3. Elegir el finde de devolución (mismo mes, MISMO día sáb/dom).
- *  4. Enviar.
+ * Modalidad FIN DE SEMANA:
+ *  - Muestra los próximos fines de semana (ventana de ~10 semanas).
+ *  - Eliges la semana de CESIÓN (donde trabajas un día por alternancia).
+ *  - Eliges un compañero del grupo contrario.
+ *  - Eliges la semana de DEVOLUCIÓN: del mismo mes y donde trabajas el día CONTRARIO.
+ *    Esto mantiene tu balance de domingos. Si el mes tiene 5 domingos: advertencia.
  *
- * El backend valida toda la regla (alternancia, mismo mes, mismo día, balance de domingos).
+ * Modalidad ENTRE SEMANA (Temporada):
+ *  - Eliges tu día de descanso de temporada.
+ *  - El sistema busca el descanso del grupo contrario en esa misma semana.
+ *  - Intercambio DIRECTO (sin devolución).
  */
 (function () {
     'use strict';
 
-    const URL_EMPLEADOS = '/solicitudes/obtener-empleados-disponibles/';
-    const URL_PROCESAR = '/solicitudes/procesar-solicitud/';
-    const URL_ALTERNANCIA = '/solicitudes/alternancia-finde/';
-    const URL_DESCANSOS_SEMANA = '/solicitudes/descansos-semana-usuario/';
+    const form = document.getElementById('cdForm');
+    if (!form) return;
 
-    // Jornada predeterminada del solicitante (AM/PM), para resaltar "tú eres ...".
+    const URLs = {
+        FINDES: '/solicitudes/cambio-descanso-findes/',
+        EMPLEADOS: '/solicitudes/obtener-empleados-disponibles/',
+        DESCANSOS: '/solicitudes/descansos-semana-usuario/',
+        PROCESAR: '/solicitudes/procesar-solicitud/',
+    };
+
     const MI_JORNADA = (window.MI_JORNADA || '').toUpperCase();
+    const TIPO_ID = document.getElementById('tipo_solicitud_id').value;
 
-    // Descansos de entre semana del usuario por año (temporada/mantenimiento), para marcar el calendario.
-    const descansosSemana = {};   // { 'YYYY-MM-DD': 'temporada'|'mantenimiento' }
-    const aniosDescansoCargados = {};
+    let modo = 'finde';
+    let finesDeSemana = [];      // [{ sabado, domingo, diaTrabajo, seleccionable }] del mes cargado
+    let mesesDisponibles = [];   // [{anio, mes, label}]
+    let mesSelectorInit = false;
+    let mesSemana = null;        // {anio, mes} seleccionado en la modalidad entre semana
+    let cesion = null;           // { sabado, domingo, diaTrabajo, fechaTrabajoISO }
+    let pago = null;             // idem
+    let empleadoReceptor = null;
+    let descansoSolicitante = null;  // { fecha } (entre semana)
+    let descansoReceptor = null;     // { fecha } (entre semana)
+
+    // ===================== HELPERS =====================
 
     function toISO(d) {
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         return d.getFullYear() + '-' + m + '-' + day;
     }
-    function cargarDescansosSemana(anio, cb) {
-        if (aniosDescansoCargados[anio]) { if (cb) cb(); return; }
-        fetch(`${URL_DESCANSOS_SEMANA}?anio=${anio}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then((r) => r.json())
-            .then((res) => {
-                const d = (res && res.data) ? res.data : res;
-                Object.assign(descansosSemana, (d && d.descansos) || {});
-                aniosDescansoCargados[anio] = true;
-                if (cb) cb();
-            })
-            .catch(() => { if (cb) cb(); });
+    function parseISO(s) {
+        const [y, m, d] = s.split('-').map(Number);
+        return new Date(y, m - 1, d);
     }
-
-    const form = document.getElementById('cdForm');
-    if (!form) return;
-
-    const tipoId = document.getElementById('tipo_solicitud_id').value;
-    const inputCesion = document.getElementById('fecha_solicitud');
-    const selectReceptor = document.getElementById('empleado_receptor');
-    const inputPago = document.getElementById('fecha_pago');
-    const resumen = document.getElementById('cd_resumen');
-    const btnEnviar = document.getElementById('btnEnviarCd');
-    const distintivoCesion = document.getElementById('cd_distintivo_cesion');
-    const distintivoPago = document.getElementById('cd_distintivo_pago');
-
-    let diaCesion = null;  // 0=domingo, 6=sábado
-    let modo = 'finde';    // 'finde' | 'semana'
-
-    const esFinde = (d) => d.getDay() === 0 || d.getDay() === 6;
-    const esSemana = (d) => d.getDay() >= 1 && d.getDay() <= 5;
-    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-    // Días deshabilitados en el picker de cesión según la modalidad.
-    const disableCesion = () => modo === 'finde' ? [(d) => !esFinde(d)] : [(d) => !esSemana(d)];
-
-    const jornadaBase = (window.jornadaBase || '').toUpperCase();
-
-    // Según la alternancia (ref: sábado 10/01/2026 trabaja PM), determina si en ese día de
-    // finde el usuario TRABAJA o DESCANSA, para marcarlo en el calendario.
-    function estadoFinde(date) {
-        if (!jornadaBase || (date.getDay() !== 0 && date.getDay() !== 6)) return null;
-        const sabado = new Date(date);
-        if (date.getDay() === 0) sabado.setDate(sabado.getDate() - 1);
-        const refUTC = Date.UTC(2026, 0, 10);
-        const sabUTC = Date.UTC(sabado.getFullYear(), sabado.getMonth(), sabado.getDate());
-        const deltaWeeks = Math.floor((sabUTC - refUTC) / (7 * 86400000));
-        const even = (((deltaWeeks % 2) + 2) % 2) === 0;
-        const trabajaSab = even ? 'PM' : 'AM';
-        const trabajaDom = trabajaSab === 'AM' ? 'PM' : 'AM';
-        const trabajaHoy = (date.getDay() === 6) ? trabajaSab : trabajaDom;
-        return jornadaBase === trabajaHoy ? 'trabaja' : 'descansa';
+    function nombreDia(d) {
+        return ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'][d.getDay()];
     }
+    function fmt(d) { return `${d.getDate()}/${d.getMonth() + 1}`; }
 
-    function marcarDia(dObj, dStr, fp, dayElem) {
-        const d = dayElem.dateObj;
-        if (modo === 'finde') {
-            const est = estadoFinde(d);
-            if (!est) return;
-            dayElem.classList.add('cd-' + est);
-            dayElem.title = est === 'trabaja' ? 'Trabajas este día' : 'Descansas este día';
-        } else {
-            // Entre semana: marcar los días que el usuario DESCANSA (temporada/mantenimiento).
-            if (d.getDay() < 1 || d.getDay() > 5) return;
-            const motivo = descansosSemana[toISO(d)];
-            if (!motivo) return;
-            dayElem.classList.add('cd-descansa');
-            dayElem.title = motivo === 'mantenimiento' ? 'Descanso (mantenimiento)' : 'Descanso (temporada)';
-        }
+    function lunesDeLaSemana(d) {
+        const r = new Date(d);
+        const day = r.getDay();
+        r.setDate(r.getDate() + (day === 0 ? -6 : 1 - day));
+        r.setHours(0, 0, 0, 0);
+        return r;
     }
-
-    function notificar(icon, title, text) {
-        if (window.Swal) return Swal.fire({ icon, title, html: text, confirmButtonText: 'Entendido' });
-        alert(`${title}\n\n${(text || '').replace(/<[^>]+>/g, '')}`);
+    function notificar(icon, title, html) {
+        if (window.Swal) return Swal.fire({ icon, title, html });
+        alert(`${title}\n\n${(html || '').replace(/<[^>]+>/g, '')}`);
         return Promise.resolve();
     }
 
-    function mostrarDistintivo(contenedor, fechaStr) {
-        if (!contenedor) return;
-        if (!fechaStr) { contenedor.style.display = 'none'; contenedor.innerHTML = ''; return; }
-        fetch(`${URL_ALTERNANCIA}?fecha=${encodeURIComponent(fechaStr)}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then((r) => r.json())
-            .then((res) => {
-                const d = (res && res.data) ? res.data : res;
-                if (!d || !d.sabado || !d.domingo) { contenedor.style.display = 'none'; return; }
-                const chip = (label, dia, jor) => {
-                    const esMio = MI_JORNADA && (jor || '').toUpperCase() === MI_JORNADA;
-                    const tuTag = esMio ? ` <span class="tu-tag"><i class="fas fa-user"></i> Tú</span>` : '';
-                    return `<span class="fds-dia${esMio ? ' es-mio' : ''}">${label} ${dia} ` +
-                           `<span class="jor jor-${jor}">${jor || '?'}</span>${tuTag}</span>`;
-                };
-                contenedor.innerHTML = chip('Sáb', d.sabado.dia, d.sabado.jornada) + chip('Dom', d.domingo.dia, d.domingo.jornada);
-                contenedor.style.display = 'flex';
-            })
-            .catch(() => { contenedor.style.display = 'none'; });
-    }
+    // ===================== MODO TOGGLE =====================
 
-    // Carga los descansos del año visible y redibuja el calendario (modalidad entre semana).
-    function cargarYRedraw(fp) {
-        if (modo !== 'semana') return;
-        const y = fp.currentYear || new Date().getFullYear();
-        cargarDescansosSemana(y, () => fp.redraw());
-    }
-    function crearPickerCesion() {
-        if (fpCesion) fpCesion.destroy();
-        fpCesion = flatpickr(inputCesion, {
-            locale: 'es', dateFormat: 'Y-m-d', minDate: 'today', disable: disableCesion(),
-            onChange: onCesionChange, onDayCreate: marcarDia,
-            onReady: function () { cargarYRedraw(this); },
-            onYearChange: function () { cargarYRedraw(this); },
-            onMonthChange: function () { cargarYRedraw(this); },
-        });
-    }
+    document.querySelectorAll('.modo-btn').forEach(btn => {
+        btn.addEventListener('click', function () {
+            if (this.disabled) return;
+            modo = this.dataset.modo;
+            document.getElementById('modo_descanso').value = modo;
 
-    let fpCesion = null;
-    crearPickerCesion();
-    let fpPago = flatpickr(inputPago, { locale: 'es', dateFormat: 'Y-m-d', disable: disableCesion(), onDayCreate: marcarDia });
+            document.querySelectorAll('.modo-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            document.getElementById('modo-finde').style.display = modo === 'finde' ? 'block' : 'none';
+            document.getElementById('modo-semana').style.display = modo === 'semana' ? 'block' : 'none';
 
-    // Cambio de modalidad (fin de semana / entre semana)
-    document.querySelectorAll('input[name="modo_descanso"]').forEach((r) => {
-        r.addEventListener('change', function () {
-            modo = this.value;
-            const finde = modo === 'finde';
-            document.getElementById('lbl_modo_finde').classList.toggle('active', finde);
-            document.getElementById('lbl_modo_semana').classList.toggle('active', !finde);
-            document.getElementById('lbl_cesion').textContent = finde ? 'Fin de Semana que Cambias' : 'Día (entre semana) que Cambias';
-            document.getElementById('modo_ayuda').textContent = finde
-                ? 'Intercambia tu descanso de sábado o domingo (ida y vuelta, mismos domingos).'
-                : 'Intercambia un día de descanso de lunes a viernes. Los días grises son tus descansos (temporada/mantenimiento). Si es festivo, debe ser festivo por festivo.';
-            // Resetear todo y reconfigurar el picker de cesión.
-            inputCesion.value = ''; diaCesion = null;
-            resetReceptorYPago();
-            if (distintivoCesion) { distintivoCesion.style.display = 'none'; distintivoCesion.innerHTML = ''; }
-            // La leyenda se muestra en ambas modalidades; en entre semana solo aplica "Descansas".
-            actualizarLeyenda(finde);
-            crearPickerCesion();
-            if (!finde) cargarDescansosSemana(new Date().getFullYear(), () => fpCesion && fpCesion.redraw());
+            limpiar();
+
+            const infoBox = document.getElementById('infoBox');
+            if (modo === 'finde') {
+                infoBox.innerHTML = '<h5 class="mb-1"><i class="fas fa-info-circle mr-2"></i>Fin de semana</h5>' +
+                    '<p class="mb-0">Intercambia el día que trabajas: si trabajas sábado, cambias para trabajar domingo (y viceversa). ' +
+                    'Es <strong>ida y vuelta</strong> en el mismo mes para que ambos queden con los <strong>mismos domingos</strong>.</p>';
+                renderCesionFinde();  // ya hay datos del mes cargado
+            } else {
+                infoBox.innerHTML = '<h5 class="mb-1"><i class="fas fa-info-circle mr-2"></i>Entre semana (temporada)</h5>' +
+                    '<p class="mb-0">En temporada, el supervisor define qué día descansa AM y qué día descansa PM. ' +
+                    'Aquí puedes <strong>intercambiar tu día de descanso</strong> con un compañero del grupo contrario ' +
+                    '(ej. martes por viernes). Es un intercambio directo, sin devolución.</p>';
+                poblarSelectorMesSemana();
+                cargarDescansosEntreSemana();
+            }
         });
     });
 
-    function actualizarLeyenda(finde) {
-        const ley = document.getElementById('cd_leyenda');
-        if (!ley) return;
-        ley.style.display = 'flex';
-        ley.innerHTML = finde
-            ? '<span><i class="box cd-box-trab"></i> Trabajas</span><span><i class="box cd-box-desc"></i> Descansas</span>'
-            : '<span><i class="box cd-box-desc"></i> Tus descansos (temporada/mantenimiento)</span>';
+    function limpiar() {
+        cesion = null; pago = null; empleadoReceptor = null;
+        descansoSolicitante = null; descansoReceptor = null;
+        document.getElementById('semanas-cesion').innerHTML = '';
+        document.getElementById('semanas-pago').innerHTML = '';
+        document.getElementById('descansos-solicitante').innerHTML = '';
+        document.getElementById('compa-container-finde').style.display = 'none';
+        document.getElementById('grupo-devolucion-finde').style.display = 'none';
+        document.getElementById('compa-container-semana').style.display = 'none';
+        const _dci = document.getElementById('descanso-contrario-info');
+        if (_dci) _dci.style.display = 'none';
+        document.getElementById('resumen-box').classList.remove('show');
+        document.getElementById('advertencia-domingos').style.display = 'none';
+        document.getElementById('fecha_solicitud').value = '';
+        document.getElementById('fecha_pago').value = '';
+        document.getElementById('empleado_receptor').value = '';
     }
 
-    function resetReceptorYPago() {
-        selectReceptor.innerHTML = '<option value="">Primero selecciona el fin de semana…</option>';
-        selectReceptor.disabled = true;
-        inputPago.value = ''; inputPago.disabled = true;
-        resumen.style.display = 'none';
-        if (distintivoPago) { distintivoPago.style.display = 'none'; distintivoPago.innerHTML = ''; }
-    }
+    // ===================== FIN DE SEMANA =====================
 
-    function onCesionChange(selectedDates, dateStr) {
-        resetReceptorYPago();
-        if (!dateStr) {
-            if (distintivoCesion) { distintivoCesion.style.display = 'none'; distintivoCesion.innerHTML = ''; }
-            diaCesion = null; return;
-        }
-        diaCesion = selectedDates[0].getDay();
-        if (modo === 'finde') mostrarDistintivo(distintivoCesion, dateStr);
-        cargarCompaneros(dateStr);
-        configurarPagoMismoMes(selectedDates[0], dateStr);
-    }
-
-    function configurarPagoMismoMes(fechaCesion, cesionStr) {
-        const y = fechaCesion.getFullYear(); const m = fechaCesion.getMonth();
-        const primero = new Date(y, m, 1); const ultimo = new Date(y, m + 1, 0);
-        const minDate = primero < hoy ? hoy : primero;
-        if (fpPago) fpPago.destroy();
-        // Finde: solo el MISMO día (sáb/dom). Entre semana: cualquier día lun-vie.
-        const reglaDia = modo === 'finde'
-            ? (date) => date.getDay() !== diaCesion
-            : (date) => !esSemana(date);
-        fpPago = flatpickr(inputPago, {
-            locale: 'es', dateFormat: 'Y-m-d', minDate: minDate, maxDate: ultimo,
-            disable: [reglaDia, cesionStr],
-            onChange: actualizarResumen,
-            onDayCreate: marcarDia,
-        });
-        inputPago.disabled = false;
-    }
-
-    function cargarCompaneros(fechaCesion) {
-        selectReceptor.innerHTML = '<option value="">Cargando…</option>';
-        const url = `${URL_EMPLEADOS}?fecha=${encodeURIComponent(fechaCesion)}&tipo_solicitud_id=${tipoId}`;
-        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then((r) => r.json())
-            .then((data) => {
-                const empleados = (data && (data.empleados || (data.data && data.data.empleados))) || [];
-                if (!empleados.length) {
-                    selectReceptor.innerHTML = '<option value="">No hay compañeros disponibles ese fin de semana</option>';
-                    selectReceptor.disabled = true; return;
+    // Carga los fines de semana de un mes según los TURNOS REALES (backend).
+    function cargarMes(anio, mes) {
+        const cont = document.getElementById('semanas-cesion');
+        cont.innerHTML = '<div class="text-muted">Cargando fines de semana…</div>';
+        const q = (anio && mes) ? `?anio=${anio}&mes=${mes}` : '';
+        return fetch(`${URLs.FINDES}${q}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(res => {
+                if (res && res.meses && !mesSelectorInit) {
+                    mesesDisponibles = res.meses;
+                    poblarSelectorMes(res.anio, res.mes);
+                    mesSelectorInit = true;
                 }
-                selectReceptor.innerHTML = '<option value="">Selecciona un compañero…</option>';
-                empleados.forEach((e) => {
-                    const opt = document.createElement('option');
-                    opt.value = e.id; opt.textContent = `${e.nombre} ${e.apellido}`;
-                    selectReceptor.appendChild(opt);
-                });
-                selectReceptor.disabled = false;
+                finesDeSemana = ((res && res.findes) || []).map(f => ({
+                    sabado: parseISO(f.sabado),
+                    domingo: parseISO(f.domingo),
+                    diaTrabajo: f.dia_trabajo,        // 'sabado' | 'domingo' | null
+                    seleccionable: f.seleccionable,
+                }));
+                window._sinTurnosMes = !!(res && res.sin_turnos_mes);
+                // Sincronizar el selector con el mes que realmente devolvió el backend
+                if (res && res.anio && res.mes) {
+                    const sel = document.getElementById('selector-mes');
+                    if (sel) sel.value = `${res.anio}-${res.mes}`;
+                }
+                // Reset selección al cambiar de mes
+                cesion = null; pago = null; empleadoReceptor = null;
+                document.getElementById('fecha_solicitud').value = '';
+                document.getElementById('fecha_pago').value = '';
+                document.getElementById('empleado_receptor').value = '';
+                document.getElementById('compa-container-finde').style.display = 'none';
+                document.getElementById('grupo-devolucion-finde').style.display = 'none';
+                document.getElementById('semanas-pago').innerHTML = '';
+                document.getElementById('resumen-box').classList.remove('show');
+                renderCesionFinde();
             })
-            .catch(() => { selectReceptor.innerHTML = '<option value="">Error cargando compañeros</option>'; selectReceptor.disabled = true; });
-        selectReceptor.onchange = actualizarResumen;
+            .catch(() => { cont.innerHTML = '<div class="alert-warning-info">Error cargando fines de semana.</div>'; });
     }
 
-    function actualizarResumen() {
-        const ces = inputCesion.value; const pago = inputPago.value;
-        const comp = selectReceptor.options[selectReceptor.selectedIndex];
-        if (modo === 'finde') mostrarDistintivo(distintivoPago, pago);
-        if (ces && pago && selectReceptor.value) {
-            const cola = modo === 'finde' ? ' Quedan con los mismos domingos.' : '';
-            resumen.innerHTML =
-                `<i class="fas fa-exchange-alt me-1"></i> Intercambias tu descanso del <strong>${ces}</strong> con ` +
-                `<strong>${comp.textContent}</strong>, y devuelves el <strong>${pago}</strong>.${cola}`;
-            resumen.style.display = 'block';
-        } else { resumen.style.display = 'none'; }
+    function poblarSelectorMes(anioSel, mesSel) {
+        const sel = document.getElementById('selector-mes');
+        if (!sel) return;
+        sel.innerHTML = '';
+        mesesDisponibles.forEach(m => {
+            const o = document.createElement('option');
+            o.value = `${m.anio}-${m.mes}`;
+            o.textContent = m.tiene_turnos ? m.label : `${m.label} (sin turnos publicados)`;
+            if (m.anio === anioSel && m.mes === mesSel) o.selected = true;
+            sel.appendChild(o);
+        });
+        sel.onchange = function () {
+            const [a, mm] = this.value.split('-').map(Number);
+            cargarMes(a, mm);
+        };
     }
+
+    function renderCesionFinde() {
+        const cont = document.getElementById('semanas-cesion');
+        cont.innerHTML = '';
+
+        // Mes sin turnos publicados aún
+        if (window._sinTurnosMes) {
+            cont.innerHTML = '<div class="alert-warning-info"><i class="fas fa-clock mr-1"></i> ' +
+                'Los turnos de este mes aún no están publicados. Elige un mes con turnos publicados.</div>';
+            return;
+        }
+        if (!finesDeSemana.length) {
+            cont.innerHTML = '<div class="alert-warning-info">Este mes no tiene fines de semana para mostrar.</div>';
+            return;
+        }
+        const hayElegibles = finesDeSemana.some(f => f.seleccionable);
+        finesDeSemana.forEach(f => {
+            const card = crearCardSemana(f);
+            if (f.seleccionable) {
+                card.addEventListener('click', () => seleccionarCesion(f, card));
+            }
+            cont.appendChild(card);
+        });
+        if (!hayElegibles) {
+            const aviso = document.createElement('div');
+            aviso.className = 'alert-warning-info';
+            aviso.innerHTML = 'En este mes descansas todos los fines de semana o ya pasaron. Prueba con otro mes.';
+            cont.appendChild(aviso);
+        }
+    }
+
+    function crearCardSemana(f) {
+        const card = document.createElement('div');
+        card.className = 'semana-card';
+        if (!f.seleccionable) card.classList.add('disabled');
+
+        let detalle;
+        if (f.diaTrabajo === 'sabado') {
+            detalle = '<div class="semana-jor yo">Trabajas SÁBADO</div><div class="semana-jor descanso">Descansas domingo</div>';
+        } else if (f.diaTrabajo === 'domingo') {
+            detalle = '<div class="semana-jor yo">Trabajas DOMINGO</div><div class="semana-jor descanso">Descansas sábado</div>';
+        } else {
+            detalle = '<div class="semana-jor neutro">No disponible para cambio</div>';
+        }
+        card.innerHTML = `
+            <div class="semana-fecha">Sáb ${fmt(f.sabado)} · Dom ${fmt(f.domingo)}</div>
+            <div class="semana-info">${detalle}</div>`;
+        return card;
+    }
+
+    function seleccionarCesion(f, card) {
+        document.querySelectorAll('#semanas-cesion .semana-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+
+        const fechaTrabajo = f.diaTrabajo === 'sabado' ? f.sabado : f.domingo;
+        cesion = { ...f, fechaTrabajoISO: toISO(fechaTrabajo) };
+        document.getElementById('fecha_solicitud').value = cesion.fechaTrabajoISO;
+
+        // Reset pago/compañero
+        pago = null; empleadoReceptor = null;
+        document.getElementById('fecha_pago').value = '';
+        document.getElementById('empleado_receptor').value = '';
+        document.getElementById('resumen-box').classList.remove('show');
+        document.getElementById('advertencia-domingos').style.display = 'none';
+
+        cargarCompañerosFinde(cesion.fechaTrabajoISO);
+        renderDevolucionFinde();
+
+        document.getElementById('compa-container-finde').style.display = 'block';
+        document.getElementById('grupo-devolucion-finde').style.display = 'block';
+    }
+
+    function cargarCompañerosFinde(fechaISO) {
+        const sel = document.getElementById('select-receptor-finde');
+        sel.innerHTML = '<option value="">Cargando…</option>';
+        fetch(`${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fechaISO)}&tipo_solicitud_id=${TIPO_ID}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                const emps = (data && data.empleados) || [];
+                if (!emps.length) {
+                    sel.innerHTML = '<option value="">No hay compañeros disponibles</option>';
+                    return;
+                }
+                sel.innerHTML = '<option value="">Selecciona un compañero…</option>';
+                emps.forEach(e => {
+                    const o = document.createElement('option');
+                    o.value = e.id;
+                    o.textContent = `${e.nombre} ${e.apellido}`;
+                    o.dataset.emp = JSON.stringify(e);
+                    sel.appendChild(o);
+                });
+            })
+            .catch(() => { sel.innerHTML = '<option value="">Error cargando compañeros</option>'; });
+    }
+
+    document.getElementById('select-receptor-finde').addEventListener('change', function () {
+        const opt = this.options[this.selectedIndex];
+        if (this.value && opt.dataset.emp) {
+            empleadoReceptor = JSON.parse(opt.dataset.emp);
+            document.getElementById('empleado_receptor').value = empleadoReceptor.id;
+        } else {
+            empleadoReceptor = null;
+            document.getElementById('empleado_receptor').value = '';
+        }
+        actualizarResumenFinde();
+    });
+
+    // Devolución: mismo mes, día de trabajo CONTRARIO, distinta a la cesión.
+    function renderDevolucionFinde() {
+        const cont = document.getElementById('semanas-pago');
+        cont.innerHTML = '';
+        if (!cesion) return;
+
+        const mes = cesion.sabado.getMonth();
+        const anio = cesion.sabado.getFullYear();
+        const diaContrario = cesion.diaTrabajo === 'sabado' ? 'domingo' : 'sabado';
+
+        const opciones = finesDeSemana.filter(f =>
+            f.seleccionable &&
+            f.diaTrabajo === diaContrario &&
+            f.sabado.getMonth() === mes &&
+            f.sabado.getFullYear() === anio &&
+            toISO(f.sabado) !== toISO(cesion.sabado)
+        );
+
+        if (!opciones.length) {
+            cont.innerHTML = '<div class="alert-warning-info">No hay otra semana en este mes donde trabajes el día contrario. ' +
+                'El intercambio necesita dos findes del mismo mes con días opuestos (sábado ↔ domingo).</div>';
+            return;
+        }
+
+        opciones.forEach(f => {
+            const card = crearCardSemana(f);
+            card.addEventListener('click', () => seleccionarPago(f, card));
+            cont.appendChild(card);
+        });
+    }
+
+    function seleccionarPago(f, card) {
+        document.querySelectorAll('#semanas-pago .semana-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+
+        const fechaTrabajo = f.diaTrabajo === 'sabado' ? f.sabado : f.domingo;
+        pago = { ...f, fechaTrabajoISO: toISO(fechaTrabajo) };
+        document.getElementById('fecha_pago').value = pago.fechaTrabajoISO;
+
+        validarBalanceDomingos();
+        actualizarResumenFinde();
+    }
+
+    function validarBalanceDomingos() {
+        const adv = document.getElementById('advertencia-domingos');
+        const mes = cesion.sabado.getMonth();
+        const anio = cesion.sabado.getFullYear();
+        let domingos = 0;
+        for (let d = 1; d <= 31; d++) {
+            const f = new Date(anio, mes, d);
+            if (f.getMonth() !== mes) break;
+            if (f.getDay() === 0) domingos++;
+        }
+        if (domingos === 5) {
+            adv.innerHTML = '<strong>⚠️ Atención:</strong> Este mes tiene 5 domingos (impar). ' +
+                'Uno trabajará 3 domingos y el otro 2. Confirmen ambos antes de continuar.';
+            adv.style.display = 'block';
+        } else {
+            adv.style.display = 'none';
+        }
+    }
+
+    function actualizarResumenFinde() {
+        const resumen = document.getElementById('resumen-box');
+        if (!cesion || !pago || !empleadoReceptor) {
+            resumen.classList.remove('show');
+            return;
+        }
+        const fc = parseISO(cesion.fechaTrabajoISO);
+        const fp = parseISO(pago.fechaTrabajoISO);
+        resumen.innerHTML = `<i class="fas fa-exchange-alt mr-1"></i> ` +
+            `Cambias tu ${nombreDia(fc)} ${fmt(fc)} con <strong>${empleadoReceptor.nombre} ${empleadoReceptor.apellido}</strong>, ` +
+            `y devuelves trabajando el ${nombreDia(fp)} ${fmt(fp)}. Quedan con los mismos domingos.`;
+        resumen.classList.add('show');
+    }
+
+    // ===================== ENTRE SEMANA =====================
+
+    const MESES_ES = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+
+    function poblarSelectorMesSemana() {
+        const sel = document.getElementById('selector-mes-semana');
+        if (!sel) return;
+        // Reutiliza los meses del finde si ya se cargaron; si no, construye 7 desde hoy.
+        let meses = mesesDisponibles;
+        if (!meses || !meses.length) {
+            meses = [];
+            const hoy = new Date(); let y = hoy.getFullYear(); let m = hoy.getMonth() + 1;
+            for (let i = 0; i < 7; i++) { meses.push({ anio: y, mes: m, label: `${MESES_ES[m]} ${y}` }); m++; if (m > 12) { m = 1; y++; } }
+        }
+        sel.innerHTML = '';
+        meses.forEach(mm => {
+            const o = document.createElement('option');
+            o.value = `${mm.anio}-${mm.mes}`;
+            o.textContent = mm.label;
+            sel.appendChild(o);
+        });
+        if (!mesSemana) mesSemana = { anio: meses[0].anio, mes: meses[0].mes };
+        sel.value = `${mesSemana.anio}-${mesSemana.mes}`;
+        sel.onchange = function () {
+            const [a, mm] = this.value.split('-').map(Number);
+            mesSemana = { anio: a, mes: mm };
+            cargarDescansosEntreSemana(a, mm);
+        };
+    }
+
+    function cargarDescansosEntreSemana(anio, mes) {
+        if (!anio || !mes) {
+            if (mesSemana) { anio = mesSemana.anio; mes = mesSemana.mes; }
+            else { const h = new Date(); anio = h.getFullYear(); mes = h.getMonth() + 1; }
+        }
+        const cont = document.getElementById('descansos-solicitante');
+        cont.innerHTML = '<div class="text-muted">Cargando descansos…</div>';
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+        // Reset selección al cambiar de mes
+        descansoSolicitante = null; descansoReceptor = null; empleadoReceptor = null;
+        document.getElementById('fecha_solicitud').value = '';
+        document.getElementById('fecha_pago').value = '';
+        document.getElementById('empleado_receptor').value = '';
+        document.getElementById('compa-container-semana').style.display = 'none';
+        const _dci2 = document.getElementById('descanso-contrario-info');
+        if (_dci2) _dci2.style.display = 'none';
+        document.getElementById('resumen-box').classList.remove('show');
+
+        fetch(`${URLs.DESCANSOS}?anio=${anio}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(data => {
+                const descansos = (data && data.descansos) || {};
+                // Solo días de TEMPORADA del mes elegido y no pasados.
+                const dias = Object.entries(descansos)
+                    .filter(([f, motivo]) => {
+                        const d = parseISO(f);
+                        return motivo === 'temporada' && d.getMonth() + 1 === mes && d.getFullYear() === anio && d >= hoy;
+                    })
+                    .map(([f]) => f)
+                    .sort();
+                cont.innerHTML = '';
+                if (!dias.length) {
+                    cont.innerHTML = '<div class="alert-warning-info">No tienes días de descanso de temporada este mes. ' +
+                        'Prueba con otro mes (el intercambio entre semana solo aplica en temporada).</div>';
+                    return;
+                }
+                dias.forEach(f => {
+                    const fecha = parseISO(f);
+                    const card = document.createElement('div');
+                    card.className = 'descanso-card';
+                    card.innerHTML = `<div class="descanso-dia">Descansas ${nombreDia(fecha)} ${fmt(fecha)}</div>` +
+                        `<div class="descanso-grupo">Tu grupo (${MI_JORNADA})</div>`;
+                    card.addEventListener('click', () => seleccionarDescanso(f, card));
+                    cont.appendChild(card);
+                });
+            })
+            .catch(() => { cont.innerHTML = '<div class="alert-warning-info">Error cargando descansos.</div>'; });
+    }
+
+    function seleccionarDescanso(fecha, card) {
+        document.querySelectorAll('#descansos-solicitante .descanso-card').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+
+        descansoSolicitante = { fecha };
+        descansoReceptor = null;
+        empleadoReceptor = null;
+        document.getElementById('fecha_solicitud').value = fecha;
+        document.getElementById('fecha_pago').value = '';
+        document.getElementById('empleado_receptor').value = '';
+        document.getElementById('resumen-box').classList.remove('show');
+
+        buscarDescansoContrario(fecha);
+        cargarCompañerosSemana(fecha);
+        document.getElementById('compa-container-semana').style.display = 'block';
+    }
+
+    // Busca el descanso de temporada del grupo CONTRARIO en la misma semana.
+    function buscarDescansoContrario(fecha) {
+        const anio = parseISO(fecha).getFullYear();
+        const jornadaContraria = MI_JORNADA === 'AM' ? 'PM' : 'AM';
+        const lunesRef = lunesDeLaSemana(parseISO(fecha)).getTime();
+
+        fetch(`${URLs.DESCANSOS}?anio=${anio}&jornada=${jornadaContraria}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                const descansos = (data && data.descansos) || {};
+                const match = Object.entries(descansos).find(([f, motivo]) =>
+                    motivo === 'temporada' &&
+                    f !== fecha &&
+                    lunesDeLaSemana(parseISO(f)).getTime() === lunesRef
+                );
+                const info = document.getElementById('descanso-contrario-info');
+                const infoDia = document.getElementById('descanso-contrario-dia');
+                if (match) {
+                    descansoReceptor = { fecha: match[0] };
+                    document.getElementById('fecha_pago').value = match[0];
+                    const fp = parseISO(match[0]);
+                    if (infoDia) infoDia.textContent = `${nombreDia(fp)} ${fmt(fp)}`;
+                    if (info) info.style.display = 'block';
+                } else {
+                    if (info) info.style.display = 'none';
+                }
+                actualizarResumenSemana();
+            })
+            .catch(() => {});
+    }
+
+    function cargarCompañerosSemana(fecha) {
+        const sel = document.getElementById('select-receptor-semana');
+        sel.innerHTML = '<option value="">Cargando…</option>';
+        fetch(`${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fecha)}&tipo_solicitud_id=${TIPO_ID}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(r => r.json())
+            .then(data => {
+                const emps = (data && data.empleados) || [];
+                if (!emps.length) {
+                    sel.innerHTML = '<option value="">No hay compañeros disponibles</option>';
+                    return;
+                }
+                sel.innerHTML = '<option value="">Selecciona un compañero…</option>';
+                emps.forEach(e => {
+                    const o = document.createElement('option');
+                    o.value = e.id;
+                    o.textContent = `${e.nombre} ${e.apellido}`;
+                    o.dataset.emp = JSON.stringify(e);
+                    sel.appendChild(o);
+                });
+            })
+            .catch(() => { sel.innerHTML = '<option value="">Error cargando compañeros</option>'; });
+    }
+
+    document.getElementById('select-receptor-semana').addEventListener('change', function () {
+        const opt = this.options[this.selectedIndex];
+        if (this.value && opt.dataset.emp) {
+            empleadoReceptor = JSON.parse(opt.dataset.emp);
+            document.getElementById('empleado_receptor').value = empleadoReceptor.id;
+        } else {
+            empleadoReceptor = null;
+            document.getElementById('empleado_receptor').value = '';
+        }
+        actualizarResumenSemana();
+    });
+
+    function actualizarResumenSemana() {
+        const resumen = document.getElementById('resumen-box');
+        if (!descansoSolicitante || !descansoReceptor || !empleadoReceptor) {
+            resumen.classList.remove('show');
+            return;
+        }
+        const fc = parseISO(descansoSolicitante.fecha);     // tu descanso actual
+        const fp = parseISO(descansoReceptor.fecha);        // descanso del compañero
+        const compa = `${empleadoReceptor.nombre} ${empleadoReceptor.apellido}`;
+        const diaTuyo = `${nombreDia(fc)} ${fmt(fc)}`;
+        const diaCompa = `${nombreDia(fp)} ${fmt(fp)}`;
+        resumen.innerHTML =
+            `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-exchange-alt mr-1"></i> Intercambio de descanso</div>` +
+            `<div style="margin-bottom:4px;"><span style="color:#64748b;">Ahora:</span> ` +
+            `tú descansas <strong>${diaTuyo}</strong> · ${compa} descansa <strong>${diaCompa}</strong></div>` +
+            `<div><span style="color:#64748b;">Después del cambio:</span> ` +
+            `tú descansarás <strong>${diaCompa}</strong> · ${compa} descansará <strong>${diaTuyo}</strong></div>`;
+        resumen.classList.add('show');
+    }
+
+    // ===================== SUBMIT =====================
 
     form.addEventListener('submit', function (ev) {
         ev.preventDefault();
         const errores = [];
-        if (!inputCesion.value) errores.push('Selecciona el fin de semana que cambias.');
-        if (!selectReceptor.value) errores.push('Selecciona el compañero con quien intercambias.');
-        if (!inputPago.value) errores.push('Selecciona el fin de semana de devolución.');
         if (!document.getElementById('comentarios').value.trim()) errores.push('Ingresa un comentario.');
-        if (inputCesion.value && inputPago.value && inputCesion.value === inputPago.value) {
-            errores.push('La devolución debe ser un fin de semana distinto al que cambias.');
-        }
-        if (errores.length) { notificar('warning', 'Faltan datos', errores.map((e) => `• ${e}`).join('<br>')); return; }
-        enviar(false);
 
-        function restablecer() {
-            btnEnviar.disabled = false;
-            btnEnviar.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
+        if (modo === 'finde') {
+            if (!cesion) errores.push('Selecciona la semana que cambias.');
+            if (!empleadoReceptor) errores.push('Selecciona el compañero.');
+            if (!pago) errores.push('Selecciona la semana de devolución.');
+        } else {
+            if (!descansoSolicitante) errores.push('Selecciona tu descanso.');
+            if (!descansoReceptor) errores.push('No se encontró un descanso del grupo contrario en esa semana.');
+            if (!empleadoReceptor) errores.push('Selecciona el compañero.');
         }
-        function enviar(confirmarRestriccion) {
-            const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
-            const fd = new FormData(form);
-            if (confirmarRestriccion) fd.set('confirmar_restriccion', '1');
-            btnEnviar.disabled = true;
-            btnEnviar.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
-            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
-            LoadingUI.mostrar('Enviando solicitud...');
-            fetch(URL_PROCESAR, { method: 'POST', headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
-                .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
-                .then(({ ok, data }) => {
-                    const success = ok && (data.success !== false);
-                    if (success) {
-                        const msg = (data.data && data.data.message) || data.message || 'Solicitud de cambio de descanso enviada correctamente.';
-                        notificar('success', '¡Solicitud enviada!', msg).then(() => { window.location.href = '/solicitudes/mis-solicitudes/'; });
-                    } else if (window.RestriccionAdvertencia && RestriccionAdvertencia.manejar(data, function () { enviar(true); }, restablecer)) {
-                        return;
-                    } else {
-                        notificar('error', 'No se pudo enviar', data.error || data.message || 'No se pudo procesar la solicitud.');
-                        restablecer();
-                    }
-                })
-                .catch(() => { notificar('error', 'Error', 'Ocurrió un error de red. Intenta de nuevo.'); restablecer(); });
+
+        if (errores.length) {
+            notificar('warning', 'Faltan datos', errores.map(e => `• ${e}`).join('<br>'));
+            return;
         }
+        confirmar();
     });
+
+    function confirmar() {
+        const fc = parseISO(document.getElementById('fecha_solicitud').value);
+        const fp = parseISO(document.getElementById('fecha_pago').value);
+        let html = '<div style="text-align:left;font-size:.95rem;">';
+        if (modo === 'finde') {
+            html += `<p><strong>Modalidad:</strong> Fin de semana</p>`;
+            html += `<p><strong>Cambias:</strong> ${nombreDia(fc)} ${fmt(fc)}</p>`;
+            html += `<p><strong>Devuelves:</strong> ${nombreDia(fp)} ${fmt(fp)}</p>`;
+        } else {
+            html += `<p><strong>Modalidad:</strong> Entre semana</p>`;
+            html += `<p><strong>Tu descanso:</strong> ${nombreDia(fc)} ${fmt(fc)}</p>`;
+            html += `<p><strong>Descanso del compañero:</strong> ${nombreDia(fp)} ${fmt(fp)}</p>`;
+        }
+        html += `<p><strong>Compañero:</strong> ${empleadoReceptor.nombre} ${empleadoReceptor.apellido}</p></div>`;
+
+        if (window.Swal) {
+            Swal.fire({
+                title: '¿Confirmar solicitud?', html, icon: 'question',
+                showCancelButton: true, confirmButtonText: 'Sí, enviar',
+                cancelButtonText: 'Cancelar', reverseButtons: true
+            }).then(r => { if (r.isConfirmed) enviar(); });
+        } else if (confirm('¿Enviar esta solicitud?')) {
+            enviar();
+        }
+    }
+
+    function enviar() {
+        const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
+        const fd = new FormData(form);
+        const btn = document.getElementById('btnEnviarCd');
+
+        // Form Submit Disable (patrón #5)
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
+        form.querySelectorAll('input, select, textarea').forEach(el => el.disabled = true);
+        document.querySelectorAll('.modo-btn').forEach(el => el.disabled = true);
+
+        if (window.LoadingUI) LoadingUI.mostrar('Enviando solicitud...');
+
+        fetch(URLs.PROCESAR, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' },
+            body: fd
+        })
+            .then(async r => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+            .then(({ ok, data }) => {
+                if (ok && data.success !== false) {
+                    const msg = (data.data && data.data.message) || data.message || 'Solicitud enviada correctamente.';
+                    notificar('success', '¡Solicitud enviada!', msg).then(() => {
+                        window.location.href = '/solicitudes/mis-solicitudes/';
+                    });
+                } else {
+                    notificar('error', 'No se pudo enviar', data.error || data.message || 'Intenta de nuevo.');
+                    rehabilitar();
+                }
+            })
+            .catch(() => { notificar('error', 'Error de red', 'Intenta de nuevo.'); rehabilitar(); });
+    }
+
+    function rehabilitar() {
+        const btn = document.getElementById('btnEnviarCd');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
+        form.querySelectorAll('input, select, textarea').forEach(el => el.disabled = false);
+        document.querySelectorAll('.modo-btn').forEach(el => el.disabled = false);
+    }
+
+    // ===================== INIT =====================
+    cargarMes();  // carga meses + findes del mes actual
+
 })();
