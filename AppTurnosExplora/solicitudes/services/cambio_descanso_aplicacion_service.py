@@ -119,6 +119,41 @@ class CambioDescansoAplicacionService:
         Turno.objects.filter(explorador=explorador, fecha=fecha).delete()
 
     @staticmethod
+    def _marcar_reemplazadas(solicitud_nueva, explorador, fecha):
+        """
+        Si hay un turno con tipo_cambio='CAMBIO DESCANSO' en (explorador, fecha) perteneciente
+        a otra solicitud aprobada, esa solicitud pasa a estado 'reemplazada'.
+
+        Se llama antes de _trabaja_dia() para registrar el reemplazo en el historial antes
+        de que el turno sea borrado.
+        """
+        if not Turno.objects.filter(
+            explorador=explorador, fecha=fecha, tipo_cambio='CAMBIO DESCANSO'
+        ).exists():
+            return
+
+        from django.db.models import Q
+        from solicitudes.models import SolicitudCambio
+
+        otro = _otro_dia(fecha)
+        # El turno en (explorador, fecha) fue creado porque:
+        # - Explorador es RECEPTOR en una solicitud con fecha_cambio_turno=fecha o doblada.fecha_pago=fecha
+        # - Explorador es SOLICITANTE en una solicitud donde fecha=_otro_dia(fc) o fecha=_otro_dia(fp)
+        candidatas = SolicitudCambio.objects.filter(
+            tipo_cambio__nombre='CAMBIO DESCANSO',
+            estado='aprobada',
+        ).exclude(pk=solicitud_nueva.pk).filter(
+            Q(explorador_receptor=explorador, fecha_cambio_turno=fecha) |
+            Q(explorador_receptor=explorador, doblada__fecha_pago=fecha) |
+            Q(explorador_solicitante=explorador, fecha_cambio_turno=otro) |
+            Q(explorador_solicitante=explorador, doblada__fecha_pago=otro),
+        )
+        for candidata in candidatas:
+            candidata.estado = 'reemplazada'
+            candidata.reemplazada_por = solicitud_nueva
+            candidata.save(update_fields=['estado', 'reemplazada_por'])
+
+    @staticmethod
     def _capturar_snapshot(solicitante, receptor, fechas):
         snap = {}
         for emp in (solicitante, receptor):
@@ -169,14 +204,18 @@ class CambioDescansoAplicacionService:
         #   Receptor    TRABAJA fecha_cesion y fecha_pago ; DESCANSA otro_w1 y otro_w2
 
         # Semana de cesión
+        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, solicitante, otro_w1)
         CambioDescansoAplicacionService._trabaja_dia(solicitante, otro_w1)
         CambioDescansoAplicacionService._descansa_dia(solicitante, fecha_cesion)
+        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, receptor, fecha_cesion)
         CambioDescansoAplicacionService._trabaja_dia(receptor, fecha_cesion)
         CambioDescansoAplicacionService._descansa_dia(receptor, otro_w1)
 
         # Semana de devolución (espejo)
+        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, solicitante, otro_w2)
         CambioDescansoAplicacionService._trabaja_dia(solicitante, otro_w2)
         CambioDescansoAplicacionService._descansa_dia(solicitante, fecha_pago)
+        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, receptor, fecha_pago)
         CambioDescansoAplicacionService._trabaja_dia(receptor, fecha_pago)
         CambioDescansoAplicacionService._descansa_dia(receptor, otro_w2)
 

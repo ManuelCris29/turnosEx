@@ -311,9 +311,16 @@ class DobladaStrategy(SolicitudStrategy):
                     logger.warning(f"Validación fallida: no se pudo determinar alternancia para {fecha_pago_obj}")
                     return False, "No se pudo determinar la alternancia para el sábado seleccionado."
 
-                # Usamos la jornada base del receptor (AM/PM) como verificación de grupo.
-                # Nota: si el receptor ya tiene turnos en BD en ese sábado, JornadaService podría devolver AM/PM;
-                # si no, devuelve su asignación. En ambos casos debe coincidir con el grupo que trabaja ese sábado.
+                # Si el receptor tiene un Turno REAL en ese sábado (p. ej. por un cambio de
+                # descanso previo que le asignó ese día), ese turno es la fuente de verdad:
+                # ya trabaja ahí independientemente de la alternancia.
+                from turnos.services.turno_service import TurnoService
+                estado_receptor_sab = TurnoService.estado_dia(explorador_receptor, fecha_pago_obj)
+                receptor_trabaja_sab_por_turno = (
+                    estado_receptor_sab.get('trabaja') and
+                    estado_receptor_sab.get('fuente') == 'turno'
+                )
+
                 jornada_receptor_pago = JornadaService.get_jornada_explorador_fecha(
                     explorador_receptor.id, fecha_pago_obj.strftime('%Y-%m-%d')
                 )
@@ -321,7 +328,7 @@ class DobladaStrategy(SolicitudStrategy):
                     logger.warning(f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_pago_obj}")
                     return False, "El receptor no tiene jornada asignada para la fecha de pago (sábado)."
 
-                if jornada_receptor_pago.nombre.upper() != jornada_trabaja_sabado:
+                if not receptor_trabaja_sab_por_turno and jornada_receptor_pago.nombre.upper() != jornada_trabaja_sabado:
                     logger.warning(
                         f"Validación fallida: receptor {explorador_receptor.id} tiene {jornada_receptor_pago.nombre.upper()} "
                         f"pero debe ser {jornada_trabaja_sabado} para sábado {fecha_pago_obj}"
@@ -330,28 +337,26 @@ class DobladaStrategy(SolicitudStrategy):
                         f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')}, el receptor debe ser del grupo "
                         f"que trabaja ese sábado ({jornada_trabaja_sabado}). El receptor tiene {jornada_receptor_pago.nombre.upper()}."
                     )
-                
+
                 # ===========================
-                # NUEVA REGLA: Validar que sábado de pago corresponda a jornada del receptor (quien hizo doble turno)
+                # Validar que sábado de pago corresponda a jornada del receptor (quien hizo doble turno)
                 # ===========================
                 # Regla de negocio:
                 # - Si cedes jornada AM → receptor es PM → sábado de pago debe ser para PM
                 # - Si cedes jornada PM → receptor es AM → sábado de pago debe ser para AM
-                # El sábado siempre debe coincidir con el turno de la persona que realizó el doble turno
-                # Obtener jornada que se está cediendo
+                # Excepción: si el receptor tiene un Turno real en ese sábado (p. ej. swapeado
+                # por un cambio de descanso previo), esa asignación real supera a la alternancia.
                 jornada_a_ceder = None
                 if jornada_cedida:
                     jornada_a_ceder = jornada_cedida.upper()
                 else:
-                    # Si no hay jornada_cedida, obtener jornada del solicitante
                     jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
                         explorador_solicitante.id, fecha_cesion
                     )
                     if jornada_solicitante:
                         jornada_a_ceder = jornada_solicitante.nombre.upper()
-                
-                if jornada_a_ceder:
-                    # Obtener jornada del receptor en fecha de cesión (quien hizo el doble turno)
+
+                if jornada_a_ceder and not receptor_trabaja_sab_por_turno:
                     jornada_receptor_cesion = JornadaService.get_jornada_explorador_fecha(
                         explorador_receptor.id, fecha_cesion
                     )
@@ -360,12 +365,9 @@ class DobladaStrategy(SolicitudStrategy):
                             f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_cesion}"
                         )
                         return False, "El receptor no tiene jornada asignada para la fecha de cesión."
-                    
+
                     jornada_receptor_nombre = jornada_receptor_cesion.nombre.upper()
-                    
-                    # Validar que el sábado corresponda a la jornada del receptor
-                    # Si receptor es PM (hizo doble turno), el sábado debe ser para PM
-                    # Si receptor es AM (hizo doble turno), el sábado debe ser para AM
+
                     if jornada_receptor_nombre != jornada_trabaja_sabado:
                         logger.warning(
                             f"Validación fallida: receptor {explorador_receptor.id} tiene jornada {jornada_receptor_nombre} "

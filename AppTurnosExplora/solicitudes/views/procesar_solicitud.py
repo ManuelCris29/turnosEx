@@ -61,7 +61,7 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
 
         # Exploradores involucrados: solicitante + receptores presentes en el POST
         receptor_ids = set()
-        for c in ['empleado_receptor', 'empleado_receptor_am', 'empleado_receptor_pm']:
+        for c in ['empleado_receptor']:
             v = request.POST.get(c)
             if v:
                 receptor_ids.add(v)
@@ -262,66 +262,9 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                 if not fecha_solicitud:
                     return json_error('La fecha de cesión es requerida', status=400, code='missing_fields')
                 
-                # Verificar si es cesión total
-                tipo_cesion = request.POST.get('tipo_cesion', 'cesion_completa')
-                empleado_receptor_am = request.POST.get('empleado_receptor_am')
-                empleado_receptor_pm = request.POST.get('empleado_receptor_pm')
-                fecha_pago_am = request.POST.get('fecha_pago_am')
-                fecha_pago_pm = request.POST.get('fecha_pago_pm')
-                
-                es_cesion_total = (tipo_cesion == 'cesion_completa' and 
-                                  empleado_receptor_am and empleado_receptor_pm and
-                                  fecha_pago_am and fecha_pago_pm)
-                
-                if es_cesion_total:
-                    # Cesión total: validar ambos receptores y fechas
-                    if not empleado_receptor_am:
-                        return json_error('Debe seleccionar un compañero para la jornada AM', status=400, code='missing_fields')
-                    if not empleado_receptor_pm:
-                        return json_error('Debe seleccionar un compañero para la jornada PM', status=400, code='missing_fields')
-                    if not fecha_pago_am:
-                        return json_error('La fecha de pago para AM es obligatoria', status=400, code='missing_fields')
-                    if not fecha_pago_pm:
-                        return json_error('La fecha de pago para PM es obligatoria', status=400, code='missing_fields')
-                    # Pago en SÁBADO: cada subpago es una cesión parcial (se debe 1 jornada), así que
-                    # el emisor (que ese sábado está libre por alternancia) debe ELEGIR la jornada que
-                    # paga: solo AM o PM. "AMBAS" (día completo) no aplica en cesión total → para eso se
-                    # usa una Doblada normal. Validamos que la elección exista y sea válida.
-                    # (Se omite cuando es el MISMO receptor y MISMA fecha de pago: ese caso es una
-                    #  cesión completa normal y sigue el flujo de doblada con su propio jornada_pago_sabado.)
-                    from datetime import datetime as _dt_sab
-                    jornada_pago_sabado_am = request.POST.get('jornada_pago_sabado_am')
-                    jornada_pago_sabado_pm = request.POST.get('jornada_pago_sabado_pm')
-                    _es_mismo_receptor_fecha = (
-                        str(empleado_receptor_am) == str(empleado_receptor_pm)
-                        and str(fecha_pago_am) == str(fecha_pago_pm)
-                    )
-                    for _fpago, _etq, _jsab in (() if _es_mismo_receptor_fecha else (
-                        (fecha_pago_am, 'AM', jornada_pago_sabado_am),
-                        (fecha_pago_pm, 'PM', jornada_pago_sabado_pm),
-                    )):
-                        try:
-                            es_sabado = _dt_sab.strptime(_fpago, '%Y-%m-%d').date().weekday() == 5
-                        except (ValueError, TypeError):
-                            es_sabado = False
-                        if not es_sabado:
-                            continue
-                        jsab = (_jsab or '').strip().upper()
-                        if jsab == 'AMBAS':
-                            return json_error(
-                                f'Para el pago en sábado de {_etq} no puedes pagar el día completo (ambas jornadas) '
-                                f'en una cesión total. Si necesitas pagar ambas, hazlo con una Doblada normal.',
-                                status=400, code='cesion_total_sabado_ambas',
-                            )
-                        if jsab not in ('AM', 'PM'):
-                            return json_error(
-                                f'El pago de {_etq} cae en sábado: elige la jornada que pagarás (AM o PM).',
-                                status=400, code='missing_fields',
-                            )
-                else:
-                    # Cesión parcial o completa normal
-                    if not empleado_receptor_id:
-                        return json_error('Debe seleccionar un compañero para cubrir la doblada', status=400, code='missing_fields')
+                # Cesión parcial o completa normal
+                if not empleado_receptor_id:
+                    return json_error('Debe seleccionar un compañero para cubrir la doblada', status=400, code='missing_fields')
                     
                     # Validación adicional: el compañero receptor no puede tener ya una DOBLADA (AM+PM)
                     # en la fecha de cesión (fecha_solicitud). Usamos Turno como fuente de verdad.
@@ -421,10 +364,6 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             # Para D FDS, el receptor es el compañero seleccionado (no auto-solicitud)
             if tipo_nombre == "D FDS":
                 empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)  # type: ignore
-            elif tipo_nombre == "DOBLADA":
-                # Para DOBLADA, verificar si es cesión total (se manejará después)
-                # Por ahora, establecer None (se obtendrá después si es cesión parcial)
-                empleado_receptor = None
             else:
                 if not empleado_receptor_id:
                     return json_error('Debe seleccionar un compañero para el intercambio', status=400, code='missing_fields')
@@ -486,215 +425,32 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
                         logger.warning(f"No se pudo inferir jornada_cedida: {str(e)}")
                         # Si falla, dejarlo None (el backend validará después)
                 
-                # Verificar si es cesión total (cesión completa desde doblada existente)
-                empleado_receptor_am = request.POST.get('empleado_receptor_am')
-                empleado_receptor_pm = request.POST.get('empleado_receptor_pm')
-                fecha_pago_am = request.POST.get('fecha_pago_am')
-                fecha_pago_pm = request.POST.get('fecha_pago_pm')
-                
-                es_cesion_total = (tipo_cesion == 'cesion_completa' and 
-                                  empleado_receptor_am and empleado_receptor_pm and
-                                  fecha_pago_am and fecha_pago_pm)
-                
-                if es_cesion_total:
-                    # Si el mismo receptor cubre AM y PM y la misma fecha de pago: una sola solicitud cesión completa
-                    mismo_receptor_y_misma_fecha = (
-                        str(empleado_receptor_am) == str(empleado_receptor_pm) and
-                        str(fecha_pago_am) == str(fecha_pago_pm)
-                    )
-                    if mismo_receptor_y_misma_fecha:
-                        receptor = Empleado.objects.get(id=empleado_receptor_am)
-                        datos_solicitud = datos_solicitud_base.copy()
-                        datos_solicitud.update({
-                            'explorador_receptor': receptor,
-                            'fecha_cambio_turno': fecha_solicitud,
-                            'fecha_pago': fecha_pago_am,
-                            'tipo_cesion': 'cesion_completa',
-                            'fecha_creacion_solicitud': timezone.now().date()
-                        })
-                        es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud)
-                        if not es_valida:
-                            return json_error(f'Error validando solicitud: {mensaje}', status=400, code='validation_error')
-                        solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud)
-                        if solicitud is None:
-                            return json_error(f'Error creando solicitud: {mensaje}', status=400, code='creation_failed')
-                        logger.info("Cesión total (un receptor, una fecha pago) creada: 1 solicitud cesion_completa", extra={
-                            'solicitud_id': solicitud.id,
-                            'solicitante_id': empleado_solicitante.id,
-                            'receptor_id': receptor.id
-                        })
-                        return json_ok({
-                            'message': 'Solicitud de cesión total enviada correctamente.',
-                            'solicitud_id': solicitud.id,
-                            'es_cesion_total': True,
-                            'una_solicitud': True
-                        }, status=201)
-                    # Cesión total con receptores o fechas distintas: 2 solicitudes independientes
-                    # Si un subpago cae en sábado, se pasa la jornada elegida (AM o PM) para que la
-                    # doblada use el camino de "pago en sábado" (el emisor trabaja la jornada que eligió),
-                    # en vez del camino de cesión parcial entre semana.
-                    from datetime import datetime as _dt_sab2
+                # Obtener receptor
+                if not empleado_receptor and empleado_receptor_id:
+                    empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)
 
-                    def _es_sabado(fstr):
-                        try:
-                            return _dt_sab2.strptime(fstr, '%Y-%m-%d').date().weekday() == 5
-                        except (ValueError, TypeError):
-                            return False
+                datos_solicitud = datos_solicitud_base.copy()
+                datos_solicitud.update({
+                    'explorador_receptor': empleado_receptor,
+                    'fecha_cambio_turno': fecha_solicitud,
+                    'fecha_pago': fecha_pago,
+                    'jornada_cedida': jornada_cedida,
+                    'jornada_pago_sabado': jornada_pago_sabado,
+                    'jornada_cubre_en_pago': jornada_cubre_en_pago,
+                    'fecha_pago_semana': fecha_pago_semana,
+                    'tipo_cesion': tipo_cesion,
+                    'fecha_creacion_solicitud': timezone.now().date()
+                })
 
-                    # Solicitud 1: Cesión AM
-                    datos_solicitud_am = datos_solicitud_base.copy()
-                    datos_solicitud_am.update({
-                        'explorador_receptor': Empleado.objects.get(id=empleado_receptor_am),
-                        'fecha_cambio_turno': fecha_solicitud,
-                        'fecha_pago': fecha_pago_am,
-                        'jornada_cedida': 'AM',
-                        'tipo_cesion': 'cesion_parcial_am',
-                        'fecha_creacion_solicitud': timezone.now().date()
-                    })
-                    if _es_sabado(fecha_pago_am) and (jornada_pago_sabado_am or '').strip().upper() in ('AM', 'PM'):
-                        datos_solicitud_am['jornada_pago_sabado'] = jornada_pago_sabado_am.strip().upper()
-
-                    # Solicitud 2: Cesión PM
-                    datos_solicitud_pm = datos_solicitud_base.copy()
-                    datos_solicitud_pm.update({
-                        'explorador_receptor': Empleado.objects.get(id=empleado_receptor_pm),
-                        'fecha_cambio_turno': fecha_solicitud,
-                        'fecha_pago': fecha_pago_pm,
-                        'jornada_cedida': 'PM',
-                        'tipo_cesion': 'cesion_parcial_pm',
-                        'fecha_creacion_solicitud': timezone.now().date()
-                    })
-                    if _es_sabado(fecha_pago_pm) and (jornada_pago_sabado_pm or '').strip().upper() in ('AM', 'PM'):
-                        datos_solicitud_pm['jornada_pago_sabado'] = jornada_pago_sabado_pm.strip().upper()
-                    
-                    # Validar ambas solicitudes
-                    es_valida_am, mensaje_am = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud_am)
-                    es_valida_pm, mensaje_pm = SolicitudFactory.validar_solicitud(tipo_solicitud, datos_solicitud_pm)
-                    
-                    # Verificar si alguna validación falló con el caso crítico o doblada existente
-                    if not es_valida_am:
-                        try:
-                            import json
-                            error_data_am = json.loads(mensaje_am)
-                            if isinstance(error_data_am, dict) and error_data_am.get('code') == 'requiere_cambio_turno_previo':
-                                # Retornar error especial del caso crítico para AM
-                                return JsonResponse({
-                                    'success': False,
-                                    'code': 'requiere_cambio_turno_previo',
-                                    'message': error_data_am.get('message', 'Se requiere cambio de turno previo'),
-                                    'fecha_pago': error_data_am.get('fecha_pago'),
-                                    'jornada_comun': error_data_am.get('jornada_comun'),
-                                    'jornada_afectada': 'AM'  # Indicar que es la jornada AM
-                                }, status=400)
-                        except (json.JSONDecodeError, TypeError, AttributeError):
-                            pass
-                        
-                        # Detectar error de doblada existente
-                        if 'ya tiene una doblada' in str(mensaje_am).lower():
-                            import re
-                            fecha_match = re.search(r'\d{2}/\d{2}/\d{4}', str(mensaje_am))
-                            fecha_conflicto = fecha_match.group(0) if fecha_match else 'desconocida'
-                            return JsonResponse({
-                                'success': False,
-                                'code': 'doblada_existente',
-                                'message': 'No se puede crear la solicitud porque ya tienes una doblada en la fecha de pago seleccionada.',
-                                'fecha_conflicto': fecha_conflicto,
-                                'jornada_afectada': 'AM',
-                                'mensaje_detallado': str(mensaje_am)
-                            }, status=400)
-                        
-                        return json_error(f'Error en solicitud AM: {mensaje_am}', status=400, code='validation_error')
-                    
-                    if not es_valida_pm:
-                        try:
-                            import json
-                            error_data_pm = json.loads(mensaje_pm)
-                            if isinstance(error_data_pm, dict) and error_data_pm.get('code') == 'requiere_cambio_turno_previo':
-                                # Retornar error especial del caso crítico para PM
-                                return JsonResponse({
-                                    'success': False,
-                                    'code': 'requiere_cambio_turno_previo',
-                                    'message': error_data_pm.get('message', 'Se requiere cambio de turno previo'),
-                                    'fecha_pago': error_data_pm.get('fecha_pago'),
-                                    'jornada_comun': error_data_pm.get('jornada_comun'),
-                                    'jornada_afectada': 'PM'  # Indicar que es la jornada PM
-                                }, status=400)
-                        except (json.JSONDecodeError, TypeError, AttributeError):
-                            pass
-                        
-                        # Detectar error de doblada existente
-                        if 'ya tiene una doblada' in str(mensaje_pm).lower():
-                            import re
-                            fecha_match = re.search(r'\d{2}/\d{2}/\d{4}', str(mensaje_pm))
-                            fecha_conflicto = fecha_match.group(0) if fecha_match else 'desconocida'
-                            return JsonResponse({
-                                'success': False,
-                                'code': 'doblada_existente',
-                                'message': 'No se puede crear la solicitud porque ya tienes una doblada en la fecha de pago seleccionada.',
-                                'fecha_conflicto': fecha_conflicto,
-                                'jornada_afectada': 'PM',
-                                'mensaje_detallado': str(mensaje_pm)
-                            }, status=400)
-                        
-                        return json_error(f'Error en solicitud PM: {mensaje_pm}', status=400, code='validation_error')
-                    
-                    # Crear ambas solicitudes
-                    try:
-                        solicitud_am, mensaje_am = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud_am)
-                        solicitud_pm, mensaje_pm = SolicitudFactory.crear_solicitud(tipo_solicitud, datos_solicitud_pm)
-                        
-                        if solicitud_am is None or solicitud_pm is None:
-                            return json_error(
-                                f'Error creando solicitudes: {mensaje_am if solicitud_am is None else mensaje_pm}',
-                                status=400,
-                                code='creation_failed'
-                            )
-                        
-                        logger.info("Cesión total creada: 2 solicitudes independientes", extra={
-                            'solicitud_am_id': solicitud_am.id,
-                            'solicitud_pm_id': solicitud_pm.id,
-                            'solicitante_id': empleado_solicitante.id
-                        })
-                        
-                        return json_ok({
-                            'message': 'Solicitudes de cesión total enviadas correctamente. Se han enviado notificaciones a los supervisores y compañeros.',
-                            'solicitud_am_id': solicitud_am.id,
-                            'solicitud_pm_id': solicitud_pm.id,
-                            'es_cesion_total': True
-                        }, status=201)
-                        
-                    except Exception as e:
-                        logger.exception("Error creando solicitudes de cesión total")
-                        return json_error('Error al procesar las solicitudes de cesión total', status=500, code='internal_error')
-                else:
-                    # Cesión parcial o completa normal
-                    # Obtener receptor si no se obtuvo antes
-                    if not empleado_receptor and empleado_receptor_id:
-                        empleado_receptor = Empleado.objects.get(id=empleado_receptor_id)
-                    
-                    datos_solicitud = datos_solicitud_base.copy()
-                    datos_solicitud.update({
-                        'explorador_receptor': empleado_receptor,
-                        'fecha_cambio_turno': fecha_solicitud,  # Fecha de cesión
-                        'fecha_pago': fecha_pago,
-                        'jornada_cedida': jornada_cedida,
-                        'jornada_pago_sabado': jornada_pago_sabado,
-                        'jornada_cubre_en_pago': jornada_cubre_en_pago,
-                        'fecha_pago_semana': fecha_pago_semana,
-                        'tipo_cesion': tipo_cesion,
-                        'fecha_creacion_solicitud': timezone.now().date()  # Para validación de fecha_pago
-                    })
-                    
-                    # Log para debugging
-                    logger.info("Datos de solicitud DOBLADA preparados", extra={
-                        'fecha_cesion': fecha_solicitud,
-                        'fecha_pago': fecha_pago,
-                        'jornada_cedida': jornada_cedida,
-                        'jornada_pago_sabado': jornada_pago_sabado,
-                        'jornada_cubre_en_pago': jornada_cubre_en_pago,
-                        'tipo_cesion': tipo_cesion,
-                        'receptor_id': empleado_receptor.id if empleado_receptor else None
-                    })
+                logger.info("Datos de solicitud DOBLADA preparados", extra={
+                    'fecha_cesion': fecha_solicitud,
+                    'fecha_pago': fecha_pago,
+                    'jornada_cedida': jornada_cedida,
+                    'jornada_pago_sabado': jornada_pago_sabado,
+                    'jornada_cubre_en_pago': jornada_cubre_en_pago,
+                    'tipo_cesion': tipo_cesion,
+                    'receptor_id': empleado_receptor.id if empleado_receptor else None
+                })
             elif tipo_solicitud.nombre == "D FDS":
                 # D FDS: cesión = finde que cede, pago = finde de devolución (mismo mes)
                 datos_solicitud = datos_solicitud_base.copy()

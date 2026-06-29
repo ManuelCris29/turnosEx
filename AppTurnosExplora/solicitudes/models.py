@@ -77,6 +77,7 @@ class SolicitudCambio(models.Model):
             ('rechazada', 'Rechazada'),
             ('cancelada', 'Cancelada'),
             ('pagada', 'Pagada'),
+            ('reemplazada', 'Reemplazada'),
         ],
         default='pendiente'
     )
@@ -97,6 +98,11 @@ class SolicitudCambio(models.Model):
     solicitud_origen = models.ForeignKey(
         'self', null=True, blank=True, on_delete=models.SET_NULL,
         related_name='transferencias'
+    )
+    reemplazada_por = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='reemplaza_a',
+        help_text='Solicitud que reemplazó a esta (cuando el turno fue cedido nuevamente tras los 30 min de gavela).'
     )
     snapshot_turnos_previos = models.JSONField(
         null=True, blank=True,

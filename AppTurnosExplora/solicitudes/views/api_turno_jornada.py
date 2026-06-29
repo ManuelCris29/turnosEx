@@ -721,16 +721,68 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
             """
             estados = TurnoService.estado_mes(emp, anio, mes)
 
-            # Días con turno COMPROMETIDO en otra solicitud (tipo_cambio: doblada, d_fds, CT,
-            # doblada permanente, otro cambio de descanso). Esos días NO se pueden intercambiar
-            # aunque la persona trabaje (p. ej. media jornada de una doblada en sábado).
+            # Días COMPROMETIDOS: turno creado por otra solicitud aprobada.
+            # Regla diferenciada:
+            #   - CAMBIO DESCANSO < 30 min → sigue bloqueado (aún cancelable, si se reemplaza se pierden datos)
+            #   - CAMBIO DESCANSO >= 30 min → ya NO es cancelable; se puede reemplazar con nuevo cambio
+            #   - Cualquier otro tipo (DOBLADA, D FDS, CT…) → siempre bloqueado
             from turnos.models import Turno as _Turno
-            comprometidos = set(
+            from django.utils import timezone as _tz
+            from datetime import timedelta as _tdt
+            from django.db.models import Q as _Q
+            from solicitudes.models import SolicitudCambio as _SC
+
+            VENTANA_CANCELACION = _tdt(minutes=30)
+            ahora = _tz.now()
+
+            # Fechas con turno de CUALQUIER tipo_cambio
+            all_comp_qs = (
                 _Turno.objects
                 .filter(explorador=emp, fecha__year=anio, fecha__month=mes)
                 .exclude(tipo_cambio__isnull=True).exclude(tipo_cambio='')
-                .values_list('fecha', flat=True)
+                .values_list('fecha', 'tipo_cambio')
             )
+            comprometidos_fijos = set()      # DOBLADA, D FDS, CT, etc. → siempre bloqueados
+            comprometidos_cd = set()          # CAMBIO DESCANSO → solo si < 30 min
+
+            for fecha_tc, tipo_tc in all_comp_qs:
+                if tipo_tc == 'CAMBIO DESCANSO':
+                    comprometidos_cd.add(fecha_tc)
+                else:
+                    comprometidos_fijos.add(fecha_tc)
+
+            # De los CAMBIO DESCANSO, solo bloquear los que aún están en ventana de cancelación
+            cancelables_cd = set()
+            if comprometidos_cd:
+                from datetime import timedelta as _td2
+                qs_recientes = _SC.objects.filter(
+                    tipo_cambio__nombre='CAMBIO DESCANSO',
+                    estado='aprobada',
+                    fecha_resolucion__gte=ahora - VENTANA_CANCELACION,
+                ).filter(
+                    _Q(explorador_solicitante=emp) | _Q(explorador_receptor=emp)
+                ).select_related('doblada')
+
+                def _otro(f):
+                    return f + _tdt(days=1) if f.weekday() == 5 else f - _tdt(days=1)
+
+                for s in qs_recientes:
+                    det = getattr(s, 'doblada', None)
+                    if not det:
+                        continue
+                    from datetime import datetime as _dt
+                    fc = s.fecha_cambio_turno if isinstance(s.fecha_cambio_turno, _date) else _date.fromisoformat(str(s.fecha_cambio_turno))
+                    fp_raw = det.fecha_pago
+                    fp = fp_raw if isinstance(fp_raw, _date) else _date.fromisoformat(str(fp_raw))
+                    es_sol = s.explorador_solicitante_id == emp.id
+                    if es_sol:
+                        cancelables_cd.add(_otro(fc))
+                        cancelables_cd.add(_otro(fp))
+                    else:
+                        cancelables_cd.add(fc)
+                        cancelables_cd.add(fp)
+
+            comprometidos = comprometidos_fijos | (comprometidos_cd & cancelables_cd)
 
             def trabaja(fecha):
                 e = estados.get(fecha)

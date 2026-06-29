@@ -428,9 +428,24 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             # SOLO se aplica si NO está descansando por DOBLADA aprobada y NO tiene CT aprobado
             # VALIDACIÓN CRÍTICA: Asegurar que no hay turnos antes de aplicar regla de sábado
             if not jornadas and len(turnos_list) == 0 and fecha_obj.weekday() == 5:  # Sábado (weekday 5)
+                # Verificar estado real antes de aplicar la alternancia: un CAMBIO DESCANSO aprobado
+                # puede hacer que el sábado sea descanso aunque la alternancia diga que trabaja.
+                # TurnoService.estado_dia aplica las 6 capas (L2 incluye solicitudes de todo tipo).
+                from turnos.services.turno_service import TurnoService
+                estado_real = TurnoService.estado_dia(usuario_actual, fecha_obj)
+                if not estado_real.get('trabaja') and estado_real.get('fuente') == 'solicitud':
+                    return json_ok({
+                        'tiene_doblada': False,
+                        'esta_descansando': True,
+                        'puede_ceder': False,
+                        'jornadas': [],
+                        'mensaje': 'Estás descansando este día por un intercambio aprobado (cambio de descanso u otro).',
+                        'solicitud_id': None,
+                    })
+
                 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
                 from turnos.services.jornada_service import JornadaService
-                
+
                 jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
                 if jornada_trabaja_sabado:
                     jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(

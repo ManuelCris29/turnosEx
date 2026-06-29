@@ -150,43 +150,55 @@ class DFDSStrategy(SolicitudStrategy):
                     "fin de semana). No puedes doblarte con alguien de tu mismo grupo."
                 )
 
-            # 8. Al solicitante le corresponde trabajar SU día en la fecha de cesión
-            trabaja_cesion = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_cesion)
-            if not trabaja_cesion:
-                return False, "No se pudo determinar la alternancia del fin de semana de cesión"
-            if grupo_sol != trabaja_cesion:
-                return False, (
-                    f"Ese día ({fecha_cesion.strftime('%d/%m/%Y')}) no te corresponde trabajar por "
-                    f"alternancia (trabaja el grupo {trabaja_cesion}); no tienes un día que ceder. "
-                    "Elige el fin de semana en el que sí trabajas."
-                )
+            # 8. Al solicitante le corresponde trabajar SU día en la fecha de cesión.
+            # Si ya tiene un Turno real (fuente='turno') por un cambio de descanso previo,
+            # ese Turno es la fuente de verdad y omitimos la comparación de alternancia.
+            from turnos.services.turno_service import TurnoService
+            est_sol_ces_pre = TurnoService.estado_dia(solicitante, fecha_cesion)
+            sol_trabaja_ces_por_turno = (
+                est_sol_ces_pre.get('trabaja') and est_sol_ces_pre.get('fuente') == 'turno'
+            )
+            if not sol_trabaja_ces_por_turno:
+                trabaja_cesion = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_cesion)
+                if not trabaja_cesion:
+                    return False, "No se pudo determinar la alternancia del fin de semana de cesión"
+                if grupo_sol != trabaja_cesion:
+                    return False, (
+                        f"Ese día ({fecha_cesion.strftime('%d/%m/%Y')}) no te corresponde trabajar por "
+                        f"alternancia (trabaja el grupo {trabaja_cesion}); no tienes un día que ceder. "
+                        "Elige el fin de semana en el que sí trabajas."
+                    )
 
-            # 9. En la fecha de pago, el día a cubrir debe ser el del RECEPTOR
-            trabaja_pago = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_pago)
-            if not trabaja_pago:
-                return False, "No se pudo determinar la alternancia del fin de semana de pago"
-            if grupo_rec != trabaja_pago:
-                return False, (
-                    f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) debes cubrir el día "
-                    f"que trabaja tu compañero (grupo {grupo_rec}). Ese día por alternancia trabaja "
-                    f"el grupo {trabaja_pago}; elige el día del fin de semana que le corresponde a tu compañero."
-                )
+            # 9. En la fecha de pago, el día a cubrir debe ser el del RECEPTOR.
+            # Si el receptor ya tiene un Turno real (fuente='turno') ese día (por cambio de descanso),
+            # ese Turno es la fuente de verdad y omitimos la comparación de alternancia.
+            est_rec_pago_pre = TurnoService.estado_dia(receptor, fecha_pago)
+            rec_trabaja_pago_por_turno = (
+                est_rec_pago_pre.get('trabaja') and est_rec_pago_pre.get('fuente') == 'turno'
+            )
+            if not rec_trabaja_pago_por_turno:
+                trabaja_pago = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_pago)
+                if not trabaja_pago:
+                    return False, "No se pudo determinar la alternancia del fin de semana de pago"
+                if grupo_rec != trabaja_pago:
+                    return False, (
+                        f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) debes cubrir el día "
+                        f"que trabaja tu compañero (grupo {grupo_rec}). Ese día por alternancia trabaja "
+                        f"el grupo {trabaja_pago}; elige el día del fin de semana que le corresponde a tu compañero."
+                    )
 
             # 9b. FUENTE DE VERDAD ÚNICA (estado_dia): valida con TODAS las capas
             #     (Turno real → día ya comprometido por otra solicitud → especiales → virtual).
             #     Cierra el hueco L2: un día ya cedido/comprometido no se puede volver a usar.
-            from turnos.services.turno_service import TurnoService
-
-            est_sol_ces = TurnoService.estado_dia(solicitante, fecha_cesion)
-            if not est_sol_ces['trabaja']:
-                motivo = est_sol_ces.get('motivo') or 'descansas ese día'
+            #     Reutilizamos est_sol_ces_pre y est_rec_pago_pre ya calculados arriba.
+            if not est_sol_ces_pre['trabaja']:
+                motivo = est_sol_ces_pre.get('motivo') or 'descansas ese día'
                 return False, (
                     f"No tienes un turno que ceder el {fecha_cesion.strftime('%d/%m/%Y')} ({motivo})."
                 )
 
-            est_rec_pago = TurnoService.estado_dia(receptor, fecha_pago)
-            if not est_rec_pago['trabaja']:
-                motivo = est_rec_pago.get('motivo') or 'descansa ese día'
+            if not est_rec_pago_pre['trabaja']:
+                motivo = est_rec_pago_pre.get('motivo') or 'descansa ese día'
                 return False, (
                     f"Tu compañero no trabaja el {fecha_pago.strftime('%d/%m/%Y')} ({motivo}); "
                     f"no hay día que cubrir."

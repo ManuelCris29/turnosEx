@@ -257,55 +257,25 @@
                         <h6 class="alert-heading">
                             <i class="fas fa-info-circle mr-2"></i>Doblada Existente Detectada
                         </h6>
-                        <p class="mb-2">Ya tienes una doblada aprobada para esta fecha. Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).</p>
-                        <div class="form-group" id="tipo_cesion_selector">
-                            <label for="tipo_cesion_opcion">
-                                <i class="fas fa-clock mr-1"></i>Tipo de Cesión <span class="text-danger">*</span>
-                            </label>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="tipo_cesion_opcion" id="cesion_parcial" value="parcial" checked>
-                                <label class="form-check-label" for="cesion_parcial">
-                                    Cesión Parcial (solo una jornada)
-                                </label>
-                            </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" name="tipo_cesion_opcion" id="cesion_total" value="total">
-                                <label class="form-check-label" for="cesion_total">
-                                    Cesión Total (ambas jornadas - AM y PM)
-                                </label>
-                            </div>
-                            <input type="hidden" id="tipo_cesion" name="tipo_cesion" value="cesion_parcial_am">
-                        </div>
-                        
-                        <!-- Opciones para Cesión Parcial -->
-                        <div id="opciones_cesion_parcial" class="form-group">
-                            <label for="jornada_cedida">
+                        <p class="mb-2">Tienes jornada doblada (AM, PM). Puedes ceder una jornada (AM o PM).</p>
+                        <div class="form-group mb-0" id="opciones_cesion_parcial">
+                            <label>
                                 <i class="fas fa-clock mr-1"></i>Jornada a Ceder <span class="text-danger">*</span>
                             </label>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="jornada_cedida" id="jornada_am" value="AM">
-                                <label class="form-check-label" for="jornada_am">
-                                    AM (Mañana)
-                                </label>
+                                <label class="form-check-label" for="jornada_am">AM (Mañana)</label>
                             </div>
                             <div class="form-check">
                                 <input class="form-check-input" type="radio" name="jornada_cedida" id="jornada_pm" value="PM">
-                                <label class="form-check-label" for="jornada_pm">
-                                    PM (Tarde)
-                                </label>
+                                <label class="form-check-label" for="jornada_pm">PM (Tarde)</label>
                             </div>
                         </div>
-                        
-                        <!-- Opciones para Cesión Total -->
-                        <div id="opciones_cesion_total" class="form-group" style="display: none;">
-                            <div class="alert alert-warning">
-                                <strong>Cesión Total:</strong> Cederás ambas jornadas (AM y PM) a dos compañeros diferentes. Se crearán 2 solicitudes independientes.
-                            </div>
-                        </div>
+                        <input type="hidden" id="tipo_cesion" name="tipo_cesion" value="cesion_parcial_am">
                     </div>
                 </div>
 
-                <!-- Compañero Receptor (Cesión Parcial) -->
+                <!-- Compañero Receptor -->
                 <div id="receptor_parcial" class="form-group">
                     <label for="empleado_receptor">
                         <i class="fas fa-user mr-1"></i>Compañero que te Cubrirá <span class="text-danger">*</span>
@@ -316,54 +286,6 @@
                     <small class="form-text text-muted">
                         Solo se muestran compañeros con jornada contraria disponibles para la fecha seleccionada
                     </small>
-                </div>
-                
-                <!-- Receptores para Cesión Total -->
-                <div id="receptores_total" class="form-group" style="display: none;">
-                    <!-- Aviso: un solo compañero cubre las dos jornadas -->
-                    <div id="aviso_receptor_unico_total" class="alert alert-success" style="display: none;">
-                        <i class="fas fa-check-circle mr-2"></i>
-                        <strong>Un solo compañero cubrirá ambas jornadas (AM y PM).</strong>
-                        Se creará una sola solicitud.
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <label for="empleado_receptor_am">
-                                <i class="fas fa-user mr-1"></i>Compañero para AM (Mañana) <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-control" id="empleado_receptor_am" name="empleado_receptor_am">
-                                <option value="">Selecciona un compañero...</option>
-                            </select>
-                            <small class="form-text text-muted">
-                                Debe tener jornada PM disponible o estar en descanso
-                            </small>
-                            <!-- Checkbox: cubrir doblada completa -->
-                            <div id="checkbox_cubre_completa_am" class="form-check mt-2" style="display: none;">
-                                <input class="form-check-input" type="checkbox" id="cubre_completa_am" name="cubre_completa_am" value="1">
-                                <label class="form-check-label text-success" for="cubre_completa_am">
-                                    <i class="fas fa-user-clock mr-1"></i>Este compañero está descansando. <strong>Que cubra la doblada completa (AM y PM)</strong>
-                                </label>
-                            </div>
-                        </div>
-                        <div class="col-md-6" id="col_receptor_pm">
-                            <label for="empleado_receptor_pm">
-                                <i class="fas fa-user mr-1"></i>Compañero para PM (Tarde) <span class="text-danger">*</span>
-                            </label>
-                            <select class="form-control" id="empleado_receptor_pm" name="empleado_receptor_pm">
-                                <option value="">Selecciona un compañero...</option>
-                            </select>
-                            <small class="form-text text-muted">
-                                Debe tener jornada AM disponible o estar en descanso
-                            </small>
-                            <!-- Checkbox: cubrir doblada completa -->
-                            <div id="checkbox_cubre_completa_pm" class="form-check mt-2" style="display: none;">
-                                <input class="form-check-input" type="checkbox" id="cubre_completa_pm" name="cubre_completa_pm" value="1">
-                                <label class="form-check-label text-success" for="cubre_completa_pm">
-                                    <i class="fas fa-user-clock mr-1"></i>Este compañero está descansando. <strong>Que cubra la doblada completa (AM y PM)</strong>
-                                </label>
-                            </div>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Información del turno del explorador receptor seleccionado -->
@@ -711,7 +633,6 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 <script src="{% static 'js/festivos_colombia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
-<script src="{% static 'js/cambio-turno/doblada/doblada_cesion_total_ui.js' %}"></script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_doblada.js' %}"></script>
 {% endblock %}
