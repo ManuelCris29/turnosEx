@@ -29,6 +29,33 @@ class DobladaRevalidacionTest(MatrizDobladasTestCase):
         self.assertTrue(ok, m)
 
 
+class DobladaConcurrenciaReceptorTest(MatrizDobladasTestCase):
+    def test_caso_b_receptor_ya_comprometido(self):
+        from empleados.models import CompetenciaEmpleado
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+
+        # A: emisor(PM) -> receptor(AM) doblada, aprobada + aplicada.
+        solA, msg = self.strategy.crear_solicitud(self._datos(tipo_cambio=self.tipo_doblada))
+        self.assertIsNotNone(solA, msg)
+        solA.estado = 'aprobada'
+        solA.fecha_resolucion = timezone.now()
+        solA.save()
+        solA = SolicitudCambio.objects.select_related('doblada').get(id=solA.id)
+        ok, m = self.strategy.aplicar_cambios(solA)
+        self.assertTrue(ok, m)
+
+        # B: segundo emisor (PM) hacia el MISMO receptor, misma cesión -> debe bloquearse.
+        u = User.objects.create_user('emisor2.dob', password='x', email='e2@t.com')
+        em2 = Empleado.objects.create(user=u, nombre='Em2', apellido='Test', cedula='3333', email='e2@t.com', activo=True)
+        self._asignar_jornada_base(em2, self.jornada_pm)
+        CompetenciaEmpleado.objects.get_or_create(empleado=em2, sala=self.sala)
+        ok2, m2 = self.strategy.validar_solicitud(self._datos(explorador_solicitante=em2, tipo_cambio=self.tipo_doblada))
+        self.assertFalse(ok2, f"B debió bloquearse (receptor ya comprometido por A). msg={m2}")
+
+
 class DobladaPermRevalidacionTest(TestCase):
     def setUp(self):
         from django.core.cache import cache

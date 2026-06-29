@@ -164,6 +164,26 @@ class DFDSValidacionTest(DFDSBaseTest):
         self.assertIn('mismo mes', msg.lower())
 
 
+class DFDSConcurrenciaReceptorTest(DFDSBaseTest):
+    def test_caso_b_receptor_ya_comprometido(self):
+        # A (solicitante -> receptor) aprobada y aplicada: el receptor dobla ese finde.
+        solA, msg = self.strat.crear_solicitud(self._datos())
+        self.assertIsNotNone(solA, msg)
+        solA.estado = 'aprobada'
+        solA.fecha_resolucion = timezone.now()
+        solA.save()
+        solA = SolicitudCambio.objects.select_related('doblada').get(id=solA.id)
+        ok, m = self.strat.aplicar_cambios(solA)
+        self.assertTrue(ok, m)
+        # Segundo solicitante (mismo grupo) hacia el MISMO receptor, mismo finde -> debe bloquearse.
+        u = User.objects.create_user(username='sol3.fds', password='x')
+        sol2 = Empleado.objects.create(user=u, nombre='Sol3', apellido='Uno', cedula='444', activo=True)
+        AsignarJornadaExplorador.objects.create(explorador=sol2, jornada=self.pm, fecha_inicio=date(2025, 1, 1))
+        CompetenciaEmpleado.objects.create(empleado=sol2, sala=self.sala)
+        ok2, m2 = self.strat.validar_solicitud(self._datos(explorador_solicitante=sol2))
+        self.assertFalse(ok2, f"B debió bloquearse (receptor ya doblado por A). msg={m2}")
+
+
 class DFDSAplicacionTest(DFDSBaseTest):
     def _crear_y_aplicar(self):
         sol, msg = self.strat.crear_solicitud(self._datos())
