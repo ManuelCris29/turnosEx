@@ -98,6 +98,14 @@ class SolicitudCambio(models.Model):
         'self', null=True, blank=True, on_delete=models.SET_NULL,
         related_name='transferencias'
     )
+    snapshot_turnos_previos = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            'Turnos de solicitante/receptor en la(s) fecha(s) afectadas ANTES de aplicar el '
+            'cambio (usado por CT sencillo). Clave "explorador_id:YYYY-MM-DD", valor lista de '
+            '{jornada_nombre, sala_id, tipo_cambio}. Permite revertir al cancelar dentro de los 30 min.'
+        )
+    )
     historial = HistoricalRecords()
 
     class Meta:

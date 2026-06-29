@@ -26,7 +26,18 @@ class CambioTurnoStrategy(SolicitudStrategy):
     
     def __init__(self):
         super().__init__("CT")
-    
+
+    def _datos_desde_solicitud(self, solicitud):
+        """Reconstruye los datos para re-validar al aprobar (ver base)."""
+        f = solicitud.fecha_cambio_turno
+        return {
+            'explorador_solicitante': solicitud.explorador_solicitante,
+            'explorador_receptor': solicitud.explorador_receptor,
+            'tipo_cambio': solicitud.tipo_cambio,
+            'comentario': solicitud.comentario or '',
+            'fecha_cambio_turno': f.strftime('%Y-%m-%d') if f else None,
+        }
+
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
         """
         Validate cambio turno specific data.
@@ -119,19 +130,22 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     f"solicitud aprobada ({_c2['motivo']}); elige otra fecha o compañero."
                 )
 
-            SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
+            # Duplicados/pendientes: reglas de CREACIÓN; se OMITEN al re-validar para aprobar
+            # (la solicitud ya existe y no se está creando otra).
+            if not datos.get('es_revalidacion'):
+                SolicitudValidator.validar_duplicada_misma_fecha(explorador_solicitante, explorador_receptor, fecha)
 
-            # Caso C: una solicitud pendiente a la vez — bloquear si el receptor ya tiene
-            # cualquier solicitud pendiente para esta fecha (como solicitante o receptor).
-            # Solo puede enviarse una nueva cuando la pendiente sea aprobada o cancelada.
-            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(
-                explorador_receptor, fecha
-            )
-            # Mismo principio para el solicitante: no puede tener otra solicitud pendiente
-            # para la misma fecha (ni como solicitante ni como receptor).
-            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
-                explorador_solicitante, fecha
-            )
+                # Caso C: una solicitud pendiente a la vez — bloquear si el receptor ya tiene
+                # cualquier solicitud pendiente para esta fecha (como solicitante o receptor).
+                # Solo puede enviarse una nueva cuando la pendiente sea aprobada o cancelada.
+                SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(
+                    explorador_receptor, fecha
+                )
+                # Mismo principio para el solicitante: no puede tener otra solicitud pendiente
+                # para la misma fecha (ni como solicitante ni como receptor).
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
+                    explorador_solicitante, fecha
+                )
 
             # Validaciones específicas de Cambio Turno (CT)
             # 1. Validar jornada contraria (AM ↔ PM) - Reutilizando jornadas ya obtenidas
@@ -265,7 +279,26 @@ class CambioTurnoStrategy(SolicitudStrategy):
             
         except Exception as e:
             return None, f"Error creando solicitud de cambio de turno: {str(e)}"
-    
+
+    @staticmethod
+    def revertir(solicitud: SolicitudCambio) -> None:
+        """
+        Revierte un CT (sencillo) aprobado dentro de la ventana de cancelación de 30 min:
+        restaura los turnos previos de solicitante y receptor desde el snapshot. CT no genera
+        deudas, así que no hay nada más que deshacer.
+        """
+        from turnos.models import Turno
+        from ..doblada_aplicacion_service import DobladaAplicacionService
+        snap = getattr(solicitud, 'snapshot_turnos_previos', None)
+        if snap:
+            DobladaAplicacionService.restaurar_turnos_desde_snapshot(snap)
+        else:
+            # CT antiguos (sin snapshot): elimina los turnos CT de esa fecha.
+            Turno.objects.filter(
+                explorador__in=[solicitud.explorador_solicitante, solicitud.explorador_receptor],
+                fecha=solicitud.fecha_cambio_turno, tipo_cambio='CT',
+            ).delete()
+
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
         Apply turn change when solicitud is approved.
@@ -318,7 +351,21 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 # Validar que fecha_cambio no sea None
                 if not fecha_cambio:
                     return False, "La solicitud no tiene fecha de cambio de turno definida"
-                
+
+                # Snapshot de turnos previos (solicitante + receptor en la fecha) ANTES de mutar,
+                # para poder revertir al cancelar dentro de los 30 min. Idempotente: solo la 1ª vez.
+                if not solicitud.snapshot_turnos_previos:
+                    _snap = {}
+                    for _emp in (solicitud.explorador_solicitante, solicitud.explorador_receptor):
+                        _snap[f"{_emp.id}:{fecha_cambio.isoformat()}"] = [
+                            {'jornada_nombre': _t.jornada.nombre.upper(), 'sala_id': _t.sala_id,
+                             'tipo_cambio': _t.tipo_cambio}
+                            for _t in Turno.objects.filter(explorador=_emp, fecha=fecha_cambio)
+                                                   .select_related('jornada').order_by('jornada_id')
+                        ]
+                    solicitud.snapshot_turnos_previos = _snap
+                    solicitud.save(update_fields=['snapshot_turnos_previos'])
+
                 # FASE 2.3: VALIDACIÓN DE LÍMITE DE CAMBIOS - Verificar límite antes de aplicar cambios
                 # Límite máximo de cambios por explorador/fecha (configurable, por defecto 2)
                 LIMITE_CAMBIOS_POR_FECHA = 3

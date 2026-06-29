@@ -240,11 +240,14 @@ class TurnoService(ITurnoService):
     # Ver docs/AUDITORIA_FUENTE_VERDAD_TURNOS.md
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _descanso_por_solicitud(empleado, fecha):
+    def _descanso_por_solicitud(empleado, fecha, excluir_id=None):
         """
         L2: ¿el empleado descansa `fecha` por una solicitud APROBADA (sin registro Turno)?
         Devuelve dict {motivo, companero} o None. Cubre DOBLADA, D FDS, CAMBIO DESCANSO y
         DOBLADA PERMANENTE (misma lógica que pinta "Mis Turnos").
+
+        `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada) para no
+        auto-detectar su efecto.
         """
         from django.db.models import Q
         from solicitudes.models import SolicitudCambio
@@ -253,31 +256,34 @@ class TurnoService(ITurnoService):
         def _comp(emp):
             return {'id': emp.id, 'nombre': f'{emp.nombre} {emp.apellido}'}
 
+        def _exc(qs):
+            return qs.exclude(id=excluir_id) if excluir_id else qs
+
         # DOBLADA / D FDS: solicitante descansa en cesión; receptor descansa en pago.
-        s = (SolicitudCambio.objects
+        s = (_exc(SolicitudCambio.objects
              .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                     explorador_solicitante=empleado, fecha_cambio_turno=fecha)
+                     explorador_solicitante=empleado, fecha_cambio_turno=fecha))
              .select_related('explorador_receptor').first())
         if s:
             return {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
-        s = (SolicitudCambio.objects
+        s = (_exc(SolicitudCambio.objects
              .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                     explorador_receptor=empleado, doblada__fecha_pago=fecha)
+                     explorador_receptor=empleado, doblada__fecha_pago=fecha))
              .select_related('explorador_solicitante').first())
         if s:
             return {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
 
         # CAMBIO DESCANSO (su día cedido).
         from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
-        if fecha in CambioDescansoAplicacionService.dias_en_descanso(empleado, fecha, fecha):
+        if fecha in CambioDescansoAplicacionService.dias_en_descanso(empleado, fecha, fecha, excluir_id=excluir_id):
             return {'motivo': 'cambio de día de descanso', 'companero': None}
 
         # DOBLADA PERMANENTE (descanso recurrente; nunca domingo ni festivo).
         if fecha.weekday() != 6 and not DiaEspecial.objects.filter(
                 fecha=fecha, tipo='festivo', activo=True).exists():
-            perm = (SolicitudCambio.objects
+            perm = (_exc(SolicitudCambio.objects
                     .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
-                    .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
+                    .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado)))
                     .select_related('doblada_permanente', 'explorador_solicitante', 'explorador_receptor'))
             for sp in perm:
                 det = getattr(sp, 'doblada_permanente', None)
@@ -292,7 +298,7 @@ class TurnoService(ITurnoService):
         return None
 
     @staticmethod
-    def dia_comprometido_por_solicitud(empleado, fecha):
+    def dia_comprometido_por_solicitud(empleado, fecha, excluir_id=None):
         """
         L2 aislado: ¿el empleado YA tiene `fecha` comprometida (descansa) por una solicitud
         APROBADA (cambio descanso, doblada, d_fds, doblada permanente)?
@@ -300,11 +306,13 @@ class TurnoService(ITurnoService):
         Útil para los formularios que SÍ permiten operar en temporada/festivo (p. ej. DOBLADA),
         donde no se quiere usar `estado_dia` completo (que bloquearía temporada), pero sí evitar
         el doble-compromiso del mismo día. Devuelve dict {motivo, companero} o None.
+
+        `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
         """
         from datetime import datetime as _dt
         if isinstance(fecha, str):
             fecha = _dt.strptime(fecha, '%Y-%m-%d').date()
-        return TurnoService._descanso_por_solicitud(empleado, fecha)
+        return TurnoService._descanso_por_solicitud(empleado, fecha, excluir_id=excluir_id)
 
     @staticmethod
     def estado_dia(empleado, fecha):

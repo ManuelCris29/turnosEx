@@ -109,6 +109,14 @@ class DFDSValidacionTest(DFDSBaseTest):
         ok, msg = self.strat.validar_solicitud(self._datos())
         self.assertTrue(ok, msg)
 
+    def test_revalidacion_para_aprobar_ok(self):
+        # Una D FDS válida debe re-validar True al aprobar (no bloquear aprobaciones válidas).
+        sol, msg = self.strat.crear_solicitud(self._datos())
+        self.assertIsNotNone(sol, msg)
+        sol = SolicitudCambio.objects.select_related('doblada').get(id=sol.id)
+        ok, m = self.strat.revalidar_para_aprobar(sol)
+        self.assertTrue(ok, m)
+
     def test_mismo_empleado_rechazado(self):
         ok, msg = self.strat.validar_solicitud(self._datos(explorador_receptor=self.solicitante))
         self.assertFalse(ok)
@@ -192,3 +200,20 @@ class DFDSAplicacionTest(DFDSBaseTest):
         # de semana). Por lo tanto no debe generarse ninguna deuda corporativa.
         dc = DeudaCorporativa.objects.filter(solicitud_origen=sol)
         self.assertEqual(dc.count(), 0)
+
+    def test_revert_restaura_y_cancela_deudas(self):
+        from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
+        sol = self._crear_y_aplicar()
+        # Tras aplicar: receptor dobla cesión, solicitante dobla pago; hay deuda vigente.
+        self.assertEqual(self._jornadas(self.receptor, self.ces), ['AM', 'PM'])
+        self.assertEqual(self._jornadas(self.solicitante, self.pago), ['AM', 'PM'])
+        self.assertTrue(DeudaExplorador.objects.filter(solicitud_origen=sol)
+                        .exclude(estado='cancelada').exists())
+        # Revertir → turnos vuelven a vacío (findes virtuales) y deudas canceladas.
+        DFDSAplicacionService.revertir(sol)
+        self.assertEqual(self._jornadas(self.receptor, self.ces), [])
+        self.assertEqual(self._jornadas(self.solicitante, self.pago), [])
+        self.assertEqual(self._jornadas(self.solicitante, self.ces), [])
+        self.assertEqual(self._jornadas(self.receptor, self.pago), [])
+        self.assertFalse(DeudaExplorador.objects.filter(solicitud_origen=sol)
+                         .exclude(estado='cancelada').exists())

@@ -11,6 +11,9 @@
 
     const URL_EMPLEADOS = '/solicitudes/obtener-empleados-disponibles/';
     const URL_PROCESAR = '/solicitudes/procesar-solicitud/';
+    const URL_PREVIEW = '/solicitudes/previsualizar-doblada-permanente/';
+    const URL_DIAS_DISP = '/solicitudes/dias-disponibles-doblada-permanente/';
+    let dispDias = null;  // {0:n,1:n,...} días válidos por weekday en el rango (lado solicitante)
 
     const form = document.getElementById('dobladaPermForm');
     if (!form) return;
@@ -26,7 +29,9 @@
     const btnAddDevolucion = document.getElementById('btn_add_devolucion');
     const cesionHint = document.getElementById('cesion_hint');
 
-    const DIAS = [['0', 'Lunes'], ['1', 'Martes'], ['2', 'Miércoles'], ['3', 'Jueves'], ['4', 'Viernes'], ['5', 'Sábado']];
+    // Solo lunes a viernes: la doblada permanente es recurrente y no aplica fines de semana
+    // (un sábado de media jornada es una excepción puntual → Doblada de Fin de Semana).
+    const DIAS = [['0', 'Lunes'], ['1', 'Martes'], ['2', 'Miércoles'], ['3', 'Jueves'], ['4', 'Viernes']];
     let companeros = [];  // [{id, nombre, apellido}]
 
     function notificar(icon, title, text) {
@@ -45,19 +50,23 @@
     if (window.DatepickerFestivos && window.DatepickerFestivos.inicializar) {
         window.DatepickerFestivos.inicializar({
             input: inputFin, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: false, permitirTemporada: false,
+            onDateChange: function () { cargarDisponibilidadDias(); actualizarPreview(); },
         }).then(function (inst) { fpFin = inst; });
         window.DatepickerFestivos.inicializar({
             input: inputInicio, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: false, permitirTemporada: false,
             onDateChange: function (str) {
                 if (fpFin) fpFin.set('minDate', str || 'today');
                 cargarCompaneros(str);
+                cargarDisponibilidadDias();
+                actualizarPreview();
             },
         }).then(function (inst) { fpInicio = inst; });
     } else {
-        fpFin = flatpickr(inputFin, { locale: 'es', dateFormat: 'Y-m-d', minDate: 'today' });
+        fpFin = flatpickr(inputFin, { locale: 'es', dateFormat: 'Y-m-d', minDate: 'today',
+            onChange: function () { cargarDisponibilidadDias(); actualizarPreview(); } });
         fpInicio = flatpickr(inputInicio, {
             locale: 'es', dateFormat: 'Y-m-d', minDate: 'today',
-            onChange: function (sel, str) { if (fpFin) fpFin.set('minDate', str || 'today'); cargarCompaneros(str); },
+            onChange: function (sel, str) { if (fpFin) fpFin.set('minDate', str || 'today'); cargarCompaneros(str); cargarDisponibilidadDias(); actualizarPreview(); },
         });
     }
 
@@ -108,17 +117,123 @@
     // Un día solo puede usarse una vez en TODO el acuerdo (ni dos veces en cesión,
     // ni el mismo día en cesión y devolución). Recalcula las opciones de cada
     // selector quitando los que ya tomaron OTROS, pero PRESERVA su propia selección.
+    const MESES_AB2 = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    function fmtFechaCorta(iso) { const p = iso.split('-'); return `${parseInt(p[2], 10)}/${MESES_AB2[parseInt(p[1], 10) - 1]}`; }
+
     function refreshDias() {
+        const cnt = (v) => (dispDias ? (dispDias[v] || []).length : null);
         const selects = Array.from(form.querySelectorAll('select[name$="_dia"]'));
         selects.forEach(function (sel) {
             const usadosPorOtros = diasUsados(sel);
-            const actual = sel.value;  // su propio día nunca está en "usadosPorOtros"
+            let actual = sel.value;  // su propio día nunca está en "usadosPorOtros"
             const opts = DIAS.filter(([v]) => !usadosPorOtros.has(v));
-            sel.innerHTML = opts
-                .map(([v, n]) => `<option value="${v}"${v === actual ? ' selected' : ''}>${n}</option>`)
-                .join('');
+            // Si el día actual quedó SIN días válidos en el rango, moverlo a uno que sí tenga.
+            if (dispDias && actual && cnt(actual) === 0) {
+                const libre = opts.find(([v]) => cnt(v) > 0);
+                actual = libre ? libre[0] : actual;
+            }
+            sel.innerHTML = opts.map(([v, n]) => {
+                const c = cnt(v);
+                const sinDias = c === 0;
+                const etiqueta = c === null ? n
+                    : (sinDias ? `${n} — sin días disponibles` : `${n} — ${c} ${c === 1 ? 'día' : 'días'} disponible${c === 1 ? '' : 's'}`);
+                return `<option value="${v}"${sinDias ? ' disabled' : ''}${v === actual ? ' selected' : ''}>${etiqueta}</option>`;
+            }).join('');
             sel.value = actual;
+            // Pista con las FECHAS concretas del día elegido en el rango.
+            const row = sel.closest('.perm-row');
+            const hint = row && row.querySelector('.perm-dias-hint');
+            if (hint) {
+                if (!dispDias || !actual) {
+                    hint.textContent = '';
+                } else {
+                    const fechas = dispDias[actual] || [];
+                    hint.textContent = fechas.length
+                        ? 'Fechas en el rango: ' + fechas.map(fmtFechaCorta).join(', ')
+                        : 'Sin fechas válidas en el rango';
+                }
+            }
         });
+        actualizarPreview();
+    }
+
+    // Disponibilidad de días válidos por weekday en el rango (lado solicitante). Al cambiar el
+    // rango, recalcula y refresca los selectores para deshabilitar/anotar los días.
+    function cargarDisponibilidadDias() {
+        const fi = inputInicio.value, ff = inputFin.value;
+        if (!fi || !ff || ff < fi) { dispDias = null; refreshDias(); return; }
+        fetch(`${URL_DIAS_DISP}?fecha_inicio=${encodeURIComponent(fi)}&fecha_fin=${encodeURIComponent(ff)}`,
+              { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((res) => {
+                const d = (res && res.data) ? res.data : res;
+                dispDias = (d && d.por_dia) || null;
+                refreshDias();
+            })
+            .catch(() => { dispDias = null; refreshDias(); });
+    }
+
+    // Preview de "días que se omitirán" en el rango (festivos, descansos, días libres,
+    // dobladas, mantenimiento del solicitante). Enfocado en el solicitante; las exclusiones
+    // del compañero se validan al guardar. Coincide con la lógica de aplicación del backend.
+    const MESES_AB = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    function actualizarPreview() {
+        const box = document.getElementById('preview_omitidos_box');
+        if (!box) return;
+        const fi = inputInicio.value, ff = inputFin.value;
+        const dias = Array.from(diasUsados(null));  // unión de días de cesión y devolución
+        if (!fi || !ff || ff < fi || !dias.length) { box.style.display = 'none'; return; }
+        // Mapa día_semana -> compañero (para revisar también los turnos del compañero de cada día).
+        const mapa = {};
+        filas(cesionRows, 'cesion').forEach((r) => { if (r.dia && r.comp) mapa[r.dia] = r.comp; });
+        filas(devolucionRows, 'devolucion').forEach((r) => { if (r.dia && r.comp) mapa[r.dia] = r.comp; });
+        const qComp = `&dias_companeros=${encodeURIComponent(JSON.stringify(mapa))}`;
+        fetch(`${URL_PREVIEW}?fecha_inicio=${encodeURIComponent(fi)}&fecha_fin=${encodeURIComponent(ff)}&dias=${dias.join(',')}${qComp}`,
+              { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((res) => {
+                const d = (res && res.data) ? res.data : res;
+                const exc = (d && d.excluidas) || [];
+                const apl = (d && d.aplicables) || [];
+
+                // BALANCE por compañero: cuenta los días APLICABLES de cesión y devolución de cada
+                // compañero; deben quedar iguales (te cubre = devuelves). Si no, avisa.
+                const cesMap = {}, devMap = {};
+                filas(cesionRows, 'cesion').forEach((r) => { if (r.dia && r.comp) cesMap[r.dia] = r.comp; });
+                filas(devolucionRows, 'devolucion').forEach((r) => { if (r.dia && r.comp) devMap[r.dia] = r.comp; });
+                const pyWd = (iso) => { const p = iso.split('-'); return String((new Date(+p[0], +p[1] - 1, +p[2]).getDay() + 6) % 7); };
+                const cubre = {}, devuelve = {};
+                apl.forEach((iso) => {
+                    const wd = pyWd(iso);
+                    if (cesMap[wd]) cubre[cesMap[wd]] = (cubre[cesMap[wd]] || 0) + 1;
+                    else if (devMap[wd]) devuelve[devMap[wd]] = (devuelve[devMap[wd]] || 0) + 1;
+                });
+                const nombreComp = (cid) => { const c = companeros.find((x) => String(x.id) === String(cid)); return c ? `${c.nombre} ${c.apellido}` : 'Compañero'; };
+                const balMsgs = [];
+                let hayDesbalance = false;
+                new Set([...Object.keys(cubre), ...Object.keys(devuelve)]).forEach((cid) => {
+                    const c = cubre[cid] || 0, v = devuelve[cid] || 0;
+                    if (c !== v) {
+                        hayDesbalance = true;
+                        balMsgs.push(`<span style="color:#b45309;">⚠️ ${nombreComp(cid)}: te cubre ${c} y devuelves ${v} → se aplicarán ${Math.min(c, v)} (${Math.abs(c - v)} sin contraparte; ajusta el rango/días).</span>`);
+                    } else if (c > 0) {
+                        balMsgs.push(`✅ ${nombreComp(cid)}: ${c} cubre / ${c} devuelve (balanceado).`);
+                    }
+                });
+
+                if (!exc.length && !balMsgs.length) { box.style.display = 'none'; return; }
+                document.getElementById('preview_lista').innerHTML = exc.map((e) => {
+                    const p = e.fecha.split('-');
+                    return `<li><strong>${p[2]}/${MESES_AB[parseInt(p[1], 10) - 1]}</strong> — ${e.razon}</li>`;
+                }).join('');
+                document.getElementById('preview_resumen').textContent = exc.length
+                    ? `Se aplicará en ${d.total_aplicables} día(s); se omitirán ${d.total_excluidas} (festivo, descanso, día libre, doblada, mantenimiento o temporada).`
+                    : `Se aplicará en ${d.total_aplicables} día(s).`;
+                const balEl = document.getElementById('preview_balance');
+                if (balEl) balEl.innerHTML = balMsgs.length ? ('<strong>Balance:</strong><br>' + balMsgs.join('<br>')) : '';
+                box.style.display = 'block';
+            })
+            .catch(() => { box.style.display = 'none'; });
     }
 
     // Compañeros usados actualmente en cesión (para limitar la devolución)
@@ -135,19 +250,23 @@
 
     function nuevaFila(tipo) {
         const row = document.createElement('div');
-        row.className = 'perm-row d-flex align-items-center mb-2';
-        row.style.gap = '.5rem';
+        row.className = 'perm-row mb-2';
         const lista = (tipo === 'cesion') ? companeros : companerosEnCesion();
         const usados = diasUsados(null);
         const diaSel = primerDiaLibre();
         const optDiasLibres = DIAS.filter(([v]) => !usados.has(v))
             .map(([v, n]) => `<option value="${v}"${v === diaSel ? ' selected' : ''}>${n}</option>`).join('');
         row.innerHTML =
-            `<select class="form-control" name="${tipo}_dia" style="max-width:160px;">${optDiasLibres}</select>` +
-            `<select class="form-control" name="${tipo}_companero">${optCompaneros(lista)}</select>` +
-            `<button type="button" class="btn btn-sm btn-outline-danger perm-remove" title="Quitar"><i class="fas fa-times"></i></button>`;
+            `<div class="d-flex align-items-center" style="gap:.5rem;">` +
+                `<select class="form-control" name="${tipo}_dia" style="max-width:230px;">${optDiasLibres}</select>` +
+                `<select class="form-control" name="${tipo}_companero">${optCompaneros(lista)}</select>` +
+                `<button type="button" class="btn btn-sm btn-outline-danger perm-remove" title="Quitar"><i class="fas fa-times"></i></button>` +
+            `</div>` +
+            `<div class="perm-dias-hint small text-muted mt-1" style="margin-left:2px;"></div>`;
         row.querySelector('.perm-remove').addEventListener('click', function () { row.remove(); refreshDias(); });
         row.querySelector('select[name$="_dia"]').addEventListener('change', refreshDias);
+        // Cambiar de compañero también recalcula el preview (revisa SUS turnos por día).
+        row.querySelector('select[name$="_companero"]').addEventListener('change', actualizarPreview);
         return row;
     }
 
@@ -160,14 +279,14 @@
 
     if (btnAddCesion) btnAddCesion.addEventListener('click', function () {
         if (!companeros.length) return;
-        if (!hayDiasLibres()) { notificar('info', 'Sin días libres', 'Ya usaste todos los días (lunes a sábado) entre cesión y devolución.'); return; }
+        if (!hayDiasLibres()) { notificar('info', 'Sin días libres', 'Ya usaste todos los días (lunes a viernes) entre cesión y devolución.'); return; }
         cesionRows.appendChild(nuevaFila('cesion'));
         refreshDias();
     });
     if (btnAddDevolucion) btnAddDevolucion.addEventListener('click', function () {
         const lista = companerosEnCesion();
         if (!lista.length) { notificar('info', 'Primero agrega cesión', 'Agrega al menos un día de cesión con su compañero antes de definir la devolución.'); return; }
-        if (!hayDiasLibres()) { notificar('info', 'Sin días libres', 'Ya usaste todos los días (lunes a sábado) entre cesión y devolución.'); return; }
+        if (!hayDiasLibres()) { notificar('info', 'Sin días libres', 'Ya usaste todos los días (lunes a viernes) entre cesión y devolución.'); return; }
         devolucionRows.appendChild(nuevaFila('devolucion'));
         refreshDias();
     });
@@ -195,9 +314,6 @@
         // Día no puede ser cesión y devolución a la vez (mismo día de semana)
         const diasCes = new Set(ces.map((r) => r.dia));
         if (dev.some((r) => diasCes.has(r.dia))) errores.push('Un día no puede ser de cesión y de devolución a la vez.');
-
-        // Sábado por sábado: si el sábado (5) está en cesión y en devolución
-        if (diasCes.has('5') && dev.some((r) => r.dia === '5')) errores.push('No puedes ceder y devolver en sábado a la vez (eso es Doblada de Fin de Semana).');
 
         // Devolución solo a compañeros que te cubren, y balance por compañero
         const cubreCount = {};   // comp -> # días que te cubre

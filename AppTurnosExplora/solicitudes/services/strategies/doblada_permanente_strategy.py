@@ -62,6 +62,22 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
         )
         return asg.jornada.nombre.upper() if asg else None
 
+    def _datos_desde_solicitud(self, solicitud):
+        """Reconstruye los datos para re-validar al aprobar (ver base)."""
+        det = getattr(solicitud, 'doblada_permanente', None)
+        if not det:
+            return None
+        return {
+            'explorador_solicitante': solicitud.explorador_solicitante,
+            'explorador_receptor': solicitud.explorador_receptor,
+            'tipo_cambio': solicitud.tipo_cambio,
+            'comentario': solicitud.comentario or '',
+            'fecha_inicio': det.fecha_inicio.strftime('%Y-%m-%d'),
+            'fecha_fin': det.fecha_fin.strftime('%Y-%m-%d') if det.fecha_fin else None,
+            'dias_cesion': det.dias_cesion,
+            'dias_devolucion': det.dias_devolucion,
+        }
+
     # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
         try:
@@ -91,9 +107,9 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de doblada permanente')
 
-            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente que inicia esa fecha
-            # (como solicitante o receptor) no se puede enviar otra igual.
-            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fi)
+            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
+            if not datos.get('es_revalidacion'):
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fi)
 
             # Rango válido y no pasado
             from django.utils import timezone
@@ -124,15 +140,12 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 return False, (f"{receptor.nombre} {receptor.apellido} está sancionado en ese rango. "
                                f"Elige otro compañero o ajusta las fechas.")
 
-            # No domingos
-            if 6 in dias_cesion or 6 in dias_devolucion:
-                return False, "No se puede realizar doblada en domingos"
-
-            # Sábado por sábado se gestiona en Doblada de Fin de Semana (D FDS), no aquí.
-            # Se permite el sábado en UN solo lado (sábado ↔ día de semana), pero no en ambos.
-            if 5 in dias_cesion and 5 in dias_devolucion:
-                return False, ("No puedes ceder y devolver en sábado a la vez (sábado por sábado). "
-                               "Para intercambiar sábados usa una Doblada de Fin de Semana.")
+            # Solo lunes a viernes: la doblada permanente es RECURRENTE y los fines de semana se
+            # rigen por alternancia (un sábado de media jornada es una excepción puntual, no
+            # permanente). Para intercambiar un sábado puntual se usa Doblada de Fin de Semana.
+            if (dias_cesion | dias_devolucion) & {5, 6}:
+                return False, ("La doblada permanente es solo de lunes a viernes (no aplica fines de "
+                               "semana). Para intercambiar un sábado usa una Doblada de Fin de Semana.")
 
             # Cesión y devolución no pueden compartir día de la semana (mismo día: descansar y doblar a la vez)
             interseccion = dias_cesion & dias_devolucion
@@ -159,6 +172,10 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 .filter(_Q(solicitud__explorador_receptor=receptor) | _Q(solicitud__explorador_solicitante=receptor))
                 .select_related('solicitud')
             )
+            # Al re-validar para aprobar, excluir la PROPIA solicitud (no solapa consigo misma).
+            _excluir = datos.get('solicitud_actual_id')
+            if _excluir:
+                otros = otros.exclude(solicitud_id=_excluir)
             for det in otros:
                 dias_otro = _set(det.dias_cesion) | _set(det.dias_devolucion)
                 if dias_acuerdo & dias_otro:
@@ -185,85 +202,26 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                                "Ajusta el rango o elige otro compañero.")
 
             # ===========================
-            # Regla del sábado
+            # OMITIR los días inválidos (como CT Permanente): NO se rechaza toda la solicitud.
             # ===========================
-            # El sábado solo se admite si la persona que CEDE su jornada ese día tiene UNA
-            # sola jornada (media jornada AM o PM):
-            #   - Si el sábado es de CESIÓN  → el SOLICITANTE cede (el compañero lo cubre).
-            #   - Si el sábado es de DEVOLUCIÓN → el COMPAÑERO cede (el solicitante lo cubre).
-            # Si esa persona tiene doblada (día completo) o no tiene turno, se bloquea:
-            # primero hay que hacer una doblada normal (día de semana por sábado) para dejar
-            # ese sábado con una sola jornada.
-            if 5 in dias_cesion or 5 in dias_devolucion:
-                from turnos.models import Turno
-                from datetime import timedelta
-                if 5 in dias_cesion:
-                    exp_sab, etiqueta = solicitante, 'tú cedes'
-                else:
-                    exp_sab, etiqueta = receptor, 'el compañero cede'
-                d = fi
-                while d <= ff:
-                    if d.weekday() == 5:
-                        n = Turno.objects.filter(explorador=exp_sab, fecha=d).count()
-                        if n != 1:
-                            razon = ('ese día hay doblada (día completo)' if n >= 2
-                                     else 'ese día no hay una sola jornada asignada')
-                            return False, (
-                                f"El sábado {d.strftime('%d/%m/%Y')} {etiqueta} pero {razon}. "
-                                f"La doblada permanente solo admite sábados cuando quien cede tiene UNA sola "
-                                f"jornada (media jornada AM o PM). Primero se debe hacer una doblada normal "
-                                f"(día de semana por sábado) para dejar ese sábado con una sola jornada, "
-                                f"o elige otro día/compañero."
-                            )
-                    d += timedelta(days=1)
-
-            # ===========================
-            # Cada fecha ENTRE SEMANA del rango: ambos deben tener UNA sola jornada.
-            # ===========================
-            # La doblada permanente parte de 1 jornada y al doblar quedas con 2. Por eso, si
-            # en una fecha elegida el solicitante o el receptor YA tiene una doblada (2 jornadas)
-            # o tiene el día LIBRE (descanso), no se permite la solicitud.
+            # Se aplica solo en los días VÁLIDOS del rango; los inválidos (festivo, fin de semana,
+            # mantenimiento, temporada, descanso o día ya comprometido de cualquiera de los dos)
+            # se SALTAN en la aplicación. Aquí solo exigimos que quede AL MENOS un día válido para
+            # que la solicitud tenga efecto.
             from solicitudes.services.doblada_permanente_aplicacion_service import (
                 DobladaPermanenteAplicacionService as _DPAS,
             )
-            from turnos.models import Turno as _T
-            from turnos.services.turno_service import TurnoService as _TSv
-
-            ocurrencias = sorted(set(
-                list(_DPAS._ocurrencias(fi, ff, dias_cesion))
-                + list(_DPAS._ocurrencias(fi, ff, dias_devolucion))
-            ))
-
-            def _estado_jornada(emp, fecha):
-                """Devuelve 'doblada' (2 turnos), 'libre' (descanso) o None (1 jornada = ok)."""
-                n = _T.objects.filter(explorador=emp, fecha=fecha).count()
-                if n >= 2:
-                    return 'doblada'
-                if n == 1:
-                    return None
-                # n == 0 (sin Turno real): usar la FUENTE DE VERDAD única. Marca 'libre' si
-                # descansa por CUALQUIER motivo: temporada, mantenimiento, fin de semana o un
-                # día ya comprometido en otra solicitud aprobada (L2). Si trabaja → 1 jornada ok.
-                est = _TSv.estado_dia(emp, fecha)
-                return 'libre' if not est['trabaja'] else None
-
-            for d in ocurrencias:
-                if d.weekday() == 5:  # los sábados los maneja la regla del sábado de arriba
-                    continue
-                for emp, tiene in ((solicitante, 'tú ya tienes'), (receptor, f'{receptor.nombre} ya tiene')):
-                    est = _estado_jornada(emp, d)
-                    if est == 'doblada':
-                        return False, (
-                            f"El {d.strftime('%d/%m/%Y')} {tiene} una doblada (día completo). "
-                            f"La doblada permanente requiere partir de UNA sola jornada ese día. "
-                            f"Elige otros días o resuelve esa doblada primero."
-                        )
-                    if est == 'libre':
-                        quien = 'tú tienes' if tiene.startswith('tú') else f'{receptor.nombre} tiene'
-                        return False, (
-                            f"El {d.strftime('%d/%m/%Y')} {quien} el día libre (descanso). "
-                            f"No se puede doblar un día de descanso; elige otros días."
-                        )
+            # BALANCE: deben quedar días válidos en AMBOS lados (cubrir Y devolver). Si un lado
+            # queda en 0, la doblada sería injusta (pagar sin cobertura o al revés) → se rechaza.
+            _ex = datos.get('solicitud_actual_id')
+            ocur_ces = list(_DPAS._ocurrencias(fi, ff, dias_cesion, solicitante, receptor, _ex))
+            ocur_dev = list(_DPAS._ocurrencias(fi, ff, dias_devolucion, solicitante, receptor, _ex))
+            if min(len(ocur_ces), len(ocur_dev)) == 0:
+                return False, (
+                    "En este rango no quedan días válidos para CUBRIR y DEVOLVER a la vez "
+                    "(un lado queda en 0 por festivos, fines de semana, mantenimiento, temporada, "
+                    "descansos o días ya comprometidos). Ajusta el rango o los días seleccionados."
+                )
 
             return True, "Solicitud de doblada permanente válida"
 

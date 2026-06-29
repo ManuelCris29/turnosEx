@@ -89,6 +89,24 @@ class CambioDescansoStrategy(SolicitudStrategy):
         return contador
 
     @staticmethod
+    def _es_duplicado_pendiente(solicitante, receptor, fecha_cesion, fecha_pago):
+        """¿Ya hay una solicitud de cambio de descanso PENDIENTE con el mismo PAR de fechas
+        {cesión, pago} (en cualquier orden) entre las dos personas (en cualquier rol)?
+
+        El intercambio es SIMÉTRICO (cesión↔pago dan el mismo resultado), por eso miramos el
+        par en ambos sentidos. El validador genérico solo mira fecha_cambio_turno, así que NO
+        ve la versión invertida (cesión=A/pago=B vs cesión=B/pago=A)."""
+        from django.db.models import Q
+        from solicitudes.models import SolicitudCambio
+        return (SolicitudCambio.objects
+                .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='pendiente')
+                .filter(Q(explorador_solicitante=solicitante, explorador_receptor=receptor) |
+                        Q(explorador_solicitante=receptor, explorador_receptor=solicitante))
+                .filter(Q(fecha_cambio_turno=fecha_cesion, doblada__fecha_pago=fecha_pago) |
+                        Q(fecha_cambio_turno=fecha_pago,   doblada__fecha_pago=fecha_cesion))
+                .exists())
+
+    @staticmethod
     def _trabaja_dia(explorador, fecha):
         """
         Verifica que el explorador TRABAJE ese día y que ese día esté DISPONIBLE para un
@@ -115,8 +133,9 @@ class CambioDescansoStrategy(SolicitudStrategy):
         comprometidos = sorted({t.tipo_cambio for t in turnos if t.tipo_cambio})
         if comprometidos:
             return False, (
-                f"Ese día ya está comprometido en otra solicitud ({', '.join(comprometidos)}). "
-                f"No se puede intercambiar un día que ya es parte de otra gestión."
+                f"Ese día ya tiene un cambio aplicado ({', '.join(comprometidos)}). "
+                f"Para rehacerlo, primero cancela ese cambio (dentro de los 30 min de aprobado) "
+                f"y vuelve a intentarlo."
             )
 
         # 2) Turno real sin tipo_cambio (horario base materializado) → trabaja.
@@ -133,6 +152,19 @@ class CambioDescansoStrategy(SolicitudStrategy):
         if not t:
             return False, "Descanso"
         return True, t.get('jornada') or 'TRABAJA'
+
+    # ------------------------------------------------ re-validación al aprobar
+    def _datos_desde_solicitud(self, solicitud):
+        """Reconstruye los datos para re-validar al aprobar (ver base)."""
+        det = getattr(solicitud, 'doblada', None)
+        return {
+            'explorador_solicitante': solicitud.explorador_solicitante,
+            'explorador_receptor': solicitud.explorador_receptor,
+            'tipo_cambio': solicitud.tipo_cambio,
+            'comentario': solicitud.comentario or '',
+            'fecha_cambio_turno': solicitud.fecha_cambio_turno,
+            'fecha_pago': det.fecha_pago if det else None,
+        }
 
     # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
@@ -159,15 +191,17 @@ class CambioDescansoStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'el cambio de día de descanso')
 
-            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente para esa fecha (de
-            # cualquier tipo, como solicitante o receptor) no se puede enviar otra igual.
-            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
-            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
+            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar,
+            # donde la solicitud ya existe y no se está creando otra).
+            if not datos.get('es_revalidacion'):
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
+                SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
 
             # Detectar modalidad: fin de semana (sáb/dom) o ENTRE SEMANA (lun-vie).
             es_finde = fecha_cesion.weekday() in (5, 6)
             if not es_finde:
-                return self._validar_entre_semana(solicitante, receptor, fecha_cesion, fecha_pago)
+                return self._validar_entre_semana(solicitante, receptor, fecha_cesion, fecha_pago,
+                                                  es_revalidacion=datos.get('es_revalidacion'))
 
             # --- Fin de semana ---
             if fecha_cesion.weekday() not in (5, 6):
@@ -197,6 +231,15 @@ class CambioDescansoStrategy(SolicitudStrategy):
 
             # Mismo mes que la cesión
             SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
+
+            # Duplicado (par de fechas en cualquier orden, mismas personas). Ver _es_duplicado_pendiente.
+            # Se omite al re-validar para aprobar (regla de creación).
+            if not datos.get('es_revalidacion') and self._es_duplicado_pendiente(solicitante, receptor, fecha_cesion, fecha_pago):
+                return False, (
+                    f"Ya enviaste esta solicitud de cambio de descanso (mismas fechas: "
+                    f"{fecha_cesion.strftime('%d/%m')} y {fecha_pago.strftime('%d/%m')}). "
+                    f"Está pendiente de aprobación."
+                )
 
             # Grupos contrarios
             grupo_sol = self._grupo_base(solicitante, fecha_cesion)
@@ -257,7 +300,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         except Exception as e:
             return False, f"Error validando cambio de descanso: {str(e)}"
 
-    def _validar_entre_semana(self, solicitante, receptor, fecha_cesion, fecha_pago):
+    def _validar_entre_semana(self, solicitante, receptor, fecha_cesion, fecha_pago, es_revalidacion=False):
         """
         Validación del cambio de descanso ENTRE SEMANA (lun-vie) en temporada.
 
@@ -287,6 +330,12 @@ class CambioDescansoStrategy(SolicitudStrategy):
         dias_diff = abs((fecha_pago - fecha_cesion).days)
         if dias_diff > 45:
             return False, "Los descansos deben estar en el mismo rango de temporada (máximo 45 días)."
+
+        # Duplicado (par de fechas en cualquier orden, mismas personas). Igual que en finde:
+        # el genérico solo mira fecha_cesion y no ve la versión invertida (roles intercambiados).
+        # Se omite al re-validar para aprobar (regla de creación).
+        if not es_revalidacion and self._es_duplicado_pendiente(solicitante, receptor, fecha_cesion, fecha_pago):
+            return False, "Ya enviaste este intercambio de descanso (mismos días). Está pendiente de aprobación."
 
         # Grupos contrarios
         grupo_sol = self._grupo_base(solicitante, fecha_cesion)

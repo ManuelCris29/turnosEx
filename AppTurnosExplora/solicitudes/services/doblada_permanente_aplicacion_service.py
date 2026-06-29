@@ -28,19 +28,33 @@ class DobladaPermanenteAplicacionService:
         return {int(x) for x in (dias_str or '').split(',') if x.strip().isdigit()}
 
     @staticmethod
-    def _ocurrencias(fecha_inicio, fecha_fin, dias_set):
+    def _ocurrencias(fecha_inicio, fecha_fin, dias_set, solicitante=None, receptor=None, excluir_id=None):
         """
-        Fechas del rango cuyo weekday está en dias_set, excluyendo domingos, festivos
-        y días de mantenimiento (la temporada manda sobre el mantenimiento).
+        Fechas del rango cuyo weekday está en dias_set y que son VÁLIDAS para doblada.
+        EXCLUYE (misma política que CT Permanente — se OMITEN, no se rechaza todo):
+        - fines de semana (sábado y domingo) y festivos,
+        - mantenimiento y temporada,
+        - días en que el solicitante o el receptor descansan o YA tienen un cambio
+          (doblada / CT / D FDS) — solo si se pasan ambos exploradores.
         """
-        from .ct_permanente_helper import _es_festivo
-        from turnos.models import DiaEspecial
+        from .ct_permanente_helper import (_es_festivo, _es_mantenimiento, _es_temporada,
+                                            _es_dia_descanso, _tipo_cambio_previo, _dia_libre_por_solicitud)
         d = fecha_inicio
         while d <= fecha_fin:
-            if (d.weekday() in dias_set and d.weekday() != 6
-                    and not _es_festivo(d)
-                    and not DiaEspecial.es_mantenimiento_efectivo(d)):
-                yield d
+            if (d.weekday() in dias_set and d.weekday() < 5
+                    and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)):
+                # Excluye si el solicitante o el receptor ese día: descansan (rotación/temporada),
+                # ya tienen un cambio (doblada/CT/D FDS) o están LIBRES por otra solicitud aprobada
+                # (L2 — vía estado de Mis Turnos). `excluir_id` ignora ESTA solicitud al aplicarla
+                # ya aprobada (si no, se auto-excluiría su propio efecto de descanso).
+                _ok = True
+                for emp in (solicitante, receptor):
+                    if emp and (_es_dia_descanso(emp, d) or _tipo_cambio_previo(emp, d)
+                                or _dia_libre_por_solicitud(emp, d, excluir_id)):
+                        _ok = False
+                        break
+                if _ok:
+                    yield d
             d += timedelta(days=1)
 
     @staticmethod
@@ -81,14 +95,18 @@ class DobladaPermanenteAplicacionService:
         cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
         devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
 
-        # Snapshot de todas las fechas afectadas (cesión + devolución) ANTES de mutar,
-        # para poder revertir si se cancela dentro de los 30 min.
-        fechas_afectadas = sorted(set(
-            list(DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, cesion))
-            + list(DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, devolucion))
-        ))
-        # Solo capturar la PRIMERA vez: si ya existe snapshot (doble aplicación accidental),
-        # no sobrescribir, para no grabar el estado ya aplicado como "previo".
+        # Ocurrencias VÁLIDAS de cada lado (ya omiten festivo/temporada/mantenimiento/descanso/
+        # día comprometido). BALANCE: solo se aplican PARES cubrir↔devolver, así que se recorta
+        # cada lado al MÍNIMO común → nunca se paga un favor que no se recibió, ni al revés.
+        _occ = DobladaPermanenteAplicacionService._ocurrencias
+        _ex = solicitud.id  # excluir ESTA solicitud (ya aprobada) de la detección L2
+        ocur_ces = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, cesion, solicitante, receptor, _ex))
+        ocur_dev = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, devolucion, solicitante, receptor, _ex))
+        n = min(len(ocur_ces), len(ocur_dev))
+        ocur_ces, ocur_dev = ocur_ces[:n], ocur_dev[:n]
+
+        # Snapshot de las fechas afectadas ANTES de mutar (para revertir en 30 min).
+        fechas_afectadas = sorted(set(ocur_ces + ocur_dev))
         if not getattr(detalle, 'snapshot_turnos_previos', None):
             snapshot = DobladaPermanenteAplicacionService._capturar_snapshot(solicitante, receptor, fechas_afectadas)
             from solicitudes.models import DobladaPermanenteDetalle as _DPD
@@ -98,14 +116,14 @@ class DobladaPermanenteAplicacionService:
         n_ces = n_dev = 0
 
         # Cesión: receptor dobla, solicitante descansa
-        for fecha in DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, cesion):
+        for fecha in ocur_ces:
             DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio='DOBLADA PERM')
             Turno.objects.filter(explorador=solicitante, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(receptor, fecha, solicitud, 'cesión')
             n_ces += 1
 
         # Devolución: solicitante dobla, receptor descansa
-        for fecha in DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, devolucion):
+        for fecha in ocur_dev:
             DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio='DOBLADA PERM')
             Turno.objects.filter(explorador=receptor, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(solicitante, fecha, solicitud, 'devolución')

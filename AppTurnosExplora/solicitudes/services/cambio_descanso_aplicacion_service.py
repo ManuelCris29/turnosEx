@@ -52,13 +52,15 @@ class CambioDescansoAplicacionService:
         return {'AM': Jornada.objects.get(nombre='AM'), 'PM': Jornada.objects.get(nombre='PM')}
 
     @staticmethod
-    def dias_en_descanso(empleado, fecha_inicio, fecha_fin):
+    def dias_en_descanso(empleado, fecha_inicio, fecha_fin, excluir_id=None):
         """
         Conjunto de fechas en [fecha_inicio, fecha_fin] donde el empleado DESCANSA por una
         solicitud de CAMBIO DESCANSO aprobada (su día cedido, que queda sin registro Turno).
 
         Misma lógica que usa "Mis Turnos" para pintar el descanso. Sirve para que el
         formulario/validación NO vuelvan a ofrecer un día ya comprometido.
+
+        `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
         """
         from django.db.models import Q
         from solicitudes.models import SolicitudCambio
@@ -70,6 +72,8 @@ class CambioDescansoAplicacionService:
               .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
               .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
               .select_related('doblada'))
+        if excluir_id:
+            qs = qs.exclude(id=excluir_id)
         for s in qs:
             det = getattr(s, 'doblada', None)
             if not det:

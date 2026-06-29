@@ -353,11 +353,22 @@
             resumen.classList.remove('show');
             return;
         }
-        const fc = parseISO(cesion.fechaTrabajoISO);
-        const fp = parseISO(pago.fechaTrabajoISO);
-        resumen.innerHTML = `<i class="fas fa-exchange-alt mr-1"></i> ` +
-            `Cambias tu ${nombreDia(fc)} ${fmt(fc)} con <strong>${empleadoReceptor.nombre} ${empleadoReceptor.apellido}</strong>, ` +
-            `y devuelves trabajando el ${nombreDia(fp)} ${fmt(fp)}. Quedan con los mismos domingos.`;
+        // Día que trabajas HOY en cada finde y el día al que CAMBIAS (el contrario del finde).
+        const cesAhora  = cesion.diaTrabajo === 'sabado' ? cesion.sabado : cesion.domingo;
+        const cesNuevo  = cesion.diaTrabajo === 'sabado' ? cesion.domingo : cesion.sabado;
+        const pagoAhora = pago.diaTrabajo === 'sabado' ? pago.sabado : pago.domingo;
+        const pagoNuevo = pago.diaTrabajo === 'sabado' ? pago.domingo : pago.sabado;
+        const comp = `${empleadoReceptor.nombre} ${empleadoReceptor.apellido}`;
+        resumen.innerHTML =
+            `<div class="mb-1"><i class="fas fa-exchange-alt mr-1"></i> Intercambio con <strong>${comp}</strong>:</div>` +
+            `<div class="ml-3">• <strong>Semana del cambio:</strong> dejas de trabajar el ` +
+                `${nombreDia(cesAhora)} ${fmt(cesAhora)} y pasas a trabajar el ` +
+                `<strong>${nombreDia(cesNuevo)} ${fmt(cesNuevo)}</strong>.</div>` +
+            `<div class="ml-3">• <strong>Semana de devolución:</strong> dejas de trabajar el ` +
+                `${nombreDia(pagoAhora)} ${fmt(pagoAhora)} y pasas a trabajar el ` +
+                `<strong>${nombreDia(pagoNuevo)} ${fmt(pagoNuevo)}</strong>.</div>` +
+            `<div class="mt-1 text-muted"><small>Tu compañero hace lo contrario. ` +
+                `Ambos quedan con los mismos domingos del mes.</small></div>`;
         resumen.classList.add('show');
     }
 

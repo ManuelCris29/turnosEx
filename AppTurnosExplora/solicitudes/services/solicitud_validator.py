@@ -660,7 +660,7 @@ class SolicitudValidator:
             )
     
     @staticmethod
-    def validar_no_cambio_permanente_superpuesto(solicitante: Empleado, receptor: Empleado, fecha_inicio, fecha_fin=None):
+    def validar_no_cambio_permanente_superpuesto(solicitante: Empleado, receptor: Empleado, fecha_inicio, fecha_fin=None, excluir_id=None):
         """
         Validar que no haya cambios permanentes superpuestos.
         
@@ -688,7 +688,11 @@ class SolicitudValidator:
             tipo_cambio__nombre='CT PERMANENTE',
             estado__in=['pendiente', 'aprobada']
         ).select_related('cambio_permanente')
-        
+
+        # Al re-validar para aprobar, excluir la PROPIA solicitud (no es un solapamiento consigo misma).
+        if excluir_id:
+            cambios_existentes = cambios_existentes.exclude(id=excluir_id)
+
         for cambio in cambios_existentes:
             detalle = cambio.cambio_permanente
             if detalle:

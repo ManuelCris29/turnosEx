@@ -109,6 +109,17 @@ class RechazarSolicitudReceptorView(LoginRequiredMixin, View):
 class CancelarSolicitudView(LoginRequiredMixin, View):
     VENTANA_CANCELACION_MINUTOS = 30
 
+    @staticmethod
+    def _pares_afectados(solicitud):
+        """Conjunto de claves "empleado_id:YYYY-MM-DD" que tocó la solicitud, leídas de su
+        snapshot (esté en la propia solicitud, en `doblada` o en `doblada_permanente`).
+        Es la huella uniforme de (persona, día) afectados, para la guardia de orden (LIFO)."""
+        snap = (getattr(solicitud, 'snapshot_turnos_previos', None)
+                or getattr(getattr(solicitud, 'doblada', None), 'snapshot_turnos_previos', None)
+                or getattr(getattr(solicitud, 'doblada_permanente', None), 'snapshot_turnos_previos', None)
+                or {})
+        return set(snap.keys())
+
     def post(self, request, solicitud_id):
         try:
             from django.db import transaction
@@ -161,6 +172,32 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                             status=400, code='ventana_expirada'
                         )
 
+                    # Guardia de orden (LIFO): no se puede cancelar este cambio si hay otro cambio
+                    # APROBADO MÁS RECIENTE sobre los mismos (persona, día). Revertir el viejo
+                    # restauraría su foto previa y PISARÍA el cambio nuevo. Hay que cancelar primero
+                    # el más reciente. La huella de (persona, día) sale del snapshot de cada uno.
+                    from django.db.models import Q as _Q
+                    from datetime import date as _date
+                    _mios = self._pares_afectados(solicitud)
+                    if _mios:
+                        _personas = [solicitud.explorador_solicitante_id, solicitud.explorador_receptor_id]
+                        _posteriores = (SolicitudCambio.objects
+                                        .filter(estado='aprobada', fecha_resolucion__gt=solicitud.fecha_resolucion)
+                                        .filter(_Q(explorador_solicitante_id__in=_personas) |
+                                                _Q(explorador_receptor_id__in=_personas))
+                                        .exclude(id=solicitud.id)
+                                        .select_related('doblada', 'doblada_permanente'))
+                        for _otra in _posteriores:
+                            _comunes = _mios & self._pares_afectados(_otra)
+                            if _comunes:
+                                _fechas = sorted({k.split(':', 1)[1] for k in _comunes})
+                                _fmt = ', '.join(_date.fromisoformat(f).strftime('%d/%m') for f in _fechas)
+                                return json_error(
+                                    f'No puedes cancelar este cambio: hay otro más reciente sobre el mismo '
+                                    f'día ({_fmt}). Cancela primero el cambio más reciente.',
+                                    status=400, code='cambio_mas_reciente'
+                                )
+
                     # Revertir cambios de la doblada si aplica
                     tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
                     es_doblada = (
@@ -177,6 +214,59 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                         for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
                             CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
                             CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+
+                    elif tipo_nombre == 'D FDS' and getattr(solicitud, 'doblada', None) is not None:
+                        # Doblada de fin de semana: restaura turnos desde snapshot y cancela las
+                        # deudas generadas (favor/pago). Sin esto, al cancelar quedaba aplicada.
+                        from ..services.d_fds_aplicacion_service import DFDSAplicacionService
+                        DFDSAplicacionService.revertir(solicitud)
+                        from core.services.cache_service import CacheService as CS
+                        detalle = solicitud.doblada
+                        for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
+                            if fecha:
+                                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
+                                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+
+                    elif tipo_nombre == 'CAMBIO TURNO':
+                        # CT sencillo: restaura los turnos previos (jornadas intercambiadas) desde
+                        # el snapshot. No genera deudas.
+                        from ..services.strategies.cambio_turno_strategy import CambioTurnoStrategy
+                        CambioTurnoStrategy.revertir(solicitud)
+                        from core.services.cache_service import CacheService as CS
+                        f = solicitud.fecha_cambio_turno
+                        if f:
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, f.month, f.year)
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, f.month, f.year)
+
+                    elif tipo_nombre == 'CT PERMANENTE' and getattr(solicitud, 'cambio_permanente', None):
+                        # CT permanente: borrado dirigido de los turnos CT PERMANENTE creados.
+                        from ..services.strategies.ct_permanente_strategy import CTPermanenteStrategy
+                        CTPermanenteStrategy.revertir(solicitud)
+                        from core.services.cache_service import CacheService as CS
+                        from datetime import timedelta as _td
+                        det = solicitud.cambio_permanente
+                        fin = det.fecha_fin or det.fecha_inicio
+                        meses = set()
+                        d = det.fecha_inicio
+                        while d <= fin:
+                            meses.add((d.month, d.year)); d += _td(days=28)
+                        meses.add((fin.month, fin.year))
+                        for (m, y) in meses:
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
+                            CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
+
+                    elif tipo_nombre == 'CAMBIO DESCANSO' and getattr(solicitud, 'doblada', None) is not None:
+                        # Cambio de día de descanso (finde o entre semana): restaura los turnos
+                        # previos desde el snapshot (igual mecanismo que doblada). Sin esto, al
+                        # cancelar quedaba el intercambio aplicado.
+                        from ..services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
+                        CambioDescansoAplicacionService.revertir(solicitud)
+                        from core.services.cache_service import CacheService as CS
+                        detalle = solicitud.doblada
+                        for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
+                            if fecha:
+                                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
+                                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
 
                     elif tipo_nombre == 'DOBLADA PERMANENTE' and getattr(solicitud, 'doblada_permanente', None):
                         from ..services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService

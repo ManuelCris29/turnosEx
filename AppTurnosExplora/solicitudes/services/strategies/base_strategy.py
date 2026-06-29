@@ -71,6 +71,32 @@ class SolicitudStrategy(ABC):
         """
         pass
     
+    def _datos_desde_solicitud(self, solicitud: SolicitudCambio) -> Optional[Dict[str, Any]]:
+        """
+        Reconstruye el dict `datos` (igual al de la creación) a partir de una solicitud YA
+        persistida, para poder RE-VALIDARLA al aprobar con el estado actual del sistema.
+
+        Devuelve None si el tipo aún no soporta re-validación (en ese caso se omite, sin
+        bloquear). Cada estrategia concreta debe implementarlo para quedar cubierta.
+        """
+        return None
+
+    def revalidar_para_aprobar(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
+        """
+        Re-valida la solicitud con el estado ACTUAL, justo antes de aplicarla al aprobar.
+        Atrapa solicitudes que quedaron inválidas entre el envío y la aprobación (festivo
+        nuevo, día ya comprometido por otra gestión, fecha en el pasado, etc.).
+
+        Marca `es_revalidacion=True` para que se OMITAN los chequeos de "duplicado pendiente"
+        (son una regla de creación; al aprobar no aplican y verían la propia solicitud).
+        """
+        datos = self._datos_desde_solicitud(solicitud)
+        if datos is None:
+            return True, 'Sin re-validación para este tipo'
+        datos['es_revalidacion'] = True
+        datos['solicitud_actual_id'] = solicitud.id
+        return self.validar_solicitud(datos)
+
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
         Get available employees for this solicitud type.

@@ -22,6 +22,8 @@ __all__ = [
     "SolicitarCambioTurnoView",
     "ObtenerEmpleadosDisponiblesView",
     "PrevisualizarCTPermanenteView",
+    "PrevisualizarDobladaPermanenteView",
+    "DiasDisponiblesDobladaPermanenteView",
     "ObtenerTurnoExploradorView",
     "VerificarCoincidenciaJornadasView",
     "ObtenerJornadasRangoView",

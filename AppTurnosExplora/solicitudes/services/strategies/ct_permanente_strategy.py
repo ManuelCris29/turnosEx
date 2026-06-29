@@ -26,7 +26,29 @@ class CTPermanenteStrategy(SolicitudStrategy):
     
     def __init__(self):
         super().__init__("CT PERMANENTE")
-    
+
+    def _datos_desde_solicitud(self, solicitud):
+        """Reconstruye los datos para re-validar al aprobar (ver base). Rearma
+        dias_seleccionados desde los CambioPermanenteDia del detalle."""
+        det = getattr(solicitud, 'cambio_permanente', None)
+        if not det:
+            return None
+        fechas_especificas, dias_semana = [], []
+        for d in det.dias.all():
+            if d.tipo == 'fecha_especifica' and d.fecha_especifica:
+                fechas_especificas.append(d.fecha_especifica.strftime('%Y-%m-%d'))
+            elif d.tipo == 'dia_semana' and d.dia_semana is not None:
+                dias_semana.append(d.dia_semana)
+        return {
+            'explorador_solicitante': solicitud.explorador_solicitante,
+            'explorador_receptor': solicitud.explorador_receptor,
+            'tipo_cambio': solicitud.tipo_cambio,
+            'comentario': solicitud.comentario or '',
+            'fecha_inicio': det.fecha_inicio.strftime('%Y-%m-%d'),
+            'fecha_fin': det.fecha_fin.strftime('%Y-%m-%d') if det.fecha_fin else None,
+            'dias_seleccionados': {'fechas_especificas': fechas_especificas, 'dias_semana': dias_semana},
+        }
+
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
         """
         Validate CT permanente specific data.
@@ -63,9 +85,9 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # Comentario obligatorio
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de cambio de turno permanente')
 
-            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente que inicia esa fecha
-            # (como solicitante o receptor) no se puede enviar otra igual.
-            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(explorador_solicitante, fecha_inicio)
+            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
+            if not datos.get('es_revalidacion'):
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(explorador_solicitante, fecha_inicio)
 
             # Validaciones específicas de CT PERMANENTE
             SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
@@ -98,9 +120,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 dias_seleccionados if dias_seleccionados else None
             )
             
-            # Validar superposición con otros cambios permanentes
+            # Validar superposición con otros cambios permanentes (excluyendo la propia solicitud
+            # al re-validar para aprobar).
             SolicitudValidator.validar_no_cambio_permanente_superpuesto(
-                explorador_solicitante, explorador_receptor, fecha_inicio, fecha_fin
+                explorador_solicitante, explorador_receptor, fecha_inicio, fecha_fin,
+                excluir_id=datos.get('solicitud_actual_id')
             )
             
             return True, "Solicitud de CT permanente válida"
@@ -199,7 +223,30 @@ class CTPermanenteStrategy(SolicitudStrategy):
             
         except Exception as e:
             return None, f"Error creando solicitud de CT permanente: {str(e)}"
-    
+
+    @staticmethod
+    def revertir(solicitud: SolicitudCambio) -> None:
+        """
+        Revierte un CT permanente aprobado (cancelación de 30 min) con BORRADO DIRIGIDO:
+        borra solo los turnos `CT PERMANENTE` que esta gestión creó (en las fechas exactas
+        guardadas en el snapshot). NO toca cambios posteriores sobre esos días (p. ej. un CT
+        sencillo que mutó el turno a 'CT'): como ya no es 'CT PERMANENTE', se respeta.
+        El estado previo de esos días era virtual, así que basta con borrar.
+        """
+        from datetime import date as _date
+        from turnos.models import Turno
+        snap = getattr(solicitud, 'snapshot_turnos_previos', None) or {}
+        for key in snap:
+            try:
+                emp_str, fecha_str = key.split(':', 1)
+                emp_id = int(emp_str)
+                fecha = _date.fromisoformat(fecha_str)
+            except (ValueError, TypeError):
+                continue
+            Turno.objects.filter(
+                explorador_id=emp_id, fecha=fecha, tipo_cambio='CT PERMANENTE',
+            ).delete()
+
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
         Apply permanent change when solicitud is approved.
@@ -269,6 +316,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
             turnos_creados = []
             dias_omitidos = []
             dias_procesados = 0
+            # Snapshot de las fechas que ESTA gestión crea (para revertir con borrado dirigido).
+            _snapshot_previos = {}
             
             # Obtener la sala (especialidad) de cada empleado vía CompetenciaEmpleado
             from empleados.models import CompetenciaEmpleado
@@ -303,28 +352,43 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 # IMPORTANTE: CT PERMANENTE solo permite lunes-viernes (weekday 0-4)
                 # Nota: Los días de descanso ya deberían estar excluidos en la validación,
                 # pero verificamos aquí como medida de seguridad
+                from ..ct_permanente_helper import _es_temporada as _es_temp
                 es_sabado = fecha_actual.weekday() == 5
                 es_domingo = fecha_actual.weekday() == 6
                 es_festivo = self._es_festivo(fecha_actual)
                 es_mantenimiento = self._es_mantenimiento(fecha_actual)
+                es_temporada = _es_temp(fecha_actual)
                 es_descanso_solicitante = self._es_dia_descanso(solicitud.explorador_solicitante, fecha_actual)
                 es_descanso_receptor = self._es_dia_descanso(solicitud.explorador_receptor, fecha_actual)
                 # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada
                 # predeterminada, por lo que el CT permanente NO puede aplicarse ese día.
                 tipo_previo_solicitante = self._tipo_cambio_previo(solicitud.explorador_solicitante, fecha_actual)
                 tipo_previo_receptor = self._tipo_cambio_previo(solicitud.explorador_receptor, fecha_actual)
+                # Día LIBRE por otra solicitud aprobada (L2) que no deja Turno (doblada cedida,
+                # cambio de descanso, etc.). CT permanente no genera descansos L2, así que no se
+                # auto-referencia: basta con detectar las de OTRAS solicitudes (excluir_id=None).
+                from turnos.services.turno_service import TurnoService as _TSv
+                libre_solicitante = _TSv.dia_comprometido_por_solicitud(solicitud.explorador_solicitante, fecha_actual) is not None
+                libre_receptor = _TSv.dia_comprometido_por_solicitud(solicitud.explorador_receptor, fecha_actual) is not None
 
                 # Determinar si el día es válido
                 es_valido = (not es_sabado and
                             not es_domingo and
                             not es_festivo and
                             not es_mantenimiento and
+                            not es_temporada and
                             not es_descanso_solicitante and
                             not es_descanso_receptor and
                             not tipo_previo_solicitante and
-                            not tipo_previo_receptor)
+                            not tipo_previo_receptor and
+                            not libre_solicitante and
+                            not libre_receptor)
                 
                 if es_valido:
+                    # Guardar la fecha que creamos (para el revert dirigido). El estado previo de
+                    # estos días es virtual (es_valido excluye días ya comprometidos).
+                    _snapshot_previos[f"{solicitud.explorador_solicitante.id}:{fecha_actual.isoformat()}"] = []
+                    _snapshot_previos[f"{solicitud.explorador_receptor.id}:{fecha_actual.isoformat()}"] = []
                     # Crear turnos solo para días válidos
                     turno_solicitante = Turno.objects.create(
                         explorador=solicitud.explorador_solicitante,
@@ -355,7 +419,10 @@ class CTPermanenteStrategy(SolicitudStrategy):
                         es_descanso_solicitante,
                         es_descanso_receptor,
                         tipo_previo_solicitante,
-                        tipo_previo_receptor
+                        tipo_previo_receptor,
+                        es_temporada=es_temporada,
+                        libre_solicitante=libre_solicitante,
+                        libre_receptor=libre_receptor,
                     )
                     dias_omitidos.append(f"{fecha_actual.strftime('%d/%m/%Y')} ({razon})")
             
@@ -365,6 +432,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 primer_turno_solicitante, primer_turno_receptor = turnos_creados[0]
                 solicitud.turno_origen = primer_turno_solicitante
                 solicitud.turno_destino = primer_turno_receptor
+                if not solicitud.snapshot_turnos_previos:
+                    solicitud.snapshot_turnos_previos = _snapshot_previos
                 solicitud.save()
             
             # 3. No necesitamos jornadas de retorno - la jornada predeterminada se usará automáticamente
@@ -739,7 +808,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
         else:
             return "no válido"
     
-    def _obtener_razon_dia_invalido_detallada(self, fecha, es_sabado, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor, tipo_previo_solicitante=None, tipo_previo_receptor=None):
+    def _obtener_razon_dia_invalido_detallada(self, fecha, es_sabado, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor, tipo_previo_solicitante=None, tipo_previo_receptor=None, es_temporada=False, libre_solicitante=False, libre_receptor=False):
         """Obtener la razón detallada por la cual un día es inválido"""
         razones = []
         if es_sabado:
@@ -750,10 +819,16 @@ class CTPermanenteStrategy(SolicitudStrategy):
             razones.append("festivo")
         if es_mantenimiento:
             razones.append("mantenimiento")
+        if es_temporada:
+            razones.append("temporada")
         if es_descanso_solicitante:
             razones.append("descanso solicitante")
         if es_descanso_receptor:
             razones.append("descanso receptor")
+        if libre_solicitante:
+            razones.append("día libre del solicitante (otra solicitud)")
+        if libre_receptor:
+            razones.append("día libre del compañero (otra solicitud)")
         if tipo_previo_solicitante:
             razones.append(f"el solicitante {self._razon_tipo_cambio_previo(tipo_previo_solicitante)}; para incluirlo, ese día debe quedar en su jornada predeterminada")
         if tipo_previo_receptor:

@@ -120,7 +120,28 @@ class DobladaStrategy(SolicitudStrategy):
     
     def __init__(self):
         super().__init__("DOBLADA")
-    
+
+    def _datos_desde_solicitud(self, solicitud):
+        """Reconstruye los datos para re-validar al aprobar (ver base). Todos los campos
+        viven en DobladaDetalle."""
+        det = getattr(solicitud, 'doblada', None)
+        if not det:
+            return None
+        return {
+            'explorador_solicitante': solicitud.explorador_solicitante,
+            'explorador_receptor': solicitud.explorador_receptor,
+            'tipo_cambio': solicitud.tipo_cambio,
+            'comentario': solicitud.comentario or '',
+            'fecha_cambio_turno': solicitud.fecha_cambio_turno,
+            'fecha_pago': det.fecha_pago,
+            'jornada_cedida': det.jornada_cedida,
+            'jornada_pago_sabado': det.jornada_pago_sabado,
+            'jornada_cubre_en_pago': det.jornada_cubre_en_pago,
+            'fecha_pago_semana': det.fecha_pago_semana,
+            'tipo_cesion': det.tipo_cesion,
+            'fecha_creacion_solicitud': solicitud.fecha_solicitud.date() if solicitud.fecha_solicitud else None,
+        }
+
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
         """
         Validate doblada specific data.
@@ -193,15 +214,15 @@ class DobladaStrategy(SolicitudStrategy):
             # Caso A: fecha_pago debe estar en el mismo mes que fecha_cesion
             SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
 
-            # Caso C: receptor sin solicitud pendiente en fecha_cesion
-            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(
-                explorador_receptor, fecha_cesion
-            )
-
-            # Caso D: solicitante sin solicitud pendiente en fecha_cesion
-            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
-                explorador_solicitante, fecha_cesion
-            )
+            # Casos C/D: sin solicitud pendiente en fecha_cesion (reglas de CREACIÓN; se OMITEN
+            # al re-validar para aprobar, donde la solicitud ya existe).
+            if not datos.get('es_revalidacion'):
+                SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(
+                    explorador_receptor, fecha_cesion
+                )
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
+                    explorador_solicitante, fecha_cesion
+                )
 
             # Caso 1.2: ambos descansando en fecha de pago → rechazar
             SolicitudValidator.validar_ambos_descansando_fecha_pago(

@@ -102,6 +102,32 @@ class DFDSAplicacionService:
 
     @staticmethod
     @transaction.atomic
+    def revertir(solicitud: SolicitudCambio) -> None:
+        """
+        Revierte una D FDS aprobada (ventana de cancelación de 30 min):
+        restaura los turnos previos desde el snapshot y cancela las deudas generadas.
+        Sin esto, al cancelar quedaban las dobladas aplicadas y las deudas vigentes.
+        """
+        from solicitudes.models import DeudaExplorador, DeudaCorporativa
+        from .doblada_aplicacion_service import DobladaAplicacionService
+
+        detalle = solicitud.doblada
+        snapshot = getattr(detalle, 'snapshot_turnos_previos', None)
+        if snapshot:
+            DobladaAplicacionService.restaurar_turnos_desde_snapshot(snapshot)
+        else:
+            # D FDS antiguas (sin snapshot): elimina los turnos D FDS de cesión y pago.
+            Turno.objects.filter(
+                explorador__in=[solicitud.explorador_solicitante, solicitud.explorador_receptor],
+                fecha__in=[solicitud.fecha_cambio_turno, detalle.fecha_pago],
+                tipo_cambio='D FDS',
+            ).delete()
+        DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        logger.info("D FDS revertida: Solicitud %s", solicitud.id)
+
+    @staticmethod
+    @transaction.atomic
     def generar_deudas(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
         """
         Genera la deuda entre exploradores y las deudas corporativas (30 min por

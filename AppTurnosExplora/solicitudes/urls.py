@@ -8,7 +8,8 @@ from .views import (
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
     AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, AprobarSolicitudAmbosView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView,
-    ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView,
+    ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView, PrevisualizarDobladaPermanenteView,
+    DiasDisponiblesDobladaPermanenteView,
     ObtenerExploradoresDobladaView, VerificarDobladaExistenteView, ObtenerFechasDescansoView,
     VerificarCoincidenciaJornadasView,
     GestionSolicitudesView, ReenviarNotificacionSolicitudView,
@@ -60,6 +61,8 @@ urlpatterns = [
     path('cambio-descanso-findes/', CambioDescansoFindesView.as_view(), name='cambio_descanso_findes'),
     path('obtener-detalle-solicitud/<int:solicitud_id>/', ObtenerDetalleSolicitudView.as_view(), name='obtener_detalle_solicitud'),
     path('previsualizar-ct-permanente/', PrevisualizarCTPermanenteView.as_view(), name='previsualizar_ct_permanente'),
+    path('previsualizar-doblada-permanente/', PrevisualizarDobladaPermanenteView.as_view(), name='previsualizar_doblada_permanente'),
+    path('dias-disponibles-doblada-permanente/', DiasDisponiblesDobladaPermanenteView.as_view(), name='dias_disponibles_doblada_permanente'),
     path('procesar-solicitud/', ProcesarSolicitudView.as_view(), name='procesar_solicitud'),
     
     # DOBLADA - Endpoints específicos

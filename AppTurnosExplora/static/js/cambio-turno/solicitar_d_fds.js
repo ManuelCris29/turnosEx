@@ -45,14 +45,18 @@
             .then((res) => {
                 const d = (res && res.data) ? res.data : res;
                 if (!d || !d.sabado || !d.domingo) { contenedor.style.display = 'none'; return; }
-                const chip = (label, dia, jor) => {
-                    const esMio = MI_JORNADA && (jor || '').toUpperCase() === MI_JORNADA;
+                // "Tú" se marca según el día que el usuario trabaja REALMENTE (flag `mio` del
+                // backend, calculado con la fuente de verdad), no comparando con la jornada base.
+                // Así refleja cambios aprobados (p. ej. cambio de descanso que movió el día).
+                const chip = (label, dia, jor, mio) => {
+                    const esMio = !!mio;
                     const tuTag = esMio ? ` <span class="tu-tag"><i class="fas fa-user"></i> Tú</span>` : '';
                     return `<span class="fds-dia${esMio ? ' es-mio' : ''}">${label} ${dia} ` +
                            `<span class="jor jor-${jor}">${jor || '?'}</span>${tuTag}</span>`;
                 };
                 contenedor.innerHTML =
-                    chip('Sáb', d.sabado.dia, d.sabado.jornada) + chip('Dom', d.domingo.dia, d.domingo.jornada);
+                    chip('Sáb', d.sabado.dia, d.sabado.jornada, d.sabado.mio) +
+                    chip('Dom', d.domingo.dia, d.domingo.jornada, d.domingo.mio);
                 contenedor.style.display = 'flex';
             })
             .catch(() => { contenedor.style.display = 'none'; });

@@ -57,6 +57,18 @@ class DFDSStrategy(SolicitudStrategy):
                .select_related('jornada').order_by('-fecha_inicio').first())
         return asg.jornada.nombre.upper() if asg else None
 
+    def _datos_desde_solicitud(self, solicitud):
+        """Reconstruye los datos para re-validar al aprobar (ver base)."""
+        det = getattr(solicitud, 'doblada', None)
+        return {
+            'explorador_solicitante': solicitud.explorador_solicitante,
+            'explorador_receptor': solicitud.explorador_receptor,
+            'tipo_cambio': solicitud.tipo_cambio,
+            'comentario': solicitud.comentario or '',
+            'fecha_cambio_turno': solicitud.fecha_cambio_turno,
+            'fecha_pago': det.fecha_pago if det else None,
+        }
+
     # --------------------------------------------------------------- validación
     def validar_solicitud(self, datos: Dict[str, Any]) -> Tuple[bool, str]:
         try:
@@ -89,10 +101,10 @@ class DFDSStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de D FDS')
 
-            # No DUPLICADOS pendientes: si ya hay una solicitud pendiente para esa fecha de
-            # cesión (de cualquier tipo, como solicitante o receptor) no se puede enviar otra igual.
-            SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
-            SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
+            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
+            if not datos.get('es_revalidacion'):
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
+                SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
 
             # 3. Ambas fechas deben ser fin de semana (sáb/dom)
             if fecha_cesion.weekday() not in (5, 6):

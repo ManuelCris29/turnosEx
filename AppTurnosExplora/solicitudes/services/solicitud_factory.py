@@ -286,9 +286,30 @@ class SolicitudFactory:
             error_msg = f"Error aplicando cambios: {str(e)}"
             logger.exception("SolicitudFactory.aplicar_cambios - Excepción: %s", error_msg)
             return False, error_msg
-    
+
     @classmethod
-    def get_empleados_disponibles(cls, tipo_solicitud: TipoSolicitudCambio, 
+    def revalidar_para_aprobar(cls, solicitud: 'SolicitudCambio') -> tuple:
+        """
+        Re-valida una solicitud con el estado ACTUAL del sistema, justo antes de aplicarla
+        al aprobar (delega en la estrategia). Devuelve (ok, mensaje).
+
+        Fail-open ante errores inesperados: la re-validación es una red de seguridad EXTRA;
+        si fallara por un bug, no debe bloquear todas las aprobaciones (se registra y se deja
+        pasar al flujo normal de aplicación).
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        strategy = cls.get_strategy(solicitud.tipo_cambio)
+        if not strategy:
+            return True, ''
+        try:
+            return strategy.revalidar_para_aprobar(solicitud)
+        except Exception as e:
+            logger.exception("SolicitudFactory.revalidar_para_aprobar - Excepción: %s", e)
+            return True, f'Re-validación omitida por error: {e}'
+
+    @classmethod
+    def get_empleados_disponibles(cls, tipo_solicitud: TipoSolicitudCambio,
                                  fecha: str, usuario_actual, **kwargs) -> list:
         """
         Get available employees for a solicitud type.

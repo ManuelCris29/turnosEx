@@ -91,6 +91,17 @@
                     <small class="form-text text-muted">Solo puedes devolverle a un compañero que te cubra.</small>
                 </div>
 
+                <div class="form-group" id="preview_omitidos_box" style="display:none;">
+                    <div class="alert" style="background:#fff7ed; border:1px solid #fed7aa; border-radius:10px;">
+                        <div class="font-weight-bold mb-1" style="color:#9a3412;">
+                            <i class="fas fa-calendar-times mr-1"></i>Días que se omitirán en el rango
+                        </div>
+                        <p class="small text-muted mb-2" id="preview_resumen"></p>
+                        <ul class="mb-0 small" id="preview_lista" style="max-height:160px; overflow:auto;"></ul>
+                        <div class="small mt-2" id="preview_balance"></div>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label for="comentarios"><i class="fas fa-comment mr-1"></i>Comentario <span class="text-danger">*</span></label>
                     <textarea class="form-control" id="comentarios" name="comentarios" rows="3" maxlength="1000" required

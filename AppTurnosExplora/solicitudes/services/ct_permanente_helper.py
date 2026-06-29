@@ -23,6 +23,8 @@ _PRIORIDAD_RAZONES_CT_PERMANENTE = [
     'Doblada Receptor',
     'Cambio Previo Solicitante',
     'Cambio Previo Receptor',
+    'Día libre Solicitante',
+    'Día libre Receptor',
     'Descanso Solicitante',
     'Descanso Receptor',
     'Fines de semana',
@@ -134,7 +136,9 @@ def calcular_fechas_aplicables_ct_permanente(
             not es_descanso_solicitante and
             not es_descanso_receptor and
             not tipo_previo_solicitante and
-            not tipo_previo_receptor):
+            not tipo_previo_receptor and
+            not _dia_libre_por_solicitud(solicitante, fecha_dia) and
+            not _dia_libre_por_solicitud(receptor, fecha_dia)):
             fechas_finales.append(fecha_dia)
 
     return fechas_finales
@@ -212,6 +216,22 @@ def _tipo_cambio_previo(explorador: Empleado, fecha: date):
         return next(iter(tipos))
     except Exception:
         return None
+
+
+def _dia_libre_por_solicitud(empleado: Empleado, fecha: date, excluir_id=None) -> bool:
+    """
+    ¿El empleado tiene el día LIBRE por una solicitud APROBADA (doblada cedida, pago de doblada,
+    cambio de descanso, doblada permanente)? Capta los descansos por solicitud que NO dejan un
+    registro Turno y que _es_dia_descanso (solo calendario/rotación) no ve — para que los
+    formularios permanentes respeten "Mis Turnos".
+
+    `excluir_id` ignora una solicitud (la PROPIA, al aplicarla ya aprobada) y evita auto-detección.
+    """
+    try:
+        from turnos.services.turno_service import TurnoService
+        return TurnoService.dia_comprometido_por_solicitud(empleado, fecha, excluir_id=excluir_id) is not None
+    except Exception:
+        return False
 
 
 def _razon_cambio_previo(tipo: str, es_solicitante: bool) -> str:
@@ -334,6 +354,12 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
         # Verificar día de descanso del receptor
         if _es_dia_descanso(receptor, fecha_dia):
             razones_exclusion.append('Descanso Receptor')
+
+        # Día LIBRE por otra solicitud aprobada (sin Turno) — refleja "Mis Turnos".
+        if _dia_libre_por_solicitud(solicitante, fecha_dia):
+            razones_exclusion.append('Día libre Solicitante')
+        if _dia_libre_por_solicitud(receptor, fecha_dia):
+            razones_exclusion.append('Día libre Receptor')
 
         # Verificar día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
         tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha_dia)

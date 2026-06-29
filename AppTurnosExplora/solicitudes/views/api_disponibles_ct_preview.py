@@ -193,6 +193,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
             _es_temporada,
             _es_dia_descanso,
             _tipo_cambio_previo,
+            _dia_libre_por_solicitud,
             _razon_cambio_previo,
             _razon_principal_ct_permanente,
         )
@@ -326,6 +327,12 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                     razones_exclusion.append('Descanso Solicitante')
                 if receptor and _es_dia_descanso(receptor, fecha_dia):
                     razones_exclusion.append('Descanso Receptor')
+                # Día LIBRE por otra solicitud aprobada (sin Turno: doblada cedida, cambio de
+                # descanso…) — lo que _es_dia_descanso (calendario) no ve, para reflejar Mis Turnos.
+                if _dia_libre_por_solicitud(solicitante, fecha_dia):
+                    razones_exclusion.append('Día libre Solicitante')
+                if receptor and _dia_libre_por_solicitud(receptor, fecha_dia):
+                    razones_exclusion.append('Día libre Receptor')
                 # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
                 tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha_dia)
                 if tipo_previo_sol:
@@ -397,5 +404,136 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                 status=500,
                 code='internal_error',
             )
+
+
+class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
+    """
+    Preview de días APLICABLES / OMITIDOS para DOBLADA PERMANENTE (solo lunes-viernes).
+
+    Enfocado en el SOLICITANTE: festivos, mantenimiento, temporada, sus descansos y sus días
+    ya comprometidos (doblada/CT/D FDS). Las exclusiones del/los compañero(s) se validan al
+    guardar (la doblada permanente admite distinto compañero por día). Misma lógica de exclusión
+    que la aplicación, para que el preview coincida con lo que realmente se aplicará.
+    """
+
+    def get(self, request):
+        import json
+        from datetime import datetime, timedelta
+        from empleados.models import Empleado
+        from ..services.ct_permanente_helper import (
+            _es_festivo, _es_mantenimiento, _es_temporada, _es_dia_descanso, _tipo_cambio_previo,
+            _dia_libre_por_solicitud,
+        )
+
+        fi_s = request.GET.get('fecha_inicio')
+        ff_s = request.GET.get('fecha_fin')
+        dias_s = request.GET.get('dias', '')  # csv de weekdays (cesión ∪ devolución)
+        dias_comp_json = request.GET.get('dias_companeros', '')  # {"weekday": companero_id}
+
+        if not fi_s or not ff_s:
+            return json_error('Faltan fecha_inicio o fecha_fin', status=400, code='missing_params')
+        try:
+            fi = datetime.strptime(fi_s, '%Y-%m-%d').date()
+            ff = datetime.strptime(ff_s, '%Y-%m-%d').date()
+        except ValueError:
+            return json_error('Formato de fecha inválido (YYYY-MM-DD)', status=400, code='invalid_date')
+        if not hasattr(request.user, 'empleado'):
+            return json_error('Usuario sin empleado asociado', status=400, code='no_empleado')
+
+        solicitante = request.user.empleado
+        try:
+            dias_comp = json.loads(dias_comp_json) if dias_comp_json else {}
+        except json.JSONDecodeError:
+            dias_comp = {}
+
+        dias = {int(x) for x in dias_s.split(',') if x.strip().isdigit() and 0 <= int(x) < 5}
+        dias |= {int(k) for k in dias_comp.keys() if str(k).isdigit() and 0 <= int(k) < 5}
+
+        # Compañero asignado a cada día de la semana (para revisar SUS turnos por día).
+        comp_por_dia = {}
+        for k, cid in dias_comp.items():
+            if cid and str(k).isdigit():
+                comp_por_dia[int(k)] = Empleado.objects.filter(id=cid).first()
+
+        # MISMA política que la aplicación (`_ocurrencias`): helpers (no estado_dia, para no
+        # auto-referenciar). Revisa al solicitante y, si el día tiene compañero, también a él.
+        aplicables, excluidas = [], []
+        if dias and ff >= fi:
+            d = fi
+            while d <= ff:
+                wd = d.weekday()
+                if wd in dias:
+                    razon = None
+                    if _es_festivo(d):
+                        razon = 'Festivo'
+                    elif _es_mantenimiento(d):
+                        razon = 'Mantenimiento'
+                    elif _es_temporada(d):
+                        razon = 'Temporada'
+                    elif _es_dia_descanso(solicitante, d):
+                        razon = 'Tu descanso'
+                    elif _tipo_cambio_previo(solicitante, d) or _dia_libre_por_solicitud(solicitante, d):
+                        razon = 'Ya tienes un cambio/doblada o día libre'
+                    else:
+                        comp = comp_por_dia.get(wd)
+                        if comp and (_es_dia_descanso(comp, d) or _dia_libre_por_solicitud(comp, d)):
+                            razon = f'{comp.nombre} descansa o está libre'
+                        elif comp and _tipo_cambio_previo(comp, d):
+                            razon = f'{comp.nombre} ya tiene un cambio/doblada'
+                    if razon:
+                        excluidas.append({'fecha': d.strftime('%Y-%m-%d'), 'razon': razon})
+                    else:
+                        aplicables.append(d.strftime('%Y-%m-%d'))
+                d += timedelta(days=1)
+
+        return json_ok({
+            'aplicables': aplicables,
+            'excluidas': excluidas,
+            'total_aplicables': len(aplicables),
+            'total_excluidas': len(excluidas),
+        })
+
+
+class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
+    """
+    Cuenta, por día de la semana (lun=0 … vie=4), cuántas fechas VÁLIDAS hay en el rango para
+    el SOLICITANTE (descontando fin de semana, festivo, temporada, mantenimiento y sus descansos
+    o días ya comprometidos). Sirve para deshabilitar/anotar los días en el selector del
+    formulario, y así no dejar elegir un día que no tiene ocurrencias válidas en el rango.
+    """
+
+    def get(self, request):
+        from datetime import datetime, timedelta
+        from ..services.ct_permanente_helper import (
+            _es_festivo, _es_mantenimiento, _es_temporada, _es_dia_descanso, _tipo_cambio_previo,
+            _dia_libre_por_solicitud,
+        )
+
+        fi_s = request.GET.get('fecha_inicio')
+        ff_s = request.GET.get('fecha_fin')
+        if not fi_s or not ff_s:
+            return json_error('Faltan fecha_inicio o fecha_fin', status=400, code='missing_params')
+        try:
+            fi = datetime.strptime(fi_s, '%Y-%m-%d').date()
+            ff = datetime.strptime(ff_s, '%Y-%m-%d').date()
+        except ValueError:
+            return json_error('Formato de fecha inválido (YYYY-MM-DD)', status=400, code='invalid_date')
+        if not hasattr(request.user, 'empleado'):
+            return json_error('Usuario sin empleado asociado', status=400, code='no_empleado')
+
+        solicitante = request.user.empleado
+        # Por cada día de la semana (lun-vie), las FECHAS válidas del rango (no solo el conteo),
+        # para mostrar en el formulario cuáles son (ej. "Martes: 14/jul, 28/jul").
+        por_dia = {w: [] for w in range(5)}
+        if ff >= fi:
+            d = fi
+            while d <= ff:
+                w = d.weekday()
+                if (w < 5 and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)
+                        and not _es_dia_descanso(solicitante, d) and not _tipo_cambio_previo(solicitante, d)
+                        and not _dia_libre_por_solicitud(solicitante, d)):
+                    por_dia[w].append(d.strftime('%Y-%m-%d'))
+                d += timedelta(days=1)
+        return json_ok({'por_dia': por_dia})
 
 

@@ -278,12 +278,23 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                         elif tiene_doblada_real_bd and turno_dict and jornada_turno and jornada_turno == grupo_que_dobla.upper():
                             es_doblada = True
                             turnos_list = ['AM', 'PM']
-                        elif not tiene_doblada_real_bd and tipo_solicitud and tipo_solicitud.nombre == 'DOBLADA' and jornada_turno and jornada_turno != grupo_que_dobla.upper():
-                            # Festivo donde el solicitante DESCANSA por rotación: no mostrar jornada base
+                        elif not tiene_doblada_real_bd and jornada_turno and jornada_turno != grupo_que_dobla.upper():
+                            # Festivo donde el solicitante NO es del grupo que dobla → DESCANSA por
+                            # rotación. Aplica a CUALQUIER tipo de solicitud (igual que "Mis Turnos");
+                            # antes solo se contemplaba para DOBLADA y el Cambio de Turno mostraba la
+                            # jornada base por error.
                             turno_dict = None
                             turnos_list = []
+                            esta_descansando = True
+                            if not descanso_info:
+                                descanso_info = {'tipo': 'descanso_semana', 'motivo': 'festivo'}
                 except Exception:
                     pass
+
+            # Si el día quedó como DOBLADA (festivo del grupo que dobla o doblada real), la
+            # jornada mostrada debe ser 'DOBLADA' (no la base), igual que estado_dia / Mis Turnos.
+            if es_doblada and turno_dict and turno_dict.get('jornada') != 'DOBLADA':
+                turno_dict['jornada'] = 'DOBLADA'
 
             # Solo convertir DOBLADA a jornada simple si:
             # 1. NO es doblada real (no hay turnos AM+PM en BD)
@@ -587,6 +598,7 @@ class AlternanciaFindeView(LoginRequiredMixin, View):
     def get(self, request):
         from datetime import datetime, timedelta
         from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        from turnos.services.turno_service import TurnoService
         fecha_str = request.GET.get('fecha')
         if not fecha_str:
             return json_error('Falta el parámetro fecha', status=400, code='missing_params')
@@ -599,16 +611,28 @@ class AlternanciaFindeView(LoginRequiredMixin, View):
 
         sabado = fecha if fecha.weekday() == 5 else fecha - timedelta(days=1)
         domingo = sabado + timedelta(days=1)
+
+        # "mio": ¿el USUARIO trabaja ese día REALMENTE? Usa la fuente de verdad única
+        # (estado_dia, las mismas capas de "Mis Turnos"), NO la alternancia pura. Así el
+        # distintivo refleja cambios aprobados (p. ej. un cambio de descanso que movió su
+        # día de trabajo del domingo al sábado). La jornada AM/PM sigue siendo la del finde.
+        emp = getattr(request.user, 'empleado', None)
+
+        def _mio(d):
+            return bool(emp and TurnoService.estado_dia(emp, d)['trabaja'])
+
         return json_ok({
             'sabado': {
                 'fecha': sabado.strftime('%Y-%m-%d'),
                 'dia': sabado.strftime('%d/%m'),
                 'jornada': AlternanciaFinesSemanaService.jornada_trabaja_sabado(sabado),
+                'mio': _mio(sabado),
             },
             'domingo': {
                 'fecha': domingo.strftime('%Y-%m-%d'),
                 'dia': domingo.strftime('%d/%m'),
                 'jornada': AlternanciaFinesSemanaService.jornada_trabaja_domingo(sabado),
+                'mio': _mio(domingo),
             },
         })
 
@@ -638,12 +662,22 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
                    .filter(explorador=emp, fecha_inicio__lte=_date(anio, 12, 31))
                    .select_related('jornada').order_by('-fecha_inicio').first())
             jornada = asg.jornada.nombre.upper() if asg else None
+        # ¿Es la consulta de MIS PROPIOS descansos? (sin ?jornada=). En ese caso reflejamos la
+        # REALIDAD con la fuente de verdad (estado_dia): un descanso de temporada que el usuario
+        # YA cedió en un cambio de descanso (ahora trabaja ese día) NO debe ofrecerse como
+        # disponible. La consulta del grupo contrario (?jornada=) se queda con la config (es a
+        # nivel grupo, sin persona concreta); esa la protege la validación del servidor al aprobar.
+        es_propio = not jornada_param
         res = {}
         if jornada:
+            from turnos.services.turno_service import TurnoService
             for d in DescansoSemanaManual.objects.filter(
                     fecha__year=anio, activo=True, jornada__nombre__iexact=jornada):
-                if d.fecha.weekday() < 5:
-                    res[d.fecha.isoformat()] = 'temporada'
+                if d.fecha.weekday() >= 5:
+                    continue
+                if es_propio and TurnoService.estado_dia(emp, d.fecha)['trabaja']:
+                    continue  # ya lo cedió: hoy trabaja ese día, no es descanso disponible
+                res[d.fecha.isoformat()] = 'temporada'
         for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='mantenimiento', activo=True):
             if de.fecha.weekday() < 5 and DiaEspecial.es_mantenimiento_efectivo(de.fecha):
                 res.setdefault(de.fecha.isoformat(), 'mantenimiento')

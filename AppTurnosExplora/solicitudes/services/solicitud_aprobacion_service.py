@@ -46,6 +46,14 @@ class SolicitudAprobacionService:
         """
         from django.db import transaction
 
+        # Re-validación con el estado ACTUAL (#7): atrapa solicitudes que quedaron inválidas
+        # entre el envío y la aprobación (festivo nuevo, día ya comprometido, fecha pasada…).
+        # Si ya no es válida, NO se aprueba ni se aplica.
+        ok_reval, msg_reval = SolicitudFactory.revalidar_para_aprobar(solicitud)
+        if not ok_reval:
+            logger.warning("Re-validación falló para solicitud ID %d: %s", solicitud.id, msg_reval)
+            return False, f"No se puede aprobar: {msg_reval}"
+
         solicitud.estado = 'aprobada'
         solicitud.fecha_resolucion = timezone.now()
         try:
