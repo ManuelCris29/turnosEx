@@ -305,7 +305,15 @@ class SolicitudFactory:
         try:
             return strategy.revalidar_para_aprobar(solicitud)
         except Exception as e:
-            logger.exception("SolicitudFactory.revalidar_para_aprobar - Excepción: %s", e)
+            # Fail-open: se permite aprobar para no bloquear todo el flujo, pero queda ALERTA en
+            # el log (con id/tipo) para detectar un eventual bug en la re-validación.
+            logger.exception(
+                "ALERTA re-validacion al aprobar FALLO (fail-open, se permite aprobar) - "
+                "solicitud ID %s, tipo %s: %s",
+                getattr(solicitud, 'id', '?'),
+                solicitud.tipo_cambio.nombre if getattr(solicitud, 'tipo_cambio', None) else '?',
+                e,
+            )
             return True, f'Re-validación omitida por error: {e}'
 
     @classmethod

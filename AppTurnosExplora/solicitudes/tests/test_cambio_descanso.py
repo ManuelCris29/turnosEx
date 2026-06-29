@@ -202,6 +202,27 @@ class CDAplicacionTest(CDBaseTest):
                              f"El día {d} no volvió a su estado previo tras revertir")
 
 
+class CDConcurrenciaReceptorTest(CDBaseTest):
+    def test_caso_b_receptor_ya_comprometido_por_otra_aprobada(self):
+        # Caso B: A (solicitante -> receptor) ya APROBADA y aplicada. Un SEGUNDO solicitante del
+        # mismo grupo intenta el MISMO receptor el mismo finde -> debe bloquearse (el receptor ya
+        # quedó comprometido). Cubre el escenario de dos solicitantes hacia el mismo compañero.
+        solA = self._crear()
+        solA.estado = 'aprobada'
+        solA.fecha_resolucion = timezone.now()
+        solA.save()
+        ok, msg = self.strat.aplicar_cambios(solA)
+        self.assertTrue(ok, msg)
+
+        u = User.objects.create_user(username='sol2.cd', password='x')
+        sol2 = Empleado.objects.create(user=u, nombre='Sol2', apellido='PM', cedula='999', activo=True)
+        AsignarJornadaExplorador.objects.create(explorador=sol2, jornada=self.pm, fecha_inicio=date(2025, 1, 1))
+        CompetenciaEmpleado.objects.create(empleado=sol2, sala=self.sala)
+
+        ok2, msg2 = self.strat.validar_solicitud(self._datos(explorador_solicitante=sol2))
+        self.assertFalse(ok2, f"B debió bloquearse (receptor ya comprometido por A). msg={msg2}")
+
+
 class CDRevalidacionTest(CDBaseTest):
     def test_revalidacion_ok_no_se_autobloquea_por_duplicado(self):
         # La solicitud existe (pendiente). Al re-validar para aprobar NO debe verse a sí
