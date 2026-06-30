@@ -28,6 +28,15 @@ class SolicitudRepository:
             return None
 
     @staticmethod
+    def get_by_id_con_relaciones(solicitud_id: int) -> SolicitudCambio | None:
+        try:
+            return SolicitudCambio.objects.select_related(
+                'explorador_solicitante', 'explorador_receptor', 'explorador_solicitante__supervisor'
+            ).get(id=solicitud_id)
+        except SolicitudCambio.DoesNotExist:
+            return None
+
+    @staticmethod
     def get_by_id_with_lock(solicitud_id: int, select_related: list | None = None) -> SolicitudCambio | None:
         """Versión con select_for_update() para uso dentro de transaction.atomic()."""
         qs = SolicitudCambio.objects.select_for_update()

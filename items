@@ -1,0 +1,184 @@
+ARQUITECTURA DE SOFTWARE PARA PROYECTO DE CAMBIO DE TURNOS
+Lista Maestra en Texto Plano (Copia y Pega)
+NIVEL 1: FUNDAMENTOS ESTRUCTURALES (La Base)
+1. Capa de Servicios (Service Layer)
+Aislar la lógica de negocio de las vistas y modelos. Crea una carpeta /services con clases como ShiftRequestService y ApprovalService. Esto permite reutilizar la lógica en vistas, comandos o APIs sin duplicar código.
+
+2. Patrón Repository
+Centralizar todas las consultas a la base de datos. Crea una carpeta /repositories con ShiftRepository y UserRepository. Facilita optimizaciones futuras y mantiene las consultas fuera de la lógica de negocio.
+
+3. Organización por Dominios
+Agrupar código por funcionalidad de negocio, no por tipo técnico. Estructura tu proyecto como /apps/users/, /apps/shifts/, /apps/requests/, /apps/approvals/. Cuando el proyecto crezca, sabes exactamente dónde está cada cosa sin buscar en 5 archivos diferentes.
+
+4. Value Objects
+Crear objetos inmutables para validaciones recurrentes. Por ejemplo, una clase TimeRange que valide que el inicio sea menor al fin y calcule horas automáticamente. La validación de horarios está en UN lugar. Cambia una vez y se actualiza en toda la aplicación.
+
+NIVEL 2: INTEGRIDAD DE DATOS Y CONCURRENCIA (El Cerebro)
+5. Transacciones Atómicas
+Agrupar operaciones que deben fallar o completarse juntas. Usa "with transaction.atomic():" en servicios que modifican múltiples modelos. Evita que tu sistema quede en estados inconsistentes, como una solicitud aprobada pero sin descontar horas.
+
+6. Bloqueo de Filas (select_for_update)
+Prevenir que dos usuarios editen el mismo registro simultáneamente. Usa Shift.objects.select_for_update().get(id=id). Evita condiciones de carrera en operaciones críticas.
+
+7. Máquina de Estados Finitos (FSM)
+Gestionar los estados y transiciones válidas de una entidad. Usa la librería django-fsm en el modelo ShiftRequest. Elimina los if/elif anidados y centraliza las reglas de flujo como enviado, aprobado o rechazado.
+
+8. Transacciones Cortas
+Mantener las transacciones de base de datos lo más breves posible. No hagas llamadas a APIs externas dentro de transaction.atomic(). Evita bloqueos largos que degradan el rendimiento y pueden causar deadlocks.
+
+NIVEL 3: DESACOPLAMIENTO Y EVENTOS (La Evolución)
+9. Eventos y Handlers
+Desacoplar efectos secundarios como emails, logs y notificaciones de la lógica principal. Crea una clase ShiftApprovedEvent y un handler que envía email. Puedes usar django-signals o mejor aún, publicar a SQS. El usuario no espera a que se envíe el email; la aprobación se guarda aunque falle el envío.
+
+10. Colas de Mensajes (SQS)
+Procesar tareas pesadas fuera del flujo principal. Django publica evento a SQS y un worker como Lambda o ECS consume y procesa. Aísla fallos, permite reintentos automáticos y escala independientemente.
+
+11. Arquitectura Hexagonal (Puertos y Adaptadores)
+Tu negocio es el centro; Django, AWS, etc. son adaptadores reemplazables. Define interfaces abstractas como class EmailSender(ABC) e implementa adaptadores concretos como SESEmailSender o SendGridEmailSender. El día que cambies de proveedor, no tocas la lógica de aprobación. Solo cambias el adaptador.
+
+12. Patrón Strategy
+Permitir diferentes comportamientos según el contexto sin modificar el código existente. Crea una clase ApprovalRule base e implementaciones como StandardApproval, NightShiftApproval y OvertimeApproval. Añades nuevas reglas de negocio sin romper las que ya funcionan (Principio Abierto/Cerrado).
+
+NIVEL 4: SEGURIDAD Y BUENAS PRÁCTICAS (El Escudo)
+13. Variables de Entorno
+Separar configuración sensible del código. Usa django-environ para SECRET_KEY, credenciales de base de datos y claves API. Nunca subes contraseñas al repositorio. Seguridad básica e indispensable.
+
+14. CORS Configurado
+Controlar qué dominios pueden consumir tu API. Usa django-cors-headers con CORS_ALLOWED_ORIGINS limitado a tu dominio específico. Evita ataques CSRF y accesos no autorizados desde otros sitios.
+
+15. HTTPS Obligatorio
+Cifrar todas las comunicaciones. Configura SECURE_SSL_REDIRECT = True y SESSION_COOKIE_SECURE = True. Protege los datos de los usuarios en tránsito como contraseñas e información personal.
+
+16. Permisos Basados en Roles
+Controlar quién puede hacer qué. Usa @permission_classes en Django REST Framework o UserPassesTestMixin en vistas clásicas. Un empleado no debe aprobar su propio cambio de turno. Punto.
+
+17. Principio de Mínimo Privilegio en AWS
+Dar solo los permisos necesarios. Crea roles IAM específicos para tu aplicación con acceso solo a RDS, S3 y SQS. Si alguien compromete tus credenciales, el daño está limitado a lo estrictamente necesario.
+
+18. No usar DEBUG = True en producción
+Evitar exponer información sensible. Configura DEBUG = False y ALLOWED_HOSTS = ['tudominio.com']. Muestra trazas de error completas, contraseñas y configuraciones si se olvida.
+
+NIVEL 5: ARQUITECTURA EN AWS (La Infraestructura)
+19. Base de Datos en Subred Privada (RDS)
+La base de datos no debe estar expuesta a Internet. Coloca RDS en subredes privadas, solo accesible desde tu aplicación. Evita ataques de fuerza bruta y escaneo de puertos a tu base de datos.
+
+20. Réplica de Lectura en RDS
+Separar consultas pesadas de escrituras. Crea una réplica para reportes y consultas analíticas. Mejora el rendimiento cuando el sistema crece; las consultas lentas no afectan las operaciones críticas.
+
+21. Almacenamiento S3 para Archivos
+No guardes archivos en el servidor. Configura django-storages con S3 para MEDIA_ROOT. Los archivos persisten aunque el servidor se reinicie y son accesibles desde cualquier instancia.
+
+22. Sistema de Caché (ElastiCache Redis)
+Almacenar consultas frecuentes en memoria. Configura CACHES de Django con Redis y cachea listados de empleados. Reduce drásticamente la carga en la base de datos; las consultas repetidas son casi instantáneas.
+
+23. Balanceador de Carga (ALB)
+Distribuir tráfico entre múltiples servidores. Coloca un Application Load Balancer delante de tus instancias EC2 o ECS. Proporciona alta disponibilidad y manejo de SSL; si una instancia falla, el tráfico va a las demás.
+
+24. Contenerización (Docker + ECS Fargate)
+Empaquetar la aplicación en contenedores gestionados. Escribe un Dockerfile y despliega en ECS Fargate sin gestionar servidores. Facilita el escalado automático, el despliegue continuo y la consistencia entre entornos.
+
+25. CDN (CloudFront) para Estáticos
+Servir CSS y JS desde la red de distribución global. Configura S3 más CloudFront para archivos estáticos. Reduce la latencia para usuarios en diferentes regiones y alivia la carga del servidor.
+
+26. Infraestructura como Código (Terraform o CDK)
+Definir toda la infraestructura en archivos. Escribe Terraform para VPC, subredes, RDS, S3 y ECS. Permite recrear todo en caso de desastre y evita configuraciones manuales inconsistentes.
+
+NIVEL 6: MONITOREO, MANTENIBILIDAD Y DEUDA TÉCNICA (El Futuro)
+27. Logging Estructurado
+Registrar eventos en formato JSON con contexto. Configura LOGGING de Django con json-formatter y envía a CloudWatch. Permite buscar logs por usuario, solicitud o error específico sin leer archivos planos.
+
+28. Métricas y Performance Profiling
+Detectar cuellos de botella antes de que sean críticos. Usa Django Debug Toolbar en desarrollo y AWS X-Ray en producción para trazar peticiones lentas. Identificar consultas N+1 o endpoints lentos que degradan la experiencia del usuario.
+
+29. Pruebas Automatizadas
+Asegurar que los cambios no rompan lo que ya funciona. Escribe tests unitarios para cada servicio y tests de integración para flujos completos. La única forma de refactorizar con confianza. Sin tests, el sistema se vuelve frágil con cada cambio.
+
+30. CI/CD (GitHub Actions o Jenkins)
+Desplegar automáticamente tras cada push exitoso. Configura un pipeline que ejecute tests, construya la imagen Docker y despliegue en ECS. Reduce errores humanos, acelera entregas y permite rollbacks rápidos.
+
+31. ADR (Architecture Decision Records)
+Documentar el por qué de las decisiones técnicas. Crea una carpeta /docs/adr/ con archivos Markdown como 001-usar-sqs.md y 002-estructura-modular.md. Cuando un nuevo desarrollador o tú dentro de 6 meses pregunten por qué hicieron esto, la respuesta está documentada.
+
+32. Manejo de Errores y Reintentos
+El sistema debe recuperarse solo ante fallos transitorios. Usa tenacity para reintentos en llamadas a APIs externas y configura Dead Letter Queue en SQS. Los fallos de red o servicios externos no deben bloquear el flujo principal.
+
+NIVEL 7: PATRONES ANTI-DEBEN (Lo que NO debes hacer)
+33. Fat Models
+No metas toda la lógica en models.py. Separa en Services; los modelos solo son capa de persistencia.
+
+34. Fat Views
+No proceses lógica de negocio en vistas. La vista solo valida entrada y llama al Service.
+
+35. JSON Fields para guardar datos flexibles
+No uses JSON para datos que luego necesitarás consultar. Usa SQL relacional estricto; las consultas de reporte serán fáciles de escribir y rápidas de ejecutar.
+
+36. Enviar emails dentro de transacciones
+No hagas que el usuario espere y no bloquees la base de datos si el email falla. Publica evento a SQS y procesa asíncronamente.
+
+37. Ignorar los tests
+No dejes los tests para el final. Escribe tests desde el día 1. Cada cambio es una ruleta si no tienes pruebas.
+
+38. Acoplar el código a proveedores específicos
+No escribas código que solo funcione con AWS. Usa interfaces abstractas con Arquitectura Hexagonal para poder cambiar de proveedor si es necesario.
+
+ORDEN DE IMPLEMENTACIÓN RECOMENDADO
+Fase 1: Fundación (Día 1 al 3)
+
+Estructura de carpetas por dominios (/apps/users, /apps/shifts, /apps/requests)
+
+Modelos base con django-fsm para estados
+
+Value Objects como TimeRange
+
+Fase 2: Lógica de Negocio (Día 4 al 7)
+
+Crear carpeta /services con servicios principales
+
+Aplicar transaction.atomic() en operaciones críticas
+
+Implementar Repositories para consultas complejas
+
+Fase 3: Desacoplamiento (Semana 2)
+
+Definir eventos y handlers (inicialmente con signals, luego migrar a SQS)
+
+Implementar Patrón Strategy para reglas de aprobación
+
+Configurar interfaces abstractas (Puertos)
+
+Fase 4: Seguridad y Configuración (Semana 3)
+
+Variables de entorno con django-environ
+
+CORS, HTTPS, permisos basados en roles
+
+Configurar logging estructurado
+
+Fase 5: Infraestructura AWS (Semana 4 y 5)
+
+Definir Terraform (VPC, subredes, RDS, S3, SQS)
+
+Dockerizar la aplicación
+
+Desplegar en ECS Fargate con ALB
+
+Fase 6: Monitoreo y Calidad (Semana 6 en adelante)
+
+Conectar CloudWatch
+
+Escribir tests unitarios y de integración
+
+Configurar CI/CD
+
+Crear ADRs para decisiones importantes
+
+RESUMEN EJECUTIVO (Prioridades del Día 1)
+Si no puedes implementarlo todo de inmediato, enfócate en estos 3 pilares críticos:
+
+Primero: Service Layer más transaction.atomic(). Tu lógica de negocio estará limpia y tus datos consistentes.
+
+Segundo: Estructura por dominios. El proyecto será mantenible desde el día 1.
+
+Tercero: Permisos y CORS. Tu aplicación será segura contra accesos no autorizados.
+
+El resto como SQS, Docker, Terraform y demás se puede añadir progresivamente sin reescribir el código base

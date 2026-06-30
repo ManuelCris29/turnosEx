@@ -2,18 +2,14 @@ import logging
 
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
 from ..models import TipoSolicitudCambio
-from ..services.solicitud_request_parser import SolicitudRequestParser
-from ..services.solicitud_orchestrator import SolicitudOrchestrator
+from ..use_cases.crear_solicitud import CrearSolicitudUseCase
 from core.utils.json_responses import json_error
 
 logger = logging.getLogger(__name__)
 
 
-@method_decorator(csrf_exempt, name='dispatch')
 class ProcesarSolicitudView(LoginRequiredMixin, View):
 
     def post(self, request):
@@ -27,13 +23,7 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             except TipoSolicitudCambio.DoesNotExist:
                 return json_error('Tipo de solicitud no válido', status=400, code='invalid_type')
 
-            # Falla rápida: campos requeridos según tipo, antes de tocar más la BD
-            ok, error_msg = SolicitudRequestParser.validate_required(tipo_solicitud.nombre, request.POST)
-            if not ok:
-                return json_error(error_msg, status=400, code='missing_fields')
-
-            solicitante = request.user.empleado
-            return SolicitudOrchestrator.procesar(request.POST, tipo_solicitud, solicitante)
+            return CrearSolicitudUseCase().execute(request.POST, tipo_solicitud, request.user.empleado)
 
         except Exception:
             logger.exception("Error inesperado en ProcesarSolicitudView")

@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Terceros
     'corsheaders',
+    'axes',
     'simple_history',
     'widget_tweaks',
     # Apps propias
@@ -72,6 +73,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
+    'axes.middleware.AxesMiddleware',               # debe ir al final
 ]
 
 if not IS_PRODUCTION:
@@ -152,6 +154,11 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'dashboard'
 
+AUTHENTICATION_BACKENDS = [
+    'axes.backends.AxesStandaloneBackend',
+    'django.contrib.auth.backends.ModelBackend',
+]
+
 # ---------------------------------------------------------------------------
 # Email
 # ---------------------------------------------------------------------------
@@ -188,6 +195,30 @@ CORS_ALLOWED_ORIGINS = env.list(
     default=['http://localhost:8000', 'http://127.0.0.1:8000'],
 )
 CORS_ALLOW_CREDENTIALS = True
+
+# ---------------------------------------------------------------------------
+# django-axes: bloqueo por intentos fallidos de login
+# ---------------------------------------------------------------------------
+AXES_FAILURE_LIMIT = 5
+AXES_COOLOFF_TIME = 1
+AXES_LOCKOUT_PARAMETERS = ['username']
+AXES_RESET_ON_SUCCESS = True
+AXES_VERBOSE = False
+
+import sys as _sys
+if 'test' in _sys.argv:
+    AXES_ENABLED = False
+
+# ---------------------------------------------------------------------------
+# Content Security Policy (CSP)
+# ---------------------------------------------------------------------------
+CSP_DEFAULT_SRC = ("'self'",)
+CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")   # unsafe-inline por scripts inline existentes
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
+CSP_IMG_SRC = ("'self'", "data:")
+CSP_FONT_SRC = ("'self'",)
+CSP_CONNECT_SRC = ("'self'",)
+CSP_FRAME_ANCESTORS = ("'none'",)
 
 # ---------------------------------------------------------------------------
 # Seguridad adicional (solo en producción)
