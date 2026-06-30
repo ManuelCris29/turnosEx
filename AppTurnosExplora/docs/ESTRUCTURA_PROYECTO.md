@@ -89,7 +89,6 @@ AppTurnosExplora/
 ├── solicitudes/           # Módulo de solicitudes (dominio principal)
 │   ├── models.py
 │   ├── views.py
-│   ├── views_previsualizacion_ct.py
 │   ├── urls.py
 │   ├── admin.py
 │   ├── services/

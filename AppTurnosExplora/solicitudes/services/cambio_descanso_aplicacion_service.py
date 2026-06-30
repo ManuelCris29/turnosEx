@@ -148,10 +148,10 @@ class CambioDescansoAplicacionService:
             Q(explorador_solicitante=explorador, fecha_cambio_turno=otro) |
             Q(explorador_solicitante=explorador, doblada__fecha_pago=otro),
         )
+        from solicitudes.domain.estado_machine import transicionar
         for candidata in candidatas:
-            candidata.estado = 'reemplazada'
             candidata.reemplazada_por = solicitud_nueva
-            candidata.save(update_fields=['estado', 'reemplazada_por'])
+            transicionar(candidata, 'reemplazada', update_fields=['reemplazada_por'])
 
     @staticmethod
     def _capturar_snapshot(solicitante, receptor, fechas):

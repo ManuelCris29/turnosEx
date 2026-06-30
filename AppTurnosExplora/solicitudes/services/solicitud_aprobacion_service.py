@@ -7,9 +7,42 @@ from django.utils import timezone
 from solicitudes.models import SolicitudCambio
 from .solicitud_factory import SolicitudFactory
 from .notificacion_service import NotificacionService
+from solicitudes.domain.estado_machine import transicionar, EstadoTransicionError
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Helpers de notificación (usados en on_commit): si fallan, solo se loguea
+# ---------------------------------------------------------------------------
+
+def _notificar_supervisor_aprobacion(solicitud, supervisor, comentario):
+    try:
+        NotificacionService.crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario)
+    except Exception:
+        logger.exception("Error enviando notificación aprobación supervisor — sol %s", getattr(solicitud, 'id', '?'))
+
+
+def _notificar_receptor_aprobacion(solicitud, receptor, comentario):
+    try:
+        NotificacionService.crear_notificacion_aprobacion_receptor(solicitud, receptor, comentario)
+    except Exception:
+        logger.exception("Error enviando notificación aprobación receptor — sol %s", getattr(solicitud, 'id', '?'))
+
+
+def _notificar_supervisor_rechazo(solicitud, supervisor, comentario):
+    try:
+        NotificacionService.crear_notificacion_rechazo_supervisor(solicitud, supervisor, comentario)
+    except Exception:
+        logger.exception("Error enviando notificación rechazo supervisor — sol %s", getattr(solicitud, 'id', '?'))
+
+
+def _notificar_receptor_rechazo(solicitud, receptor, comentario):
+    try:
+        NotificacionService.crear_notificacion_rechazo_receptor(solicitud, receptor, comentario)
+    except Exception:
+        logger.exception("Error enviando notificación rechazo receptor — sol %s", getattr(solicitud, 'id', '?'))
 
 
 class _AplicacionFallida(Exception):
@@ -54,7 +87,7 @@ class SolicitudAprobacionService:
             logger.warning("Re-validación falló para solicitud ID %d: %s", solicitud.id, msg_reval)
             return False, f"No se puede aprobar: {msg_reval}"
 
-        solicitud.estado = 'aprobada'
+        transicionar(solicitud, 'aprobada', save=False)
         solicitud.fecha_resolucion = timezone.now()
         try:
             with transaction.atomic():
@@ -139,9 +172,10 @@ class SolicitudAprobacionService:
                     # Si no está completamente aprobada, solo guardar
                     solicitud.save()
 
-            # Crear notificación de aprobación del supervisor
-            NotificacionService.crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta)
-            
+                # Notificación garantizada después del commit: si falla no revierte la aprobación
+                _sol, _sup, _com = solicitud, supervisor, comentario_respuesta
+                transaction.on_commit(lambda: _notificar_supervisor_aprobacion(_sol, _sup, _com))
+
             # Invalidar cache de contadores para todos los afectados
             from core.services.cache_service import CacheService
             cache_keys = [
@@ -151,7 +185,7 @@ class SolicitudAprobacionService:
                 f"solicitudes_count_pend_{supervisor.id}",
             ]
             CacheService.delete_many(cache_keys)
-            
+
             return True, "Solicitud aprobada por supervisor correctamente"
             
         except SolicitudCambio.DoesNotExist:
@@ -223,9 +257,10 @@ class SolicitudAprobacionService:
                     # Si no está completamente aprobada, solo guardar
                     solicitud.save()
 
-            # Crear notificación de aprobación del receptor
-            NotificacionService.crear_notificacion_aprobacion_receptor(solicitud, receptor, comentario_respuesta)
-            
+                # Notificación garantizada después del commit
+                _sol, _rec, _com = solicitud, receptor, comentario_respuesta
+                transaction.on_commit(lambda: _notificar_receptor_aprobacion(_sol, _rec, _com))
+
             # Invalidar cache de contadores para todos los afectados
             from core.services.cache_service import CacheService
             cache_keys = [
@@ -233,11 +268,10 @@ class SolicitudAprobacionService:
                 f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{receptor.id}",
             ]
-            # Si el solicitante tiene supervisor, también invalidar su caché
             if solicitud.explorador_solicitante.supervisor:
                 cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
             CacheService.delete_many(cache_keys)
-            
+
             return True, "Solicitud aprobada por compañero correctamente"
             
         except SolicitudCambio.DoesNotExist:
@@ -282,25 +316,23 @@ class SolicitudAprobacionService:
                     return False, "La solicitud no está pendiente de aprobación"
             
             # Rechazar la solicitud
-            solicitud.estado = 'rechazada'
-            solicitud.aprobado_supervisor = False
-            solicitud.fecha_aprobacion_supervisor = timezone.now()
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.save()
-            
-            # Crear notificación de rechazo
-            NotificacionService.crear_notificacion_rechazo_supervisor(solicitud, supervisor, comentario_respuesta)
-            
-            # Invalidar cache de contadores para todos los afectados
+            from django.db import transaction
+            with transaction.atomic():
+                transicionar(solicitud, 'rechazada', save=False)
+                solicitud.aprobado_supervisor = False
+                solicitud.fecha_aprobacion_supervisor = timezone.now()
+                solicitud.fecha_resolucion = timezone.now()
+                solicitud.save()
+                _sol, _sup, _com = solicitud, supervisor, comentario_respuesta
+                transaction.on_commit(lambda: _notificar_supervisor_rechazo(_sol, _sup, _com))
+
             from core.services.cache_service import CacheService
-            cache_keys = [
+            CacheService.delete_many([
                 f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{solicitud.explorador_receptor.id}",
                 f"solicitudes_count_pend_{supervisor.id}",
-            ]
-            CacheService.delete_many(cache_keys)
-            
+            ])
             return True, "Solicitud rechazada por supervisor correctamente"
             
         except SolicitudCambio.DoesNotExist:
@@ -345,23 +377,22 @@ class SolicitudAprobacionService:
                     return False, "La solicitud no está pendiente de aprobación"
             
             # Rechazar la solicitud
-            solicitud.estado = 'rechazada'
-            solicitud.aprobado_receptor = False
-            solicitud.fecha_aprobacion_receptor = timezone.now()
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.save()
-            
-            # Crear notificación de rechazo
-            NotificacionService.crear_notificacion_rechazo_receptor(solicitud, receptor, comentario_respuesta)
-            
-            # Invalidar cache de contadores para todos los afectados
+            from django.db import transaction
+            with transaction.atomic():
+                transicionar(solicitud, 'rechazada', save=False)
+                solicitud.aprobado_receptor = False
+                solicitud.fecha_aprobacion_receptor = timezone.now()
+                solicitud.fecha_resolucion = timezone.now()
+                solicitud.save()
+                _sol, _rec, _com = solicitud, receptor, comentario_respuesta
+                transaction.on_commit(lambda: _notificar_receptor_rechazo(_sol, _rec, _com))
+
             from core.services.cache_service import CacheService
             cache_keys = [
                 f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{receptor.id}",
             ]
-            # Si el solicitante tiene supervisor, también invalidar su caché
             if solicitud.explorador_solicitante.supervisor:
                 cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
             CacheService.delete_many(cache_keys)

@@ -148,7 +148,8 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
 
                 if solicitud.estado == 'pendiente':
                     # Cancelación normal: sin restricción de tiempo
-                    solicitud.estado = 'cancelada'
+                    from solicitudes.domain.estado_machine import transicionar as _transicionar
+                    _transicionar(solicitud, 'cancelada', save=False)
                     solicitud.fecha_resolucion = timezone.now()
                     solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
                     solicitud.save()
@@ -284,7 +285,8 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                             CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
                             CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
 
-                    solicitud.estado = 'cancelada'
+                    from solicitudes.domain.estado_machine import transicionar as _transicionar
+                    _transicionar(solicitud, 'cancelada', save=False)
                     solicitud.comentario = (
                         f"{solicitud.comentario or ''}\n\n"
                         f"Cancelada por el solicitante dentro de la ventana de "

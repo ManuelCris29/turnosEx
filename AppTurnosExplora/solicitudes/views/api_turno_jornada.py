@@ -726,22 +726,18 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
             #   - CAMBIO DESCANSO < 30 min → sigue bloqueado (aún cancelable, si se reemplaza se pierden datos)
             #   - CAMBIO DESCANSO >= 30 min → ya NO es cancelable; se puede reemplazar con nuevo cambio
             #   - Cualquier otro tipo (DOBLADA, D FDS, CT…) → siempre bloqueado
-            from turnos.models import Turno as _Turno
             from django.utils import timezone as _tz
             from datetime import timedelta as _tdt
             from django.db.models import Q as _Q
             from solicitudes.models import SolicitudCambio as _SC
+            from solicitudes.repositories.turno_repository import TurnoRepository
+            from solicitudes.repositories.solicitud_repository import SolicitudRepository
 
             VENTANA_CANCELACION = _tdt(minutes=30)
             ahora = _tz.now()
 
-            # Fechas con turno de CUALQUIER tipo_cambio
-            all_comp_qs = (
-                _Turno.objects
-                .filter(explorador=emp, fecha__year=anio, fecha__month=mes)
-                .exclude(tipo_cambio__isnull=True).exclude(tipo_cambio='')
-                .values_list('fecha', 'tipo_cambio')
-            )
+            # Fechas con turno de CUALQUIER tipo_cambio (via Repository)
+            all_comp_qs = TurnoRepository.comprometidos_por_tipo_cambio(emp, anio, mes)
             comprometidos_fijos = set()      # DOBLADA, D FDS, CT, etc. → siempre bloqueados
             comprometidos_cd = set()          # CAMBIO DESCANSO → solo si < 30 min
 

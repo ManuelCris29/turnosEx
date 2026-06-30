@@ -4,17 +4,17 @@ Servicio para aplicar cambios de doblada.
 Responsabilidad única: Aplicar los cambios de turnos y generar deudas cuando
 una solicitud de doblada es aprobada.
 """
-from typing import Tuple, Dict
+from typing import Tuple
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.core.cache import cache
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
-from turnos.models import Jornada, Turno
+from turnos.models import Turno
 from turnos.services.jornada_service import JornadaService
 from turnos.services.doblada_turno_service import DobladaTurnoService
-from .deuda_service import DeudaService
-from .deuda_corporativa_service import DeudaCorporativaService
+from .doblada_snapshot_service import DobladaSnapshotService
+from .doblada_deuda_service import DobladaDeudaService
+from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
 from datetime import date, timedelta
 import logging
 
@@ -54,27 +54,6 @@ def _fecha_limite_pago_semana(fecha_sabado: date) -> date:
     return fecha_sabado
 
 
-def _obtener_jornadas_cache() -> Dict[str, Jornada]:
-    """
-    Obtiene las jornadas AM y PM con cache para evitar múltiples consultas.
-    
-    Returns:
-        Diccionario con {'AM': Jornada, 'PM': Jornada}
-    """
-    cache_key = 'jornadas_am_pm'
-    jornadas = cache.get(cache_key)
-    
-    if jornadas is None:
-        jornadas = {
-            'AM': Jornada.objects.get(nombre='AM'),
-            'PM': Jornada.objects.get(nombre='PM')
-        }
-        # Cache por 1 hora (las jornadas no cambian frecuentemente)
-        cache.set(cache_key, jornadas, 3600)
-    
-    return jornadas
-
-
 class DobladaAplicacionService:
     """
     Servicio para aplicar cambios de doblada.
@@ -85,143 +64,19 @@ class DobladaAplicacionService:
 
     @staticmethod
     def capturar_snapshot_turnos_previos(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> dict:
-        """
-        Copia el estado real de Turno en BD para solicitante y receptor en fecha de cesión y de pago,
-        antes de aplicar la doblada. Así la cancelación en 30 min puede restaurar cambios de turno
-        sencillos u otras asignaciones que no son solo jornada predeterminada.
-        """
-        solicitante = solicitud.explorador_solicitante
-        receptor = solicitud.explorador_receptor
-        fecha_cesion = solicitud.fecha_cambio_turno
-        fecha_pago = detalle.fecha_pago
-        pairs = [
-            (solicitante.id, fecha_cesion),
-            (receptor.id, fecha_cesion),
-            (solicitante.id, fecha_pago),
-            (receptor.id, fecha_pago),
-        ]
-        snapshot: dict = {}
-        for emp_id, fecha in pairs:
-            key = f"{emp_id}:{fecha.isoformat()}"
-            turnos_qs = (
-                Turno.objects.filter(explorador_id=emp_id, fecha=fecha)
-                .select_related('jornada')
-                .order_by('jornada_id')
-            )
-            snapshot[key] = [
-                {
-                    'jornada_nombre': t.jornada.nombre.upper(),
-                    'sala_id': t.sala_id,
-                    'tipo_cambio': t.tipo_cambio,
-                }
-                for t in turnos_qs
-            ]
-        return snapshot
+        return DobladaSnapshotService.capturar_snapshot_turnos_previos(solicitud, detalle)
 
     @staticmethod
     def restaurar_turnos_desde_snapshot(snapshot: dict) -> None:
-        """Reemplaza turnos en las fechas del snapshot por el contenido guardado."""
-        if not snapshot:
-            return
-        jornadas_cache = _obtener_jornadas_cache()
-        from turnos.models import Jornada as JornadaModel
-
-        for key, rows in snapshot.items():
-            try:
-                emp_str, fecha_str = key.split(':', 1)
-                emp_id = int(emp_str)
-                fecha = date.fromisoformat(fecha_str)
-            except (ValueError, TypeError):
-                logger.warning('Snapshot doblada: clave inválida %r', key)
-                continue
-
-            Turno.objects.filter(explorador_id=emp_id, fecha=fecha).delete()
-
-            for row in rows or []:
-                jn = (row.get('jornada_nombre') or '').upper()
-                jornada_obj = jornadas_cache.get(jn)
-                if not jornada_obj:
-                    jornada_obj = JornadaModel.objects.filter(nombre__iexact=jn).first()
-                if not jornada_obj:
-                    logger.warning(
-                        'Snapshot doblada: jornada %r no encontrada para %s en %s',
-                        jn, emp_id, fecha,
-                    )
-                    continue
-                sala_id = row.get('sala_id')
-                if not sala_id:
-                    empleado = Empleado.objects.filter(pk=emp_id).first()
-                    if not empleado:
-                        continue
-                    sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha)
-                    sala_id = sala.id if sala else None
-                if not sala_id:
-                    logger.warning('Snapshot doblada: sin sala para %s en %s', emp_id, fecha)
-                    continue
-                Turno.objects.create(
-                    explorador_id=emp_id,
-                    fecha=fecha,
-                    jornada=jornada_obj,
-                    sala_id=sala_id,
-                    tipo_cambio=row.get('tipo_cambio'),
-                )
-                logger.info('Turno restaurado desde snapshot: explorador %s, %s, %s', emp_id, fecha, jn)
+        DobladaSnapshotService.restaurar_turnos_desde_snapshot(snapshot)
 
     @staticmethod
     def _fechas_explorador_afectados(snapshot: dict):
-        """Extrae el conjunto de (explorador_id, fecha) que cubre un snapshot."""
-        afectados = set()
-        for key in (snapshot or {}).keys():
-            try:
-                emp_str, fecha_str = key.split(':', 1)
-                afectados.add((int(emp_str), date.fromisoformat(fecha_str)))
-            except (ValueError, TypeError):
-                continue
-        return afectados
+        return DobladaSnapshotService.fechas_explorador_afectados(snapshot)
 
     @staticmethod
     def reconciliar_dobladas_aprobadas(afectados, excluir_solicitud_id) -> None:
-        """
-        Tras restaurar el snapshot de una doblada CANCELADA, re-aplica el efecto de las
-        dobladas que SIGUEN APROBADAS cuyo cesión/pago cae en las fechas afectadas.
-
-        Motivo: el snapshot de una cesión total (2 solicitudes enlazadas que comparten la
-        fecha de cesión) refleja un estado INTERMEDIO. Restaurarlo tal cual deja el estado
-        inconsistente según el orden de cancelación (p. ej. el solicitante pierde una jornada
-        de su doblada). Re-aplicar las dobladas vigentes —en ORDEN CRONOLÓGICO de aprobación—
-        reconstruye el estado correcto sin importar el orden en que se cancelaron.
-
-        Solo se re-aplica el lado (cesión o pago) que cae en una fecha afectada, para
-        mantener la operación acotada a esas fechas. No genera deudas (eso es aparte).
-        """
-        from django.db.models import Q
-        from solicitudes.models import SolicitudCambio
-        if not afectados:
-            return
-        fechas = {f for (_e, f) in afectados}
-        exploradores = {e for (e, _f) in afectados}
-        candidatas = (
-            SolicitudCambio.objects
-            .filter(estado='aprobada', doblada__isnull=False)
-            .exclude(id=excluir_solicitud_id)
-            .filter(Q(fecha_cambio_turno__in=fechas) | Q(doblada__fecha_pago__in=fechas))
-            .select_related('doblada')
-            .order_by('fecha_resolucion', 'id')
-            .distinct()
-        )
-        for s in candidatas:
-            if (s.explorador_solicitante_id not in exploradores
-                    and s.explorador_receptor_id not in exploradores):
-                continue
-            det = s.doblada
-            if s.fecha_cambio_turno in fechas:
-                DobladaAplicacionService.aplicar_doblada_cesion(s, det)
-            if det.fecha_pago in fechas:
-                DobladaAplicacionService.aplicar_doblada_pago(s, det)
-            logger.info(
-                "Reconciliación post-revert: re-aplicada doblada aprobada %s sobre fechas afectadas.",
-                s.id,
-            )
+        DobladaSnapshotService.reconciliar_dobladas_aprobadas(afectados, excluir_solicitud_id)
 
     @staticmethod
     def validar_turnos_doblada_cesion(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> dict:
@@ -924,191 +779,7 @@ class DobladaAplicacionService:
     @staticmethod
     @transaction.atomic
     def generar_deudas_doblada(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
-        """
-        Genera las deudas entre exploradores y corporativas asociadas a una doblada.
-        
-        Reglas:
-        - Se crea una deuda entre exploradores (estado 'pagada' porque ambas dobladas ya están aplicadas)
-        - La deuda corporativa (30 minutos) **solo se genera si la doblada es efectiva en esa fecha**,
-          es decir, si la jornada real del día es DOBLADA (AM+PM) según los turnos aplicados.
-        
-        Args:
-            solicitud: Solicitud de doblada aprobada
-            detalle: Detalle de la doblada
-        """
-        fecha_cesion = solicitud.fecha_cambio_turno
-        fecha_pago = detalle.fecha_pago
-        solicitante = solicitud.explorador_solicitante
-        receptor = solicitud.explorador_receptor
-        
-        # Determinar jornada cedida
-        if detalle.jornada_cedida:
-            jornada_cedida_nombre = detalle.jornada_cedida.upper()
-        else:
-            fecha_cesion_str = fecha_cesion.strftime('%Y-%m-%d')
-            jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
-                solicitante.id, fecha_cesion_str
-            )
-            jornada_cedida_nombre = jornada_solicitante.nombre.upper()
-        
-        # Generar deuda entre exploradores (estado 'pagada' porque, conceptualmente,
-        # ambas partes se comprometen a realizar la doblada en cesión y pago).
-        DeudaService.crear_deuda(
-            deudor=solicitante,
-            acreedor=receptor,
-            solicitud=solicitud,
-            fecha_generacion=fecha_cesion,
-            fecha_pago_pactada=fecha_pago,
-            fecha_pago_real=fecha_pago,  # Ya se aplicó
-            jornada_cedida=jornada_cedida_nombre,
-            media_jornada=True
-        )
-
-        # ===========================
-        # Deuda residual: pago en sábado cubriendo AMBAS jornadas
-        # ===========================
-        # Si el solicitante cubrió el día completo del sábado (AMBAS), trabajó de más una
-        # jornada respecto a lo que debía. Por eso el RECEPTOR le queda debiendo esa jornada
-        # al solicitante, que se devuelve el día de semana elegido (detalle.fecha_pago_semana):
-        # ese día el receptor dobla y el solicitante descansa. Como se aplica al aprobar,
-        # la deuda queda registrada como PAGADA (con su fecha real = el día de semana).
-        if (fecha_pago.weekday() == 5
-                and (getattr(detalle, 'jornada_pago_sabado', '') or '').upper() == 'AMBAS'
-                and getattr(detalle, 'fecha_pago_semana', None)):
-            fecha_semana = detalle.fecha_pago_semana
-            # La jornada que se devuelve es la del SOLICITANTE (la que el receptor le cubre ese día).
-            jornada_sol_semana = JornadaService.get_jornada_explorador_fecha(
-                solicitante.id, fecha_semana.strftime('%Y-%m-%d')
-            )
-            jornada_residual = (
-                jornada_sol_semana.nombre.upper()
-                if jornada_sol_semana else jornada_cedida_nombre
-            )
-            DeudaService.crear_deuda(
-                deudor=receptor,        # el receptor queda debiendo...
-                acreedor=solicitante,   # ...a favor del solicitante
-                solicitud=solicitud,
-                fecha_generacion=fecha_pago,
-                fecha_pago_pactada=fecha_semana,
-                fecha_pago_real=fecha_semana,  # se aplica al aprobar → pagada
-                jornada_cedida=jornada_residual,
-                media_jornada=True,
-            )
-            logger.info(
-                f"Deuda residual (pago sábado AMBAS): {receptor.nombre} devuelve la jornada "
-                f"{jornada_residual} a {solicitante.nombre} el {fecha_semana} (en semana)."
-            )
-
-        # ===========================
-        # Deuda corporativa SOLO por doblada efectiva
-        # ===========================
-        # Regla de negocio:
-        # - La deuda corporativa (30 minutos) se genera únicamente cuando el explorador
-        #   realmente trabaja una jornada DOBLADA (AM+PM) en una fecha concreta.
-        # - No basta con que la solicitud esté aprobada; debemos verificar los turnos reales.
-        #
-        # Implementación:
-        # - Usamos TurnoService.obtener_jornada_display() como fuente de verdad.
-        # - Si jornada_display == 'DOBLADA' → se crea la deuda corporativa.
-        # - Si jornada_display es 'AM', 'PM' o None (descanso / media jornada) → NO se genera deuda.
-        from turnos.services.turno_service import TurnoService
-
-        def _registrar_deuda_corporativa_si_doblada(explorador: Empleado, fecha_doblada: date, comentario: str) -> None:
-            # Los 30 min solo aplican de lunes a viernes (no sábados, domingos ni festivos).
-            if not DeudaCorporativaService.aplica_deuda_doblada(fecha_doblada):
-                logger.info(
-                    f"No se genera deuda corporativa para {explorador.nombre} en {fecha_doblada}: "
-                    f"fin de semana o festivo (jornada completa, sin 30 min)."
-                )
-                return
-            jornada_display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
-            if jornada_display == 'DOBLADA':
-                DeudaCorporativaService.crear_deuda_corporativa(
-                    explorador=explorador,
-                    minutos=30,
-                    fecha_generacion=date.today(),
-                    fecha_doblada=fecha_doblada,
-                    solicitud=solicitud,
-                    comentario=comentario
-                )
-                logger.info(
-                    f"Deuda corporativa generada (30 min) para {explorador.nombre} "
-                    f"en {fecha_doblada} por jornada DOBLADA."
-                )
-            else:
-                logger.info(
-                    f"No se genera deuda corporativa para {explorador.nombre} en {fecha_doblada}: "
-                    f"jornada_display={jornada_display!r}"
-                )
-
-        # Receptor: posible doblada en fecha de cesión
-        _registrar_deuda_corporativa_si_doblada(
-            explorador=receptor,
-            fecha_doblada=fecha_cesion,
-            comentario=f'Doblada efectiva en fecha de cesión ({fecha_cesion})'
-        )
-
-        # Solicitante (deudor): posible doblada en fecha de pago
-        _registrar_deuda_corporativa_si_doblada(
-            explorador=solicitante,
-            fecha_doblada=fecha_pago,
-            comentario=f'Doblada efectiva en fecha de pago ({fecha_pago})'
-        )
-
-        # Pago en sábado AMBAS: el día de pago en semana el RECEPTOR dobla en un día de semana
-        # (cambia un sábado por un día de semana) → sí genera 30 min para el receptor.
-        if (fecha_pago.weekday() == 5
-                and (getattr(detalle, 'jornada_pago_sabado', '') or '').upper() == 'AMBAS'
-                and getattr(detalle, 'fecha_pago_semana', None)):
-            _registrar_deuda_corporativa_si_doblada(
-                explorador=receptor,
-                fecha_doblada=detalle.fecha_pago_semana,
-                comentario=f'Doblada efectiva (pago en semana del sábado AMBAS) ({detalle.fecha_pago_semana})'
-            )
-
-        # ===========================
-        # Cambio de un DÍA DE SEMANA por un SÁBADO: 30 min también para el EMISOR
-        # ===========================
-        # Regla de negocio: si el EMISOR (solicitante) cedió una jornada de una DOBLADA que
-        # tenía en un día de SEMANA y paga ese favor en SÁBADO, debe igual los 30 min de esa
-        # doblada de semana. El sábado por sí solo no genera 30 min (aplica_deuda_doblada=False),
-        # por eso la rama del solicitante en fecha_pago no los crea; pero la doblada de semana
-        # que cedió sí los debe. El receptor ya recibió SUS 30 min en la fecha de cesión (donde
-        # queda con AM+PM). La deuda del emisor se asocia al DÍA DE SEMANA de la cesión.
-        if (fecha_cesion.weekday() < 5
-                and fecha_pago.weekday() == 5
-                and DeudaCorporativaService.aplica_deuda_doblada(fecha_cesion)):
-            _key_emisor = f"{solicitante.id}:{fecha_cesion.isoformat()}"
-            _prev = (getattr(detalle, 'snapshot_turnos_previos', None) or {}).get(_key_emisor, [])
-            _jornadas_prev = {(t.get('jornada_nombre') or '').upper() for t in _prev}
-            _emisor_tenia_doblada_semana = ('AM' in _jornadas_prev and 'PM' in _jornadas_prev)
-            if _emisor_tenia_doblada_semana:
-                from solicitudes.models import DeudaCorporativa
-                _ya = DeudaCorporativa.objects.filter(
-                    explorador=solicitante, fecha_doblada=fecha_cesion
-                ).exclude(estado='cancelada').exists()
-                if not _ya:
-                    DeudaCorporativaService.crear_deuda_corporativa(
-                        explorador=solicitante,
-                        minutos=30,
-                        fecha_generacion=date.today(),
-                        fecha_doblada=fecha_cesion,
-                        solicitud=solicitud,
-                        comentario=(
-                            f'Doblada de semana cedida y pagada en sábado ({fecha_pago}): '
-                            f'30 min del emisor por la jornada que cedió'
-                        ),
-                    )
-                    logger.info(
-                        f"Deuda corporativa (30 min) generada para el EMISOR {solicitante.nombre} "
-                        f"en {fecha_cesion} (doblada de semana cedida, pagada en sábado {fecha_pago})."
-                    )
-
-        logger.info(
-            f"Deudas generadas: Solicitud {solicitud.id} - "
-            f"Deuda entre {solicitante.nombre} y {receptor.nombre}, "
-            f"Deudas corporativas para ambos"
-        )
+        DobladaDeudaService.generar_deudas_doblada(solicitud, detalle)
 
     @staticmethod
     @transaction.atomic
