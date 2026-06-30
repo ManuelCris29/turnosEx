@@ -1,3 +1,7 @@
+# Secretos - NUNCA subir al repositorio
+.env
+AppTurnosExplora/config/db.py
+
 # Ignorar caches de Python
 __pycache__/
 *.py[cod]
