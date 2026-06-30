@@ -24,6 +24,7 @@
   .dia:hover { background:#f1f5f9; }
   .dia.otro { color:#cbd5e1; cursor:default; } .dia.otro:hover { background:transparent; }
   .dia.finde { color:#cbd5e1; cursor:default; } .dia.finde:hover { background:transparent; }
+  .dia.bloqueado { cursor:not-allowed; opacity:.6; } .dia.bloqueado:hover { background:#f8fafc; }
   .dia .et { font-size:.55rem; font-weight:700; line-height:1; margin-top:1px; }
   .dia.sel-am { background:#dbeafe; border-color:#0d6efd; } .dia.sel-am .et { color:#0d6efd; }
   .dia.sel-pm { background:#fef3c7; border-color:#f59e0b; } .dia.sel-pm .et { color:#b45309; }
@@ -117,7 +118,8 @@
   const form = document.getElementById('dsaForm');
   const hidden = document.getElementById('seleccion');
 
-  // Pintar marcadores de referencia (temporada/festivo/mantenimiento) en cada día del año.
+  const TAGS_BLOQUEADOS = ['temporada', 'festivo', 'mantenimiento'];
+  // Pintar marcadores de referencia y bloquear días con temporada/festivo/mantenimiento.
   document.querySelectorAll('.dia[data-fecha]').forEach(span => {
     const tags = marcadores[span.dataset.fecha];
     if(!tags || !tags.length) return;
@@ -126,6 +128,7 @@
     tags.forEach(t => { const d = document.createElement('span'); d.className = 'mk mk-' + t; d.title = t; cont.appendChild(d); });
     span.appendChild(cont);
     if(tags.indexOf('temporada') >= 0) span.classList.add('tem-bg');
+    if(tags.some(t => TAGS_BLOQUEADOS.includes(t))) span.classList.add('bloqueado');
   });
   // estado en memoria: { 'YYYY-MM-DD': ['AM'] | ['PM'] | ['AM','PM'] }
   const estado = {};
@@ -149,7 +152,7 @@
     const c = claseDe(arr); if(c) span.classList.add(c);
     span.querySelector('.et').textContent = etiqueta(arr);
   }
-  document.querySelectorAll('.dia[data-fecha]:not(.finde)').forEach(span => {
+  document.querySelectorAll('.dia[data-fecha]:not(.finde):not(.bloqueado)').forEach(span => {
     pintar(span);
     span.addEventListener('click', () => {
       const f = span.dataset.fecha;

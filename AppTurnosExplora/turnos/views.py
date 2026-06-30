@@ -313,6 +313,13 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
         except json.JSONDecodeError:
             seleccion = {}
         n = DescansoSemanaService.guardar_anual(anio, seleccion)
+        # Invalidar caché de Mis Turnos para que todos los empleados vean el cambio inmediatamente
+        from core.services.cache_service import CacheService
+        from empleados.models import Empleado as _Emp
+        empleados_ids = list(_Emp.objects.filter(activo=True).values_list('id', flat=True))
+        for emp_id in empleados_ids:
+            for mes in range(1, 13):
+                CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
         messages.success(request, f'Programación de descansos guardada para {anio} ({n} día(s) asignados).')
         return redirect(f"{reverse('descanso_semana_anual')}?anio={anio}")
 
