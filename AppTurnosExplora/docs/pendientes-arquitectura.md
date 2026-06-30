@@ -1,6 +1,81 @@
-# Pendientes de Arquitectura Limpia
+# Pendientes de Arquitectura
 
-## Refactorización de vistas con lógica de negocio inline
+> Hacer cuando el proyecto esté **funcionalmente completo** y antes de subir a AWS.
+> Refactorizar mientras hay flujos en desarrollo activo introduce riesgo de regresiones sin beneficio inmediato.
+
+---
+
+## 1. Descomposición de servicios monolíticos (Arquitectura de código)
+
+### `solicitud_validator.py` — 1482 líneas, 35 métodos en 1 sola clase
+
+Tiene 3 responsabilidades mezcladas que se separan limpiamente:
+
+| Nuevo archivo | Responsabilidad | Líneas aprox |
+|---|---|---|
+| `validators/fecha_validator.py` | Fechas laborales, festivos, temporada, mantenimiento, domingos, sábados | ~450 |
+| `validators/jornada_validator.py` | Jornada contraria, doblada, triple turno, coincidencia en pago | ~520 |
+| `validators/solicitud_validator.py` | Duplicados, permanentes superpuestos, pendientes por fecha | ~512 |
+
+Impacto en puntaje de arquitectura de código: **60% → ~80%**
+
+---
+
+### `notificacion_service.py` — 1125 líneas, 30 métodos en 1 sola clase
+
+Tiene 2 responsabilidades:
+
+| Nuevo archivo | Responsabilidad | Líneas aprox |
+|---|---|---|
+| `notificacion_service.py` (reducido) | Creación de notificaciones en BD, marcar como leída, consultas | ~400 |
+| `email_service.py` | Los 7 métodos `_enviar_email_*` y helpers de tokens/enlaces | ~700 |
+
+Impacto en puntaje de arquitectura de código: **+10%**
+
+---
+
+### Orden recomendado
+1. `notificacion_service.py` → `email_service.py` — corte limpio, sin dependencias cruzadas
+2. `solicitud_validator.py` → 3 archivos por responsabilidad
+
+---
+
+## 2. Refactorización de vistas con lógica de negocio inline (Arquitectura limpia)
+
+### `solicitudes/views/api_turno_jornada.py` — 855 líneas
+**Problema**: 34 queries ORM directas en la vista.
+**Acción**: Extraer a `TurnoRepository` o nuevo `TurnoContextRepository`.
+
+### `solicitudes/views/api_disponibles_ct_preview.py` — 539 líneas
+**Problema**: Queries de disponibilidad mezcladas con construcción de respuesta HTTP.
+**Acción**: Mover a `EmpleadoDisponibilidadService` (ya existe) y `EmpleadoRepository` (ya creado).
+
+### `solicitudes/views/doblada_api.py` — 533 líneas
+**Problema**: Queries de `Turno` y `DobladaDetalle` inline.
+**Acción**: Mover a `TurnoRepository` y `DobladaFiltroService`.
+
+### `empleados/views.py` — 870 líneas
+**Problema**: 29 queries ORM directas.
+**Acción**: `EmpleadoRepository` ya creado — actualizar vistas para usarlo.
+
+### Orden recomendado
+1. `empleados/views.py` — `EmpleadoRepository` ya existe, cambios mecánicos
+2. `doblada_api.py` — más pequeño, servicios ya disponibles
+3. `api_disponibles_ct_preview.py` — conectar con servicios existentes
+4. `api_turno_jornada.py` — el más grande, dejarlo para el final
+
+---
+
+## Puntaje estimado al completar todo
+
+| Dimensión | Hoy | Al completar |
+|---|---|---|
+| Arquitectura de código | 60% | ~90% |
+| Arquitectura limpia | 85% | ~97% |
+
+---
+
+## Refactorización de vistas con lógica de negocio inline (detalle original)
 
 ### ¿Por qué está pendiente?
 Estas vistas tienen queries ORM y lógica de negocio directamente en el código de la vista,
