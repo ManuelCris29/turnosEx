@@ -14,7 +14,9 @@ from .views import (
     VerificarCoincidenciaJornadasView,
     GestionSolicitudesView, ReenviarNotificacionSolicitudView,
     GestionCancelarSolicitudView, GestionEliminarSolicitudView,
-    AlternanciaFindeView, DescansosSemanaUsuarioView, CambioDescansoFindesView,
+    AlternanciaFindeView, AlternanciaMesView, DFDSCompanerosView,
+    DescansosSemanaUsuarioView, CambioDescansoFindesView,
+    DobladasSemanaView,
 )
 
 app_name = 'solicitudes'
@@ -59,6 +61,9 @@ urlpatterns = [
     path('alternancia-finde/', AlternanciaFindeView.as_view(), name='alternancia_finde'),
     path('descansos-semana-usuario/', DescansosSemanaUsuarioView.as_view(), name='descansos_semana_usuario'),
     path('cambio-descanso-findes/', CambioDescansoFindesView.as_view(), name='cambio_descanso_findes'),
+    path('alternancia-mes/', AlternanciaMesView.as_view(), name='alternancia_mes'),
+    path('dfds-companeros/', DFDSCompanerosView.as_view(), name='dfds_companeros'),
+    path('dobladas-semana/', DobladasSemanaView.as_view(), name='dobladas_semana'),
     path('obtener-detalle-solicitud/<int:solicitud_id>/', ObtenerDetalleSolicitudView.as_view(), name='obtener_detalle_solicitud'),
     path('previsualizar-ct-permanente/', PrevisualizarCTPermanenteView.as_view(), name='previsualizar_ct_permanente'),
     path('previsualizar-doblada-permanente/', PrevisualizarDobladaPermanenteView.as_view(), name='previsualizar_doblada_permanente'),

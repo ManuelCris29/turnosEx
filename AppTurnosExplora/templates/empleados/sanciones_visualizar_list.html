@@ -1,27 +1,54 @@
 {% extends 'base.html' %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Sanciones - Consultas Rápidas{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
-<style>
-    .pg-stats { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
-    .pg-stat { background:#fff; border-radius:12px; box-shadow:0 4px 14px rgba(15,23,42,.06); padding:14px 18px; flex:1; min-width:150px; }
-    .pg-stat .num { font-size:1.7rem; font-weight:700; line-height:1; }
-    .pg-stat .lbl { font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; color:#6b7280; }
-    .san-item { border-left:4px solid #dc2626; border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,.05); padding:1.4rem; margin-bottom:1.2rem; background:#fff; }
-    .san-item:last-child { margin-bottom:0; }
-    .san-avatar { width:42px; height:42px; border-radius:50%; background:#dc2626; color:#fff; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/sanciones.css' %}">
 {% endblock %}
 
 {% block content %}
-<div class="pg-container">
+<div class="pg-container sanciones-page">
   <div class="pg-content">
     <div class="pg-header">
       <h1 class="pg-title"><i class="fas fa-gavel"></i> Sanciones asignadas</h1>
-      <p class="pg-subtitle">Sanciones que tu supervisor ha registrado en tu historial</p>
+      <p class="pg-subtitle">{% if es_supervisor %}Sanciones registradas en el sistema{% else %}Sanciones que tu supervisor ha registrado en tu historial{% endif %}</p>
+    </div>
+
+    <div class="filtros-box">
+      <form method="get" action="">
+        <div class="filtros-row">
+          {% if es_supervisor %}
+          <div class="filtro-campo">
+            <label for="empleado"><i class="fas fa-user mr-1"></i> Explorador</label>
+            <select name="empleado" id="empleado" style="min-width:200px;">
+              <option value="">Todos los exploradores</option>
+              {% for emp in empleados %}
+              <option value="{{ emp.id }}" {% if filtro_empleado == emp.id|stringformat:"s" %}selected{% endif %}>
+                {{ emp.apellido }}, {{ emp.nombre }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          {% endif %}
+          <div class="filtro-campo">
+            <label for="fecha_desde"><i class="fas fa-calendar-alt mr-1"></i> Desde</label>
+            <input type="date" name="fecha_desde" id="fecha_desde" value="{{ filtro_fecha_desde }}">
+          </div>
+          <div class="filtro-campo">
+            <label for="fecha_hasta"><i class="fas fa-calendar-alt mr-1"></i> Hasta</label>
+            <input type="date" name="fecha_hasta" id="fecha_hasta" value="{{ filtro_fecha_hasta }}">
+          </div>
+          <div class="filtro-campo">
+            <label>&nbsp;</label>
+            <div style="display:flex;gap:8px;">
+              <button type="submit" class="btn-filtrar"><i class="fas fa-search mr-1"></i> Filtrar</button>
+              <a href="{% url 'sanciones_visualizar' %}" class="btn-limpiar"><i class="fas fa-times mr-1"></i> Limpiar</a>
+            </div>
+          </div>
+        </div>
+      </form>
     </div>
 
     <div class="pg-stats">
@@ -42,7 +69,10 @@
                 <div class="san-avatar mr-3"><i class="fas fa-gavel"></i></div>
                 <div>
                   <h5 class="mb-1">Sanción #{{ sancion.id }}</h5>
-                  <p class="text-muted mb-0"><i class="fas fa-user-tie mr-1"></i> Supervisor: {{ sancion.supervisor.nombre }} {{ sancion.supervisor.apellido }}</p>
+                  {% if es_supervisor %}
+                  <p class="mb-0 san-empleado"><i class="fas fa-user mr-1"></i> {{ sancion.explorador.nombre }} {{ sancion.explorador.apellido }}</p>
+                  {% endif %}
+                  <p class="text-muted mb-0" style="font-size:.85rem;"><i class="fas fa-user-tie mr-1"></i> Supervisor: {{ sancion.supervisor.nombre }} {{ sancion.supervisor.apellido }}</p>
                 </div>
               </div>
               <div>
@@ -77,8 +107,39 @@
           <div class="pg-empty">
             <i class="fas fa-gavel fa-2x mb-2 d-block"></i>
             <strong class="d-block mb-1">No hay sanciones registradas</strong>
-            No tienes sanciones registradas en tu historial.
+            {% if filtro_fecha_desde or filtro_fecha_hasta or filtro_empleado %}
+              No se encontraron sanciones con los filtros seleccionados.
+            {% else %}
+              No hay sanciones registradas en el historial.
+            {% endif %}
           </div>
+        {% endif %}
+
+        {% if is_paginated %}
+        <div class="pg-pagination">
+          {% if page_obj.has_previous %}
+            <a href="?{{ query_params }}&page=1"><i class="fas fa-angle-double-left"></i></a>
+            <a href="?{{ query_params }}&page={{ page_obj.previous_page_number }}"><i class="fas fa-angle-left"></i></a>
+          {% else %}
+            <span class="disabled"><i class="fas fa-angle-double-left"></i></span>
+            <span class="disabled"><i class="fas fa-angle-left"></i></span>
+          {% endif %}
+          {% for num in page_obj.paginator.page_range %}
+            {% if page_obj.number == num %}
+              <span class="current">{{ num }}</span>
+            {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+              <a href="?{{ query_params }}&page={{ num }}">{{ num }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?{{ query_params }}&page={{ page_obj.next_page_number }}"><i class="fas fa-angle-right"></i></a>
+            <a href="?{{ query_params }}&page={{ page_obj.paginator.num_pages }}"><i class="fas fa-angle-double-right"></i></a>
+          {% else %}
+            <span class="disabled"><i class="fas fa-angle-right"></i></span>
+            <span class="disabled"><i class="fas fa-angle-double-right"></i></span>
+          {% endif %}
+        </div>
+        <p class="pg-count">Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }} registros</p>
         {% endif %}
       </div>
     </div>

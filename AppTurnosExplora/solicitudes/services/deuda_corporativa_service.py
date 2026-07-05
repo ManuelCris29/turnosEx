@@ -65,14 +65,16 @@ class DeudaCorporativaService:
             return {'fecha_doblada': d.fecha_doblada}
         return None
 
+    DURACION_BASE_DIAS = 15  # primera sanción: 15 días; cada reincidencia suma 15
+
     @staticmethod
     def gestionar_sancion_por_deuda(explorador: Empleado):
         """
-        Genera o levanta AUTOMÁTICAMENTE la sanción por deuda de doblada que no se pagó
-        dentro de su mismo mes:
-        - Si hay deuda vencida (de un mes anterior, sin pagar) y no existe ya una sanción
-          automática activa → crea la sanción (bloquea cualquier solicitud).
-        - Si ya NO hay deuda vencida y existe una sanción automática activa → la levanta.
+        Sanciones progresivas por deuda vencida (no pagada dentro del mismo mes):
+        - 1ª vez: 15 días. Si vence y sigue sin pagar → 30 días. Luego 45, 60…
+        - Mientras haya una sanción activa no se crea otra (se espera a que venza).
+        - Cuando el explorador paga, la sanción activa se levanta inmediatamente.
+        - Cada nueva sanción genera una notificación in-app al explorador.
         """
         from empleados.models import SancionEmpleado
         from django.db.models import Q as _Q
@@ -80,38 +82,100 @@ class DeudaCorporativaService:
             return
         hoy = date.today()
         info = DeudaCorporativaService._deuda_vencida_info(explorador)
-        auto = (
+
+        # Sanción AUTO activa en este momento
+        auto_activa = (
             SancionEmpleado.objects
-            .filter(explorador=explorador, motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
-                    fecha_inicio__lte=hoy)
-            .filter(_Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=hoy))
+            .filter(explorador=explorador,
+                    motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
+                    fecha_inicio__lte=hoy,
+                    fecha_fin__gte=hoy)
             .order_by('-fecha_inicio')
             .first()
         )
-        if info and not auto:
-            supervisor = getattr(explorador, 'supervisor', None) or explorador
-            mes_nombre = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
-                          'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][info['fecha_doblada'].month - 1]
-            nueva = SancionEmpleado.objects.create(
-                explorador=explorador,
-                supervisor=supervisor,
-                fecha_inicio=hoy,
-                fecha_fin=None,  # indefinida hasta que pague la deuda
-                motivo=(
-                    f"{DeudaCorporativaService.AUTO_SANCION_PREFIJO} Sanción automática: tienes una doblada del "
-                    f"{info['fecha_doblada'].strftime('%d/%m/%Y')} cuya deuda de horas no se pagó dentro de {mes_nombre}. "
-                    f"Paga la deuda (PDH) para levantarla."
+
+        if not info:
+            # Deuda pagada → levantar sanción activa si la hay
+            if auto_activa:
+                auto_activa.fecha_fin = hoy - timedelta(days=1)
+                auto_activa.save(update_fields=['fecha_fin', 'actualizado_en'])
+                DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(auto_activa)
+            return
+
+        # Hay deuda vencida → si ya hay sanción activa, esperar a que venza
+        if auto_activa:
+            return
+
+        # Calcular cuántas sanciones AUTO ya expiraron desde que la deuda venció
+        # para determinar la duración progresiva de la nueva.
+        fecha_doblada = info['fecha_doblada']
+        if fecha_doblada.month == 12:
+            deuda_vencio_desde = date(fecha_doblada.year + 1, 1, 1)
+        else:
+            deuda_vencio_desde = date(fecha_doblada.year, fecha_doblada.month + 1, 1)
+
+        vencidas_count = SancionEmpleado.objects.filter(
+            explorador=explorador,
+            motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
+            fecha_inicio__gte=deuda_vencio_desde,
+            fecha_fin__lt=hoy,
+        ).count()
+
+        duracion = DeudaCorporativaService.DURACION_BASE_DIAS * (vencidas_count + 1)
+        fecha_fin_nueva = hoy + timedelta(days=duracion)
+
+        supervisor = getattr(explorador, 'supervisor', None) or explorador
+        mes_nombre = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
+                      'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][fecha_doblada.month - 1]
+
+        reincidencia = f" (reincidencia #{vencidas_count})" if vencidas_count else ""
+        nueva = SancionEmpleado.objects.create(
+            explorador=explorador,
+            supervisor=supervisor,
+            fecha_inicio=hoy,
+            fecha_fin=fecha_fin_nueva,
+            motivo=(
+                f"{DeudaCorporativaService.AUTO_SANCION_PREFIJO} Sanción automática{reincidencia}: "
+                f"tienes una doblada del {fecha_doblada.strftime('%d/%m/%Y')} cuya deuda de horas "
+                f"no se pagó dentro de {mes_nombre}. Tienes {duracion} días para pagar la deuda (PDH). "
+                f"Si no pagas antes del {fecha_fin_nueva.strftime('%d/%m/%Y')}, la siguiente sanción "
+                f"será de {duracion + DeudaCorporativaService.DURACION_BASE_DIAS} días."
+            ),
+        )
+
+        # Notificación in-app al explorador
+        DeudaCorporativaService._notificar_sancion(explorador, nueva, duracion, fecha_fin_nueva, vencidas_count)
+        DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(nueva)
+
+    @staticmethod
+    def _notificar_sancion(explorador, sancion, duracion, fecha_fin, reincidencia_num) -> None:
+        """Crea una notificación in-app informando al explorador de la nueva sanción."""
+        try:
+            from solicitudes.models import Notificacion
+            if reincidencia_num == 0:
+                titulo = f"⚠️ Sanción automática: {duracion} días bloqueado"
+                intro = "Tienes una deuda de horas (doblada) que no pagaste dentro del mes correspondiente."
+            else:
+                titulo = f"⚠️ Sanción ampliada: {duracion} días bloqueados (reincidencia #{reincidencia_num})"
+                intro = (
+                    f"La sanción anterior venció y tu deuda sigue sin pagar. "
+                    f"Esta es la reincidencia #{reincidencia_num}."
+                )
+            Notificacion.objects.create(
+                destinatario=explorador,
+                tipo='sancion',
+                titulo=titulo,
+                mensaje=(
+                    f"{intro}\n\n"
+                    f"Desde: {sancion.fecha_inicio.strftime('%d/%m/%Y')} "
+                    f"hasta: {fecha_fin.strftime('%d/%m/%Y')} ({duracion} días).\n\n"
+                    f"Durante este período NO puedes realizar solicitudes de cambio de turno ni permisos. "
+                    f"Para levantar la sanción, paga tu deuda de horas (PDH) con tu supervisor."
                 ),
+                solicitud=None,
             )
-            # Refrescar Mis Turnos para que la sanción se vea al instante (sin esperar al TTL).
-            DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(nueva)
-        elif (not info) and auto:
-            # Ya no hay deuda vencida: levantar la sanción automática
-            auto.fecha_fin = hoy - timedelta(days=1)
-            auto.save(update_fields=['fecha_fin', 'actualizado_en'])
-            # CLAVE: la sanción era indefinida y se mostraba en meses futuros; al levantarla hay
-            # que invalidar también esos meses para que desaparezca al instante (no hasta el TTL).
-            DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(auto)
+        except Exception:
+            pass
 
     @staticmethod
     def _invalidar_cache_mis_turnos_sancion(sancion) -> None:

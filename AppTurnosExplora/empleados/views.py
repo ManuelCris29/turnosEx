@@ -527,9 +527,11 @@ class SancionListView(LoginRequiredMixin, ListView):
 def _invalidar_turnos_cache_sancion(sancion):
     """Refresca Mis Turnos del explorador para que la sanción se vea al instante."""
     try:
-        from datetime import timedelta
+        from datetime import date, timedelta
         from core.services.cache_service import CacheService
-        fin = sancion.fecha_fin or (sancion.fecha_inicio + timedelta(days=365))
+        hoy = date.today()
+        # Para indefinidas, cubrir hasta el mes actual (no solo +365 días desde inicio)
+        fin = sancion.fecha_fin or max(sancion.fecha_inicio + timedelta(days=365), hoy)
         meses = set()
         d = sancion.fecha_inicio
         while d <= fin:
@@ -592,8 +594,8 @@ class IndicadoresView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
         ctx['anios'] = IndicadoresService.anios_disponibles()
         ctx['filtro_explorador'] = explorador or ''
         ctx['filtro_jornada'] = jornada or ''
-        ctx['chart_series_json'] = json.dumps(data['chart_series'])
-        ctx['meses_json'] = json.dumps(data['meses_nombres'])
+        ctx['chart_series_json'] = data['chart_series']
+        ctx['meses_json'] = data['meses_nombres']
         return ctx
 
 
@@ -767,6 +769,7 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
     model = SancionEmpleado
     template_name = 'empleados/sanciones_visualizar_list.html'
     context_object_name = 'sanciones'
+    paginate_by = 20
 
     def _base_queryset(self):
         qs = (
@@ -783,41 +786,72 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
         return qs.filter(explorador=empleado)
 
     def get_queryset(self):
-        return self._base_queryset()
-    
+        from django.db.models import Q
+        qs = self._base_queryset()
+        p = self.request.GET
+
+        # Filtro por empleado (solo supervisores)
+        emp_id = p.get('empleado')
+        if emp_id and self.request.user.is_staff:
+            qs = qs.filter(explorador_id=emp_id)
+
+        # Filtro por rango de fechas (ambos roles)
+        fecha_desde = p.get('fecha_desde')
+        fecha_hasta = p.get('fecha_hasta')
+        if fecha_desde:
+            qs = qs.filter(fecha_inicio__gte=fecha_desde)
+        if fecha_hasta:
+            qs = qs.filter(fecha_inicio__lte=fecha_hasta)
+
+        return qs
+
     def get_context_data(self, **kwargs):
         from django.db.models import Q
         from django.utils import timezone
         context = super().get_context_data(**kwargs)
         user = self.request.user
         hoy = timezone.now().date()
-        
-        # Obtener queryset base (ya filtrado por explorador si es necesario)
-        queryset = self._base_queryset()
-        
-        # Calcular totales usando el queryset filtrado
-        # Activa: fecha_fin es NULL o fecha_fin >= hoy
-        # Finalizada: fecha_fin < hoy
-        total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
-        total_finalizadas = queryset.filter(fecha_fin__lt=hoy).count()
-        
+
+        # Totales sobre el queryset ya filtrado
+        qs = self.get_queryset()
+        total_activas = qs.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
+        total_finalizadas = qs.filter(fecha_fin__lt=hoy).count()
+
+        # Lista de empleados para el selector del supervisor
+        empleados = []
+        if user.is_staff:
+            empleados = list(
+                Empleado.objects.filter(activo=True)
+                .order_by('apellido', 'nombre')
+                .values('id', 'nombre', 'apellido')
+            )
+
+        params = self.request.GET.copy()
+        params.pop('page', None)
+
         context.update({
             'es_supervisor': user.is_staff,
             'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
             'hoy': hoy,
             'total_activas': total_activas,
-            'total_finalizadas': total_finalizadas
+            'total_finalizadas': total_finalizadas,
+            'empleados': empleados,
+            'filtro_empleado': self.request.GET.get('empleado', ''),
+            'filtro_fecha_desde': self.request.GET.get('fecha_desde', ''),
+            'filtro_fecha_hasta': self.request.GET.get('fecha_hasta', ''),
+            'query_params': params.urlencode(),
         })
-        
+
         if not user.is_staff and not getattr(user, 'empleado', None):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
-        
+
         return context
 
 class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
     model = RestriccionEmpleado
     template_name = 'empleados/restricciones_visualizar_list.html'
     context_object_name = 'restricciones'
+    paginate_by = 20
 
     def _base_queryset(self):
         qs = (
@@ -827,9 +861,6 @@ class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
         )
         user = self.request.user
         if user.is_staff:
-            eid = self.request.GET.get('explorador')
-            if eid and str(eid).isdigit():
-                qs = qs.filter(empleado_id=eid)
             return qs
         empleado = getattr(user, 'empleado', None)
         if not empleado:
@@ -837,34 +868,61 @@ class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
         return qs.filter(empleado=empleado)
 
     def get_queryset(self):
-        return self._base_queryset()
-    
+        qs = self._base_queryset()
+        p = self.request.GET
+
+        # Filtro por empleado (solo supervisores)
+        emp_id = p.get('empleado')
+        if emp_id and self.request.user.is_staff:
+            qs = qs.filter(empleado_id=emp_id)
+
+        # Filtro por rango de fechas (ambos roles)
+        fecha_desde = p.get('fecha_desde')
+        fecha_hasta = p.get('fecha_hasta')
+        if fecha_desde:
+            qs = qs.filter(fecha_inicio__gte=fecha_desde)
+        if fecha_hasta:
+            qs = qs.filter(fecha_inicio__lte=fecha_hasta)
+
+        return qs
+
     def get_context_data(self, **kwargs):
         from django.db.models import Q
         from django.utils import timezone
         context = super().get_context_data(**kwargs)
         user = self.request.user
         hoy = timezone.now().date()
-        
-        # Obtener queryset base (ya filtrado por empleado si es necesario)
-        queryset = self._base_queryset()
-        
-        # Calcular totales usando el queryset filtrado
-        # Activa: fecha_fin es NULL o fecha_fin >= hoy
-        # Finalizada: fecha_fin < hoy
-        total_activos = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
-        total_finalizados = queryset.filter(fecha_fin__lt=hoy).count()
-        
+
+        qs = self.get_queryset()
+        total_activos = qs.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
+        total_finalizados = qs.filter(fecha_fin__lt=hoy).count()
+
+        empleados = []
+        if user.is_staff:
+            empleados = list(
+                Empleado.objects.filter(activo=True)
+                .order_by('apellido', 'nombre')
+                .values('id', 'nombre', 'apellido')
+            )
+
+        params = self.request.GET.copy()
+        params.pop('page', None)
+
         context.update({
             'es_supervisor': user.is_staff,
             'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
             'hoy': hoy,
             'total_activos': total_activos,
-            'total_finalizados': total_finalizados
+            'total_finalizados': total_finalizados,
+            'empleados': empleados,
+            'filtro_empleado': self.request.GET.get('empleado', ''),
+            'filtro_fecha_desde': self.request.GET.get('fecha_desde', ''),
+            'filtro_fecha_hasta': self.request.GET.get('fecha_hasta', ''),
+            'query_params': params.urlencode(),
         })
-        
+
         if not user.is_staff and not getattr(user, 'empleado', None):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver restricciones.')
-        
+
         return context
 

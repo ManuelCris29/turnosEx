@@ -57,11 +57,12 @@ class PermisoEspecial(models.Model):
         ('MEDICO', 'Médico'),
         ('PERSONAL', 'Personal'),
         ('FAMILIAR', 'Familiar'),
+        ('MEDIA_JORNADA_TEMPORADA', 'Media jornada temporada (compensada)'),
         ('OTRO', 'Otro'),
     ]
     
     empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='permisos_especiales')
-    tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default='PERSONAL')
+    tipo = models.CharField(max_length=30, choices=TIPO_CHOICES, default='PERSONAL')
     # Permanente: se repite en días fijos de la semana dentro de un rango.
     es_permanente = models.BooleanField(default=False, help_text='True si es un permiso permanente (días fijos de la semana).')
     fecha_inicio = models.DateField(help_text='Permiso normal: el día. Permanente: inicio del rango.')
@@ -85,6 +86,22 @@ class PermisoEspecial(models.Model):
                                    related_name='permisos_supervisor',
                                    help_text='Supervisor que aprueba/rechaza.')
     comentario_supervisor = models.TextField(null=True, blank=True)
+    # --- Solo tipo MEDIA_JORNADA_TEMPORADA (día completo de temporada partido en dos) ---
+    jornada_trabaja = models.CharField(
+        max_length=2, choices=[('AM', 'AM'), ('PM', 'PM')], null=True, blank=True,
+        help_text='Media jornada temporada: jornada que trabajará en su día completo (fecha_inicio). '
+                  'La otra media se trabaja en fecha_compensacion. Sin deuda (tiempo=0).'
+    )
+    fecha_compensacion = models.DateField(
+        null=True, blank=True,
+        help_text='Media jornada temporada: día de descanso de la MISMA semana donde trabaja '
+                  'la media jornada restante.'
+    )
+    snapshot_turnos_previos = models.JSONField(
+        null=True, blank=True,
+        help_text='Turnos previos del empleado en fecha_inicio y fecha_compensacion antes de aplicar '
+                  'el permiso aprobado (mismo formato que DobladaDetalle). Permite revertir.'
+    )
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
     historial = HistoricalRecords()

@@ -4,6 +4,8 @@ from . import views
 app_name = 'turnos_api'
 
 urlpatterns = [
+    path('reporte-dia/', views.ReporteDiaView.as_view(), name='reporte_dia'),
+    path('reporte-dia/excel/', views.ReporteDiaExcelView.as_view(), name='reporte_dia_excel'),
     path('turnos-por-dia/', views.TurnosPorDiaView.as_view(), name='turnos_por_dia'),
     path('turnos-por-mes/', views.TurnosPorMesView.as_view(), name='turnos_por_mes'),
     path('mis-turnos-por-mes/', views.MisTurnosPorMesView.as_view(), name='mis_turnos_por_mes'),

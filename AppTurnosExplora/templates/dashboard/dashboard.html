@@ -1,10 +1,10 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Dashboard - AppTurnos{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/dashboard.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/dashboard.css' %}">
 {% endblock %}
 
 {% block content %}

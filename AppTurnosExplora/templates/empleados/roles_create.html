@@ -1,11 +1,11 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 {% load widget_tweaks %}
-{% load static %}
+{% load static static_version %}
 
 {% block title %}Crear Rol{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 {% endblock %}
 
 {% block content %}

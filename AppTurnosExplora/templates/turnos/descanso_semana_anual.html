@@ -1,42 +1,12 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Planeación de Descansos de Semana{% endblock %}
 {% block page_title %}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
-<style>
-  .dsa-wrap { max-width: 1200px; margin: 0 auto; }
-  .dsa-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; margin-bottom:14px; }
-  .dsa-leyenda { display:flex; gap:14px; flex-wrap:wrap; font-size:.85rem; color:#475569; }
-  .dsa-leyenda span { display:inline-flex; align-items:center; gap:6px; }
-  .dsa-box { width:14px; height:14px; border-radius:3px; display:inline-block; }
-  .box-am { background:#0d6efd; } .box-pm { background:#f59e0b; } .box-amb { background:linear-gradient(90deg,#0d6efd 50%,#f59e0b 50%); }
-  .dsa-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
-  .dsa-mes { background:#fff; border-radius:12px; box-shadow:0 4px 14px rgba(15,23,42,.06); padding:12px; }
-  .dsa-mes h4 { font-size:1rem; margin:0 0 8px; color:#1e293b; text-align:center; }
-  .dsa-cal { width:100%; border-collapse:collapse; table-layout:fixed; }
-  .dsa-cal th { font-size:.7rem; color:#94a3b8; text-transform:uppercase; padding:2px; text-align:center; }
-  .dsa-cal td { text-align:center; padding:1px; }
-  .dia { width:34px; height:34px; line-height:1; border-radius:8px; display:inline-flex; flex-direction:column; align-items:center; justify-content:center;
-         font-size:.82rem; cursor:pointer; user-select:none; border:1px solid transparent; transition:.1s; position:relative; }
-  .dia:hover { background:#f1f5f9; }
-  .dia.otro { color:#cbd5e1; cursor:default; } .dia.otro:hover { background:transparent; }
-  .dia.finde { color:#cbd5e1; cursor:default; } .dia.finde:hover { background:transparent; }
-  .dia.bloqueado { cursor:not-allowed; opacity:.6; } .dia.bloqueado:hover { background:#f8fafc; }
-  .dia .et { font-size:.55rem; font-weight:700; line-height:1; margin-top:1px; }
-  .dia.sel-am { background:#dbeafe; border-color:#0d6efd; } .dia.sel-am .et { color:#0d6efd; }
-  .dia.sel-pm { background:#fef3c7; border-color:#f59e0b; } .dia.sel-pm .et { color:#b45309; }
-  .dia.sel-amb { background:linear-gradient(90deg,#dbeafe 50%,#fef3c7 50%); border-color:#6366f1; }
-  .dia.sel-amb .et { color:#4338ca; }
-  /* Marcadores de referencia (temporada/festivo/mantenimiento) */
-  .dia .marks { position:absolute; top:2px; right:2px; display:flex; gap:2px; }
-  .dia .mk { width:6px; height:6px; border-radius:50%; }
-  .mk-temporada { background:#8b5cf6; } .mk-festivo { background:#ef4444; } .mk-mantenimiento { background:#475569; }
-  .dia.tem-bg { box-shadow: inset 0 0 0 2px #ede9fe; }
-  .dsa-actions { position:sticky; bottom:0; background:#fff; padding:12px; border-top:1px solid #e2e8f0; display:flex; gap:10px; justify-content:flex-end; margin-top:16px; border-radius:0 0 12px 12px; }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/descanso_semana_anual.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -110,62 +80,9 @@
     </form>
   </div>
 </div>
-
-<script>
-(function(){
-  const pre = {{ preseleccion_json|safe }};
-  const marcadores = {{ marcadores_json|safe }};
-  const form = document.getElementById('dsaForm');
-  const hidden = document.getElementById('seleccion');
-
-  const TAGS_BLOQUEADOS = ['temporada', 'festivo', 'mantenimiento'];
-  // Pintar marcadores de referencia y bloquear días con temporada/festivo/mantenimiento.
-  document.querySelectorAll('.dia[data-fecha]').forEach(span => {
-    const tags = marcadores[span.dataset.fecha];
-    if(!tags || !tags.length) return;
-    const cont = document.createElement('span');
-    cont.className = 'marks';
-    tags.forEach(t => { const d = document.createElement('span'); d.className = 'mk mk-' + t; d.title = t; cont.appendChild(d); });
-    span.appendChild(cont);
-    if(tags.indexOf('temporada') >= 0) span.classList.add('tem-bg');
-    if(tags.some(t => TAGS_BLOQUEADOS.includes(t))) span.classList.add('bloqueado');
-  });
-  // estado en memoria: { 'YYYY-MM-DD': ['AM'] | ['PM'] | ['AM','PM'] }
-  const estado = {};
-  Object.keys(pre).forEach(f => { estado[f] = pre[f].slice().sort(); });
-
-  const ESTADOS = [[], ['AM'], ['PM'], ['AM','PM']];
-  function claseDe(arr){
-    if(arr.length === 2) return 'sel-amb';
-    if(arr[0] === 'AM') return 'sel-am';
-    if(arr[0] === 'PM') return 'sel-pm';
-    return '';
-  }
-  function etiqueta(arr){
-    if(arr.length === 2) return 'AM·PM';
-    return arr[0] || '';
-  }
-  function pintar(span){
-    const f = span.dataset.fecha;
-    const arr = estado[f] || [];
-    span.classList.remove('sel-am','sel-pm','sel-amb');
-    const c = claseDe(arr); if(c) span.classList.add(c);
-    span.querySelector('.et').textContent = etiqueta(arr);
-  }
-  document.querySelectorAll('.dia[data-fecha]:not(.finde):not(.bloqueado)').forEach(span => {
-    pintar(span);
-    span.addEventListener('click', () => {
-      const f = span.dataset.fecha;
-      const actual = estado[f] || [];
-      // índice del estado actual en el ciclo
-      let idx = ESTADOS.findIndex(e => e.length === actual.length && e.every((v,i)=>v===actual[i]));
-      if(idx < 0) idx = 0;
-      const siguiente = ESTADOS[(idx + 1) % ESTADOS.length];
-      if(siguiente.length) estado[f] = siguiente.slice(); else delete estado[f];
-      pintar(span);
-    });
-  });
-  form.addEventListener('submit', () => { hidden.value = JSON.stringify(estado); });
-})();
-</script>
+{{ preseleccion_json|json_script:"dsa-preseleccion" }}
+{{ marcadores_json|json_script:"dsa-marcadores" }}
+<script src="{% static_v 'js/turnos/descanso_semana_anual.js' %}"></script>
 {% endblock %}
+
+

@@ -1,0 +1,69 @@
+/* Estilos específicos de la vista de Turnos Calendario (reporte diario) */
+.rep-wrap { max-width: 1300px; margin: 0 auto; }
+
+/* Calendario FullCalendar compacto */
+#calendar { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); padding: 12px; margin-bottom: 16px; }
+.fc { font-size: .88rem; }
+.fc-toolbar { font-size: .9rem; }
+.fc-button { padding: .3rem .7rem; font-size: .82rem; background: #2563eb; border-color: #2563eb; }
+.fc-button:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.fc-button-primary:not(:disabled).fc-button-active,
+.fc-button-primary:not(:disabled):active { background: #1e40af; border-color: #1e40af; }
+.fc-day-today { background: #eff6ff !important; }
+.fc-day-selected { background: #dbeafe !important; }
+.fc-daygrid-day:hover { background: #f8fafc; cursor: pointer; }
+
+/* Encabezado del reporte */
+.rep-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.rep-title { font-size: 1.1rem; font-weight: 700; color: #1e293b; }
+.rep-fecha { font-size: .95rem; color: #2563eb; font-weight: 600; text-transform: capitalize; }
+.rep-badge-dia { font-size: .75rem; padding: 3px 8px; border-radius: 20px; font-weight: 600; }
+.badge-festivo { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge-finde   { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+.badge-mant    { background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }
+
+/* Tres columnas AM / PM / Descanso */
+.rep-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+@media (max-width: 900px) { .rep-grid { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 600px) { .rep-grid { grid-template-columns: 1fr; } }
+
+.rep-col { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); overflow: hidden; }
+.rep-col-head { padding: 10px 14px; display: flex; align-items: center; justify-content: space-between; }
+.rep-col-head h4 { margin: 0; font-size: .9rem; font-weight: 700; color: #fff; }
+.rep-col-head .cnt { background: rgba(255,255,255,.25); color: #fff; border-radius: 20px; padding: 2px 10px; font-size: .8rem; font-weight: 700; }
+.head-am   { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+.head-pm   { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.head-desc { background: linear-gradient(135deg, #475569, #64748b); }
+.rep-col-body { padding: 10px; min-height: 120px; }
+
+/* Tarjeta de empleado */
+.emp-card { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border-radius: 8px; margin-bottom: 6px; background: #f8fafc; border: 1px solid #e2e8f0; transition: .12s; }
+.emp-card:hover { border-color: #93c5fd; background: #eff6ff; }
+.emp-avatar { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: .8rem; color: #fff; flex-shrink: 0; }
+.av-am   { background: linear-gradient(135deg, #2563eb, #3b82f6); }
+.av-pm   { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.av-dob  { background: linear-gradient(135deg, #7c3aed, #8b5cf6); }
+.av-desc { background: linear-gradient(135deg, #475569, #64748b); }
+.emp-info { flex: 1; min-width: 0; }
+.emp-nombre { font-weight: 600; font-size: .85rem; color: #1e293b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.emp-detalle { font-size: .75rem; color: #64748b; margin-top: 2px; }
+.emp-detalle b { color: #334155; }
+.emp-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.tag { font-size: .68rem; padding: 1px 7px; border-radius: 20px; font-weight: 600; }
+.tag-oficial  { background: #dbeafe; color: #1d4ed8; }
+.tag-cambio   { background: #fef9c3; color: #92400e; }
+.tag-doblada  { background: #ede9fe; color: #5b21b6; }
+.tag-permiso  { background: #dcfce7; color: #15803d; }
+.tag-motivo   { background: #f1f5f9; color: #475569; }
+
+.rep-empty { text-align: center; color: #94a3b8; font-size: .82rem; padding: 20px 0; }
+
+/* Barra de acciones */
+.rep-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.btn-descargar { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; background: #16a34a; color: #fff; border-radius: 8px; font-size: .85rem; font-weight: 600; cursor: pointer; border: none; text-decoration: none; }
+.btn-descargar:hover { background: #15803d; color: #fff; }
+
+/* Spinner de carga */
+.rep-loading { text-align: center; color: #94a3b8; padding: 30px 0; font-size: .9rem; }
+.spin { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }

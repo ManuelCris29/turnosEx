@@ -1,0 +1,11 @@
+/* Estilos exclusivos del formulario de solicitud de Doblada */
+
+/* Día libre (cedió jornada por doblada) — seleccionable */
+.flatpickr-day.descanso { background-color: #ffeb3b !important; color: #000 !important; font-weight: bold; border-color: #fdd835 !important; cursor: pointer !important; }
+.flatpickr-day.descanso:hover { background-color: #fdd835 !important; }
+.flatpickr-day.descanso::after { content: '☕'; position: absolute; top: 2px; right: 2px; font-size: 10px; }
+.flatpickr-day.flatpickr-disabled.descanso { background-color: #ffeb3b !important; color: #000 !important; font-weight: bold; border-color: #fdd835 !important; }
+
+.estado-descanso { background-color: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin-bottom: 15px; }
+
+#vista_previa_acuerdo { background-color: #f8f9fa; border-left: 4px solid #007bff; padding: 15px; margin-top: 15px; border-radius: 4px; }

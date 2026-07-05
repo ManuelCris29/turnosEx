@@ -1,9 +1,9 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 {% block title %}Notificaciones{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/solicitudes/notificaciones_list.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/solicitudes/notificaciones_list.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -47,6 +47,8 @@
                                         <i class="fas fa-times-circle text-danger"></i>
                                     {% elif notificacion.tipo == 'solicitud_cancelada' %}
                                         <i class="fas fa-ban text-warning"></i>
+                                    {% elif notificacion.tipo == 'sancion' %}
+                                        <i class="fas fa-exclamation-triangle text-danger"></i>
                                     {% else %}
                                         <i class="fas fa-bell text-info"></i>
                                     {% endif %}
@@ -113,7 +115,7 @@
 </div>
 
 {% block extra_js %}
-<script src="{% static 'js/notificaciones-solicitudes/notificaciones_list.js' %}"></script>
+<script src="{% static_v 'js/notificaciones-solicitudes/notificaciones_list.js' %}"></script>
 {% endblock %}
 
 {% endblock %} 

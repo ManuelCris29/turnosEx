@@ -1,0 +1,33 @@
+/* Estilos específicos de la vista de sanciones */
+.san-item {
+    border-left: 4px solid #dc2626;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.05);
+    padding: 1.4rem;
+    margin-bottom: 1.2rem;
+    background: #fff;
+}
+.san-item:last-child { margin-bottom: 0; }
+
+.san-avatar {
+    width: 42px; height: 42px; border-radius: 50%;
+    background: #dc2626; color: #fff;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+}
+
+.san-empleado { font-size: .85rem; color: #6b7280; margin-top: 2px; }
+
+/* Stats box en la vista de lista de sanciones (gestión supervisor) */
+.sanc-stats { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+.sanc-stat { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); padding: 14px 18px; flex: 1; min-width: 150px; }
+.sanc-stat .num { font-size: 1.7rem; font-weight: 700; line-height: 1; }
+.sanc-stat .lbl { font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; }
+.filter-pill.active { background: #374151 !important; color: #fff !important; border-color: #374151 !important; }
+
+/* Color accent rojo para paginación en sanciones */
+.sanciones-page .pg-pagination a:hover { background: #fef2f2; border-color: #dc2626; color: #dc2626; }
+.sanciones-page .pg-pagination .current { background: #dc2626; border-color: #dc2626; }
+.sanciones-page .btn-filtrar { background: #b91c1c; }
+.sanciones-page .btn-filtrar:hover { background: #991b1b; }
+.sanciones-page .filtros-box select:focus,
+.sanciones-page .filtros-box input[type="date"]:focus { border-color: #dc2626; }

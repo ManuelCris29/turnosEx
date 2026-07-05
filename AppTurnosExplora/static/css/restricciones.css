@@ -1,0 +1,25 @@
+/* Estilos específicos de la vista de restricciones */
+.rest-item {
+    border-left: 4px solid #f59e0b;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.05);
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    background: #fff;
+}
+.rest-item:last-child { margin-bottom: 0; }
+
+/* Stats box en la vista de lista de restricciones (gestión supervisor) */
+.rest-stats { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 18px; }
+.rest-stat { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); padding: 14px 18px; flex: 1; min-width: 150px; }
+.rest-stat .num { font-size: 1.7rem; font-weight: 700; line-height: 1; }
+.rest-stat .lbl { font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; }
+.filter-pill.active { background: #ef4444 !important; color: #fff !important; border-color: #ef4444 !important; }
+
+/* Color accent amber para paginación en restricciones */
+.restricciones-page .pg-pagination a:hover { background: #fffbeb; border-color: #f59e0b; color: #d97706; }
+.restricciones-page .pg-pagination .current { background: #d97706; border-color: #d97706; }
+.restricciones-page .btn-filtrar { background: #d97706; }
+.restricciones-page .btn-filtrar:hover { background: #b45309; }
+.restricciones-page .filtros-box select:focus,
+.restricciones-page .filtros-box input[type="date"]:focus { border-color: #f59e0b; }

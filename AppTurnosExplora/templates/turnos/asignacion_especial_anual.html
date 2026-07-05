@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Asignación de Fines de Semana y Festivos{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/descanso_semana_anual.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="dsa-wrap" style="width:100%;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-check"></i> Fines de Semana y Festivos (manual)</h1>
+      <p class="pg-subtitle">Fija manualmente qué grupo TRABAJA el día completo en un fin de semana (sáb/dom) o un festivo. Sin fijar nada, sigue la alternancia automática. Clic repetido cambia: automático → AM trabaja → PM trabaja → automático.</p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }}" style="border-radius:8px;">{{ m }}</div>{% endfor %}{% endif %}
+
+    {% if anio_editable_completo %}
+    <div class="alert alert-success" style="border-radius:8px;">
+      <i class="fas fa-check-circle mr-1"></i>
+      <strong>Año {{ anio }} sin solicitudes aprobadas.</strong> Puedes reprogramar toda la alternancia del año libremente.
+    </div>
+    {% else %}
+    <div class="alert alert-warning" style="border-radius:8px;">
+      <i class="fas fa-lock mr-1"></i>
+      <strong>El año {{ anio }} ya tiene solicitudes aprobadas.</strong> Solo puedes modificar los fines de semana y festivos que estén libres. Los que ya tienen solicitudes aparecen bloqueados (🔒) y no se pueden alterar.
+    </div>
+    {% endif %}
+
+    <div class="dsa-toolbar">
+      <form method="get" class="form-inline" style="gap:8px;">
+        <label class="mb-0 font-weight-bold mr-1">Año:</label>
+        <select name="anio" class="form-control" onchange="this.form.submit()">
+          {% for a in anios_disponibles %}<option value="{{ a }}" {% if a == anio %}selected{% endif %}>{{ a }}</option>{% endfor %}
+          {% if anio not in anios_disponibles %}<option value="{{ anio }}" selected>{{ anio }}</option>{% endif %}
+        </select>
+      </form>
+      <div class="dsa-leyenda">
+        <span><i class="dsa-box box-am"></i> Trabaja AM</span>
+        <span><i class="dsa-box box-pm"></i> Trabaja PM</span>
+        <span style="color:#cbd5e1;">|</span>
+        <span><i class="mk mk-festivo" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Festivo</span>
+        <span class="text-muted"><small>gris pequeño = automático</small></span>
+      </div>
+    </div>
+
+    <form method="post" id="aeForm">
+      {% csrf_token %}
+      <input type="hidden" name="anio" value="{{ anio }}">
+      <input type="hidden" name="seleccion" id="seleccion">
+
+      <div class="dsa-grid">
+        {% for mes in meses %}
+        <div class="dsa-mes">
+          <h4>{{ mes.nombre }}</h4>
+          <table class="dsa-cal">
+            <thead><tr><th>L</th><th>M</th><th>X</th><th>J</th><th>V</th><th>S</th><th>D</th></tr></thead>
+            <tbody>
+              {% for semana in mes.semanas %}
+              <tr>
+                {% for dia in semana %}
+                <td>
+                  {% if dia.month == mes.numero %}
+                    <span class="dia" data-fecha="{{ dia|date:'Y-m-d' }}" data-weekday="{{ dia.weekday }}"><span class="num">{{ dia.day }}</span><span class="et"></span></span>
+                  {% else %}
+                    <span class="dia otro"><span class="num">{{ dia.day }}</span></span>
+                  {% endif %}
+                </td>
+                {% endfor %}
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endfor %}
+      </div>
+
+      <div class="dsa-actions">
+        <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar asignaciones del año</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{ preseleccion_json|json_script:"ae-preseleccion" }}
+{{ festivos_json|json_script:"ae-festivos" }}
+{{ auto_json|json_script:"ae-auto" }}
+{{ bloqueadas_json|json_script:"ae-bloqueadas" }}
+<script src="{% static_v 'js/turnos/asignacion_especial_anual.js' %}"></script>
+{% endblock %}

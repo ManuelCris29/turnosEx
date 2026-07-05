@@ -1243,6 +1243,7 @@
                 renderTurnoYSalas(null, turnoReceptorPagoDetalles, salasReceptorPagoDetalles, false, [], { contexto: 'receptor' });
             }
             sincronizarOpcionesCubrePagoReceptorDoblada();
+            verificarCoincidenciaPago();
         })
         .catch(error => {
             if (token != null && token !== pagoReqToken) {
@@ -1270,6 +1271,45 @@
         });
     }
     
+    /**
+     * Verificación UPFRONT de coincidencia de jornadas en la fecha de pago.
+     * Reusa el endpoint `verificar-coincidencia-jornadas` (la MISMA regla que valida el
+     * servidor al enviar). Si el deudor trabajaría dos veces la misma jornada, muestra el
+     * aviso con el motivo y el botón "Ir a CT" — ANTES de enviar, para no rebotar.
+     */
+    function verificarCoincidenciaPago() {
+        const aviso = document.getElementById('aviso_coincidencia_pago');
+        if (!aviso) return;
+        const receptorId = empleadoReceptorSelect ? empleadoReceptorSelect.value : '';
+        const fechaPago = fechaPagoInput ? fechaPagoInput.value : '';
+        const deudorId = window.solicitanteId;
+        // Solo aplica cuando hay pago normal (no sábado) con receptor y fecha.
+        if (!deudorId || !receptorId || !fechaPago) {
+            aviso.style.display = 'none';
+            return;
+        }
+        const url = `/solicitudes/verificar-coincidencia-jornadas/?deudor_id=${deudorId}` +
+                    `&acreedor_id=${receptorId}&fecha_pago=${encodeURIComponent(fechaPago)}`;
+        fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then((r) => r.json())
+            .then((res) => {
+                const d = (res && res.data) ? res.data : res;
+                if (d && d.requiere_cambio_turno) {
+                    const txt = document.getElementById('aviso_coincidencia_texto');
+                    const link = document.getElementById('aviso_coincidencia_ct');
+                    if (txt) txt.textContent = d.mensaje ||
+                        'Trabajarías dos veces la misma jornada ese día. Haz un cambio de turno primero.';
+                    if (link && typeof urlCambioTurnoSencillo === 'function') {
+                        link.href = urlCambioTurnoSencillo(fechaPago);
+                    }
+                    aviso.style.display = 'block';
+                } else {
+                    aviso.style.display = 'none';
+                }
+            })
+            .catch(() => { aviso.style.display = 'none'; });
+    }
+
     /**
      * Restaurar la estructura HTML del bloque doblada_existente_info.
      * Se usa cuando CASO 1 o 1.5 (descansando / no puede ceder) reemplazaron el innerHTML
@@ -1607,6 +1647,7 @@
             document.getElementById('turno_solicitante_pago_pm_info'),
             document.getElementById('turno_receptor_pago_am_info'),
             document.getElementById('turno_receptor_pago_pm_info'),
+            document.getElementById('aviso_coincidencia_pago'),
         ].forEach(el => { if (el) el.style.display = 'none'; });
         // Selectores de pago en sábado (cesión parcial y cesión total)
         [

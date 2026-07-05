@@ -4,6 +4,7 @@ from .views import (
     PermisoEspecialListView, PermisoEspecialCreateView,
     PermisoEspecialPermanenteCreateView, PermisoEspecialAprobarView,
     PermisoEspecialResolverEmailView, PermisoEspecialDeleteView,
+    MediaJornadaTemporadaCreateView, PermisoMediaJornadaCancelView,
 )
 
 urlpatterns = [
@@ -18,4 +19,8 @@ urlpatterns = [
     path('permisos-especiales/<int:pk>/rechazar-email/<str:token>/',
          PermisoEspecialResolverEmailView.as_view(accion='rechazar'), name='permisos_especiales_rechazar_email'),
     path('permisos-especiales/delete/<int:pk>/', PermisoEspecialDeleteView.as_view(), name='permisos_especiales_delete'),
+    path('permisos-especiales/media-jornada/create/', MediaJornadaTemporadaCreateView.as_view(),
+         name='permisos_media_jornada_create'),
+    path('permisos-especiales/media-jornada/<int:pk>/cancelar/', PermisoMediaJornadaCancelView.as_view(),
+         name='permisos_media_jornada_cancelar'),
 ]

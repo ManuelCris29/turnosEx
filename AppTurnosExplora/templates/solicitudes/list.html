@@ -1,9 +1,9 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 {% block title %}Gestión de Solicitudes{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/solicitudes/solicitudes_lista.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/solicitudes/solicitudes_lista.css' %}">
 {% endblock %}
 
 {% block content %}

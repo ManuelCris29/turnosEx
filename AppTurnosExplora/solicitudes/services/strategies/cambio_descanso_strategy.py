@@ -164,6 +164,9 @@ class CambioDescansoStrategy(SolicitudStrategy):
             'comentario': solicitud.comentario or '',
             'fecha_cambio_turno': solicitud.fecha_cambio_turno,
             'fecha_pago': det.fecha_pago if det else None,
+            'submodalidad_semana': getattr(det, 'submodalidad_semana', None) if det else None,
+            'tipo_cesion': det.tipo_cesion if det else None,
+            'jornada_cedida': det.jornada_cedida if det else None,
         }
 
     # --------------------------------------------------------------- validación
@@ -193,13 +196,27 @@ class CambioDescansoStrategy(SolicitudStrategy):
 
             # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar,
             # donde la solicitud ya existe y no se está creando otra).
-            if not datos.get('es_revalidacion'):
+            # Cobertura con DOS compañeros: se crean 2 solicitudes con la MISMA fecha de cesión
+            # (una por jornada), así que el chequeo genérico por fecha se sustituye por uno
+            # específico por jornada dentro de _validar_semana_cobertura.
+            es_cobertura = (datos.get('submodalidad_semana') or '') == 'cobertura_misma_semana'
+            if not datos.get('es_revalidacion') and not es_cobertura:
                 SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
                 SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
 
             # Detectar modalidad: fin de semana (sáb/dom) o ENTRE SEMANA (lun-vie).
             es_finde = fecha_cesion.weekday() in (5, 6)
             if not es_finde:
+                sub = datos.get('submodalidad_semana') or 'intercambio_dia'
+                if sub == 'jornadas_partidas':
+                    return self._validar_semana_jornadas_partidas(
+                        solicitante, receptor, fecha_cesion, fecha_pago, datos)
+                if sub == 'cobertura_misma_semana':
+                    return self._validar_semana_cobertura(
+                        solicitante, receptor, fecha_cesion, fecha_pago, datos)
+                if sub == 'cambio_doblada':
+                    return self._validar_semana_cambio_doblada(
+                        solicitante, receptor, fecha_cesion, fecha_pago, datos)
                 return self._validar_entre_semana(solicitante, receptor, fecha_cesion, fecha_pago,
                                                   es_revalidacion=datos.get('es_revalidacion'))
 
@@ -269,6 +286,23 @@ class CambioDescansoStrategy(SolicitudStrategy):
                     f"No puede hacer el intercambio."
                 )
 
+            # CADA UNO debe DESCANSAR el día que va a RECIBIR en el intercambio (fuente de
+            # verdad estado_dia). Si alguno ya trabaja los DOS días del finde (p. ej. doblada
+            # sábado y domingo), no tiene día libre para recibir y el intercambio es imposible.
+            from turnos.services.turno_service import TurnoService as _TSfinde
+            if _TSfinde.estado_dia(receptor, fecha_cesion)['trabaja']:
+                return False, (
+                    f"Tu compañero ya trabaja el {fecha_cesion.strftime('%d/%m/%Y')} "
+                    f"(trabaja los dos días de ese fin de semana). No tiene ese día libre para "
+                    f"recibir el intercambio."
+                )
+            if _TSfinde.estado_dia(solicitante, otro_dia_cesion)['trabaja']:
+                return False, (
+                    f"Ya trabajas el {otro_dia_cesion.strftime('%d/%m/%Y')} "
+                    f"(trabajas los dos días de ese fin de semana). No tienes ese día libre para "
+                    f"el intercambio."
+                )
+
             # El solicitante debe tener UN turno (su jornada base) en fecha_pago
             tiene_turno_sol_pago, jor_sol_pago = self._trabaja_dia(solicitante, fecha_pago)
             if not tiene_turno_sol_pago:
@@ -283,6 +317,18 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 return False, (
                     f"Tu compañero no tiene un turno válido el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución). "
                     f"No puede completar el intercambio."
+                )
+
+            # Mismo control en el finde de DEVOLUCIÓN: cada uno debe descansar el día que recibe.
+            if _TSfinde.estado_dia(receptor, fecha_pago)['trabaja']:
+                return False, (
+                    f"Tu compañero ya trabaja el {fecha_pago.strftime('%d/%m/%Y')} (devolución); "
+                    f"trabaja los dos días de ese fin de semana y no tiene ese día libre."
+                )
+            if _TSfinde.estado_dia(solicitante, otro_dia_pago)['trabaja']:
+                return False, (
+                    f"Ya trabajas el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución); "
+                    f"trabajas los dos días de ese fin de semana."
                 )
 
             # ADVERTENCIA (no bloqueo): si el mes tiene 5 domingos, el balance es impar
@@ -378,6 +424,222 @@ class CambioDescansoStrategy(SolicitudStrategy):
 
         return True, "Solicitud de cambio de descanso (entre semana) válida"
 
+    # ---------------------------------------------- sub-modalidades de semana
+    @staticmethod
+    def _validar_semana_comun(fecha_a, fecha_b):
+        """
+        Validaciones comunes de las sub-modalidades nuevas de temporada:
+        lun-vie, futuras, MISMA semana (regla dura del negocio) y que la semana
+        tenga descansos de temporada configurados.
+        """
+        from datetime import timedelta
+        from django.utils import timezone
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+
+        hoy = timezone.now().date()
+        if fecha_a.weekday() >= 5 or fecha_b.weekday() >= 5:
+            return False, "Ambos días deben ser de lunes a viernes."
+        if fecha_a < hoy or fecha_b < hoy:
+            return False, "No se pueden usar días pasados."
+        if fecha_a == fecha_b:
+            return False, "Los días deben ser distintos."
+        lunes_a = fecha_a - timedelta(days=fecha_a.weekday())
+        lunes_b = fecha_b - timedelta(days=fecha_b.weekday())
+        if lunes_a != lunes_b:
+            return False, (
+                "El día de temporada modificado debe compensarse EN LA MISMA SEMANA. "
+                "No se puede pagar en otra semana."
+            )
+        if not DescansoSemanaService.descansos_de_semana(fecha_a):
+            return False, "Esa semana no tiene descansos de temporada configurados."
+        return True, "ok"
+
+    @staticmethod
+    def _dia_completo_temporada(explorador, fecha):
+        """¿El explorador trabaja `fecha` como día completo (AM+PM) según la fuente de verdad?"""
+        from turnos.services.turno_service import TurnoService
+        e = TurnoService.estado_dia(explorador, fecha)
+        return bool(e['trabaja']) and e['jornada'] == 'DOBLADA'
+
+    @staticmethod
+    def _comprometido(explorador, fecha):
+        """dict {motivo, companero} si el día ya está comprometido por otra solicitud aprobada."""
+        from turnos.services.turno_service import TurnoService
+        return TurnoService.dia_comprometido_por_solicitud(explorador, fecha)
+
+    def _validar_semana_jornadas_partidas(self, solicitante, receptor, fecha_cesion, fecha_pago, datos):
+        """
+        Jornadas partidas: solicitante trabaja `jornada_cedida` los DOS días especiales;
+        receptor la contraria. fecha_cesion = día de trabajo del solicitante;
+        fecha_pago = día de trabajo del receptor. Sin deuda.
+        """
+        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago)
+        if not ok:
+            return False, msg
+
+        j = (datos.get('jornada_cedida') or '').upper()
+        if j not in ('AM', 'PM'):
+            return False, "Debes indicar qué jornada trabajarás tú ambos días (AM o PM)."
+
+        if not self._dia_completo_temporada(solicitante, fecha_cesion):
+            return False, (
+                f"El {fecha_cesion.strftime('%d/%m/%Y')} no es tu día completo de temporada "
+                f"(o ya fue modificado)."
+            )
+        if not self._dia_completo_temporada(receptor, fecha_pago):
+            return False, (
+                f"El {fecha_pago.strftime('%d/%m/%Y')} no es el día completo de temporada de tu "
+                f"compañero (o ya fue modificado)."
+            )
+        for emp, f, quien in ((solicitante, fecha_pago, 'tu'), (receptor, fecha_cesion, 'su')):
+            comp = self._comprometido(emp, f)
+            if comp:
+                return False, (
+                    f"El {f.strftime('%d/%m/%Y')} ya está comprometido por otra solicitud "
+                    f"({comp.get('motivo')})."
+                )
+        return True, "Solicitud de jornadas partidas válida"
+
+    def _validar_semana_cobertura(self, solicitante, receptor, fecha_cesion, fecha_pago, datos):
+        """
+        Cobertura con pago en la misma semana: el receptor cubre jornada(s) de mi día
+        completo (fecha_cesion) y yo le pago lo equivalente en fecha_pago.
+        La deuda de 30 min (si alguien dobla sobre su propia jornada) se calcula al aplicar.
+        """
+        from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
+
+        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago)
+        if not ok:
+            return False, msg
+
+        tipo_cesion = datos.get('tipo_cesion') or 'cesion_completa'
+        completa = tipo_cesion == 'cesion_completa'
+        j = (datos.get('jornada_cedida') or '').upper()
+        if not completa and j not in ('AM', 'PM'):
+            return False, "Debes indicar qué jornada te cubrirán (AM o PM), o ceder el día completo."
+        cedidas = {'AM', 'PM'} if completa else {j}
+
+        # DUPLICADOS específicos de cobertura (por jornada, no por fecha): permite las 2
+        # solicitudes del flujo "dos compañeros" (AM+PM) pero bloquea repetir la misma jornada.
+        if not datos.get('es_revalidacion'):
+            from solicitudes.models import SolicitudCambio as _SC
+            pendientes = _SC.objects.filter(
+                tipo_cambio__nombre='CAMBIO DESCANSO', estado='pendiente',
+                explorador_solicitante=solicitante, fecha_cambio_turno=fecha_cesion,
+                doblada__submodalidad_semana='cobertura_misma_semana',
+            ).select_related('doblada')
+            for p in pendientes:
+                det = getattr(p, 'doblada', None)
+                previas = ({'AM', 'PM'} if (det and det.tipo_cesion == 'cesion_completa')
+                           else ({(det.jornada_cedida or '').upper()} if det else set()))
+                if previas & cedidas:
+                    return False, (
+                        "Ya tienes una solicitud de cobertura pendiente para esa jornada de ese día."
+                    )
+
+        # El día cedido debe ser un día especial de temporada de MI grupo (el contrario
+        # descansa por configuración) y las jornadas cedidas deben estar HOY a mi cargo.
+        # No se exige día completo: en el flujo de 2 compañeros, al aprobar la 2ª
+        # solicitud ya cedí media jornada y solo me queda la otra.
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        grupo_sol = self._grupo_base(solicitante, fecha_cesion)
+        grupo_contrario = 'PM' if grupo_sol == 'AM' else 'AM'
+        if not DescansoSemanaService.es_descanso_semana_manual(grupo_contrario, fecha_cesion):
+            return False, (
+                f"El {fecha_cesion.strftime('%d/%m/%Y')} no es tu día completo de temporada "
+                f"(ese día no descansa el grupo contrario)."
+            )
+        mias_fc = _App._jornadas_actuales(solicitante, fecha_cesion)
+        if not (cedidas <= mias_fc):
+            return False, (
+                f"No tienes a tu cargo la(s) jornada(s) que quieres ceder el "
+                f"{fecha_cesion.strftime('%d/%m/%Y')} (ya las cediste o el día fue modificado)."
+            )
+
+        # El receptor debe poder asumir las jornadas cedidas ese día.
+        comp = self._comprometido(receptor, fecha_cesion)
+        if comp:
+            return False, (
+                f"Tu compañero ya tiene el {fecha_cesion.strftime('%d/%m/%Y')} comprometido "
+                f"({comp.get('motivo')})."
+            )
+        pre_rec_fc = _App._jornadas_actuales(receptor, fecha_cesion)
+        if pre_rec_fc & cedidas:
+            return False, "Tu compañero ya trabaja esa jornada ese día; no puede cubrirla."
+        if pre_rec_fc >= {'AM', 'PM'}:
+            return False, "Tu compañero ya tiene el día completo ocupado; no puede cubrirte."
+
+        # El pago: el receptor debe trabajar ese día algo que yo pueda cubrir.
+        pre_rec_fp = _App._jornadas_actuales(receptor, fecha_pago)
+        if not pre_rec_fp:
+            return False, (
+                f"Tu compañero no trabaja el {fecha_pago.strftime('%d/%m/%Y')}; "
+                f"no hay jornada que puedas pagarle ese día."
+            )
+        comp = self._comprometido(solicitante, fecha_pago)
+        if comp:
+            return False, (
+                f"Tu día de pago ({fecha_pago.strftime('%d/%m/%Y')}) ya está comprometido "
+                f"({comp.get('motivo')})."
+            )
+        pre_sol_fp = _App._jornadas_actuales(solicitante, fecha_pago)
+        tomadas = set(pre_rec_fp) if completa else ({j} if j in pre_rec_fp else set(list(pre_rec_fp)[:1]))
+        if tomadas & pre_sol_fp:
+            return False, (
+                f"El {fecha_pago.strftime('%d/%m/%Y')} ya trabajas esa jornada; "
+                f"elige otro día de la semana para pagar."
+            )
+        return True, "Solicitud de cobertura válida"
+
+    def _validar_semana_cambio_doblada(self, solicitante, receptor, fecha_cesion, fecha_pago, datos):
+        """
+        Cambio de doblada: el receptor tiene una doblada real (AM+PM) en fecha_pago y
+        yo tengo mi día completo de temporada en fecha_cesion; se intercambian los días.
+        Sin deuda (ambos ya doblaban; solo cambia cuál día).
+        """
+        from turnos.models import Turno
+        from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
+
+        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago)
+        if not ok:
+            return False, msg
+
+        if not self._dia_completo_temporada(solicitante, fecha_cesion):
+            return False, (
+                f"El {fecha_cesion.strftime('%d/%m/%Y')} no es tu día completo de temporada "
+                f"(o ya fue modificado)."
+            )
+
+        # El receptor debe tener una doblada REAL (Turno AM+PM) en fecha_pago.
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=receptor, fecha=fecha_pago).select_related('jornada')}
+        if not ({'AM', 'PM'} <= js):
+            return False, (
+                f"Tu compañero no tiene una doblada (AM+PM) el {fecha_pago.strftime('%d/%m/%Y')}."
+            )
+
+        # El receptor debe estar libre mi día para poder tomarlo completo.
+        comp = self._comprometido(receptor, fecha_cesion)
+        if comp:
+            return False, (
+                f"Tu compañero ya tiene el {fecha_cesion.strftime('%d/%m/%Y')} comprometido "
+                f"({comp.get('motivo')})."
+            )
+        if _App._jornadas_actuales(receptor, fecha_cesion):
+            return False, (
+                f"Tu compañero trabaja el {fecha_cesion.strftime('%d/%m/%Y')}; "
+                f"debe estar descansando para tomar tu día completo."
+            )
+
+        # Yo no debo tener ese día de pago comprometido por otra solicitud.
+        comp = self._comprometido(solicitante, fecha_pago)
+        if comp:
+            return False, (
+                f"El {fecha_pago.strftime('%d/%m/%Y')} ya lo tienes comprometido "
+                f"({comp.get('motivo')})."
+            )
+        return True, "Solicitud de cambio de doblada válida"
+
     # ------------------------------------------------------------------- crear
     def crear_solicitud(self, datos: Dict[str, Any]) -> Tuple[Optional[SolicitudCambio], str]:
         try:
@@ -387,6 +649,16 @@ class CambioDescansoStrategy(SolicitudStrategy):
             comentario = datos.get('comentario', '')
             fecha_cesion = datos.get('fecha_cambio_turno')
             fecha_pago = datos.get('fecha_pago')
+
+            # Sub-modalidad (solo entre semana; None en fin de semana)
+            fc = self._parse(fecha_cesion)
+            es_finde = bool(fc) and fc.weekday() in (5, 6)
+            submodalidad = None if es_finde else (datos.get('submodalidad_semana') or 'intercambio_dia')
+            tipo_cesion = datos.get('tipo_cesion') or 'cesion_completa'
+            jornada_cedida = (datos.get('jornada_cedida') or '').upper() or None
+            # minutos_deuda informativo: la deuda real se calcula al aplicar según la
+            # regla de negocio (solo quien dobla sobre su propia jornada).
+            minutos = 30 if submodalidad == 'cobertura_misma_semana' else 0
 
             with transaction.atomic():
                 solicitud = SolicitudCambio.objects.create(
@@ -400,8 +672,10 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 DobladaDetalle.objects.create(
                     solicitud=solicitud,
                     fecha_pago=fecha_pago,
-                    minutos_deuda=0,  # intercambio puro, sin deuda
-                    tipo_cesion='cesion_completa',
+                    minutos_deuda=minutos,
+                    tipo_cesion=tipo_cesion,
+                    jornada_cedida=jornada_cedida,
+                    submodalidad_semana=submodalidad,
                     empleado_receptor=receptor,
                 )
             try:
@@ -424,7 +698,15 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 if solicitud.fecha_cambio_turno and solicitud.fecha_cambio_turno.weekday() in (5, 6):
                     CambioDescansoAplicacionService.aplicar(solicitud, detalle)
                 else:
-                    CambioDescansoAplicacionService.aplicar_entre_semana(solicitud, detalle)
+                    sub = getattr(detalle, 'submodalidad_semana', None) or 'intercambio_dia'
+                    if sub == 'jornadas_partidas':
+                        CambioDescansoAplicacionService.aplicar_semana_jornadas_partidas(solicitud, detalle)
+                    elif sub == 'cobertura_misma_semana':
+                        CambioDescansoAplicacionService.aplicar_semana_cobertura(solicitud, detalle)
+                    elif sub == 'cambio_doblada':
+                        CambioDescansoAplicacionService.aplicar_semana_cambio_doblada(solicitud, detalle)
+                    else:
+                        CambioDescansoAplicacionService.aplicar_entre_semana(solicitud, detalle)
 
             for fecha in (solicitud.fecha_cambio_turno, solicitud.doblada.fecha_pago):
                 if fecha:

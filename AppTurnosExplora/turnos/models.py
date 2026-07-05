@@ -176,5 +176,60 @@ class DescansoSemanaManual(models.Model):
         return f"{self.jornada.nombre} descansa {self.fecha} ({self.get_motivo_display()})"
 
 
+class AsignacionEspecialManual(models.Model):
+    """
+    OVERRIDE manual del grupo que TRABAJA (día completo AM+PM) en un día especial:
+    un fin de semana (sábado/domingo) o un festivo entre semana.
+
+    Normalmente esto lo resuelve la alternancia automática:
+    - Fin de semana → AlternanciaFinesSemanaService (cálculo por paridad de semanas).
+    - Festivo entre semana → FestivosRotacionService (rotación global PM/AM).
+
+    Cuando existe un registro ACTIVO para una fecha, MANDA sobre el cálculo automático:
+    `jornada_trabaja` es el grupo que cubre el día completo (dobla), el otro descansa.
+    Si no hay registro para la fecha, sigue aplicando la alternancia automática (fallback).
+    Un registro por fecha (unique) basta: define quién trabaja; el resto descansa.
+    """
+    TIPO_CHOICES = [
+        ('finde', 'Fin de semana'),
+        ('festivo', 'Festivo'),
+    ]
+    fecha = models.DateField(help_text='Fin de semana (sáb/dom) o festivo entre semana a fijar manualmente')
+    jornada_trabaja = models.ForeignKey(
+        Jornada, on_delete=models.CASCADE, related_name='asignaciones_especiales_manual',
+        help_text='Grupo (AM/PM) que TRABAJA el día completo (dobla). El otro grupo descansa.'
+    )
+    tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='finde')
+    descripcion = models.CharField(max_length=200, blank=True, default='')
+    activo = models.BooleanField(default=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Asignación especial (manual)'
+        verbose_name_plural = 'Asignaciones especiales (manuales)'
+        ordering = ['-fecha']
+        constraints = [
+            models.UniqueConstraint(fields=['fecha'], name='uniq_asignacion_especial_fecha'),
+        ]
+        indexes = [
+            models.Index(fields=['fecha', 'activo'], name='asigesp_fecha_activo_idx'),
+        ]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if not self.fecha:
+            return
+        es_finde = self.fecha.weekday() >= 5
+        if self.tipo == 'finde' and not es_finde:
+            raise ValidationError('Un override de fin de semana debe caer en sábado o domingo.')
+        if self.tipo == 'festivo' and es_finde:
+            raise ValidationError('Un override de festivo debe caer de lunes a viernes.')
+
+    def __str__(self):
+        return f"{self.jornada_trabaja.nombre} trabaja {self.fecha} ({self.get_tipo_display()})"
+
+
 
 # Create your models here.

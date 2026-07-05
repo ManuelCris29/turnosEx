@@ -1,23 +1,11 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Beneficios{% endblock %}
 
 
 {% block extra_css %}
-<style>
-    .beneficios-iframe-container {
-        position: relative;
-        width: 100%;
-        min-height: 600px;
-    }
-    .beneficios-iframe-container iframe {
-        width: 100%;
-        height: 800px;
-        border: none;
-        min-height: 600px;
-    }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/beneficios.css' %}">
 {% endblock %}
 
 {% block content %}

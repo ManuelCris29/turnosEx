@@ -1,0 +1,53 @@
+/* Estilos exclusivos del formulario de Cambio de Descanso */
+
+/* Override de color del header (indigo) */
+.solicitud-header { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+.info-box { background: linear-gradient(135deg, #667eea, #764ba2); color: #fff; padding: 15px; border-radius: 10px; margin-bottom: 20px; }
+.info-box h5 { margin: 0; font-weight: 600; }
+.info-box p { margin: 5px 0 0; opacity: .95; }
+
+/* Toggle modo (semana / descanso específico) */
+.modo-toggle { display: flex; gap: 10px; margin-bottom: 20px; }
+.modo-btn { flex: 1; padding: 12px; border: 2px solid #e2e8f0; border-radius: 8px; background: #f8fafc; cursor: pointer; text-align: center; font-weight: 500; transition: all .2s; }
+.modo-btn:hover { border-color: #6366f1; background: #f0f4ff; }
+.modo-btn.active { border-color: #6366f1; background: #6366f1; color: #fff; }
+
+/* Cards de semana */
+.semanas-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 600px) {
+    .semanas-container { grid-template-columns: 1fr; overflow-x: auto; }
+}
+.semana-card { border: 2px solid #e2e8f0; border-radius: 10px; padding: 16px; cursor: pointer; transition: all .2s; background: #f9fafb; }
+.semana-card:hover { border-color: #6366f1; background: #f0f4ff; }
+.semana-card.selected { border-color: #6366f1; background: #e0e7ff; box-shadow: 0 4px 12px rgba(99,102,241,.2); }
+.semana-card.disabled { opacity: .55; cursor: not-allowed; background: #f1f5f9; }
+.semana-card.disabled:hover { border-color: #e2e8f0; background: #f1f5f9; }
+.semana-fecha { font-size: .85rem; color: #64748b; margin-bottom: 6px; font-weight: 500; }
+.semana-info { display: flex; gap: 8px; flex-wrap: wrap; }
+.semana-jor { display: inline-flex; align-items: center; gap: 4px; font-size: .78rem; padding: 4px 8px; border-radius: 6px; }
+.semana-jor.yo      { background: #dcfce7; color: #166534; font-weight: 600; }
+.semana-jor.compa   { background: #fef3c7; color: #92400e; }
+.semana-jor.descanso { background: #e2e8f0; color: #475569; }
+.semana-jor.neutro  { background: #f1f5f9; color: #94a3b8; font-style: italic; }
+
+/* Selector de compañero */
+.compa-container { margin: 20px 0; }
+.compa-selector { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+.compa-nombre { font-size: 1.1rem; font-weight: 600; color: #1e293b; }
+.compa-grupo { font-size: .85rem; color: #64748b; }
+
+.alert-warning-info { background: #fef3c7; border-left: 4px solid #eab308; padding: 12px; border-radius: 6px; margin: 12px 0; color: #92400e; }
+
+.resumen-box { background: #f0f4ff; border-left: 4px solid #6366f1; padding: 12px 15px; margin-top: 12px; border-radius: 4px; color: #3730a3; display: none; }
+.resumen-box.show { display: block; }
+
+/* Cards de descanso específico */
+.descansos-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 600px) {
+    .descansos-container { grid-template-columns: 1fr; }
+}
+.descanso-card { border: 2px solid #e2e8f0; border-radius: 10px; padding: 14px; cursor: pointer; transition: all .2s; background: #f9fafb; }
+.descanso-card:hover { border-color: #6366f1; background: #f0f4ff; }
+.descanso-card.selected { border-color: #6366f1; background: #e0e7ff; }
+.descanso-dia { font-weight: 600; color: #1e293b; margin-bottom: 4px; }
+.descanso-grupo { font-size: .85rem; color: #64748b; }

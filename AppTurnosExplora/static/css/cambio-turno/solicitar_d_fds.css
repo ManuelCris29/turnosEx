@@ -1,0 +1,55 @@
+/* Estilos exclusivos del formulario de Doblada Fin de Semana */
+
+/* Resumen del acuerdo */
+#fds_resumen { display: none; background-color: #f8f9fa; border-left: 4px solid #10b981; padding: 12px 15px; margin-top: 12px; border-radius: 6px; color: #065f46; }
+
+/* Jornada AM/PM (chip) */
+.jor { font-weight: 700; padding: 1px 7px; border-radius: 5px; color: #fff; font-size: .72rem; }
+.jor-AM { background: #0d6efd; }
+.jor-PM { background: #f59e0b; }
+
+/* ===== Tarjetas de fin de semana ===== */
+.fds-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+
+.fds-card {
+    border: 1.5px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color .15s, box-shadow .15s, transform .05s;
+}
+.fds-card:hover { border-color: #94a3b8; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.fds-card:active { transform: scale(.99); }
+
+.fds-card.selected {
+    border-color: #10b981;
+    background: #f0fdf9;
+    box-shadow: 0 0 0 1.5px #10b981 inset;
+}
+
+.fds-card.disabled {
+    cursor: not-allowed;
+    opacity: .55;
+    background: #f8fafc;
+}
+.fds-card.disabled:hover { border-color: #e2e8f0; box-shadow: none; }
+
+.fds-card-fechas {
+    font-size: .78rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: .3px;
+    margin-bottom: 6px;
+}
+
+.fds-dia-linea { font-size: .9rem; display: flex; align-items: center; gap: 4px; padding: 2px 0; }
+.fds-dia-linea.mio { color: #065f46; font-weight: 600; }
+.fds-dia-linea.descanso { color: #94a3b8; font-size: .82rem; }
+
+.fds-nota { font-size: .84rem; color: #94a3b8; font-style: italic; }
+
+@media (max-width: 520px) {
+    .fds-cards { grid-template-columns: 1fr; }
+}

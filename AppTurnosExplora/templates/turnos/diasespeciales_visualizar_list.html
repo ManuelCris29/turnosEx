@@ -1,10 +1,10 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Días Especiales - Consultas Rápidas{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -20,38 +20,50 @@
         <h3><i class="fas fa-calendar-day"></i> Lista de días especiales</h3>
       </div>
       <div class="pg-card-body">
+
         <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem; margin-bottom:1rem;">
           <div>
             <label class="mb-1 small font-weight-bold d-block">Tipo</label>
-            <select name="tipo" class="form-control" style="min-width:160px;">
+            <select name="tipo" class="form-control" style="min-width:160px;" onchange="this.form.submit()">
               <option value="">Todos</option>
               <option value="temporada" {% if tipo_filtro == 'temporada' %}selected{% endif %}>Temporadas</option>
-              <option value="festivo" {% if tipo_filtro == 'festivo' %}selected{% endif %}>Festivos</option>
+              <option value="festivo"   {% if tipo_filtro == 'festivo'   %}selected{% endif %}>Festivos</option>
               <option value="mantenimiento" {% if tipo_filtro == 'mantenimiento' %}selected{% endif %}>Mantenimiento</option>
             </select>
           </div>
           <div>
             <label class="mb-1 small font-weight-bold d-block">Año</label>
-            <select name="anio" class="form-control" style="min-width:140px;">
-              <option value="">Todos</option>
-              {% for anio in anios_disponibles %}<option value="{{ anio }}" {% if anio_filtro == anio|stringformat:"s" %}selected{% endif %}>{{ anio }}</option>{% endfor %}
+            <select name="anio" class="form-control" style="min-width:140px;" onchange="this.form.submit()">
+              <option value="todos" {% if anio_filtro == 'todos' %}selected{% endif %}>Todos los años</option>
+              {% for anio in anios_disponibles %}
+              <option value="{{ anio }}" {% if anio_filtro == anio|stringformat:"s" %}selected{% endif %}>
+                {{ anio }}{% if anio == anio_actual %} (actual){% endif %}
+              </option>
+              {% endfor %}
             </select>
           </div>
-          <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
-          {% if tipo_filtro or anio_filtro %}<a href="{% url 'dias_especiales_visualizar' %}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}
+          {% if es_supervisor %}
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">Estado</label>
+            <select name="activo" class="form-control" style="min-width:130px;" onchange="this.form.submit()">
+              <option value=""  {% if activo_filtro == ''  %}selected{% endif %}>Todos</option>
+              <option value="1" {% if activo_filtro == '1' %}selected{% endif %}>Solo activos</option>
+              <option value="0" {% if activo_filtro == '0' %}selected{% endif %}>Solo inactivos</option>
+            </select>
+          </div>
+          {% endif %}
+          <div>
+            <label class="mb-1 small font-weight-bold d-block">&nbsp;</label>
+            <a href="{% url 'dias_especiales_visualizar' %}" class="pg-btn pg-btn-secondary">Limpiar</a>
+          </div>
         </form>
 
         <div class="pg-table-wrap">
           <table class="pg-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Fecha</th>
-                <th>Tipo</th>
-                <th>Descripción</th>
-                <th>Año planif.</th>
-                <th>Recurrente</th>
-                <th>Activo</th>
+                <th>ID</th><th>Fecha</th><th>Tipo</th><th>Descripción</th>
+                <th>Año planif.</th><th>Recurrente</th><th>Activo</th>
               </tr>
             </thead>
             <tbody>
@@ -74,6 +86,34 @@
             </tbody>
           </table>
         </div>
+
+        {% if is_paginated %}
+        <div class="pg-pagination">
+          {% if page_obj.has_previous %}
+            <a href="?{{ query_params }}&page=1"><i class="fas fa-angle-double-left"></i></a>
+            <a href="?{{ query_params }}&page={{ page_obj.previous_page_number }}"><i class="fas fa-angle-left"></i></a>
+          {% else %}
+            <span class="disabled"><i class="fas fa-angle-double-left"></i></span>
+            <span class="disabled"><i class="fas fa-angle-left"></i></span>
+          {% endif %}
+          {% for num in page_obj.paginator.page_range %}
+            {% if page_obj.number == num %}
+              <span class="current">{{ num }}</span>
+            {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+              <a href="?{{ query_params }}&page={{ num }}">{{ num }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?{{ query_params }}&page={{ page_obj.next_page_number }}"><i class="fas fa-angle-right"></i></a>
+            <a href="?{{ query_params }}&page={{ page_obj.paginator.num_pages }}"><i class="fas fa-angle-double-right"></i></a>
+          {% else %}
+            <span class="disabled"><i class="fas fa-angle-right"></i></span>
+            <span class="disabled"><i class="fas fa-angle-double-right"></i></span>
+          {% endif %}
+        </div>
+        <p class="pg-count">Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }} registros</p>
+        {% endif %}
+
       </div>
     </div>
   </div>

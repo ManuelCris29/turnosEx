@@ -8,11 +8,8 @@
   <title>{{ title }} · SWALP — Parque Explora</title>
 
   <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
-  <!-- Google Font: Source Sans Pro -->
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,600,700,800&display=fallback">
-  <!-- Font Awesome -->
   <link rel="stylesheet" href="{% static 'plugins/fontawesome-free/css/all.min.css' %}">
-  <!-- Estilos de autenticación -->
   <link rel="stylesheet" href="{% static 'css/auth.css' %}">
 </head>
 <body class="auth-body">
@@ -27,16 +24,27 @@
       <span>SWALP</span>
     </div>
     <div class="auth-visual__content">
-      <h2>Sistema de gestión de turnos del equipo de exploradores</h2>
-      <p>Cambios de turno, permisos, dobladas e indicadores — todo en un solo lugar.</p>
+      <h2>Hola, equipo de exploradores.</h2>
+      <p>Aquí puedes revisar tus turnos, solicitar cambios, pedir permisos y consultar tus indicadores. Todo en un solo lugar, para que no tengas que buscar en ningún otro lado.</p>
+      <div class="auth-visual__chips">
+        <span><i class="fas fa-exchange-alt"></i> Cambios de turno</span>
+        <span><i class="fas fa-layer-group"></i> Dobladas</span>
+        <span><i class="fas fa-id-badge"></i> Permisos</span>
+        <span><i class="fas fa-chart-line"></i> Indicadores</span>
+      </div>
     </div>
   </aside>
 
   <!-- Panel de formulario -->
   <main class="auth-panel">
     <div class="auth-card">
-      <h1 class="auth-title">Bienvenido</h1>
-      <p class="auth-subtitle">Inicia sesión para continuar</p>
+
+      <div class="auth-card__logo">
+        <img src="{% static 'img/parque-explora-logo.svg' %}" alt="Parque Explora">
+      </div>
+
+      <h1 class="auth-title">Bienvenido de nuevo</h1>
+      <p class="auth-subtitle">Ingresa tus credenciales para continuar</p>
 
       {% if form.errors %}
       <div class="auth-alert">
@@ -50,12 +58,12 @@
 
         <div class="auth-field">
           <span class="auth-icon"><i class="fas fa-user"></i></span>
-          {{ form.username|add_class:"form-control"|attr:"autocomplete:username"|attr:"placeholder:Ingrese su usuario"|attr:"autofocus" }}
+          {{ form.username|add_class:"form-control"|attr:"autocomplete:username"|attr:"placeholder:Usuario"|attr:"autofocus" }}
         </div>
 
         <div class="auth-field">
           <span class="auth-icon"><i class="fas fa-lock"></i></span>
-          {{ form.password|add_class:"form-control"|attr:"autocomplete:current-password"|attr:"placeholder:Ingrese su contraseña" }}
+          {{ form.password|add_class:"form-control"|attr:"autocomplete:current-password"|attr:"placeholder:Contraseña" }}
           <button type="button" class="auth-toggle" id="togglePassword" aria-label="Mostrar/ocultar contraseña">
             <i class="fas fa-eye"></i>
           </button>

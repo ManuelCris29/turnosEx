@@ -586,11 +586,15 @@
     }
 
     .week-cards-container {
+        overflow-x: auto;
+        justify-content: flex-start;
         padding: 0 0.1rem;
+        -webkit-overflow-scrolling: touch;
     }
 
     .week-cards {
         gap: 0.3rem;
+        min-width: 560px;
     }
 
     .day-card {
@@ -632,13 +636,15 @@
 
     .week-cards-container {
         overflow-x: auto;
+        justify-content: flex-start; /* evita que center corte el scroll por la izquierda */
         padding: 0 0.25rem;
+        -webkit-overflow-scrolling: touch; /* scroll suave en iOS */
     }
 
     .week-cards {
         grid-template-columns: repeat(7, minmax(80px, 1fr));
         gap: 0.3rem;
-        min-width: 560px; /* 7 * 80px */
+        min-width: 580px;
     }
 
     .day-card {

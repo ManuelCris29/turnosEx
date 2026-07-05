@@ -182,70 +182,46 @@ class TurnoContextService:
                     'turno_id': None
                 }
         
-        # Crear estructura de datos para la semana actual (resumen semanal)
-        # OPTIMIZACIÓN: Reutilizar turnos_por_fecha y turnos_mes_dict sin consultas extra
-        from core.utils.jornada_utils import JornadaUtils
-        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        # Crear estructura de datos para la semana actual usando TurnoService.estado_mes
+        # como fuente de verdad (misma lógica de capas que el calendario FullCalendar).
+        from turnos.services.turno_service import TurnoService
 
-        def _jornada_para_fecha(fecha):
-            turnos_dia = turnos_por_fecha.get(fecha, [])
-            if turnos_dia:
-                jornadas = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
-                if 'AM' in jornadas and 'PM' in jornadas:
-                    return 'DOBLADA'
-                if 'AM' in jornadas:
-                    return 'AM'
-                if 'PM' in jornadas:
-                    return 'PM'
-            j = JornadaUtils.calcular_jornada_dia(jornada_base, fecha)
-            if j == 'Descanso':
-                return None
-            if fecha.weekday() == 5:
-                trabaja = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha)
-                if trabaja and jornada_base.upper() == trabaja.upper():
-                    return 'DOBLADA'
-                return None
-            if fecha.weekday() == 6:
-                trabaja = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha)
-                if trabaja and jornada_base.upper() == trabaja.upper():
-                    return 'DOBLADA'
-                return None
-            return j
+        # La semana puede cruzar dos meses (ej: lun 29/06 – dom 05/07).
+        # Obtenemos estado_mes para cada mes involucrado y los fusionamos.
+        meses_semana = set()
+        for i in range(7):
+            f = inicio_semana + timedelta(days=i)
+            meses_semana.add((f.year, f.month))
+
+        estados_semana = {}
+        for (anio_m, mes_m) in meses_semana:
+            estados_semana.update(TurnoService.estado_mes(empleado, anio_m, mes_m))
 
         semana_turnos = {}
         for i in range(7):
             fecha = inicio_semana + timedelta(days=i)
-            jornada_display = _jornada_para_fecha(fecha)
-            jornada_nombre = jornada_display if jornada_display else 'Descanso'
+            estado = estados_semana.get(fecha)
 
-            if fecha in turnos_mes_dict:
-                # Partir de la información mensual pero forzar la jornada a la calculada
-                info_dia = dict(turnos_mes_dict[fecha])
-                info_dia['jornada'] = jornada_nombre
-
-                # Si jornada_display es None, considerar como día predeterminado de descanso
-                if not jornada_display:
-                    info_dia['tipo'] = 'predeterminado'
-
-                # Actualizar campos de predeterminada/coincidencia para el resumen
-                info_dia['jornada_predeterminada'] = jornada_nombre
-                info_dia['coincide_con_predeterminada'] = (
-                    info_dia['jornada'] == info_dia.get('jornada_predeterminada', info_dia['jornada'])
-                )
-
-                semana_turnos[fecha] = info_dia
+            if estado:
+                trabaja = estado.get('trabaja', False)
+                jornada_nombre = estado.get('jornada') or 'Descanso'
+                fuente = estado.get('fuente', 'base')
+                tipo = 'asignado' if fuente == 'turno' else 'predeterminado'
             else:
-                # Si la fecha no está en el mes actual, usar la jornada calculada
-                semana_turnos[fecha] = {
-                    'turno': None,
-                    'jornada': jornada_nombre,
-                    'sala': 'Por asignar',
-                    'tipo': 'predeterminado',
-                    'es_cambio': False,
-                    'jornada_predeterminada': jornada_nombre,
-                    'coincide_con_predeterminada': True,
-                    'turno_id': None
-                }
+                trabaja = False
+                jornada_nombre = 'Descanso'
+                tipo = 'predeterminado'
+
+            semana_turnos[fecha] = {
+                'turno': None,
+                'jornada': jornada_nombre,
+                'sala': 'Por asignar',
+                'tipo': tipo,
+                'es_cambio': tipo == 'asignado',
+                'jornada_predeterminada': jornada_nombre,
+                'coincide_con_predeterminada': True,
+                'turno_id': None,
+            }
         
         # Obtener información de solicitudes para turnos con cambios (optimizado)
         # Solo obtener la solicitud MÁS RECIENTE para cada turno

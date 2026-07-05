@@ -47,8 +47,14 @@ let temporadasPorMes = {};
  * @param {Object} temporadas - Objeto con mes como clave y array de días como valor
  */
 function establecerFestivosYTemporadas(festivos, temporadas) {
-    festivosPorMes = festivos || {};
-    temporadasPorMes = temporadas || {};
+    festivosPorMes = {};
+    if (festivos) {
+        Object.keys(festivos).forEach(function(k) { festivosPorMes[parseInt(k)] = festivos[k]; });
+    }
+    temporadasPorMes = {};
+    if (temporadas) {
+        Object.keys(temporadas).forEach(function(k) { temporadasPorMes[parseInt(k)] = temporadas[k]; });
+    }
 }
 
 /**

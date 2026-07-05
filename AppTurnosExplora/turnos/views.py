@@ -181,10 +181,44 @@ class DiaEspecialListView(LoginRequiredMixin, ListView):
     model = DiaEspecial
     template_name = 'turnos/diasespeciales_list.html'
     context_object_name = 'dias_especiales'
-    
+    paginate_by = 40
+
+    def _anio_efectivo(self):
+        from django.utils import timezone
+        raw = self.request.GET.get('anio', '')
+        if raw == 'todos':
+            return None
+        try:
+            return int(raw)
+        except (ValueError, TypeError):
+            return timezone.now().year
+
     def get_queryset(self):
-        # OPTIMIZACIÓN: Ordenar por fecha
-        return DiaEspecial.objects.order_by('fecha')
+        qs = DiaEspecial.objects.all()
+        tipo = self.request.GET.get('tipo', '')
+        if tipo == 'temporada':
+            qs = qs.filter(es_temporada=True)
+        elif tipo == 'festivo':
+            qs = qs.filter(tipo='festivo', es_temporada=False)
+        elif tipo == 'mantenimiento':
+            qs = qs.filter(tipo='mantenimiento', es_temporada=False)
+        anio = self._anio_efectivo()
+        if anio:
+            qs = qs.filter(año_planificacion=anio)
+        return qs.order_by('fecha')
+
+    def get_context_data(self, **kwargs):
+        from django.utils import timezone
+        context = super().get_context_data(**kwargs)
+        anio_efectivo = self._anio_efectivo()
+        context['tipo_filtro'] = self.request.GET.get('tipo', '')
+        context['anio_filtro'] = str(anio_efectivo) if anio_efectivo else 'todos'
+        context['anio_actual'] = timezone.now().year
+        context['anios_disponibles'] = TemporadaService.obtener_anios_con_temporadas()
+        params = self.request.GET.copy()
+        params.pop('page', None)
+        context['query_params'] = params.urlencode()
+        return context
 
 class DiaEspecialCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = DiaEspecial
@@ -296,8 +330,8 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
             'anio': anio,
             'anios_disponibles': list(range(anio_actual, anio_actual + 6)),
             'meses': meses,
-            'preseleccion_json': json.dumps(DescansoSemanaService.descansos_anual(anio)),
-            'marcadores_json': json.dumps(dict(marcadores)),
+            'preseleccion_json': DescansoSemanaService.descansos_anual(anio),
+            'marcadores_json': dict(marcadores),
         })
         return context
 
@@ -324,7 +358,100 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
         return redirect(f"{reverse('descanso_semana_anual')}?anio={anio}")
 
 
-class TurnosCalendarioView(LoginRequiredMixin, TemplateView):
+class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
+    """
+    Planeación ANUAL del OVERRIDE manual de días especiales (fines de semana y festivos):
+    el supervisor hace clic en un sábado/domingo o un festivo entre semana y fija qué grupo
+    (AM/PM) TRABAJA el día completo. Sin override, sigue la alternancia/rotación automática.
+    Clic repetido cambia: automático → AM trabaja → PM trabaja → automático.
+    """
+    template_name = 'turnos/asignacion_especial_anual.html'
+
+    def _anio(self):
+        try:
+            return int(self.request.GET.get('anio'))
+        except (TypeError, ValueError):
+            return date.today().year
+
+    def get_context_data(self, **kwargs):
+        import calendar as _cal
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        from turnos.services.festivos_rotacion_service import FestivosRotacionService
+        context = super().get_context_data(**kwargs)
+        anio = self._anio()
+        meses_nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                         'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        cal = _cal.Calendar(firstweekday=0)
+        meses = [{'numero': m, 'nombre': meses_nombres[m - 1], 'semanas': cal.monthdatescalendar(anio, m)}
+                 for m in range(1, 13)]
+
+        # Festivos entre semana del año (clickeables además de los fines de semana)
+        festivos_semana = [
+            de.fecha.isoformat()
+            for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='festivo', activo=True)
+            if de.fecha.weekday() < 5
+        ]
+
+        # Default AUTOMÁTICO por fecha especial (pista visual de qué pasa sin override)
+        auto = {}
+        d = date(anio, 1, 1)
+        fin = date(anio, 12, 31)
+        while d <= fin:
+            if d.weekday() >= 5:
+                g = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(d)
+                if g:
+                    auto[d.isoformat()] = g
+            d += timedelta(days=1)
+        for iso in festivos_semana:
+            try:
+                g = FestivosRotacionService.get_grupo_que_dobla_en_festivo(date.fromisoformat(iso))
+                auto[iso] = g
+            except Exception:
+                pass
+
+        bloqueadas = AsignacionEspecialService.fechas_bloqueadas_por_solicitud(anio)
+        anio_actual = date.today().year
+        context.update({
+            'anio': anio,
+            'anios_disponibles': list(range(anio_actual, anio_actual + 6)),
+            'meses': meses,
+            'preseleccion_json': AsignacionEspecialService.asignaciones_anual(anio),
+            'festivos_json': festivos_semana,
+            'auto_json': auto,
+            'bloqueadas_json': sorted(bloqueadas),
+            'anio_editable_completo': len(bloqueadas) == 0,
+        })
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from turnos.services.asignacion_especial_service import (
+            AsignacionEspecialService, AsignacionEspecialConflicto,
+        )
+        try:
+            anio = int(request.POST.get('anio'))
+        except (TypeError, ValueError):
+            messages.error(request, 'Año inválido.')
+            return redirect('asignacion_especial_anual')
+        try:
+            seleccion = json.loads(request.POST.get('seleccion', '{}'))
+        except json.JSONDecodeError:
+            seleccion = {}
+        try:
+            n = AsignacionEspecialService.guardar_anual(anio, seleccion)
+        except AsignacionEspecialConflicto as e:
+            messages.error(request, str(e))
+            return redirect(f"{reverse('asignacion_especial_anual')}?anio={anio}")
+        from core.services.cache_service import CacheService
+        from empleados.models import Empleado as _Emp
+        for emp_id in _Emp.objects.filter(activo=True).values_list('id', flat=True):
+            for mes in range(1, 13):
+                CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
+        messages.success(request, f'Asignaciones especiales guardadas para {anio} ({n} día(s) fijados).')
+        return redirect(f"{reverse('asignacion_especial_anual')}?anio={anio}")
+
+
+class TurnosCalendarioView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
     template_name = 'turnos/turnos_calendario.html'
 
 
@@ -333,35 +460,61 @@ class DiaEspecialVisualizarListView(LoginRequiredMixin, ListView):
     model = DiaEspecial
     template_name = 'turnos/diasespeciales_visualizar_list.html'
     context_object_name = 'dias_especiales'
-    
+    paginate_by = 40
+
+    def _anio_efectivo(self):
+        """Año del filtro; si no viene en GET usa el año actual."""
+        from django.utils import timezone
+        raw = self.request.GET.get('anio', '')
+        if raw == 'todos':
+            return None
+        try:
+            return int(raw)
+        except (ValueError, TypeError):
+            return timezone.now().year
+
     def get_queryset(self):
-        # OPTIMIZACIÓN: Aplicar filtros directamente en la consulta
         queryset = DiaEspecial.objects.all()
-        tipo = self.request.GET.get('tipo')
-        anio = self.request.GET.get('anio')
-        
-        if tipo:
-            if tipo == 'temporada':
-                queryset = queryset.filter(es_temporada=True)
-            elif tipo == 'festivo':
-                queryset = queryset.filter(tipo='festivo', es_temporada=False)
-            elif tipo == 'mantenimiento':
-                queryset = queryset.filter(tipo='mantenimiento', es_temporada=False)
-        
+        tipo = self.request.GET.get('tipo', '')
+        es_supervisor = self.request.user.is_staff
+
+        if tipo == 'temporada':
+            queryset = queryset.filter(es_temporada=True)
+        elif tipo == 'festivo':
+            queryset = queryset.filter(tipo='festivo', es_temporada=False)
+        elif tipo == 'mantenimiento':
+            queryset = queryset.filter(tipo='mantenimiento', es_temporada=False)
+
+        anio = self._anio_efectivo()
         if anio:
-            try:
-                anio_int = int(anio)
-                queryset = queryset.filter(año_planificacion=anio_int)
-            except ValueError:
-                pass
-        
+            queryset = queryset.filter(año_planificacion=anio)
+
+        # Filtro activo: supervisores pueden ver inactivos; exploradores solo ven activos
+        if es_supervisor:
+            activo = self.request.GET.get('activo', '')
+            if activo == '1':
+                queryset = queryset.filter(activo=True)
+            elif activo == '0':
+                queryset = queryset.filter(activo=False)
+        else:
+            queryset = queryset.filter(activo=True)
+
         return queryset.order_by('fecha')
-    
+
     def get_context_data(self, **kwargs):
+        from django.utils import timezone
         context = super().get_context_data(**kwargs)
+        anio_efectivo = self._anio_efectivo()
         context['tipo_filtro'] = self.request.GET.get('tipo', '')
-        context['anio_filtro'] = self.request.GET.get('anio', '')
+        context['anio_filtro'] = str(anio_efectivo) if anio_efectivo else 'todos'
+        context['anio_efectivo'] = anio_efectivo
+        context['anio_actual'] = timezone.now().year
         context['anios_disponibles'] = TemporadaService.obtener_anios_con_temporadas()
+        context['es_supervisor'] = self.request.user.is_staff
+        context['activo_filtro'] = self.request.GET.get('activo', '')
+        params = self.request.GET.copy()
+        params.pop('page', None)
+        context['query_params'] = params.urlencode()
         return context
 
 
@@ -558,9 +711,9 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
             'anio_seleccionado': anio_seleccionado,
             'anio_actual': anio_actual,
             'tiene_dias': tiene_dias,
-            'dias_por_mes': json.dumps(dias_por_mes),  # Serializar a JSON para JavaScript
-            'festivos_por_mes': json.dumps(festivos_por_mes),  # Festivos para mostrar en el calendario
-            'temporadas_por_mes': json.dumps(temporadas_por_mes),  # Temporadas para mostrar en el calendario
+            'dias_por_mes': dias_por_mes,
+            'festivos_por_mes': festivos_por_mes,
+            'temporadas_por_mes': temporadas_por_mes,
             'meses_data': meses_data,
             'anios_con_tipo': anios_con_tipo,  # Para referencia
             'anios_disponibles': anios_disponibles,  # Lista completa de años para el selector

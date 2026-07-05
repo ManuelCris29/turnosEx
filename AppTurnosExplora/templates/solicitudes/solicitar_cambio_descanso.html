@@ -1,59 +1,11 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 {% load static static_version %}
 
 {% block title %}Cambio de Día de Descanso{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
-<style>
-    .solicitud-layout { max-width: 1000px; margin: 0 auto; padding: 24px 16px 40px; }
-    .solicitud-card { background:#fff; border-radius:12px; box-shadow:0 8px 24px rgba(15,23,42,.08); overflow:hidden; }
-    .solicitud-header { display:flex; justify-content:space-between; align-items:center; padding:18px 24px; background:linear-gradient(135deg,#6366f1,#4f46e5); color:#f9fafb; }
-    .solicitud-header-main { display:flex; align-items:center; gap:16px; }
-    .solicitud-header-icon { width:40px; height:40px; border-radius:999px; background:rgba(15,23,42,.15); display:flex; align-items:center; justify-content:center; font-size:20px; }
-    .solicitud-title { font-size:1.35rem; font-weight:600; margin:0 0 2px; }
-    .solicitud-subtitle { margin:0; font-size:.9rem; opacity:.9; }
-    .info-box { background:linear-gradient(135deg,#667eea,#764ba2); color:#fff; padding:15px; border-radius:10px; margin-bottom:20px; }
-    .info-box h5 { margin:0; font-weight:600; }
-    .info-box p { margin:5px 0 0 0; opacity:.95; }
-
-    .modo-toggle { display:flex; gap:10px; margin-bottom:20px; }
-    .modo-btn { flex:1; padding:12px; border:2px solid #e2e8f0; border-radius:8px; background:#f8fafc; cursor:pointer; text-align:center; font-weight:500; transition:all 0.2s; }
-    .modo-btn:hover { border-color:#6366f1; background:#f0f4ff; }
-    .modo-btn.active { border-color:#6366f1; background:#6366f1; color:#fff; }
-
-    .semanas-container { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; margin-bottom:20px; }
-    .semana-card { border:2px solid #e2e8f0; border-radius:10px; padding:16px; cursor:pointer; transition:all 0.2s; background:#f9fafb; }
-    .semana-card:hover { border-color:#6366f1; background:#f0f4ff; }
-    .semana-card.selected { border-color:#6366f1; background:#e0e7ff; box-shadow:0 4px 12px rgba(99,102,241,0.2); }
-    .semana-card.disabled { opacity:0.5; cursor:not-allowed; }
-    .semana-fecha { font-size:.85rem; color:#64748b; margin-bottom:6px; font-weight:500; }
-    .semana-info { display:flex; gap:8px; flex-wrap:wrap; }
-    .semana-jor { display:inline-flex; align-items:center; gap:4px; font-size:.78rem; padding:4px 8px; border-radius:6px; }
-    .semana-jor.yo { background:#dcfce7; color:#166534; font-weight:600; }
-    .semana-jor.compa { background:#fef3c7; color:#92400e; }
-    .semana-jor.descanso { background:#e2e8f0; color:#475569; }
-    .semana-jor.neutro { background:#f1f5f9; color:#94a3b8; font-style:italic; }
-    .semana-card.disabled { opacity:0.55; cursor:not-allowed; background:#f1f5f9; }
-    .semana-card.disabled:hover { border-color:#e2e8f0; background:#f1f5f9; }
-
-    .compa-container { margin:20px 0; }
-    .compa-selector { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px; }
-    .compa-nombre { font-size:1.1rem; font-weight:600; color:#1e293b; }
-    .compa-grupo { font-size:.85rem; color:#64748b; }
-
-    .alert-warning-info { background:#fef3c7; border-left:4px solid #eab308; padding:12px; border-radius:6px; margin:12px 0; color:#92400e; }
-
-    .resumen-box { background:#f0f4ff; border-left:4px solid #6366f1; padding:12px 15px; margin-top:12px; border-radius:4px; color:#3730a3; display:none; }
-    .resumen-box.show { display:block; }
-
-    .descansos-container { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; margin-bottom:20px; }
-    .descanso-card { border:2px solid #e2e8f0; border-radius:10px; padding:14px; cursor:pointer; transition:all 0.2s; background:#f9fafb; }
-    .descanso-card:hover { border-color:#6366f1; background:#f0f4ff; }
-    .descanso-card.selected { border-color:#6366f1; background:#e0e7ff; }
-    .descanso-dia { font-weight:600; color:#1e293b; margin-bottom:4px; }
-    .descanso-grupo { font-size:.85rem; color:#64748b; }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitudes.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitar_cambio_descanso.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -143,16 +95,100 @@
               <div class="form-group" id="descanso-contrario-info" style="display:none;">
                 <div class="descanso-card" style="cursor:default;border-color:#fcd34d;background:#fffbeb;">
                   <div class="descanso-dia" id="descanso-contrario-dia">—</div>
-                  <div class="descanso-grupo">Descanso del grupo contrario esa semana (lo tomarás tú)</div>
+                  <div class="descanso-grupo">Descanso del grupo contrario esa semana (tu día de trabajo COMPLETO)</div>
+                </div>
+              </div>
+
+              <!-- SUB-TIPO: qué quieres hacer esa semana de temporada -->
+              <div class="form-group" id="subtipo-semana-container" style="display:none;">
+                <label><i class="fas fa-tasks mr-1"></i>¿Qué quieres hacer? <span class="text-danger">*</span></label>
+                <div id="subtipos-semana" class="descansos-container">
+                  <div class="descanso-card subtipo-card" data-subtipo="intercambio_dia">
+                    <div class="descanso-dia">🔁 Intercambiar el día</div>
+                    <div class="descanso-grupo">Cambias tu descanso por el del compañero (él toma tu día completo y tú el suyo). Sin deuda.</div>
+                  </div>
+                  <div class="descanso-card subtipo-card" data-subtipo="jornadas_partidas">
+                    <div class="descanso-dia">🌗 Jornadas partidas</div>
+                    <div class="descanso-grupo">Uno va los 2 días en la mañana (AM) y el otro los 2 días en la tarde (PM). Sin deuda.</div>
+                  </div>
+                  <div class="descanso-card subtipo-card" data-subtipo="cobertura_misma_semana">
+                    <div class="descanso-dia">🤝 Que me cubran mi día</div>
+                    <div class="descanso-grupo">Te cubren 1 jornada o las 2 de tu día completo y pagas en la MISMA semana. Deuda de 30 min solo para quien doble sobre su propia jornada.</div>
+                  </div>
+                  <div class="descanso-card subtipo-card" data-subtipo="cambio_doblada">
+                    <div class="descanso-dia">♻️ Cambio de doblada</div>
+                    <div class="descanso-grupo">Tomas la doblada que un compañero ya tiene esa semana y él toma tu día completo. Sin deuda (ambos ya doblaban).</div>
+                  </div>
+                  <div class="descanso-card subtipo-card" data-subtipo="permiso_media_jornada">
+                    <div class="descanso-dia">📋 Permiso media jornada</div>
+                    <div class="descanso-grupo">Trabajas media jornada tu día completo y la otra media tu día de descanso. Se aprueba como PERMISO por tu supervisor. Sin deuda.</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bloque: jornadas partidas -->
+              <div class="form-group subtipo-bloque" id="bloque-jornadas-partidas" style="display:none;">
+                <label><i class="fas fa-sun mr-1"></i>¿Qué jornada trabajas TÚ los dos días? <span class="text-danger">*</span></label>
+                <div class="modo-toggle">
+                  <div class="modo-btn jp-jornada" data-jornada="AM"><i class="fas fa-sun"></i> AM (mañana)</div>
+                  <div class="modo-btn jp-jornada" data-jornada="PM"><i class="fas fa-moon"></i> PM (tarde)</div>
+                </div>
+                <small class="form-text text-muted">Tu compañero trabajará la jornada contraria los dos días.</small>
+              </div>
+
+              <!-- Bloque: cobertura misma semana -->
+              <div class="form-group subtipo-bloque" id="bloque-cobertura" style="display:none;">
+                <label><i class="fas fa-hands-helping mr-1"></i>¿Qué te cubren de tu día completo? <span class="text-danger">*</span></label>
+                <div class="modo-toggle" style="flex-wrap:wrap;">
+                  <div class="modo-btn cob-opcion" data-cob="AM">Solo AM</div>
+                  <div class="modo-btn cob-opcion" data-cob="PM">Solo PM</div>
+                  <div class="modo-btn cob-opcion" data-cob="AMBAS">Día completo (1 compañero)</div>
+                  <div class="modo-btn cob-opcion" data-cob="DOS">Día completo (2 compañeros)</div>
+                </div>
+                <div class="mt-2" id="cob-dia-pago-grupo" style="display:none;">
+                  <label><i class="fas fa-calendar-check mr-1"></i>Día de pago (misma semana) <span class="text-danger">*</span></label>
+                  <select class="form-control" id="cob-dia-pago"></select>
+                  <small class="form-text text-muted">Ese día cubres al compañero lo equivalente. Debe ser de la misma semana.</small>
+                </div>
+                <div class="mt-2" id="cob-companero-2" style="display:none;">
+                  <label><i class="fas fa-user-friends mr-1"></i>Compañero que cubre la PM <span class="text-danger">*</span></label>
+                  <select class="form-control" id="select-receptor-semana-2">
+                    <option value="">Selecciona el segundo compañero…</option>
+                  </select>
+                  <small class="form-text text-muted">Se crearán DOS solicitudes (una por jornada), cada una se aprueba por separado.</small>
+                </div>
+                <div id="aviso-deuda-cob" class="alert-warning-info mt-2" style="display:none;"></div>
+              </div>
+
+              <!-- Bloque: cambio de doblada -->
+              <div class="form-group subtipo-bloque" id="bloque-cambio-doblada" style="display:none;">
+                <label><i class="fas fa-retweet mr-1"></i>Doblada de la semana que tomas <span class="text-danger">*</span></label>
+                <select class="form-control" id="select-doblada-semana">
+                  <option value="">Cargando dobladas de la semana…</option>
+                </select>
+                <small class="form-text text-muted">Compañeros con doblada (AM+PM) esa semana. Él tomará tu día completo y tú su doblada.</small>
+              </div>
+
+              <!-- Bloque: permiso media jornada -->
+              <div class="form-group subtipo-bloque" id="bloque-permiso" style="display:none;">
+                <label><i class="fas fa-clock mr-1"></i>¿Qué media jornada trabajas tu día completo? <span class="text-danger">*</span></label>
+                <div class="modo-toggle">
+                  <div class="modo-btn perm-jornada" data-jornada="AM"><i class="fas fa-sun"></i> AM (mañana)</div>
+                  <div class="modo-btn perm-jornada" data-jornada="PM"><i class="fas fa-moon"></i> PM (tarde)</div>
+                </div>
+                <div class="alert-warning-info mt-2">
+                  <i class="fas fa-info-circle mr-1"></i> Esto se envía como <strong>PERMISO</strong> a tu supervisor
+                  (no pasa por un compañero). La media jornada restante la trabajas en tu día de descanso de esa misma
+                  semana. No genera deuda.
                 </div>
               </div>
 
               <div class="form-group compa-container" id="compa-container-semana" style="display:none;">
-                <label><i class="fas fa-user mr-1"></i>Compañero (intercambia su descanso) <span class="text-danger">*</span></label>
+                <label id="label-receptor-semana"><i class="fas fa-user mr-1"></i>Compañero <span class="text-danger">*</span></label>
                 <select class="form-control" id="select-receptor-semana">
                   <option value="">Selecciona un compañero…</option>
                 </select>
-                <small class="form-text text-muted">Compañeros del grupo contrario que descansan ese día.</small>
+                <small class="form-text text-muted" id="hint-receptor-semana">Compañeros del grupo contrario.</small>
               </div>
             </div>
 
@@ -160,6 +196,9 @@
             <input type="hidden" id="fecha_solicitud" name="fecha_solicitud">
             <input type="hidden" id="fecha_pago" name="fecha_pago">
             <input type="hidden" id="empleado_receptor" name="empleado_receptor">
+            <input type="hidden" id="submodalidad_semana" name="submodalidad_semana">
+            <input type="hidden" id="tipo_cesion_input" name="tipo_cesion">
+            <input type="hidden" id="jornada_cedida_input" name="jornada_cedida">
 
             <!-- RESUMEN -->
             <div id="resumen-box" class="resumen-box"></div>
@@ -190,3 +229,4 @@
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_cambio_descanso.js' %}"></script>
 {% endblock %}
+

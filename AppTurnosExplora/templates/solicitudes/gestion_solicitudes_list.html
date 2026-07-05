@@ -1,40 +1,12 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Gestión de Solicitudes{% endblock %}
 {% block page_title %}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
-<style>
-  .gs-wrap { max-width: 1180px; margin: 0 auto; }
-  .gs-filtros { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:16px; }
-  .gs-chip { display:inline-flex; align-items:center; gap:6px; padding:7px 13px; border-radius:999px;
-             background:#eef2f7; color:#374151; text-decoration:none; font-size:.85rem; font-weight:500; border:1px solid transparent; }
-  .gs-chip:hover { background:#e2e8f0; color:#111827; }
-  .gs-chip.active { background:#0d6efd; color:#fff; }
-  .gs-chip.alerta { background:#fee2e2; color:#991b1b; }
-  .gs-chip.alerta.active { background:#dc2626; color:#fff; }
-  .gs-chip .n { background:rgba(0,0,0,.12); border-radius:999px; padding:1px 8px; font-size:.78rem; }
-  .gs-chip.active .n { background:rgba(255,255,255,.25); }
-  .gs-search { margin-left:auto; display:flex; gap:6px; }
-  .gs-search input { border:1px solid #d1d5db; border-radius:8px; padding:6px 10px; min-width:220px; }
-  .gs-table { width:100%; background:#fff; border-radius:12px; overflow:hidden; box-shadow:0 4px 14px rgba(15,23,42,.06); border-collapse:collapse; }
-  .gs-table th { background:#f8fafc; text-align:left; padding:11px 12px; font-size:.8rem; color:#475569; text-transform:uppercase; letter-spacing:.3px; }
-  .gs-table td { padding:11px 12px; border-top:1px solid #f1f5f9; font-size:.9rem; vertical-align:middle; }
-  .gs-edo { padding:3px 9px; border-radius:6px; font-size:.78rem; font-weight:600; }
-  .edo-pendiente{background:#fef9c3;color:#854d0e;} .edo-aprobada{background:#dcfce7;color:#166534;}
-  .edo-rechazada{background:#fee2e2;color:#991b1b;} .edo-cancelada{background:#e5e7eb;color:#374151;}
-  .gs-dias { font-weight:700; }
-  .dias-ok{color:#16a34a;} .dias-warning{color:#d97706;} .dias-danger{color:#dc2626;}
-  .gs-bloqueo { font-size:.8rem; color:#b45309; }
-  .gs-acciones { display:flex; gap:5px; flex-wrap:wrap; }
-  .gs-acciones button { border:none; border-radius:7px; padding:5px 9px; font-size:.78rem; cursor:pointer; color:#fff; }
-  .btn-reenviar{background:#0ea5e9;} .btn-cancelar{background:#f59e0b;} .btn-eliminar{background:#ef4444;}
-  .gs-acciones button:hover{ filter:brightness(.93); }
-  .gs-empty { text-align:center; padding:40px; color:#6b7280; }
-  .gs-pager { display:flex; gap:8px; justify-content:center; margin-top:16px; }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/gestion_solicitudes.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -70,6 +42,7 @@
     </div>
 
     {% if page.object_list %}
+    <div class="table-responsive">
     <table class="gs-table">
       <thead>
         <tr>
@@ -117,6 +90,7 @@
       {% endfor %}
       </tbody>
     </table>
+    </div>
 
     {% if page.has_other_pages %}
     <div class="gs-pager">

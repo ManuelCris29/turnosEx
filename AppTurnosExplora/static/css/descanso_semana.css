@@ -1,0 +1,10 @@
+/* Estilos específicos de la lista de Descansos de Semana */
+.ds-table { width: 100%; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 14px rgba(15,23,42,.06); border-collapse: collapse; }
+.ds-table th { background: #f8fafc; text-align: left; padding: 11px 12px; font-size: .8rem; color: #475569; text-transform: uppercase; }
+.ds-table td { padding: 11px 12px; border-top: 1px solid #f1f5f9; font-size: .92rem; }
+.jor { font-weight: 700; padding: 2px 9px; border-radius: 6px; color: #fff; font-size: .78rem; }
+.jor-AM { background: #0d6efd; }
+.jor-PM { background: #f59e0b; }
+.mot { padding: 2px 8px; border-radius: 6px; font-size: .78rem; background: #e2e8f0; color: #334155; }
+.ds-empty { text-align: center; padding: 38px; color: #6b7280; }
+.ds-acc a { margin-right: 6px; }

@@ -1,21 +1,11 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Indicadores{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
-<style>
-    .kpi-row { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
-    .kpi { flex:1; min-width:170px; background:#fff; border-radius:14px; box-shadow:0 6px 18px rgba(15,23,42,.07); padding:16px 18px; }
-    .kpi .num { font-size:1.9rem; font-weight:800; line-height:1; }
-    .kpi .lbl { font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; color:#6b7280; margin-bottom:6px; }
-    .kpi.azul .num{color:#2563eb;} .kpi.verde .num{color:#16a34a;} .kpi.ambar .num{color:#d97706;}
-    .kpi.morado .num{color:#7c3aed;} .kpi.cian .num{color:#0891b2;}
-    .pct-row { display:flex; flex-wrap:wrap; gap:10px; }
-    .pct-chip { display:flex; align-items:center; gap:8px; background:#f8fafc; border-radius:999px; padding:6px 14px; font-weight:600; font-size:.9rem; }
-    .pct-dot { width:12px; height:12px; border-radius:50%; }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/indicadores.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -180,26 +170,8 @@
 
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-<script>
-(function () {
-    var el = document.getElementById('chartIndicadores');
-    if (!el || !window.Chart) return;
-    var meses = {{ meses_json|safe }};
-    var series = {{ chart_series_json|safe }};
-    new Chart(el, {
-        type: 'bar',
-        data: {
-            labels: meses,
-            datasets: series.map(function (s) {
-                return { label: s.label, data: s.data, backgroundColor: s.color, borderWidth: 0, borderRadius: 4 };
-            })
-        },
-        options: {
-            responsive: true,
-            plugins: { legend: { position: 'top' } },
-            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } }
-        }
-    });
-})();
-</script>
+{{ meses_json|json_script:"indicadores-meses" }}
+{{ chart_series_json|json_script:"indicadores-series" }}
+<script src="{% static_v 'js/empleados/indicadores.js' %}"></script>
 {% endblock %}
+

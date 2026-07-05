@@ -151,8 +151,8 @@ class DobladaAplicacionService:
         """
         try:
             if fecha.weekday() in (5, 6):
-                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                trabaja = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha)
+                from turnos.services.asignacion_especial_service import AsignacionEspecialService
+                trabaja = AsignacionEspecialService.grupo_trabaja_efectivo(fecha)
                 return bool(base_nombre) and trabaja is not None and base_nombre != trabaja
 
             from turnos.services.descanso_semana_service import DescansoSemanaService
@@ -820,6 +820,9 @@ class DobladaAplicacionService:
             DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
             afectados = DobladaAplicacionService._fechas_explorador_afectados(snapshot)
             DobladaAplicacionService.reconciliar_dobladas_aprobadas(afectados, solicitud.id)
+            from core.services.cache_service import CacheService
+            for emp_id, f in afectados:
+                CacheService.invalidar_cache_turnos_empleado(emp_id, f.month, f.year)
             logger.info(
                 f"Doblada revertida (desde snapshot + reconciliación): Solicitud {solicitud.id} - "
                 f"{solicitante.nombre} <-> {receptor.nombre}"
@@ -872,6 +875,20 @@ class DobladaAplicacionService:
 
         # --- Cancelar deudas corporativas ---
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+
+        # --- Reconciliar otras dobladas aprobadas sobre las mismas fechas ---
+        afectados_sin_snap = {
+            (solicitante.id, fecha_cesion), (receptor.id, fecha_cesion),
+            (solicitante.id, fecha_pago), (receptor.id, fecha_pago),
+        }
+        DobladaAplicacionService.reconciliar_dobladas_aprobadas(afectados_sin_snap, solicitud.id)
+
+        # --- Invalidar caché de Mis Turnos para ambos empleados ---
+        from core.services.cache_service import CacheService
+        for emp_id, f in afectados_sin_snap:
+            if f:
+                CacheService.invalidar_cache_turnos_empleado(emp_id, f.month, f.year)
+
         logger.info(
             f"Doblada revertida: Solicitud {solicitud.id} - "
             f"{solicitante.nombre} <-> {receptor.nombre}"

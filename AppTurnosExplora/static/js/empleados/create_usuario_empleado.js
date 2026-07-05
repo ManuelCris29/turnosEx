@@ -1,33 +1,27 @@
-// Validación visual: no permitir enviar ambos bloques llenos en crear usuario+empleado
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('usuario-empleado-form');
-    if (!form) return;
+﻿(function(){
+  const roles = document.getElementById('id_roles');
+  const grpSalas = document.getElementById('grp_salas');
+  const grpJornada = document.getElementById('grp_jornada');
+  const grpSupervisor = document.getElementById('grp_supervisor');
+  const aviso = document.getElementById('aviso_supervisor');
+  if(!roles) return;
 
-    form.addEventListener('submit', function(e) {
-        const usuarioExistenteEl = document.getElementById('id_usuario_existente');
-        const usernameEl = document.getElementById('id_username');
-        const passwordEl = document.getElementById('id_password');
-        const emailEl = document.getElementById('id_email');
-
-        const usuarioExistente = usuarioExistenteEl ? usuarioExistenteEl.value : '';
-        const username = usernameEl ? usernameEl.value : '';
-        const password = passwordEl ? passwordEl.value : '';
-        const email = emailEl ? emailEl.value : '';
-
-        // Caso 1: se selecciona usuario existente y además se diligencian campos de usuario nuevo
-        if (usuarioExistente && (username || password || email)) {
-            alert('Por favor, selecciona un usuario existente O llena los campos de usuario nuevo, pero no ambos.');
-            e.preventDefault();
-            return;
-        }
-
-        // Caso 2: no hay usuario existente y faltan campos de usuario nuevo
-        if (!usuarioExistente && (!username || !password || !email)) {
-            alert('Si no seleccionas un usuario existente, debes llenar todos los campos de usuario nuevo.');
-            e.preventDefault();
-            return;
-        }
-    });
-});
-
-
+  function esSupervisor(){
+    return Array.from(roles.selectedOptions || []).some(o => (o.text || '').toLowerCase().includes('supervisor'));
+  }
+  function toggle(){
+    const sup = esSupervisor();
+    [grpSalas, grpJornada, grpSupervisor].forEach(g => { if(g) g.style.display = sup ? 'none' : ''; });
+    if(aviso) aviso.style.display = sup ? '' : 'none';
+    if(sup){
+      const salas = document.getElementById('id_salas');
+      const jornada = document.getElementById('id_jornada');
+      const supervisor = document.getElementById('id_supervisor');
+      if(salas) Array.from(salas.options).forEach(o => o.selected = false);
+      if(jornada) jornada.value = '';
+      if(supervisor) supervisor.value = '';
+    }
+  }
+  roles.addEventListener('change', toggle);
+  toggle();
+})();

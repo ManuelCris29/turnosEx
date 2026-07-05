@@ -1,0 +1,182 @@
+/* Estilos compartidos para los calendarios anuales (temporadas y festivos/mantenimiento) */
+.calendario-mes {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 20px;
+    background: #fff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+}
+
+.calendario-mes h5 {
+    color: #495057;
+    margin-bottom: 15px;
+    font-weight: 600;
+    font-size: 1.1rem;
+}
+
+.calendario-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 4px;
+    margin-bottom: 10px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+}
+
+.calendario-dia-header {
+    text-align: center;
+    font-weight: 600;
+    color: #6c757d;
+    padding: 6px 4px;
+    font-size: 0.75rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.calendario-dia {
+    aspect-ratio: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.8rem;
+    background: #fff;
+    min-height: 32px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    word-wrap: break-word;
+}
+
+.calendario-dia:hover { background: #e9ecef; transform: scale(1.05); }
+.calendario-dia.vacio { background: #f8f9fa; cursor: default; border: none; }
+.calendario-dia.seleccionado { background: #007bff; color: #fff; border-color: #0056b3; font-weight: 600; }
+.calendario-dia.seleccionado:hover { background: #0056b3; }
+
+/* Exclusivos del calendario de festivos/mantenimiento */
+.calendario-dia.festivo { background: #dc3545; color: #fff; border-color: #c82333; font-weight: 600; }
+.calendario-dia.festivo:hover { background: #c82333; }
+.calendario-dia.temporada { background: #ff9800; color: #fff; border-color: #e68900; font-weight: 600; }
+.calendario-dia.temporada:hover { background: #e68900; }
+.calendario-dia.seleccionado.festivo { background: #dc3545; color: #fff; border-color: #c82333; border-width: 2px; }
+.calendario-dia.seleccionado.temporada { background: #007bff; border-color: #ff9800; border-width: 2px; }
+
+.resumen-mes {
+    margin-top: 10px;
+    padding: 8px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    color: #6c757d;
+    word-break: break-word;
+}
+
+.resumen-mes strong { color: #007bff; }
+
+.alert-info { border-left: 4px solid #17a2b8; }
+
+.selector-anio, .selector-tipo { max-width: 100%; }
+
+/* Responsive: Tablets (≥ 576px) */
+@media (min-width: 576px) {
+    .calendario-mes { padding: 18px; }
+    .calendario-mes h5 { font-size: 1.2rem; }
+    .calendario-grid { gap: 5px; }
+    .calendario-dia-header { padding: 8px 4px; font-size: 0.8rem; }
+    .calendario-dia { font-size: 0.85rem; min-height: 36px; }
+    .resumen-mes { font-size: 0.85rem; }
+    .selector-anio, .selector-tipo { max-width: 250px; }
+}
+
+/* Responsive: Nest Hub (altura limitada) */
+@media (min-width: 1024px) and (max-height: 700px) {
+    .calendario-mes { padding: 10px !important; margin-bottom: 12px !important; }
+    .calendario-mes h5 { font-size: 0.95rem !important; margin-bottom: 10px !important; }
+    .calendario-grid { gap: 3px !important; margin-bottom: 8px !important; }
+    .calendario-dia-header { padding: 5px 3px !important; font-size: 0.7rem !important; }
+    .calendario-dia { font-size: 0.75rem !important; min-height: 28px !important; }
+    .resumen-mes { padding: 6px !important; font-size: 0.75rem !important; }
+}
+
+/* Responsive: Tablets pequeñas (768px - 991px) */
+@media (min-width: 768px) and (max-width: 991.98px) {
+    .calendario-mes { padding: 12px !important; margin-bottom: 15px !important; }
+    .calendario-mes h5 { font-size: 1rem !important; margin-bottom: 12px !important; }
+    .calendario-grid { gap: 4px !important; margin-bottom: 10px !important; }
+    .calendario-dia-header { padding: 6px 4px !important; font-size: 0.75rem !important; }
+    .calendario-dia { font-size: 0.8rem !important; min-height: 32px !important; }
+    .resumen-mes { padding: 8px !important; font-size: 0.8rem !important; }
+    .selector-anio, .selector-tipo { max-width: 100% !important; }
+}
+
+/* Responsive: Tablets grandes (992px - 1199px) */
+@media (min-width: 992px) and (max-width: 1199.98px) {
+    .calendario-mes { padding: 14px !important; margin-bottom: 18px !important; }
+    .calendario-mes h5 { font-size: 1.1rem !important; margin-bottom: 14px !important; }
+    .calendario-grid { gap: 5px !important; margin-bottom: 11px !important; }
+    .calendario-dia-header { padding: 7px 4px !important; font-size: 0.8rem !important; }
+    .calendario-dia { font-size: 0.85rem !important; min-height: 36px !important; }
+    .resumen-mes { padding: 9px !important; font-size: 0.82rem !important; }
+    .selector-anio, .selector-tipo { max-width: 280px !important; }
+}
+
+/* Responsive: Full HD (1200px - 1920px) */
+@media (min-width: 1200px) and (max-width: 1920px) {
+    .container-fluid { max-width: 1600px !important; margin-left: auto !important; margin-right: auto !important; padding-left: 15px !important; padding-right: 15px !important; }
+    .calendario-mes { padding: 18px !important; overflow: visible !important; }
+    .calendario-mes h5 { font-size: 1.2rem !important; margin-bottom: 16px !important; }
+    .calendario-grid { gap: 6px !important; width: 100% !important; max-width: 100% !important; overflow: visible !important; grid-template-columns: repeat(7, minmax(0, 1fr)) !important; }
+    .calendario-dia { min-height: 42px !important; font-size: 0.88rem !important; width: 100% !important; max-width: 100% !important; }
+    .calendario-dia-header { font-size: 0.83rem !important; padding: 7px 4px !important; width: 100% !important; max-width: 100% !important; }
+}
+
+/* Responsive: Desktop estándar (≥ 768px, altura normal) */
+@media (min-width: 768px) and (min-height: 701px) {
+    .calendario-mes { padding: 20px; }
+    .calendario-mes h5 { font-size: 1.25rem; margin-bottom: 18px; }
+    .calendario-grid { gap: 6px; margin-bottom: 12px; }
+    .calendario-dia-header { padding: 8px; font-size: 0.85rem; }
+    .calendario-dia { font-size: 0.9rem; min-height: 40px; }
+    .resumen-mes { padding: 10px; font-size: 0.85rem; }
+    .selector-anio, .selector-tipo { max-width: 300px; }
+}
+
+/* Responsive: Large Desktop (≥ 1200px, altura normal) */
+@media (min-width: 1200px) and (min-height: 701px) {
+    .calendario-grid { gap: 8px; }
+    .calendario-dia { min-height: 44px; }
+}
+
+/* Responsive: Mobile */
+@media (max-width: 575.98px) {
+    .calendario-mes { padding: 12px; margin-bottom: 15px; }
+    .calendario-mes h5 { font-size: 1rem; margin-bottom: 12px; flex-direction: column; align-items: flex-start !important; }
+    .calendario-mes h5 .badge { margin-top: 8px; align-self: flex-start; }
+    .calendario-grid { gap: 3px; }
+    .calendario-dia-header { padding: 5px 2px; font-size: 0.7rem; }
+    .calendario-dia { font-size: 0.75rem; min-height: 28px; }
+    .resumen-mes { padding: 6px; font-size: 0.75rem; }
+    .input-group-append .btn { padding: 0.375rem 0.75rem; }
+}
+
+/* Touch-friendly */
+@media (max-width: 767.98px) {
+    .calendario-dia { min-height: 32px; }
+    .calendario-dia:active { transform: scale(0.95); }
+    .btn { padding: 0.5rem 1rem; font-size: 0.9rem; }
+}

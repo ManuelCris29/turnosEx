@@ -1,0 +1,5 @@
+/* Estilos específicos del listado de empleados (DataTables overrides) */
+#empleados-table thead th { background: #f8fafc; color: #475569; font-size: .82rem; text-transform: uppercase; letter-spacing: .3px; }
+#empleados-table td { vertical-align: middle; }
+.dataTables_wrapper .dataTables_filter input,
+.dataTables_wrapper .dataTables_length select { border-radius: 8px; border: 1px solid #d1d5db; }

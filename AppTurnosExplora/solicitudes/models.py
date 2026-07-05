@@ -13,6 +13,7 @@ class Notificacion(models.Model):
         ('solicitud_permiso', 'Solicitud de Permiso'),
         ('aprobacion', 'Aprobación'),
         ('rechazo', 'Rechazo'),
+        ('sancion', 'Sanción'),
     ]
     
     destinatario = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='notificaciones')
@@ -283,6 +284,13 @@ class DobladaDetalle(models.Model):
         ('AMBAS', 'Ambas (cubro el día completo; el receptor descansa)'),
     ]
 
+    SUBMODALIDAD_SEMANA_CHOICES = [
+        ('intercambio_dia', 'Intercambio de día'),
+        ('jornadas_partidas', 'Jornadas partidas (uno AM ambos días, otro PM)'),
+        ('cobertura_misma_semana', 'Cobertura con pago en la misma semana'),
+        ('cambio_doblada', 'Cambio de doblada de la semana'),
+    ]
+
     solicitud = models.OneToOneField(SolicitudCambio, on_delete=models.CASCADE, related_name='doblada')
     minutos_deuda = models.IntegerField(default=30)
     fecha_pago = models.DateField(
@@ -326,6 +334,14 @@ class DobladaDetalle(models.Model):
         null=True,
         blank=True,
         help_text='Si el receptor tiene doblada (AM+PM) en fecha de pago: qué parte cubre el deudor, o ambas.'
+    )
+    submodalidad_semana = models.CharField(
+        max_length=30,
+        choices=SUBMODALIDAD_SEMANA_CHOICES,
+        null=True,
+        blank=True,
+        help_text='Solo CAMBIO DESCANSO entre semana (temporada): distingue el sub-flujo. '
+                  'Las filas antiguas entre-semana sin valor se tratan como intercambio_dia.'
     )
     snapshot_turnos_previos = models.JSONField(
         null=True,

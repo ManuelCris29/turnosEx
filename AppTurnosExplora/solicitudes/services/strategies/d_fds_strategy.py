@@ -158,8 +158,10 @@ class DFDSStrategy(SolicitudStrategy):
             sol_trabaja_ces_por_turno = (
                 est_sol_ces_pre.get('trabaja') and est_sol_ces_pre.get('fuente') == 'turno'
             )
+            from turnos.services.asignacion_especial_service import AsignacionEspecialService
             if not sol_trabaja_ces_por_turno:
-                trabaja_cesion = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_cesion)
+                # Alternancia EFECTIVA: respeta el override manual del finde si existe.
+                trabaja_cesion = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_cesion)
                 if not trabaja_cesion:
                     return False, "No se pudo determinar la alternancia del fin de semana de cesión"
                 if grupo_sol != trabaja_cesion:
@@ -177,7 +179,7 @@ class DFDSStrategy(SolicitudStrategy):
                 est_rec_pago_pre.get('trabaja') and est_rec_pago_pre.get('fuente') == 'turno'
             )
             if not rec_trabaja_pago_por_turno:
-                trabaja_pago = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha_pago)
+                trabaja_pago = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_pago)
                 if not trabaja_pago:
                     return False, "No se pudo determinar la alternancia del fin de semana de pago"
                 if grupo_rec != trabaja_pago:
@@ -202,6 +204,18 @@ class DFDSStrategy(SolicitudStrategy):
                 return False, (
                     f"Tu compañero no trabaja el {fecha_pago.strftime('%d/%m/%Y')} ({motivo}); "
                     f"no hay día que cubrir."
+                )
+
+            # 9c. El solicitante no puede pagar en un día ya comprometido por OTRA solicitud
+            #     aprobada (cedido, pagando otra doblada, etc.). Ojo: descansar por alternancia
+            #     en la fecha de pago es lo esperado (es el día del receptor y por eso se dobla);
+            #     solo invalida un compromiso previo por solicitud.
+            comp_sol_pago = TurnoService.dia_comprometido_por_solicitud(solicitante, fecha_pago)
+            if comp_sol_pago:
+                motivo = comp_sol_pago.get('motivo') or 'compromiso previo'
+                return False, (
+                    f"No puedes pagar el {fecha_pago.strftime('%d/%m/%Y')}: ese día ya está "
+                    f"comprometido por otra solicitud aprobada ({motivo}). Elige otro fin de semana."
                 )
 
             # 10. Evitar triple turno: receptor sin doblada ya en cesión; solicitante sin doblada ya en pago
@@ -232,7 +246,9 @@ class DFDSStrategy(SolicitudStrategy):
             comentario = datos.get('comentario', '')
             fecha_cesion = datos.get('fecha_cambio_turno')
             fecha_pago = datos.get('fecha_pago')
-            minutos_deuda = datos.get('minutos_deuda', 30)
+            # D FDS es doblada de fin de semana: NO genera deuda corporativa de 30 min
+            # (los 30 min solo aplican a dobladas de lunes a viernes).
+            minutos_deuda = datos.get('minutos_deuda', 0)
 
             with transaction.atomic():
                 solicitud = SolicitudCambio.objects.create(

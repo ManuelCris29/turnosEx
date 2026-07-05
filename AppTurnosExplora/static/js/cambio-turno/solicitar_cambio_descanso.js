@@ -22,8 +22,11 @@
     const URLs = {
         FINDES: '/solicitudes/cambio-descanso-findes/',
         EMPLEADOS: '/solicitudes/obtener-empleados-disponibles/',
+        COMPANEROS_FINDE: '/solicitudes/dfds-companeros/',
         DESCANSOS: '/solicitudes/descansos-semana-usuario/',
         PROCESAR: '/solicitudes/procesar-solicitud/',
+        DOBLADAS_SEMANA: '/solicitudes/dobladas-semana/',
+        PERMISO_MEDIA_JORNADA: '/permisos/permisos-especiales/media-jornada/create/',
     };
 
     const MI_JORNADA = (window.MI_JORNADA || '').toUpperCase();
@@ -37,8 +40,20 @@
     let cesion = null;           // { sabado, domingo, diaTrabajo, fechaTrabajoISO }
     let pago = null;             // idem
     let empleadoReceptor = null;
-    let descansoSolicitante = null;  // { fecha } (entre semana)
-    let descansoReceptor = null;     // { fecha } (entre semana)
+    let descansoSolicitante = null;  // { fecha } (entre semana): MI día de descanso
+    let descansoReceptor = null;     // { fecha } (entre semana): descanso del contrario = MI día de TRABAJO completo
+
+    // Sub-modalidades entre semana (temporada)
+    let subtipoSemana = null;        // intercambio_dia | jornadas_partidas | cobertura_misma_semana | cambio_doblada | permiso_media_jornada
+    let jpJornada = null;            // jornadas_partidas: jornada que tomo yo (AM/PM)
+    let cobOpcion = null;            // cobertura: AM | PM | AMBAS | DOS
+    let cobDiaPago = null;           // cobertura: ISO del día de pago
+    let empleadoReceptor2 = null;    // cobertura DOS: segundo compañero (cubre PM)
+    let dobladaSel = null;           // cambio_doblada: {empleado_id, nombre, fecha}
+    let permJornada = null;          // permiso: jornada que trabajo mi día completo
+
+    function miDiaTrabajo() { return descansoReceptor ? descansoReceptor.fecha : null; }
+    function miDescanso() { return descansoSolicitante ? descansoSolicitante.fecha : null; }
 
     // ===================== HELPERS =====================
 
@@ -71,13 +86,16 @@
 
     // ===================== MODO TOGGLE =====================
 
-    document.querySelectorAll('.modo-btn').forEach(btn => {
+    // OJO: solo los botones de modalidad reales (con data-modo). Los sub-botones de
+    // las opciones entre semana (jp-jornada, cob-opcion, perm-jornada) reutilizan la
+    // clase .modo-btn solo por estilo y tienen sus propios handlers.
+    document.querySelectorAll('.modo-btn[data-modo]').forEach(btn => {
         btn.addEventListener('click', function () {
             if (this.disabled) return;
             modo = this.dataset.modo;
             document.getElementById('modo_descanso').value = modo;
 
-            document.querySelectorAll('.modo-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.modo-btn[data-modo]').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             document.getElementById('modo-finde').style.display = modo === 'finde' ? 'block' : 'none';
             document.getElementById('modo-semana').style.display = modo === 'semana' ? 'block' : 'none';
@@ -117,6 +135,29 @@
         document.getElementById('fecha_solicitud').value = '';
         document.getElementById('fecha_pago').value = '';
         document.getElementById('empleado_receptor').value = '';
+        resetSubtipos();
+    }
+
+    function resetSubtipos() {
+        subtipoSemana = null; jpJornada = null; cobOpcion = null; cobDiaPago = null;
+        empleadoReceptor2 = null; dobladaSel = null; permJornada = null;
+        const st = document.getElementById('subtipo-semana-container');
+        if (st) st.style.display = 'none';
+        document.querySelectorAll('.subtipo-card').forEach(c => c.classList.remove('selected'));
+        document.querySelectorAll('.subtipo-bloque').forEach(b => b.style.display = 'none');
+        document.querySelectorAll('.jp-jornada, .cob-opcion, .perm-jornada').forEach(b => b.classList.remove('active'));
+        const sm = document.getElementById('submodalidad_semana');
+        if (sm) sm.value = '';
+        const tc = document.getElementById('tipo_cesion_input');
+        if (tc) tc.value = '';
+        const jc = document.getElementById('jornada_cedida_input');
+        if (jc) jc.value = '';
+        const c2 = document.getElementById('cob-companero-2');
+        if (c2) c2.style.display = 'none';
+        const adp = document.getElementById('cob-dia-pago-grupo');
+        if (adp) adp.style.display = 'none';
+        const av = document.getElementById('aviso-deuda-cob');
+        if (av) av.style.display = 'none';
     }
 
     // ===================== FIN DE SEMANA =====================
@@ -251,22 +292,30 @@
     function cargarCompañerosFinde(fechaISO) {
         const sel = document.getElementById('select-receptor-finde');
         sel.innerHTML = '<option value="">Cargando…</option>';
-        fetch(`${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fechaISO)}&tipo_solicitud_id=${TIPO_ID}`, {
+        // Endpoint con DISPONIBILIDAD por finde: muestra el día del compañero y deshabilita,
+        // con motivo, a quien no puede intercambiar (p. ej. ya trabaja los dos días).
+        fetch(`${URLs.COMPANEROS_FINDE}?fecha=${encodeURIComponent(fechaISO)}&tipo_solicitud_id=${TIPO_ID}`, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
             .then(r => r.json())
-            .then(data => {
-                const emps = (data && data.empleados) || [];
-                if (!emps.length) {
-                    sel.innerHTML = '<option value="">No hay compañeros disponibles</option>';
+            .then(res => {
+                const data = (res && res.data) ? res.data : res;
+                const comps = data.companeros || [];
+                if (!comps.length) {
+                    sel.innerHTML = '<option value="">No hay compañeros del grupo contrario</option>';
                     return;
                 }
                 sel.innerHTML = '<option value="">Selecciona un compañero…</option>';
-                emps.forEach(e => {
+                comps.forEach(c => {
                     const o = document.createElement('option');
-                    o.value = e.id;
-                    o.textContent = `${e.nombre} ${e.apellido}`;
-                    o.dataset.emp = JSON.stringify(e);
+                    o.value = c.id;
+                    o.dataset.emp = JSON.stringify({ id: c.id, nombre: c.nombre, apellido: '' });
+                    if (c.disponible) {
+                        o.textContent = `${c.nombre} — trabaja ${c.dia} ${c.dia_fecha}`;
+                    } else {
+                        o.textContent = `${c.nombre} — ✕ ${c.motivo}`;
+                        o.disabled = true;
+                    }
                     sel.appendChild(o);
                 });
             })
@@ -464,10 +513,10 @@
         document.getElementById('fecha_pago').value = '';
         document.getElementById('empleado_receptor').value = '';
         document.getElementById('resumen-box').classList.remove('show');
+        resetSubtipos();
 
         buscarDescansoContrario(fecha);
         cargarCompañerosSemana(fecha);
-        document.getElementById('compa-container-semana').style.display = 'block';
     }
 
     // Busca el descanso de temporada del grupo CONTRARIO en la misma semana.
@@ -489,14 +538,17 @@
                 );
                 const info = document.getElementById('descanso-contrario-info');
                 const infoDia = document.getElementById('descanso-contrario-dia');
+                const subCont = document.getElementById('subtipo-semana-container');
                 if (match) {
                     descansoReceptor = { fecha: match[0] };
                     document.getElementById('fecha_pago').value = match[0];
                     const fp = parseISO(match[0]);
-                    if (infoDia) infoDia.textContent = `${nombreDia(fp)} ${fmt(fp)}`;
+                    if (infoDia) infoDia.textContent = `${nombreDia(fp)} ${fmt(fp)} — trabajas TODO el día`;
                     if (info) info.style.display = 'block';
+                    if (subCont) subCont.style.display = 'block';
                 } else {
                     if (info) info.style.display = 'none';
+                    if (subCont) subCont.style.display = 'none';
                 }
                 actualizarResumenSemana();
             })
@@ -542,23 +594,230 @@
 
     function actualizarResumenSemana() {
         const resumen = document.getElementById('resumen-box');
-        if (!descansoSolicitante || !descansoReceptor || !empleadoReceptor) {
+        if (!descansoSolicitante || !descansoReceptor || !subtipoSemana) {
             resumen.classList.remove('show');
             return;
         }
-        const fc = parseISO(descansoSolicitante.fecha);     // tu descanso actual
-        const fp = parseISO(descansoReceptor.fecha);        // descanso del compañero
-        const compa = `${empleadoReceptor.nombre} ${empleadoReceptor.apellido}`;
-        const diaTuyo = `${nombreDia(fc)} ${fmt(fc)}`;
-        const diaCompa = `${nombreDia(fp)} ${fmt(fp)}`;
-        resumen.innerHTML =
-            `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-exchange-alt mr-1"></i> Intercambio de descanso</div>` +
-            `<div style="margin-bottom:4px;"><span style="color:#64748b;">Ahora:</span> ` +
-            `tú descansas <strong>${diaTuyo}</strong> · ${compa} descansa <strong>${diaCompa}</strong></div>` +
-            `<div><span style="color:#64748b;">Después del cambio:</span> ` +
-            `tú descansarás <strong>${diaCompa}</strong> · ${compa} descansará <strong>${diaTuyo}</strong></div>`;
+        const fDesc = parseISO(miDescanso());       // mi descanso
+        const fTrab = parseISO(miDiaTrabajo());     // mi día de trabajo completo
+        const dDesc = `${nombreDia(fDesc)} ${fmt(fDesc)}`;
+        const dTrab = `${nombreDia(fTrab)} ${fmt(fTrab)}`;
+        const compa = empleadoReceptor ? `${empleadoReceptor.nombre} ${empleadoReceptor.apellido}` : null;
+        let html = '';
+
+        if (subtipoSemana === 'intercambio_dia') {
+            if (!compa) { resumen.classList.remove('show'); return; }
+            html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-exchange-alt mr-1"></i> Intercambio de descanso</div>` +
+                `<div style="margin-bottom:4px;"><span style="color:#64748b;">Ahora:</span> ` +
+                `tú descansas <strong>${dDesc}</strong> · ${compa} descansa <strong>${dTrab}</strong></div>` +
+                `<div><span style="color:#64748b;">Después del cambio:</span> ` +
+                `tú descansarás <strong>${dTrab}</strong> · ${compa} descansará <strong>${dDesc}</strong>. Sin deuda.</div>`;
+        } else if (subtipoSemana === 'jornadas_partidas') {
+            if (!compa || !jpJornada) { resumen.classList.remove('show'); return; }
+            const otra = jpJornada === 'AM' ? 'PM' : 'AM';
+            html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-adjust mr-1"></i> Jornadas partidas</div>` +
+                `<div>Tú trabajas <strong>${jpJornada}</strong> el ${dTrab} y el ${dDesc}. ` +
+                `${compa} trabaja <strong>${otra}</strong> ambos días. Sin deuda.</div>`;
+        } else if (subtipoSemana === 'cobertura_misma_semana') {
+            if (!cobOpcion || !cobDiaPago) { resumen.classList.remove('show'); return; }
+            const fPago = parseISO(cobDiaPago);
+            const dPago = `${nombreDia(fPago)} ${fmt(fPago)}`;
+            if (cobOpcion === 'DOS') {
+                const compa2 = empleadoReceptor2 ? `${empleadoReceptor2.nombre} ${empleadoReceptor2.apellido}` : null;
+                if (!compa || !compa2) { resumen.classList.remove('show'); return; }
+                html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-hands-helping mr-1"></i> Cobertura (2 compañeros)</div>` +
+                    `<div>El ${dTrab}: <strong>${compa}</strong> cubre AM y <strong>${compa2}</strong> cubre PM.</div>` +
+                    `<div>El ${dPago} pagas a cada uno su media jornada. Se crean <strong>2 solicitudes</strong>.</div>`;
+            } else {
+                if (!compa) { resumen.classList.remove('show'); return; }
+                const que = cobOpcion === 'AMBAS' ? 'el día completo (AM y PM)' : `la jornada ${cobOpcion}`;
+                html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-hands-helping mr-1"></i> Cobertura misma semana</div>` +
+                    `<div>El ${dTrab}: <strong>${compa}</strong> te cubre ${que}.</div>` +
+                    `<div>El ${dPago} le pagas lo equivalente.</div>`;
+            }
+        } else if (subtipoSemana === 'cambio_doblada') {
+            if (!dobladaSel) { resumen.classList.remove('show'); return; }
+            const fDob = parseISO(dobladaSel.fecha);
+            html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-retweet mr-1"></i> Cambio de doblada</div>` +
+                `<div>Tú tomas la doblada de <strong>${dobladaSel.nombre}</strong> el ` +
+                `<strong>${nombreDia(fDob)} ${fmt(fDob)}</strong> y él toma tu día completo del ${dTrab}. ` +
+                `Sin deuda nueva (ambos ya doblaban).</div>`;
+        } else if (subtipoSemana === 'permiso_media_jornada') {
+            if (!permJornada) { resumen.classList.remove('show'); return; }
+            const otra = permJornada === 'AM' ? 'PM' : 'AM';
+            html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-file-signature mr-1"></i> Permiso media jornada (temporada)</div>` +
+                `<div>Trabajas <strong>${permJornada}</strong> el ${dTrab} y <strong>${otra}</strong> el ${dDesc}. ` +
+                `Lo aprueba tu supervisor como PERMISO. Sin deuda.</div>`;
+        }
+        resumen.innerHTML = html;
         resumen.classList.add('show');
     }
+
+    // ============== SUB-TIPOS ENTRE SEMANA (temporada) ==============
+
+    document.querySelectorAll('.subtipo-card').forEach(card => {
+        card.addEventListener('click', function () {
+            document.querySelectorAll('.subtipo-card').forEach(c => c.classList.remove('selected'));
+            this.classList.add('selected');
+            seleccionarSubtipo(this.dataset.subtipo);
+        });
+    });
+
+    function seleccionarSubtipo(st) {
+        subtipoSemana = st;
+        jpJornada = null; cobOpcion = null; cobDiaPago = null;
+        empleadoReceptor2 = null; dobladaSel = null; permJornada = null;
+        document.querySelectorAll('.jp-jornada, .cob-opcion, .perm-jornada').forEach(b => b.classList.remove('active'));
+        document.getElementById('submodalidad_semana').value = st === 'permiso_media_jornada' ? '' : st;
+        document.getElementById('resumen-box').classList.remove('show');
+
+        // Bloques específicos
+        document.querySelectorAll('.subtipo-bloque').forEach(b => b.style.display = 'none');
+        const bloques = {
+            jornadas_partidas: 'bloque-jornadas-partidas',
+            cobertura_misma_semana: 'bloque-cobertura',
+            cambio_doblada: 'bloque-cambio-doblada',
+            permiso_media_jornada: 'bloque-permiso',
+        };
+        if (bloques[st]) document.getElementById(bloques[st]).style.display = 'block';
+
+        // Compañero: no aplica en cambio_doblada (viene de la doblada) ni en permiso
+        const compa = document.getElementById('compa-container-semana');
+        const label = document.getElementById('label-receptor-semana');
+        const hint = document.getElementById('hint-receptor-semana');
+        if (st === 'cambio_doblada' || st === 'permiso_media_jornada') {
+            compa.style.display = 'none';
+        } else {
+            compa.style.display = 'block';
+            if (st === 'intercambio_dia') {
+                label.innerHTML = '<i class="fas fa-user mr-1"></i>Compañero (intercambia su descanso) <span class="text-danger">*</span>';
+                hint.textContent = 'Compañeros del grupo contrario que descansan tu día de trabajo.';
+            } else if (st === 'jornadas_partidas') {
+                label.innerHTML = '<i class="fas fa-user mr-1"></i>Compañero (parte jornadas contigo) <span class="text-danger">*</span>';
+                hint.textContent = 'Compañero del grupo contrario: trabajará la jornada contraria ambos días.';
+            } else {
+                label.innerHTML = '<i class="fas fa-user mr-1"></i>Compañero que te cubre ' +
+                    '<span id="cob-label-jornada"></span> <span class="text-danger">*</span>';
+                hint.textContent = 'Si al cubrir queda con AM y PM el mismo día, el sistema le calcula la deuda de 30 min.';
+            }
+        }
+
+        if (st === 'cambio_doblada') cargarDobladasSemana();
+        if (st === 'cobertura_misma_semana') poblarDiasPagoCobertura();
+        actualizarResumenSemana();
+    }
+
+    // --- jornadas partidas: jornada que tomo yo ---
+    document.querySelectorAll('.jp-jornada').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.jp-jornada').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            jpJornada = this.dataset.jornada;
+            document.getElementById('jornada_cedida_input').value = jpJornada;
+            actualizarResumenSemana();
+        });
+    });
+
+    // --- cobertura: qué me cubren + día de pago ---
+    document.querySelectorAll('.cob-opcion').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.cob-opcion').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            cobOpcion = this.dataset.cob;
+            document.getElementById('cob-dia-pago-grupo').style.display = 'block';
+            document.getElementById('cob-companero-2').style.display = cobOpcion === 'DOS' ? 'block' : 'none';
+            if (cobOpcion === 'DOS') clonarOpcionesReceptor2();
+            const lbl = document.getElementById('cob-label-jornada');
+            if (lbl) lbl.textContent = cobOpcion === 'DOS' ? '(cubre la AM)' :
+                (cobOpcion === 'AMBAS' ? '(el día completo)' : `(la ${cobOpcion})`);
+            const aviso = document.getElementById('aviso-deuda-cob');
+            aviso.style.display = 'block';
+            aviso.innerHTML = '<i class="fas fa-info-circle mr-1"></i> <strong>Deuda de 30 min:</strong> solo la debe ' +
+                'quien termine doblando sobre su PROPIA jornada (tú al pagar en un día donde ya trabajas media, o el ' +
+                'compañero si ya tenía media ese día). Cubrir o pagar en el día libre NO genera deuda.';
+            actualizarResumenSemana();
+        });
+    });
+
+    function poblarDiasPagoCobertura() {
+        const sel = document.getElementById('cob-dia-pago');
+        sel.innerHTML = '';
+        if (!miDiaTrabajo()) return;
+        const lunes = lunesDeLaSemana(parseISO(miDiaTrabajo()));
+        const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+        for (let i = 0; i < 5; i++) {
+            const d = new Date(lunes); d.setDate(lunes.getDate() + i);
+            const iso = toISO(d);
+            if (iso === miDiaTrabajo() || d < hoy) continue;
+            const o = document.createElement('option');
+            o.value = iso;
+            o.textContent = `${nombreDia(d)} ${fmt(d)}` + (iso === miDescanso() ? ' (tu día libre — sin deuda tuya)' : '');
+            if (iso === miDescanso()) o.selected = true;
+            sel.appendChild(o);
+        }
+        cobDiaPago = sel.value || null;
+        sel.onchange = function () { cobDiaPago = this.value || null; actualizarResumenSemana(); };
+    }
+
+    function clonarOpcionesReceptor2() {
+        const src = document.getElementById('select-receptor-semana');
+        const dst = document.getElementById('select-receptor-semana-2');
+        dst.innerHTML = '<option value="">Selecciona el segundo compañero…</option>';
+        Array.from(src.options).forEach(o => {
+            if (!o.value) return;
+            const c = o.cloneNode(true);
+            c.selected = false;
+            dst.appendChild(c);
+        });
+        dst.onchange = function () {
+            const opt = this.options[this.selectedIndex];
+            empleadoReceptor2 = (this.value && opt.dataset.emp) ? JSON.parse(opt.dataset.emp) : null;
+            actualizarResumenSemana();
+        };
+    }
+
+    // --- cambio de doblada: cargar dobladas de la semana ---
+    function cargarDobladasSemana() {
+        const sel = document.getElementById('select-doblada-semana');
+        sel.innerHTML = '<option value="">Cargando…</option>';
+        fetch(`${URLs.DOBLADAS_SEMANA}?fecha=${encodeURIComponent(miDiaTrabajo())}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+            .then(r => r.json())
+            .then(res => {
+                const data = (res && res.data) || res || {};
+                const dobladas = data.dobladas || [];
+                if (!dobladas.length) {
+                    sel.innerHTML = '<option value="">Nadie tiene doblada esa semana</option>';
+                    return;
+                }
+                sel.innerHTML = '<option value="">Selecciona la doblada…</option>';
+                dobladas.forEach(d => {
+                    const f = parseISO(d.fecha);
+                    const o = document.createElement('option');
+                    o.value = `${d.empleado_id}|${d.fecha}`;
+                    o.textContent = `${d.nombre} — dobla el ${nombreDia(f)} ${fmt(f)}`;
+                    o.dataset.dob = JSON.stringify(d);
+                    sel.appendChild(o);
+                });
+                sel.onchange = function () {
+                    const opt = this.options[this.selectedIndex];
+                    dobladaSel = (this.value && opt.dataset.dob) ? JSON.parse(opt.dataset.dob) : null;
+                    actualizarResumenSemana();
+                };
+            })
+            .catch(() => { sel.innerHTML = '<option value="">Error cargando dobladas</option>'; });
+    }
+
+    // --- permiso: jornada que trabajo mi día completo ---
+    document.querySelectorAll('.perm-jornada').forEach(btn => {
+        btn.addEventListener('click', function () {
+            document.querySelectorAll('.perm-jornada').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            permJornada = this.dataset.jornada;
+            actualizarResumenSemana();
+        });
+    });
 
     // ===================== SUBMIT =====================
 
@@ -572,9 +831,26 @@
             if (!empleadoReceptor) errores.push('Selecciona el compañero.');
             if (!pago) errores.push('Selecciona la semana de devolución.');
         } else {
-            if (!descansoSolicitante) errores.push('Selecciona tu descanso.');
-            if (!descansoReceptor) errores.push('No se encontró un descanso del grupo contrario en esa semana.');
-            if (!empleadoReceptor) errores.push('Selecciona el compañero.');
+            if (!descansoSolicitante) errores.push('Selecciona tu descanso (define la semana).');
+            if (!descansoReceptor) errores.push('No se encontró el día del grupo contrario en esa semana.');
+            if (!subtipoSemana) errores.push('Elige qué quieres hacer esa semana.');
+            if (subtipoSemana === 'intercambio_dia' && !empleadoReceptor) errores.push('Selecciona el compañero.');
+            if (subtipoSemana === 'jornadas_partidas') {
+                if (!jpJornada) errores.push('Elige qué jornada trabajarás tú.');
+                if (!empleadoReceptor) errores.push('Selecciona el compañero.');
+            }
+            if (subtipoSemana === 'cobertura_misma_semana') {
+                if (!cobOpcion) errores.push('Elige qué te cubren (AM, PM o el día completo).');
+                if (!cobDiaPago) errores.push('Elige el día de pago (misma semana).');
+                if (!empleadoReceptor) errores.push('Selecciona el compañero que te cubre.');
+                if (cobOpcion === 'DOS') {
+                    if (!empleadoReceptor2) errores.push('Selecciona el segundo compañero (cubre PM).');
+                    if (empleadoReceptor && empleadoReceptor2 && empleadoReceptor.id === empleadoReceptor2.id)
+                        errores.push('Los dos compañeros deben ser personas distintas.');
+                }
+            }
+            if (subtipoSemana === 'cambio_doblada' && !dobladaSel) errores.push('Selecciona la doblada que tomas.');
+            if (subtipoSemana === 'permiso_media_jornada' && !permJornada) errores.push('Elige qué media jornada trabajas tu día.');
         }
 
         if (errores.length) {
@@ -584,20 +860,54 @@
         confirmar();
     });
 
+    // Deja los campos ocultos coherentes con el sub-tipo elegido (envío único).
+    function prepararCamposSemana() {
+        const fs = document.getElementById('fecha_solicitud');
+        const fp = document.getElementById('fecha_pago');
+        const er = document.getElementById('empleado_receptor');
+        const sm = document.getElementById('submodalidad_semana');
+        const tc = document.getElementById('tipo_cesion_input');
+        const jc = document.getElementById('jornada_cedida_input');
+
+        if (subtipoSemana === 'intercambio_dia') {
+            fs.value = miDescanso(); fp.value = miDiaTrabajo();
+            sm.value = 'intercambio_dia'; tc.value = ''; jc.value = '';
+        } else if (subtipoSemana === 'jornadas_partidas') {
+            fs.value = miDiaTrabajo(); fp.value = miDescanso();
+            sm.value = 'jornadas_partidas'; tc.value = ''; jc.value = jpJornada;
+        } else if (subtipoSemana === 'cobertura_misma_semana') {
+            fs.value = miDiaTrabajo(); fp.value = cobDiaPago;
+            sm.value = 'cobertura_misma_semana';
+            if (cobOpcion === 'AMBAS') { tc.value = 'cesion_completa'; jc.value = ''; }
+            else if (cobOpcion === 'AM') { tc.value = 'cesion_parcial_am'; jc.value = 'AM'; }
+            else if (cobOpcion === 'PM') { tc.value = 'cesion_parcial_pm'; jc.value = 'PM'; }
+        } else if (subtipoSemana === 'cambio_doblada') {
+            fs.value = miDiaTrabajo(); fp.value = dobladaSel.fecha;
+            er.value = dobladaSel.empleado_id;
+            sm.value = 'cambio_doblada'; tc.value = ''; jc.value = '';
+        }
+    }
+
     function confirmar() {
-        const fc = parseISO(document.getElementById('fecha_solicitud').value);
-        const fp = parseISO(document.getElementById('fecha_pago').value);
         let html = '<div style="text-align:left;font-size:.95rem;">';
         if (modo === 'finde') {
+            const fc = parseISO(document.getElementById('fecha_solicitud').value);
+            const fp = parseISO(document.getElementById('fecha_pago').value);
             html += `<p><strong>Modalidad:</strong> Fin de semana</p>`;
             html += `<p><strong>Cambias:</strong> ${nombreDia(fc)} ${fmt(fc)}</p>`;
             html += `<p><strong>Devuelves:</strong> ${nombreDia(fp)} ${fmt(fp)}</p>`;
+            html += `<p><strong>Compañero:</strong> ${empleadoReceptor.nombre} ${empleadoReceptor.apellido}</p>`;
         } else {
-            html += `<p><strong>Modalidad:</strong> Entre semana</p>`;
-            html += `<p><strong>Tu descanso:</strong> ${nombreDia(fc)} ${fmt(fc)}</p>`;
-            html += `<p><strong>Descanso del compañero:</strong> ${nombreDia(fp)} ${fmt(fp)}</p>`;
+            const resumen = document.getElementById('resumen-box');
+            html += `<p><strong>Modalidad:</strong> Entre semana (temporada)</p>` +
+                `<div style="border-top:1px solid #e5e7eb;padding-top:8px;">${resumen.innerHTML}</div>`;
+            if (subtipoSemana === 'permiso_media_jornada') {
+                html += `<p class="mt-2"><strong>Nota:</strong> se envía a tu supervisor como PERMISO.</p>`;
+            } else if (subtipoSemana === 'cobertura_misma_semana' && cobOpcion === 'DOS') {
+                html += `<p class="mt-2"><strong>Nota:</strong> se crearán 2 solicitudes (AM y PM).</p>`;
+            }
         }
-        html += `<p><strong>Compañero:</strong> ${empleadoReceptor.nombre} ${empleadoReceptor.apellido}</p></div>`;
+        html += '</div>';
 
         if (window.Swal) {
             Swal.fire({
@@ -610,31 +920,113 @@
         }
     }
 
-    function enviar() {
-        const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
-        const fd = new FormData(form);
+    function deshabilitarForm() {
         const btn = document.getElementById('btnEnviarCd');
-
-        // Form Submit Disable (patrón #5)
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
         form.querySelectorAll('input, select, textarea').forEach(el => el.disabled = true);
-        document.querySelectorAll('.modo-btn').forEach(el => el.disabled = true);
-
+        document.querySelectorAll('.modo-btn[data-modo]').forEach(el => el.disabled = true);
         if (window.LoadingUI) LoadingUI.mostrar('Enviando solicitud...');
+    }
 
-        fetch(URLs.PROCESAR, {
+    function postForm(url, fd, csrf) {
+        return fetch(url, {
             method: 'POST',
             headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' },
             body: fd
-        })
-            .then(async r => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+        }).then(async r => ({ ok: r.ok, data: await r.json().catch(() => ({})) }));
+    }
+
+    function irAMisSolicitudes(msg) {
+        notificar('success', '¡Enviado!', msg).then(() => {
+            window.location.href = '/solicitudes/mis-solicitudes/';
+        });
+    }
+
+    function enviar() {
+        const csrf = form.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        // PERMISO media jornada: va a la app de permisos (flujo de PERMISO, no de solicitud).
+        if (modo === 'semana' && subtipoSemana === 'permiso_media_jornada') {
+            deshabilitarForm();
+            const fd = new FormData();
+            fd.append('csrfmiddlewaretoken', csrf);
+            fd.append('fecha_trabajo', miDiaTrabajo());
+            fd.append('fecha_compensacion', miDescanso());
+            fd.append('jornada_trabaja', permJornada);
+            fd.append('motivo', document.getElementById('comentarios').value.trim());
+            postForm(URLs.PERMISO_MEDIA_JORNADA, fd, csrf)
+                .then(({ ok, data }) => {
+                    if (ok && data.success !== false) {
+                        const msg = (data.data && data.data.message) || data.message || 'Permiso enviado a tu supervisor.';
+                        notificar('success', '¡Permiso enviado!', msg).then(() => {
+                            window.location.href = '/permisos/permisos-especiales/';
+                        });
+                    } else {
+                        notificar('error', 'No se pudo enviar', data.error || data.message || 'Intenta de nuevo.');
+                        rehabilitar();
+                    }
+                })
+                .catch(() => { notificar('error', 'Error de red', 'Intenta de nuevo.'); rehabilitar(); });
+            return;
+        }
+
+        // COBERTURA con 2 compañeros: DOS solicitudes (AM al 1º, PM al 2º).
+        if (modo === 'semana' && subtipoSemana === 'cobertura_misma_semana' && cobOpcion === 'DOS') {
+            deshabilitarForm();
+            const comun = {
+                csrfmiddlewaretoken: csrf,
+                tipo_solicitud_id: TIPO_ID,
+                modo_descanso: 'semana',
+                fecha_solicitud: miDiaTrabajo(),
+                fecha_pago: cobDiaPago,
+                submodalidad_semana: 'cobertura_misma_semana',
+                comentarios: document.getElementById('comentarios').value.trim(),
+            };
+            const mkFd = (extra) => {
+                const fd = new FormData();
+                Object.entries({ ...comun, ...extra }).forEach(([k, v]) => fd.append(k, v));
+                return fd;
+            };
+            const fdAM = mkFd({ empleado_receptor: empleadoReceptor.id, tipo_cesion: 'cesion_parcial_am', jornada_cedida: 'AM' });
+            const fdPM = mkFd({ empleado_receptor: empleadoReceptor2.id, tipo_cesion: 'cesion_parcial_pm', jornada_cedida: 'PM' });
+
+            postForm(URLs.PROCESAR, fdAM, csrf)
+                .then(({ ok, data }) => {
+                    if (!(ok && data.success !== false)) {
+                        throw new Error(data.error || data.message || 'Falló la solicitud de la jornada AM.');
+                    }
+                    return postForm(URLs.PROCESAR, fdPM, csrf);
+                })
+                .then(({ ok, data }) => {
+                    if (ok && data.success !== false) {
+                        irAMisSolicitudes('Se crearon las 2 solicitudes de cobertura (AM y PM).');
+                    } else {
+                        notificar('warning', 'Atención: solo se creó la de AM',
+                            'La solicitud de la jornada AM se creó, pero la de PM falló: ' +
+                            (data.error || data.message || 'error desconocido') +
+                            '<br>Revisa Mis Solicitudes y crea la de PM de nuevo.');
+                        rehabilitar();
+                    }
+                })
+                .catch(err => {
+                    notificar('error', 'No se pudo enviar', err.message || 'Intenta de nuevo.');
+                    rehabilitar();
+                });
+            return;
+        }
+
+        // Resto: envío único con el form completo.
+        // (FormData ANTES de deshabilitar: los inputs disabled no se serializan.)
+        if (modo === 'semana') prepararCamposSemana();
+        const fd = new FormData(form);
+        deshabilitarForm();
+
+        postForm(URLs.PROCESAR, fd, csrf)
             .then(({ ok, data }) => {
                 if (ok && data.success !== false) {
                     const msg = (data.data && data.data.message) || data.message || 'Solicitud enviada correctamente.';
-                    notificar('success', '¡Solicitud enviada!', msg).then(() => {
-                        window.location.href = '/solicitudes/mis-solicitudes/';
-                    });
+                    irAMisSolicitudes(msg);
                 } else {
                     notificar('error', 'No se pudo enviar', data.error || data.message || 'Intenta de nuevo.');
                     rehabilitar();
@@ -648,7 +1040,7 @@
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
         form.querySelectorAll('input, select, textarea').forEach(el => el.disabled = false);
-        document.querySelectorAll('.modo-btn').forEach(el => el.disabled = false);
+        document.querySelectorAll('.modo-btn[data-modo]').forEach(el => el.disabled = false);
     }
 
     // ===================== INIT =====================

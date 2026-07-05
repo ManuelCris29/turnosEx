@@ -132,6 +132,10 @@ class SolicitudRequestParser:
                     'explorador_receptor': receptor,
                     'fecha_cambio_turno': fecha_solicitud,
                     'fecha_pago': post.get('fecha_pago'),
+                    # Sub-modalidades de CAMBIO DESCANSO entre semana (temporada)
+                    'submodalidad_semana': post.get('submodalidad_semana'),
+                    'tipo_cesion': post.get('tipo_cesion'),
+                    'jornada_cedida': post.get('jornada_cedida'),
                     'fecha_creacion_solicitud': timezone.now().date()}
 
         elif tipo_nombre == "DOBLADA PERMANENTE":

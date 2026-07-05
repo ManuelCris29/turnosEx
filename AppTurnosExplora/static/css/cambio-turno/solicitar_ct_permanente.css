@@ -82,10 +82,18 @@
 /* Asegurar alineación perfecta en desktop */
 @media (min-width: 769px) {
     .date-range-container .form-group label {
-        height: 24px; /* Altura fija para labels */
+        height: 24px;
         line-height: 24px;
     }
     .date-range-container .form-group input {
-        height: 38px; /* Altura estándar de Bootstrap para inputs */
+        height: 38px;
     }
 }
+
+/* Fechas excluidas en vista previa */
+.fecha-excluida-item { padding: 4px 0; font-size: .9rem; border-bottom: 1px solid rgba(0,0,0,.1); }
+.fecha-excluida-item:last-child { border-bottom: none; }
+.exclusion-razon { background-color: rgba(255,255,255,.5); padding: 10px; border-radius: 5px; margin-top: 8px; }
+.fechas-excluidas-list { max-height: 200px; overflow-y: auto; }
+.ver-todas-fechas { font-size: .85rem; color: #007bff; text-decoration: none; }
+.ver-todas-fechas:hover { text-decoration: underline; color: #0056b3; }

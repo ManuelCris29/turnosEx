@@ -50,6 +50,12 @@ class NotificacionService:
             from datetime import datetime
             return datetime.strptime(fecha, '%Y-%m-%d').date()
         return fecha
+
+    @staticmethod
+    def _fmt_fecha(fecha) -> str:
+        """Formatea una fecha a dd/mm/yyyy, devuelve cadena vacía si es None."""
+        f = NotificacionService._convertir_fecha(fecha)
+        return f.strftime('%d/%m/%Y') if f else 'fecha no especificada'
     
     @staticmethod
     def _configurar_email_backend(email_usuario):
@@ -320,8 +326,6 @@ class NotificacionService:
         Estado: Pendiente de aprobación{aviso_temporada}
         """
 
-        print(f"DEBUG: Creando notificación para supervisor {supervisor.nombre}")
-
         Notificacion.objects.create(
             destinatario=supervisor,
             tipo='solicitud_cambio',
@@ -329,8 +333,6 @@ class NotificacionService:
             mensaje=mensaje,
             solicitud=solicitud
         )
-
-        print(f"DEBUG: Notificación creada para supervisor {supervisor.nombre}")
     
     @staticmethod
     def _crear_notificacion_receptor(solicitud):
@@ -338,13 +340,11 @@ class NotificacionService:
         titulo = f"Solicitud de cambio de turno recibida"
         mensaje = f"""
         {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} 
-        te ha enviado una solicitud de cambio de turno para el día {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')}.
+        te ha enviado una solicitud de cambio de turno para el día {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)}.
         
         Tipo de solicitud: {solicitud.tipo_cambio.nombre}
         Estado: Pendiente de tu aprobación
         """
-        
-        print(f"DEBUG: Creando notificación para receptor {solicitud.explorador_receptor.nombre}")
         
         Notificacion.objects.create(
             destinatario=solicitud.explorador_receptor,
@@ -353,8 +353,6 @@ class NotificacionService:
             mensaje=mensaje,
             solicitud=solicitud
         )
-        
-        print(f"DEBUG: Notificación creada para receptor {solicitud.explorador_receptor.nombre}")
     
     @staticmethod
     def _crear_notificacion_supervisor_receptor(solicitud):
@@ -378,8 +376,8 @@ class NotificacionService:
 
         titulo = 'Solicitud de cambio de turno - Rol Doble (Supervisor + Receptor)'
         mensaje = f"""
-        {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} 
-        te ha enviado una solicitud de cambio de turno para el día {fecha_cesion.strftime('%d/%m/%Y')}.
+        {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido}
+        te ha enviado una solicitud de cambio de turno para el día {NotificacionService._fmt_fecha(fecha_cesion)}.
         
         Tipo de solicitud: {solicitud.tipo_cambio.nombre}
         Estado: Pendiente de aprobación
@@ -388,8 +386,6 @@ class NotificacionService:
         necesitas aprobar esta solicitud en ambos roles.{aviso_temporada}
         """
         
-        print(f"DEBUG: Creando notificación combinada para {supervisor_receptor.nombre}")
-        
         Notificacion.objects.create(
             destinatario=supervisor_receptor,
             tipo='solicitud_cambio',
@@ -397,8 +393,6 @@ class NotificacionService:
             mensaje=mensaje,
             solicitud=solicitud
         )
-        
-        print(f"DEBUG: Notificación combinada creada para {supervisor_receptor.nombre}")
     
     @staticmethod
     def _enviar_email_supervisor_receptor(solicitud):
@@ -451,15 +445,13 @@ class NotificacionService:
         titulo = f"Solicitud de cambio de turno enviada"
         mensaje = f"""
         Has enviado una solicitud de cambio de turno a {solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido}
-        para el día {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')}.
+        para el día {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)}.
         
         Tipo de solicitud: {solicitud.tipo_cambio.nombre}
         Estado: Pendiente de aprobación
         
         Podrás ver el estado de tu solicitud en la sección de notificaciones.
         """
-        
-        print(f"DEBUG: Creando notificación para solicitante {solicitud.explorador_solicitante.nombre}")
         
         Notificacion.objects.create(
             destinatario=solicitud.explorador_solicitante,
@@ -468,8 +460,6 @@ class NotificacionService:
             mensaje=mensaje,
             solicitud=solicitud
         )
-        
-        print(f"DEBUG: Notificación creada para solicitante {solicitud.explorador_solicitante.nombre}")
     
     @staticmethod
     def _enviar_email_supervisor(solicitud):
@@ -644,7 +634,7 @@ class NotificacionService:
         Crea notificación de aprobación para el empleado que solicitó
         """
         titulo = f"Solicitud Aprobada - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido aprobada por {aprobador.nombre} {aprobador.apellido}."
+        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido aprobada por {aprobador.nombre} {aprobador.apellido}."
         
         if comentario_respuesta:
             mensaje += f"\n\nComentario del supervisor: {comentario_respuesta}"
@@ -667,7 +657,7 @@ class NotificacionService:
         Crea notificación de rechazo para el empleado que solicitó
         """
         titulo = f"Solicitud Rechazada - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido rechazada por {rechazador.nombre} {rechazador.apellido}."
+        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido rechazada por {rechazador.nombre} {rechazador.apellido}."
         
         if comentario_respuesta:
             mensaje += f"\n\nComentario del supervisor: {comentario_respuesta}"
@@ -741,7 +731,7 @@ class NotificacionService:
         """
         # Notificación para el solicitante
         titulo = f"Solicitud Aprobada por Supervisor - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido aprobada por tu supervisor {supervisor.nombre} {supervisor.apellido}."
+        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido aprobada por tu supervisor {supervisor.nombre} {supervisor.apellido}."
         if comentario_respuesta:
             mensaje += f"\n\nComentario del supervisor: {comentario_respuesta}"
         
@@ -756,7 +746,7 @@ class NotificacionService:
         # Notificación para el receptor (si aún no ha aprobado)
         if not solicitud.aprobado_receptor:
             titulo_receptor = f"Solicitud Aprobada por Supervisor - {solicitud.tipo_cambio.nombre}"
-            mensaje_receptor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')} ha sido aprobada por el supervisor. Tu aprobación está pendiente."
+            mensaje_receptor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido aprobada por el supervisor. Tu aprobación está pendiente."
             
             Notificacion.objects.create(
                 destinatario=solicitud.explorador_receptor,
@@ -776,7 +766,7 @@ class NotificacionService:
         """
         # Notificación para el solicitante
         titulo = f"Solicitud Aprobada por Compañero - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido aprobada por tu compañero {receptor.nombre} {receptor.apellido}."
+        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido aprobada por tu compañero {receptor.nombre} {receptor.apellido}."
         if comentario_respuesta:
             mensaje += f"\n\nComentario del compañero: {comentario_respuesta}"
         
@@ -793,7 +783,7 @@ class NotificacionService:
             titulo_supervisor = f"Solicitud Aprobada por Compañero - {solicitud.tipo_cambio.nombre}"
             mensaje_supervisor = (
                 f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} "
-                f"para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} "
+                f"para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} "
                 f"ha sido aprobada por el compañero. Tu aprobación está pendiente."
             )
 
@@ -823,7 +813,7 @@ class NotificacionService:
         """
         # Notificación para el solicitante
         titulo = f"Solicitud Rechazada por Supervisor - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido rechazada por tu supervisor {supervisor.nombre} {supervisor.apellido}."
+        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido rechazada por tu supervisor {supervisor.nombre} {supervisor.apellido}."
         if comentario_respuesta:
             mensaje += f"\n\nMotivo del rechazo: {comentario_respuesta}"
         
@@ -837,7 +827,7 @@ class NotificacionService:
         
         # Notificación para el receptor
         titulo_receptor = f"Solicitud Rechazada por Supervisor - {solicitud.tipo_cambio.nombre}"
-        mensaje_receptor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido rechazada por el supervisor."
+        mensaje_receptor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido rechazada por el supervisor."
         
         Notificacion.objects.create(
             destinatario=solicitud.explorador_receptor,
@@ -857,7 +847,7 @@ class NotificacionService:
         """
         # Notificación para el solicitante
         titulo = f"Solicitud Rechazada por Compañero - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido rechazada por tu compañero {receptor.nombre} {receptor.apellido}."
+        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido rechazada por tu compañero {receptor.nombre} {receptor.apellido}."
         if comentario_respuesta:
             mensaje += f"\n\nMotivo del rechazo: {comentario_respuesta}"
         
@@ -872,7 +862,7 @@ class NotificacionService:
         # Notificación para el supervisor
         if solicitud.explorador_solicitante.supervisor:
             titulo_supervisor = f"Solicitud Rechazada por Compañero - {solicitud.tipo_cambio.nombre}"
-            mensaje_supervisor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')} ha sido rechazada por el compañero."
+            mensaje_supervisor = f"La solicitud de {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido rechazada por el compañero."
             
             Notificacion.objects.create(
                 destinatario=solicitud.explorador_solicitante.supervisor,
@@ -896,7 +886,7 @@ class NotificacionService:
         """
         # Notificación para el solicitante
         titulo = f"Solicitud Rechazada Automáticamente - {solicitud.tipo_cambio.nombre}"
-        fecha_str = NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')
+        fecha_str = NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)
         mensaje = (
             f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {fecha_str} "
             f"ha sido rechazada automáticamente porque otra solicitud para el mismo receptor "
@@ -1075,29 +1065,30 @@ class NotificacionService:
     @staticmethod
     def crear_notificacion_cancelacion(solicitud):
         """Crea notificación de cancelación para el receptor"""
-        titulo = f"Solicitud de cambio de turno cancelada"
-        mensaje = f"""
-        {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} 
-        ha cancelado la solicitud de cambio de turno para el día {NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno).strftime('%d/%m/%Y')}.
-        
-        Tipo de solicitud: {solicitud.tipo_cambio.nombre}
-        Estado: Cancelada
-        
-        Ya no necesitas aprobar o rechazar esta solicitud.
-        """
-        
-        print(f"DEBUG: Creando notificación de cancelación para receptor {solicitud.explorador_receptor.nombre}")
-        
+        if not solicitud.explorador_receptor_id:
+            return
+
+        fecha = NotificacionService._convertir_fecha(solicitud.fecha_cambio_turno)
+        fecha_str = fecha.strftime('%d/%m/%Y') if fecha else 'fecha no especificada'
+        tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'Cambio de turno'
+
+        titulo = "Solicitud de cambio de turno cancelada"
+        mensaje = (
+            f"{solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} "
+            f"ha cancelado la solicitud de cambio de turno para el día {fecha_str}.\n\n"
+            f"Tipo de solicitud: {tipo_nombre}\n"
+            f"Estado: Cancelada\n\n"
+            f"Ya no necesitas aprobar o rechazar esta solicitud."
+        )
+
         Notificacion.objects.create(
             destinatario=solicitud.explorador_receptor,
             tipo='solicitud_cambio',
             titulo=titulo,
             mensaje=mensaje,
-            solicitud=solicitud
+            solicitud=solicitud,
         )
-        
-        print(f"DEBUG: Notificación de cancelación creada para receptor {solicitud.explorador_receptor.nombre}")
-        
+
         # Enviar email de cancelación
         NotificacionService._enviar_email_cancelacion(solicitud)
     

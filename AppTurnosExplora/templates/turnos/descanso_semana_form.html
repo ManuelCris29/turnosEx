@@ -1,11 +1,11 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}{{ titulo }}{% endblock %}
 {% block page_title %}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -54,9 +54,6 @@
     </div>
   </div>
 </div>
-<script>
-  // Estilo bootstrap a los widgets del ModelForm.
-  ['{{ form.jornada.id_for_label }}','{{ form.motivo.id_for_label }}','{{ form.descripcion.id_for_label }}']
-    .forEach(id => { const el = document.getElementById(id); if(el) el.classList.add('form-control'); });
-</script>
+<script src="{% static_v 'js/turnos/descanso_semana_form.js' %}"></script>
 {% endblock %}
+

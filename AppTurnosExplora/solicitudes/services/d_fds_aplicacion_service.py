@@ -18,10 +18,12 @@ Modelo de negocio (acordado):
 Unidad transferida = un día de finde completo (AM+PM), no medias jornadas.
 
 Deudas:
-- Corporativa (30 min) por CADA día con doblada efectiva AM+PM: el receptor en la
-  fecha de cesión y el solicitante en la fecha de pago.
+- Corporativa (30 min): NO aplica para D FDS. Los 30 min solo se generan por
+  dobladas de lunes a viernes, y las fechas de D FDS son siempre fin de semana
+  (el guard de `aplica_deuda_doblada` lo garantiza de forma defensiva).
 - Entre exploradores (DeudaExplorador): el solicitante (deudor) le debe el finde
-  al receptor (acreedor); se salda con la fecha de pago.
+  al receptor (acreedor); nace saldada porque la fecha de pago queda pactada en
+  la misma solicitud.
 """
 from datetime import date
 import logging

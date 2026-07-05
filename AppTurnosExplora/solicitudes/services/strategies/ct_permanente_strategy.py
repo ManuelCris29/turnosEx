@@ -236,6 +236,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
         from datetime import date as _date
         from turnos.models import Turno
         snap = getattr(solicitud, 'snapshot_turnos_previos', None) or {}
+        meses_afectados = set()
         for key in snap:
             try:
                 emp_str, fecha_str = key.split(':', 1)
@@ -246,6 +247,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
             Turno.objects.filter(
                 explorador_id=emp_id, fecha=fecha, tipo_cambio='CT PERMANENTE',
             ).delete()
+            meses_afectados.add((emp_id, fecha.month, fecha.year))
+
+        from core.services.cache_service import CacheService
+        for emp_id, mes, anio in meses_afectados:
+            CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
 
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """

@@ -1,10 +1,10 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Editar sanción{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -62,28 +62,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-(function () {
-    const inicio = document.getElementById('{{ form.fecha_inicio.id_for_label }}');
-    const dur = document.getElementById('{{ form.duracion.id_for_label }}');
-    const custom = document.getElementById('{{ form.dias_personalizado.id_for_label }}');
-    const grupoCustom = document.getElementById('grupo-dias-custom');
-    const preview = document.getElementById('preview-fin');
-    const previewFecha = document.getElementById('preview-fecha');
-    const meses = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-    function dias() { return dur.value === 'otro' ? (parseInt(custom.value) || 0) : (parseInt(dur.value) || 0); }
-    function actualizar() {
-        grupoCustom.style.display = (dur.value === 'otro') ? '' : 'none';
-        const d = dias();
-        if (inicio.value && d > 0) {
-            const f = new Date(inicio.value + 'T00:00:00');
-            f.setDate(f.getDate() + d - 1);
-            previewFecha.textContent = `${f.getDate()} de ${meses[f.getMonth()]} de ${f.getFullYear()}`;
-            preview.style.display = '';
-        } else { preview.style.display = 'none'; }
-    }
-    [inicio, dur, custom].forEach(el => { if (el) { el.addEventListener('change', actualizar); el.addEventListener('input', actualizar); } });
-    actualizar();
-})();
-</script>
+<script src="{% static_v 'js/empleados/sancion_form.js' %}"></script>
 {% endblock %}
+

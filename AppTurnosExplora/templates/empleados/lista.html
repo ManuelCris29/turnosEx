@@ -1,19 +1,13 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Empleados - AppTurnos{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 <!-- DataTables -->
 <link rel="stylesheet" href="/static/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css">
 <link rel="stylesheet" href="/static/plugins/datatables-responsive/css/responsive.bootstrap4.min.css">
-<style>
-    #empleados-table thead th { background:#f8fafc; color:#475569; font-size:.82rem; text-transform:uppercase; letter-spacing:.3px; }
-    #empleados-table td { vertical-align: middle; }
-    .dataTables_wrapper .dataTables_filter input,
-    .dataTables_wrapper .dataTables_length select { border-radius:8px; border:1px solid #d1d5db; }
-</style>
 {% endblock %}
 
 {% block content %}
@@ -104,5 +98,5 @@
 <script src="/static/plugins/datatables/jquery.dataTables.min.js"></script>
 <script src="/static/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js"></script>
 <script src="/static/plugins/datatables-responsive/js/dataTables.responsive.min.js"></script>
-<script src="{% static 'js/empleados/empleados_lista.js' %}"></script>
+<script src="{% static_v 'js/empleados/empleados_lista.js' %}"></script>
 {% endblock %}

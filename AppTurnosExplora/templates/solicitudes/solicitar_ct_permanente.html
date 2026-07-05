@@ -1,121 +1,15 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 {% load static static_version %}
 
 {% block title %}Solicitar Cambio de Turno Permanente{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/cambio-turno/solicitudes.css' %}">
-<link rel="stylesheet" href="{% static 'css/cambio-turno/solicitar_ct_permanente.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitudes.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitar_ct_permanente.css' %}">
 <!-- Flatpickr CSS -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
-<link rel="stylesheet" href="{% static 'css/cambio-turno/dias_especiales_datepicker.css' %}">
-<style>
-    .solicitud-layout {
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 24px 16px 40px;
-    }
-    .solicitud-card {
-        background: #ffffff;
-        border-radius: 12px;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
-        overflow: hidden;
-    }
-    .solicitud-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 18px 24px;
-        background: linear-gradient(135deg, #0d6efd, #0b5ed7);
-        color: #f9fafb;
-    }
-    .solicitud-header-main {
-        display: flex;
-        align-items: center;
-        gap: 16px;
-    }
-    .solicitud-header-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.15);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-    }
-    .solicitud-title {
-        font-size: 1.35rem;
-        font-weight: 600;
-        margin: 0 0 2px;
-    }
-    .solicitud-subtitle {
-        margin: 0;
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
-    .solicitud-header-meta {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-end;
-        gap: 4px;
-        font-size: 0.8rem;
-    }
-    .solicitud-badge {
-        padding: 4px 10px;
-        border-radius: 999px;
-        background: rgba(15, 23, 42, 0.15);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-weight: 500;
-    }
-    .solicitud-user {
-        opacity: 0.9;
-    }
-    @media (max-width: 576px) {
-        .solicitud-header {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-        }
-        .solicitud-header-meta {
-            align-items: flex-start;
-        }
-    }
-
-    /* Marcadores de festivos/mantenimiento/temporada/domingo:
-       en css/cambio-turno/dias_especiales_datepicker.css (compartido). */
-
-    /* Estilos para fechas excluidas en vista previa */
-    .fecha-excluida-item {
-        padding: 4px 0;
-        font-size: 0.9rem;
-        border-bottom: 1px solid rgba(0,0,0,0.1);
-    }
-    .fecha-excluida-item:last-child {
-        border-bottom: none;
-    }
-    .exclusion-razon {
-        background-color: rgba(255, 255, 255, 0.5);
-        padding: 10px;
-        border-radius: 5px;
-        margin-top: 8px;
-    }
-    .fechas-excluidas-list {
-        max-height: 200px;
-        overflow-y: auto;
-    }
-    .ver-todas-fechas {
-        font-size: 0.85rem;
-        color: #007bff;
-        text-decoration: none;
-    }
-    .ver-todas-fechas:hover {
-        text-decoration: underline;
-        color: #0056b3;
-    }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/cambio-turno/dias_especiales_datepicker.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -416,3 +310,4 @@ window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_ct_permanente.js' %}"></script>
 {% endblock %}
+

@@ -259,6 +259,9 @@ class PermisoEspecialAprobarView(LoginRequiredMixin, View):
             permiso.estado = 'RECHAZADO'
             messages.info(request, 'Permiso rechazado.')
         permiso.save()
+        if permiso.estado == 'APROBADO' and permiso.tipo == 'MEDIA_JORNADA_TEMPORADA':
+            from .services import PermisoMediaJornadaService
+            PermisoMediaJornadaService.aplicar(permiso)
         _invalidar_turnos_cache(permiso)
         from .services import PermisoNotificacionService
         try:
@@ -285,6 +288,9 @@ class PermisoEspecialResolverEmailView(View):
             permiso.supervisor = permiso.empleado.supervisor
             permiso.estado = 'APROBADO' if self.accion == 'aprobar' else 'RECHAZADO'
             permiso.save()
+            if permiso.estado == 'APROBADO' and permiso.tipo == 'MEDIA_JORNADA_TEMPORADA':
+                from .services import PermisoMediaJornadaService
+                PermisoMediaJornadaService.aplicar(permiso)
             _invalidar_turnos_cache(permiso)
             try:
                 PermisoNotificacionService.notificar_resolucion(permiso)
@@ -312,5 +318,156 @@ class PermisoEspecialDeleteView(LoginRequiredMixin, DeleteView):
 
     def form_valid(self, form):
         permiso = self.get_object()
+        # Un permiso de media jornada APROBADO ya modificó turnos: restaurarlos antes de borrar.
+        if permiso.estado == 'APROBADO' and permiso.tipo == 'MEDIA_JORNADA_TEMPORADA':
+            from .services import PermisoMediaJornadaService
+            PermisoMediaJornadaService.revertir(permiso)
         _invalidar_turnos_cache(permiso)
         return super().form_valid(form)
+
+
+class PermisoMediaJornadaCancelView(LoginRequiredMixin, View):
+    """
+    Cancela un permiso de MEDIA JORNADA TEMPORADA conservando el registro (estado CANCELADO)
+    y restaurando los turnos.
+    - Supervisor: sin límite de tiempo.
+    - Dueño (explorador): solo dentro de la ventana (30 min desde la aprobación).
+    En ambos casos, si otro cambio ya tocó esos días, se bloquea para no pisarlo.
+    """
+    VENTANA_MIN = 30
+
+    def post(self, request, pk):
+        from django.utils import timezone
+        from .services import PermisoMediaJornadaService
+
+        permiso = get_object_or_404(PermisoEspecial, pk=pk, tipo='MEDIA_JORNADA_TEMPORADA')
+        emp = getattr(request.user, 'empleado', None)
+        es_sup = _es_supervisor(request.user)
+        es_dueno = bool(emp) and permiso.empleado_id == emp.id
+        if not (es_sup or es_dueno):
+            messages.error(request, 'No tienes permiso para cancelar este permiso.')
+            return redirect('permisos_especiales_list')
+
+        if permiso.estado in ('CANCELADO', 'RECHAZADO'):
+            messages.info(request, 'Este permiso ya no está activo.')
+            return redirect('permisos_especiales_list')
+
+        # Pendiente: no hay turnos aplicados, solo se marca cancelado.
+        if permiso.estado == 'PENDIENTE':
+            permiso.estado = 'CANCELADO'
+            permiso.save()
+            messages.success(request, 'Permiso cancelado.')
+            return redirect('permisos_especiales_list')
+
+        # Aprobado: hay turnos aplicados que hay que revertir.
+        if es_dueno and not es_sup:
+            minutos = (timezone.now() - permiso.actualizado_en).total_seconds() / 60
+            if minutos > self.VENTANA_MIN:
+                messages.error(
+                    request,
+                    f'Ya no puedes cancelar este permiso (pasaron más de {self.VENTANA_MIN} min '
+                    f'desde su aprobación). Pídele a tu supervisor que lo cancele.'
+                )
+                return redirect('permisos_especiales_list')
+
+        if not PermisoMediaJornadaService.puede_revertir_limpio(permiso):
+            messages.error(
+                request,
+                'No se puede cancelar: los turnos de esos días ya fueron modificados por otro '
+                'cambio. Cancela primero ese cambio y vuelve a intentarlo.'
+            )
+            return redirect('permisos_especiales_list')
+
+        PermisoMediaJornadaService.revertir(permiso)
+        permiso.estado = 'CANCELADO'
+        permiso.save()
+        _invalidar_turnos_cache(permiso)
+        messages.success(request, 'Permiso cancelado y turnos restaurados.')
+        return redirect('permisos_especiales_list')
+
+
+class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
+    """
+    Crea un PermisoEspecial de MEDIA JORNADA TEMPORADA desde el formulario de
+    Cambio de Día de Descanso (modalidad entre semana). Es un PERMISO: lo aprueba
+    el supervisor (no pasa por el flujo de solicitudes de cambio de turno).
+    Sin deuda (tiempo=0): el día completo se compensa trabajando la otra media
+    jornada en el día de descanso de la MISMA semana.
+    """
+    def post(self, request):
+        from datetime import datetime as _dt, timedelta as _td
+        from core.utils.json_responses import json_ok, json_error
+        from turnos.services.turno_service import TurnoService
+
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_error('Usuario no tiene empleado asociado', status=403, code='forbidden')
+
+        # Bloqueo por sanción de deuda: igual que los permisos normales, un empleado
+        # sancionado NO puede realizar solicitudes ni permisos mientras dure la sanción.
+        try:
+            from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+            DeudaCorporativaService.gestionar_sancion_por_deuda(emp)
+        except Exception:
+            pass
+        from empleados.sancion_utils import sancion_activa, mensaje_sancion
+        _sancion = sancion_activa(emp)
+        if _sancion:
+            return json_error(mensaje_sancion(_sancion), status=403, code='sancionado')
+
+        try:
+            f_trabajo = _dt.strptime(request.POST.get('fecha_trabajo', ''), '%Y-%m-%d').date()
+            f_comp = _dt.strptime(request.POST.get('fecha_compensacion', ''), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return json_error('Fechas inválidas (YYYY-MM-DD)', status=400, code='bad_request')
+        jornada = (request.POST.get('jornada_trabaja') or '').upper()
+        motivo = (request.POST.get('motivo') or '').strip()
+
+        if jornada not in ('AM', 'PM'):
+            return json_error('Debes indicar qué media jornada trabajarás ese día (AM o PM).',
+                              status=400, code='invalid')
+        if not motivo:
+            return json_error('El motivo es obligatorio.', status=400, code='invalid')
+        if f_trabajo.weekday() >= 5 or f_comp.weekday() >= 5:
+            return json_error('Ambos días deben ser de lunes a viernes.', status=400, code='invalid')
+        if (f_trabajo - _td(days=f_trabajo.weekday())) != (f_comp - _td(days=f_comp.weekday())):
+            return json_error('La compensación debe ser en la MISMA semana de temporada.',
+                              status=400, code='invalid')
+        # Fuente de verdad: fecha_trabajo debe ser mi día completo de temporada;
+        # fecha_compensacion debe ser mi día libre.
+        e_trab = TurnoService.estado_dia(emp, f_trabajo)
+        if not (e_trab['trabaja'] and e_trab['jornada'] == 'DOBLADA'):
+            return json_error('Ese día no es tu día completo de temporada (o ya fue modificado).',
+                              status=400, code='invalid')
+        e_comp = TurnoService.estado_dia(emp, f_comp)
+        if e_comp['trabaja']:
+            return json_error('El día de compensación debe ser tu día de descanso de esa semana.',
+                              status=400, code='invalid')
+        if PermisoEspecial.objects.filter(
+                empleado=emp, tipo='MEDIA_JORNADA_TEMPORADA', estado='PENDIENTE',
+                fecha_inicio=f_trabajo).exists():
+            return json_error('Ya tienes un permiso de media jornada pendiente para ese día.',
+                              status=400, code='duplicado')
+
+        permiso = PermisoEspecial.objects.create(
+            empleado=emp,
+            tipo='MEDIA_JORNADA_TEMPORADA',
+            fecha_inicio=f_trabajo,
+            fecha_fin=f_trabajo,
+            jornada_trabaja=jornada,
+            fecha_compensacion=f_comp,
+            tiempo=0,  # compensado: sin horas adeudadas
+            especificacion=f'Trabaja {jornada} el {f_trabajo:%d/%m} y '
+                           f'{"PM" if jornada == "AM" else "AM"} el {f_comp:%d/%m}',
+            motivo=motivo,
+            estado='PENDIENTE',
+            supervisor=emp.supervisor,
+        )
+        from .services import PermisoNotificacionService
+        try:
+            PermisoNotificacionService.notificar_solicitud(permiso)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Error notificando permiso %s", permiso.id)
+        return json_ok({'message': 'Permiso de media jornada enviado a tu supervisor.',
+                        'permiso_id': permiso.id})

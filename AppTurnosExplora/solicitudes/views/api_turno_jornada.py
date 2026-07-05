@@ -124,25 +124,17 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                     if 'AM' not in turnos_list or 'PM' not in turnos_list:
                         turnos_list = ['AM', 'PM']
             
-            # Verificar si es sábado o domingo y corresponde trabajar (doblada por alternancia = jornada predeterminada)
+            # Verificar si es fin de semana y corresponde trabajar (día completo). Usa el
+            # grupo EFECTIVO: override manual del supervisor si existe; si no, alternancia.
             es_fin_semana_doblada_predeterminada = False
-            if fecha_obj.weekday() == 5:  # Sábado
-                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
-                if jornada_trabaja_sabado:
+            if fecha_obj.weekday() in (5, 6):
+                from turnos.services.asignacion_especial_service import AsignacionEspecialService
+                grupo_finde = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_obj)
+                if grupo_finde:
                     from turnos.services.jornada_service import JornadaService
                     jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
-                    if jornada_predeterminada and jornada_predeterminada.nombre.upper() == jornada_trabaja_sabado.upper():
-                        # Para sábados, la jornada predeterminada es DOBLADA, no AM o PM
-                        es_fin_semana_doblada_predeterminada = True
-            elif fecha_obj.weekday() == 6:  # Domingo
-                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                jornada_trabaja_domingo = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha_obj)
-                if jornada_trabaja_domingo:
-                    from turnos.services.jornada_service import JornadaService
-                    jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
-                    if jornada_predeterminada and jornada_predeterminada.nombre.upper() == jornada_trabaja_domingo.upper():
-                        # Para domingos, la jornada predeterminada es DOBLADA, no AM o PM
+                    if jornada_predeterminada and jornada_predeterminada.nombre.upper() == grupo_finde.upper():
+                        # En fin de semana, quien trabaja lo hace el día completo (DOBLADA)
                         es_fin_semana_doblada_predeterminada = True
             
             # Detectar caso especial: está descansando por una doblada aprobada (no hay turnos en BD)
@@ -264,7 +256,10 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
 
                     es_festivo_semana = SolicitudValidator.es_festivo_semana(fecha_obj)
                     if es_festivo_semana:
-                        grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                        # Grupo EFECTIVO del festivo: override manual si existe; si no, rotación.
+                        from turnos.services.asignacion_especial_service import AsignacionEspecialService as _AES
+                        grupo_que_dobla = (_AES.get_grupo_trabaja(fecha_obj)
+                                           or FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj))
                         jornada_turno = (turno_dict.get('jornada') or '').upper() if turno_dict else None
                         if not jornada_turno and not turnos_list:
                             from turnos.services.jornada_service import JornadaService
@@ -319,10 +314,11 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 'descanso_info': descanso_info,
             }
             
-            # Si la fecha es sábado, incluir qué jornada trabaja ese sábado por alternancia (para doblada: ocultar selector si el solicitante ya corresponde trabajar)
+            # Si la fecha es sábado, incluir qué jornada trabaja ese sábado (grupo EFECTIVO:
+            # override manual o alternancia) — para doblada: ocultar selector si ya le corresponde.
             if fecha_obj.weekday() == 5:
-                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                response_data['jornada_trabaja_sabado'] = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                from turnos.services.asignacion_especial_service import AsignacionEspecialService as _AES2
+                response_data['jornada_trabaja_sabado'] = _AES2.grupo_trabaja_efectivo(fecha_obj)
             
             return json_ok(response_data)
         except Exception as e:
@@ -446,28 +442,55 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             from django.utils import formats
             dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
             
-            from turnos.models import Turno
+            from turnos.models import Turno, Jornada
+            from turnos.services.turno_service import TurnoService as _TSrango
+            from empleados.models import Empleado as _EmpRango
             from solicitudes.services.ct_permanente_helper import (
                 _es_festivo, _es_mantenimiento, _es_temporada,
             )
+            _emp_rango = _EmpRango.objects.filter(id=explorador_id).first()
             jornadas_por_dia = []
             for fecha_obj in fechas_validas:
                 dia_semana_num = fecha_obj.weekday()
                 # Reflejar el estado REAL del día, coherente con lo que se aplicará en el CT
                 # permanente. Prioridad (igual que la exclusión real):
-                #   Doblada (turno real) > Mantenimiento > Festivo > Temporada > jornada AM/PM.
+                #   Doblada (turno real) > Comprometido por solicitud > Mantenimiento >
+                #   Festivo > Temporada > jornada AM/PM (real del día).
                 turnos_dia = list(
                     Turno.objects.filter(explorador_id=explorador_id, fecha=fecha_obj)
                     .select_related('jornada')
                 )
                 if len(turnos_dia) >= 2:
                     jornada_nombre, jornada_id = 'DOBLADA', None
+                elif _emp_rango and _TSrango.dia_comprometido_por_solicitud(_emp_rango, fecha_obj):
+                    # Día ya cedido/comprometido en otra solicitud aprobada (L2): no aplica.
+                    jornada_nombre, jornada_id = 'COMPROMETIDO', None
                 elif _es_mantenimiento(fecha_obj):
                     jornada_nombre, jornada_id = 'MANTENIMIENTO', None
                 elif _es_festivo(fecha_obj):
                     jornada_nombre, jornada_id = 'FESTIVO', None
                 elif _es_temporada(fecha_obj):
                     jornada_nombre, jornada_id = 'TEMPORADA', None
+                elif len(turnos_dia) == 1 and turnos_dia[0].jornada:
+                    # Turno real único: la jornada REAL de ese día (no la predeterminada)
+                    jornada_nombre = turnos_dia[0].jornada.nombre
+                    jornada_id = turnos_dia[0].jornada.id
+                elif _emp_rango:
+                    # FUENTE DE VERDAD (estado_dia): igual que Mis Turnos. Cubre descanso de
+                    # temporada por DescansoSemanaManual, día completo (grupo contrario
+                    # descansa), festivos por rotación/override y demás capas.
+                    _est = _TSrango.estado_dia(_emp_rango, fecha_obj)
+                    if not _est['trabaja']:
+                        _map_fuente = {'temporada': 'TEMPORADA', 'mantenimiento': 'MANTENIMIENTO',
+                                       'festivo': 'FESTIVO', 'solicitud': 'COMPROMETIDO'}
+                        jornada_nombre = _map_fuente.get(_est['fuente'], 'DESCANSO')
+                        jornada_id = None
+                    elif _est['jornada'] == 'DOBLADA':
+                        jornada_nombre, jornada_id = 'DOBLADA', None
+                    else:
+                        _j_obj = Jornada.objects.filter(nombre__iexact=_est['jornada']).first() if _est['jornada'] else None
+                        jornada_nombre = _j_obj.nombre if _j_obj else _est['jornada']
+                        jornada_id = _j_obj.id if _j_obj else None
                 else:
                     jornada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha_obj)
                     jornada_nombre = jornada.nombre if jornada else None
@@ -481,7 +504,7 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                 })
 
             # Etiquetas que NO son una jornada aplicable (el día queda excluido del cambio)
-            _NO_APLICAN = {'DOBLADA', 'MANTENIMIENTO', 'FESTIVO', 'TEMPORADA'}
+            _NO_APLICAN = {'DOBLADA', 'MANTENIMIENTO', 'FESTIVO', 'TEMPORADA', 'COMPROMETIDO', 'DESCANSO'}
             # Calcular resumen
             resumen = {
                 'total_dias': len(jornadas_por_dia),
@@ -589,6 +612,169 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
             return json_error('Error al verificar cambio aprobado', status=500, code='internal_error')
 
 
+class AlternanciaMesView(LoginRequiredMixin, View):
+    """
+    Fines de semana de un mes para la Doblada de Fin de Semana (tarjetas).
+
+    Sin parámetros o con ?anio=&mes=: devuelve TODOS los fines de semana cuyo sábado cae en
+    el mes, cada uno con la jornada (AM/PM) del sábado y del domingo, y QUÉ DÍA trabaja el
+    usuario (fuente de verdad estado_dia). Así el formulario muestra de un vistazo, sin tener
+    que seleccionar, cuál día es el suyo. También devuelve la lista de meses disponibles.
+
+    Cada finde:
+      {sabado:{fecha,dia,jornada,mio}, domingo:{...}, mi_dia:'sabado'|'domingo'|null,
+       trabaja_ambos:bool, seleccionable:bool}
+    """
+    def get(self, request):
+        from datetime import date as _date, timedelta as _td
+        from calendar import monthrange
+        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        from turnos.services.turno_service import TurnoService
+
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_ok({'findes': [], 'meses': []})
+
+        hoy = _date.today()
+        meses_es = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
+                    'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        try:
+            anio = int(request.GET.get('anio'))
+            mes = int(request.GET.get('mes'))
+        except (TypeError, ValueError):
+            anio, mes = hoy.year, hoy.month
+
+        # Meses disponibles: mes actual + 6 siguientes
+        meses = []
+        y, m = hoy.year, hoy.month
+        for _ in range(7):
+            meses.append({'anio': y, 'mes': m, 'label': f'{meses_es[m]} {y}'})
+            m += 1
+            if m > 12:
+                m = 1
+                y += 1
+
+        estados = TurnoService.estado_mes(emp, anio, mes)
+
+        def _info(d, e_estados, e_emp):
+            e = e_estados.get(d) or TurnoService.estado_dia(e_emp, d)
+            return bool(e['trabaja'])
+
+        # Receptor opcional: para validar el otro lado del D FDS en cada finde.
+        receptor = None
+        rec_estados = {}
+        try:
+            rid = int(request.GET.get('receptor_id'))
+            from empleados.models import Empleado as _Emp
+            receptor = _Emp.objects.filter(id=rid).first()
+            if receptor:
+                rec_estados = TurnoService.estado_mes(receptor, anio, mes)
+        except (TypeError, ValueError):
+            pass
+
+        findes = []
+        _, ultimo = monthrange(anio, mes)
+        d = _date(anio, mes, 1)
+        while d <= _date(anio, mes, ultimo):
+            if d.weekday() == 5:  # sábado ancla del finde
+                sab = d
+                dom = sab + _td(days=1)
+                mio_sab = _info(sab, estados, emp)
+                mio_dom = _info(dom, estados, emp)
+                trabaja_ambos = mio_sab and mio_dom
+                if trabaja_ambos:
+                    mi_dia = None
+                elif mio_sab:
+                    mi_dia = 'sabado'
+                elif mio_dom:
+                    mi_dia = 'domingo'
+                else:
+                    mi_dia = None
+                dia_trabajo = sab if mi_dia == 'sabado' else (dom if mi_dia == 'domingo' else None)
+                seleccionable = bool(dia_trabajo and dia_trabajo >= hoy)
+                item = {
+                    'sabado': {'fecha': sab.isoformat(), 'dia': sab.strftime('%d/%m'),
+                               'jornada': AlternanciaFinesSemanaService.jornada_trabaja_sabado(sab),
+                               'mio': mio_sab},
+                    'domingo': {'fecha': dom.isoformat(), 'dia': dom.strftime('%d/%m'),
+                                'jornada': AlternanciaFinesSemanaService.jornada_trabaja_domingo(sab),
+                                'mio': mio_dom},
+                    'mi_dia': mi_dia,
+                    'trabaja_ambos': trabaja_ambos,
+                    'seleccionable': seleccionable,
+                }
+                if receptor:
+                    r_sab = _info(sab, rec_estados, receptor)
+                    r_dom = _info(dom, rec_estados, receptor)
+                    item['receptor'] = {
+                        'sabado_mio': r_sab, 'domingo_mio': r_dom,
+                        'trabaja_ambos': r_sab and r_dom,
+                    }
+                findes.append(item)
+            d += _td(days=1)
+        return json_ok({'findes': findes, 'meses': meses, 'anio': anio, 'mes': mes})
+
+
+class DFDSCompanerosView(LoginRequiredMixin, View):
+    """
+    Compañeros para un cambio de FIN DE SEMANA (D FDS o Cambio de Descanso finde) en el
+    finde de cesión dado, CADA UNO con su disponibilidad. Un compañero puede participar si:
+    trabaja el OTRO día del finde (su día) y está LIBRE el día que cedes (para poder tomarlo).
+    Si ya trabaja los dos días (doblada) no puede. Devuelve `disponible` + `motivo` para
+    deshabilitar y explicar en el formulario.
+
+    ?tipo_solicitud_id=  → estrategia a usar para filtrar el grupo contrario
+                           (por defecto D FDS). Sirve para ambos formularios de finde.
+    """
+    def get(self, request):
+        from datetime import datetime as _dt, timedelta as _td
+        from turnos.services.turno_service import TurnoService
+        from solicitudes.services.solicitud_factory import SolicitudFactory
+        from solicitudes.models import TipoSolicitudCambio
+
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_ok({'companeros': []})
+        try:
+            fecha = _dt.strptime(request.GET.get('fecha', ''), '%Y-%m-%d').date()  # tu día (el que cedes)
+        except (TypeError, ValueError):
+            return json_error('Parámetro fecha inválido', status=400, code='bad_request')
+        if fecha.weekday() not in (5, 6):
+            return json_error('La fecha debe ser sábado o domingo', status=400, code='no_finde')
+
+        otro = fecha + _td(days=1) if fecha.weekday() == 5 else fecha - _td(days=1)
+        dia_otro_nombre = 'sábado' if otro.weekday() == 5 else 'domingo'
+
+        tipo = None
+        tsid = request.GET.get('tipo_solicitud_id')
+        if tsid and str(tsid).isdigit():
+            tipo = TipoSolicitudCambio.objects.filter(id=int(tsid)).first()
+        if not tipo:
+            tipo = TipoSolicitudCambio.objects.filter(nombre='D FDS').first()
+        strat = SolicitudFactory.get_strategy(tipo) if tipo else None
+        lista = strat.get_empleados_disponibles(fecha.isoformat(), emp) if strat else []
+
+        companeros = []
+        for r in lista:
+            trabaja_otro = TurnoService.estado_dia(r, otro)['trabaja']       # trabaja su día
+            libre_cesion = not TurnoService.estado_dia(r, fecha)['trabaja']  # libre el día que cedes
+            if trabaja_otro and libre_cesion:
+                disp, motivo = True, None
+            elif not libre_cesion:
+                disp, motivo = False, 'ya trabaja los dos días ese finde (doblada)'
+            elif not trabaja_otro:
+                disp, motivo = False, f'no trabaja el {dia_otro_nombre} de ese finde'
+            else:
+                disp, motivo = False, 'no disponible ese finde'
+            companeros.append({
+                'id': r.id, 'nombre': f'{r.nombre} {r.apellido}',
+                'dia': dia_otro_nombre, 'dia_fecha': otro.strftime('%d/%m'),
+                'disponible': disp, 'motivo': motivo,
+            })
+        companeros.sort(key=lambda x: (not x['disponible'], x['nombre']))
+        return json_ok({'companeros': companeros, 'otro_dia': dia_otro_nombre})
+
+
 class AlternanciaFindeView(LoginRequiredMixin, View):
     """
     Devuelve, para el fin de semana de una fecha dada (sábado o domingo), qué jornada
@@ -682,6 +868,46 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
             if de.fecha.weekday() < 5 and DiaEspecial.es_mantenimiento_efectivo(de.fecha):
                 res.setdefault(de.fecha.isoformat(), 'mantenimiento')
         return json_ok({'descansos': res, 'jornada': jornada})
+
+
+class DobladasSemanaView(LoginRequiredMixin, View):
+    """
+    Dobladas reales (Turno AM+PM, lun-vie) de la semana de la fecha dada, de OTROS
+    empleados. Alimenta el sub-flujo "cambio de doblada" del Cambio de Día de
+    Descanso entre semana: el solicitante elige cuál doblada de la semana tomar.
+    """
+    def get(self, request):
+        from datetime import datetime as _dt, timedelta as _td
+        from collections import defaultdict
+        from turnos.models import Turno
+
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_ok({'dobladas': []})
+        try:
+            fecha = _dt.strptime(request.GET.get('fecha', ''), '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return json_error('Parámetro fecha inválido (YYYY-MM-DD)', status=400, code='bad_request')
+
+        lunes = fecha - _td(days=fecha.weekday())
+        viernes = lunes + _td(days=4)
+
+        # Jornadas por (empleado, fecha) en la semana laboral
+        pares = defaultdict(set)
+        nombres = {}
+        for t in (Turno.objects
+                  .filter(fecha__range=(lunes, viernes), explorador__activo=True)
+                  .exclude(explorador=emp)
+                  .select_related('jornada', 'explorador')):
+            pares[(t.explorador_id, t.fecha)].add(t.jornada.nombre.upper())
+            nombres[t.explorador_id] = f"{t.explorador.nombre} {t.explorador.apellido}"
+
+        dobladas = [
+            {'empleado_id': emp_id, 'nombre': nombres[emp_id], 'fecha': f.isoformat()}
+            for (emp_id, f), js in sorted(pares.items(), key=lambda kv: (kv[0][1], nombres[kv[0][0]]))
+            if {'AM', 'PM'} <= js
+        ]
+        return json_ok({'dobladas': dobladas})
 
 
 class CambioDescansoFindesView(LoginRequiredMixin, View):

@@ -223,7 +223,8 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                     detalle = solicitud.doblada  # D FDS usa el mismo modelo que DOBLADA
                     if detalle:
                         datos['fechas']['fecha_doblada'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
-                        datos['informacion_adicional']['minutos_deuda'] = detalle.minutos_deuda
+                        # D FDS no genera deuda corporativa de 30 min (doblada en fin de semana)
+                        datos['informacion_adicional']['minutos_deuda'] = 0
                         datos['informacion_adicional']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
                         
                         # Analizar fecha para mostrar información detallada
@@ -262,6 +263,49 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 except Exception as e:
                     logger.error(f"Error obteniendo detalles de DOBLADA PERMANENTE: {e}")
                     datos['fechas']['error'] = 'No se pudieron obtener los detalles de la doblada permanente'
+
+            # CAMBIO DESCANSO (fin de semana y sub-modalidades de temporada)
+            elif tipo_nombre == 'CAMBIO DESCANSO':
+                try:
+                    detalle = solicitud.doblada
+                    if detalle:
+                        fc = solicitud.fecha_cambio_turno
+                        datos['fechas']['fecha_cambio'] = fc.strftime('%d/%m/%Y') if fc else 'No especificada'
+                        datos['fechas']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else '—'
+                        es_finde = bool(fc) and fc.weekday() in (5, 6)
+                        if es_finde:
+                            datos['informacion_adicional']['modalidad'] = 'Fin de semana (intercambio ida y vuelta)'
+                        else:
+                            sub = getattr(detalle, 'submodalidad_semana', None) or 'intercambio_dia'
+                            sub_legible = {
+                                'intercambio_dia': 'Entre semana: intercambio de día',
+                                'jornadas_partidas': 'Entre semana: jornadas partidas',
+                                'cobertura_misma_semana': 'Entre semana: cobertura con pago en la misma semana',
+                                'cambio_doblada': 'Entre semana: cambio de doblada',
+                            }.get(sub, sub)
+                            datos['informacion_adicional']['modalidad'] = sub_legible
+                            if sub == 'jornadas_partidas' and detalle.jornada_cedida:
+                                datos['informacion_adicional']['jornada_solicitante'] = detalle.jornada_cedida.upper()
+                            if sub == 'cobertura_misma_semana':
+                                _tc = {
+                                    'cesion_completa': 'Día completo (AM y PM)',
+                                    'cesion_parcial_am': 'Solo jornada AM',
+                                    'cesion_parcial_pm': 'Solo jornada PM',
+                                }.get(detalle.tipo_cesion, detalle.tipo_cesion)
+                                datos['informacion_adicional']['te_cubren'] = _tc
+                                datos['informacion_adicional']['nota'] = (
+                                    'Deuda de 30 min solo para quien doble sobre su propia jornada '
+                                    '(se calcula al aprobar).'
+                                )
+                            elif sub == 'cambio_doblada':
+                                datos['informacion_adicional']['nota'] = (
+                                    'Sin deuda: ambos ya doblaban un día, solo se intercambia cuál.'
+                                )
+                            else:
+                                datos['informacion_adicional']['nota'] = 'Intercambio directo, sin deuda.'
+                except Exception as e:
+                    logger.error(f"Error obteniendo detalles de CAMBIO DESCANSO: {e}")
+                    datos['fechas']['error'] = 'No se pudieron obtener los detalles del cambio de descanso'
 
             # CT (Cambio Turno normal) y otros tipos
             else:

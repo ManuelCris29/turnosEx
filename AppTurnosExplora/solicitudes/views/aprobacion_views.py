@@ -75,8 +75,9 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
             cache_keys = [
                 f"solicitudes_count_mis_{solicitud.explorador_solicitante.id}",
                 f"solicitudes_count_pend_{solicitud.explorador_solicitante.id}",
-                f"solicitudes_count_pend_{solicitud.explorador_receptor.id}",
             ]
+            if solicitud.explorador_receptor_id:
+                cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_receptor_id}")
             if solicitud.explorador_solicitante.supervisor:
                 cache_keys.append(f"solicitudes_count_pend_{solicitud.explorador_solicitante.supervisor.id}")
             CacheService.delete_many(cache_keys)

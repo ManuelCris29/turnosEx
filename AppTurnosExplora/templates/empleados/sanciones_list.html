@@ -1,17 +1,11 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
 {% block title %}Sanciones{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
-<style>
-    .sanc-stats { display:flex; flex-wrap:wrap; gap:14px; margin-bottom:18px; }
-    .sanc-stat { background:#fff; border-radius:12px; box-shadow:0 4px 14px rgba(15,23,42,.06); padding:14px 18px; flex:1; min-width:150px; }
-    .sanc-stat .num { font-size:1.7rem; font-weight:700; line-height:1; }
-    .sanc-stat .lbl { font-size:.78rem; text-transform:uppercase; letter-spacing:.4px; color:#6b7280; }
-    .filter-pill.active { background:#374151 !important; color:#fff !important; border-color:#374151 !important; }
-</style>
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/sanciones.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -106,16 +100,6 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const pills = document.querySelectorAll('.filter-pill');
-    const rows = document.querySelectorAll('#tabla-sanciones tbody tr');
-    pills.forEach(b => b.addEventListener('click', () => {
-        pills.forEach(x => x.classList.remove('active'));
-        b.classList.add('active');
-        const f = b.dataset.filter;
-        rows.forEach(r => { r.style.display = (f === 'todos' || r.dataset.estado === f) ? '' : 'none'; });
-    }));
-});
-</script>
+<script src="{% static_v 'js/empleados/filter_pills.js' %}"></script>
 {% endblock %}
+

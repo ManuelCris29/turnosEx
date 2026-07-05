@@ -1,333 +1,73 @@
-{% extends 'base.html' %}
-{% load static %}
+﻿{% extends 'base.html' %}
+{% load static static_version %}
 
-{% block title %}Calendario de Turnos{% endblock %}
+{% block title %}Reporte Operacional{% endblock %}
+{% block page_title %}{% endblock %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="{% static 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/turnos_calendario.css' %}">
 <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
-<style>
-    /* Estilos para el calendario */
-    #calendar {
-        background: #fff;
-        border-radius: 8px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        padding: 1rem;
-        margin-bottom: 2rem;
-        max-width: 800px;
-        margin-left: auto;
-        margin-right: auto;
-    }
-    
-    /* Reducir tamaño del calendario */
-    .fc {
-        font-size: 0.9rem;
-    }
-    
-    .fc-toolbar {
-        font-size: 0.95rem;
-    }
-    
-    .fc-button {
-        padding: 0.35rem 0.75rem;
-        font-size: 0.85rem;
-    }
-    
-    .fc-daygrid-day-number {
-        padding: 0.3rem;
-        font-size: 0.85rem;
-    }
-    
-    .fc-col-header-cell {
-        padding: 0.5rem 0.3rem;
-        font-size: 0.8rem;
-    }
-    
-    /* Personalización de FullCalendar */
-    .fc {
-        font-family: inherit;
-    }
-    
-    .fc-header-toolbar {
-        margin-bottom: 1.5rem;
-    }
-    
-    .fc-button {
-        background-color: #007bff;
-        border-color: #007bff;
-        padding: 0.5rem 1rem;
-        font-weight: 500;
-        border-radius: 4px;
-        transition: all 0.3s ease;
-    }
-    
-    .fc-button:hover {
-        background-color: #0056b3;
-        border-color: #0056b3;
-        transform: translateY(-1px);
-        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-    
-    .fc-button-primary:not(:disabled):active,
-    .fc-button-primary:not(:disabled).fc-button-active {
-        background-color: #0056b3;
-        border-color: #0056b3;
-    }
-    
-    .fc-day-selected {
-        background-color: #007bff !important;
-        color: white !important;
-    }
-    
-    .fc-day-selected .fc-daygrid-day-number {
-        color: white !important;
-        font-weight: bold;
-    }
-    
-    .fc-daygrid-day:hover {
-        background-color: #f8f9fa;
-        cursor: pointer;
-    }
-    
-    .fc-day-today {
-        background-color: #e3f2fd !important;
-    }
-    
-    .fc-daygrid-day-number {
-        padding: 0.5rem;
-    }
-    
-    /* Estilos para las columnas de turnos */
-    .turnos-col {
-        min-height: 400px;
-        background: #fff;
-        border-radius: 8px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        transition: transform 0.3s ease, box-shadow 0.3s ease;
-    }
-    
-    .turnos-col:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    }
-    
-    .turnos-col.am-col {
-        border-top: 4px solid #2196F3;
-    }
-    
-    .turnos-col.pm-col {
-        border-top: 4px solid #FF9800;
-    }
-    
-    .turnos-col h5 {
-        border-bottom: 2px solid #e9ecef;
-        padding-bottom: 0.75rem;
-        margin-bottom: 1.5rem;
-        color: #495057;
-        font-weight: 600;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-    }
-    
-    .turnos-col.am-col h5 {
-        color: #2196F3;
-    }
-    
-    .turnos-col.pm-col h5 {
-        color: #FF9800;
-    }
-    
-    /* Estilos para las listas de empleados */
-    #lista-am,
-    #lista-pm {
-        list-style: none;
-        padding: 0;
-        margin: 0;
-    }
-    
-    .empleado-item {
-        border: 1px solid #e9ecef;
-        border-radius: 6px;
-        margin-bottom: 0.75rem;
-        padding: 1rem;
-        background: #fff;
-        transition: all 0.3s ease;
-        animation: fadeIn 0.3s ease;
-    }
-    
-    .empleado-item:hover {
-        border-color: #007bff;
-        box-shadow: 0 2px 6px rgba(0,123,255,0.2);
-        transform: translateX(4px);
-    }
-    
-    @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(-10px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-    
-    /* Avatar de empleado */
-    .avatar-empleado {
-        width: 45px;
-        height: 45px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-weight: bold;
-        color: white;
-        font-size: 0.9rem;
-        flex-shrink: 0;
-    }
-    
-    .avatar-empleado.am {
-        background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
-    }
-    
-    .avatar-empleado.pm {
-        background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
-    }
-    
-    /* Badges */
-    .badge {
-        font-size: 0.85rem;
-        padding: 0.4rem 0.75rem;
-    }
-    
-    .badge-warning {
-        background-color: #FF9800;
-        color: white;
-    }
-    
-    .badge-success {
-        background-color: #28a745;
-        color: white;
-    }
-    
-    /* Título de fecha seleccionada */
-    #fecha-seleccionada {
-        color: #007bff;
-        font-weight: 600;
-        text-transform: capitalize;
-    }
-    
-    /* Responsive */
-    @media (max-width: 768px) {
-        #calendar {
-            padding: 1rem;
-        }
-        
-        .fc-header-toolbar {
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        
-        .fc-toolbar-chunk {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-        }
-        
-        .turnos-col {
-            margin-bottom: 1.5rem;
-        }
-        
-        .empleado-item {
-            padding: 0.75rem;
-        }
-        
-        .avatar-empleado {
-            width: 40px;
-            height: 40px;
-            font-size: 0.8rem;
-        }
-    }
-    
-    /* Estado vacío */
-    .list-group-item.text-muted {
-        padding: 2rem 1rem;
-        font-style: italic;
-    }
-    
-    .list-group-item.text-muted i {
-        margin-right: 0.5rem;
-    }
-    
-    /* Loading spinner */
-    .fa-spinner {
-        animation: spin 1s linear infinite;
-    }
-    
-    @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-    }
-</style>
 {% endblock %}
 
 {% block content %}
 <div class="pg-container">
-  <div class="pg-content">
+  <div class="rep-wrap" style="width:100%;">
     <div class="pg-header">
-      <h1 class="pg-title"><i class="fas fa-calendar-alt"></i> Calendario de Turnos</h1>
-      <p class="pg-subtitle">Selecciona una fecha para ver los exploradores asignados a cada jornada</p>
+      <h1 class="pg-title"><i class="fas fa-clipboard-list"></i> Reporte Operacional</h1>
+      <p class="pg-subtitle">Vista exclusiva de supervisores · Selecciona un día para ver el estado completo de la operación</p>
     </div>
 
-    <div class="pg-card">
-      <div class="pg-card-head" style="background:linear-gradient(135deg,#2563eb,#3b82f6);">
-        <h3><i class="fas fa-calendar-alt"></i> Calendario</h3>
+    <!-- Calendario -->
+    <div id="calendar"></div>
+
+    <!-- Encabezado del reporte -->
+    <div class="rep-header">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span class="rep-title"><i class="fas fa-calendar-day" style="color:#2563eb;"></i></span>
+        <span class="rep-fecha" id="rep-fecha-txt">Selecciona una fecha</span>
+        <span id="rep-dia-badge"></span>
       </div>
-      <div class="pg-card-body">
-        <div id="calendar"></div>
+      <div class="rep-actions">
+        <a class="btn-descargar" id="btn-excel" style="display:none;" href="#" onclick="descargarExcel(event)">
+          <i class="fas fa-file-excel"></i> Descargar Excel
+        </a>
       </div>
     </div>
 
-    <div class="pg-card">
-      <div class="pg-card-body">
-        <h4 class="mb-0">
-          <i class="fas fa-clock text-primary"></i> Turnos para
-          <span id="fecha-seleccionada" class="text-primary">Seleccione una fecha</span>
-        </h4>
-      </div>
-    </div>
-
-    <div class="row">
-      <div class="col-md-6 mb-4">
-        <div class="turnos-col am-col">
-          <h5>
-            <i class="fas fa-sun"></i> Exploradores AM
-            <span class="badge badge-primary">0</span>
-          </h5>
-          <ul id="lista-am" class="list-group list-group-flush">
-            <li class="list-group-item text-muted text-center">
-              <i class="fas fa-info-circle"></i> Seleccione una fecha en el calendario
-            </li>
-          </ul>
+    <!-- Tres columnas -->
+    <div class="rep-grid">
+      <div class="rep-col">
+        <div class="rep-col-head head-am">
+          <h4><i class="fas fa-sun"></i> Trabajan AM</h4>
+          <span class="cnt" id="cnt-am">0</span>
+        </div>
+        <div class="rep-col-body" id="col-am">
+          <div class="rep-empty"><i class="fas fa-calendar"></i><br>Selecciona una fecha</div>
         </div>
       </div>
 
-      <div class="col-md-6 mb-4">
-        <div class="turnos-col pm-col">
-          <h5>
-            <i class="fas fa-moon"></i> Exploradores PM
-            <span class="badge badge-warning">0</span>
-          </h5>
-          <ul id="lista-pm" class="list-group list-group-flush">
-            <li class="list-group-item text-muted text-center">
-              <i class="fas fa-info-circle"></i> Seleccione una fecha en el calendario
-            </li>
-          </ul>
+      <div class="rep-col">
+        <div class="rep-col-head head-pm">
+          <h4><i class="fas fa-moon"></i> Trabajan PM</h4>
+          <span class="cnt" id="cnt-pm">0</span>
+        </div>
+        <div class="rep-col-body" id="col-pm">
+          <div class="rep-empty"><i class="fas fa-calendar"></i><br>Selecciona una fecha</div>
+        </div>
+      </div>
+
+      <div class="rep-col">
+        <div class="rep-col-head head-desc">
+          <h4><i class="fas fa-bed"></i> Descansan</h4>
+          <span class="cnt" id="cnt-desc">0</span>
+        </div>
+        <div class="rep-col-body" id="col-desc">
+          <div class="rep-empty"><i class="fas fa-calendar"></i><br>Selecciona una fecha</div>
         </div>
       </div>
     </div>
+
   </div>
 </div>
 {% endblock %}
@@ -335,5 +75,7 @@
 {% block extra_js %}
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.11/locales/es.global.min.js"></script>
-<script src="{% static 'js/turnos_calendario.js' %}"></script>
-{% endblock %} 
+<script src="{% static_v 'js/turnos/turnos_calendario.js' %}"></script>
+{% endblock %}
+
+

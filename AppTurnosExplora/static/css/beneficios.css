@@ -1,0 +1,3 @@
+/* Estilos específicos de la vista de Beneficios */
+.beneficios-iframe-container { position: relative; width: 100%; min-height: 600px; }
+.beneficios-iframe-container iframe { width: 100%; height: 800px; border: none; min-height: 600px; }

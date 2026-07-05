@@ -442,32 +442,23 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 if not salas_solicitante.exists() or not salas_receptor.exists():
                     return False, "No se pudieron obtener las salas de los empleados"
                 
-                # FASE 2.1: CAMBIO SOBRE CAMBIO - Actualizar Turno existente o crear nuevo
-                # 3. Buscar o crear/actualizar turno para el solicitante (con jornada del receptor)
+                # FASE 2.1: CAMBIO SOBRE CAMBIO
+                # 3. Capturar trazabilidad ANTES de borrar, luego delete+create limpio
                 turno_solicitante_existente = Turno.objects.filter(
                     explorador=solicitud.explorador_solicitante,
                     fecha=fecha_cambio
                 ).first()
-                
+
                 # FASE 2.4: Inicializar variable para trazabilidad
                 solicitud_anterior_solicitante = None
-                
+
                 if turno_solicitante_existente:
-                    # FASE 2.1: Actualizar turno existente
-                    logger.info(
-                        "FASE 2.1: Actualizando turno existente para solicitante ID: %d, Fecha: %s, Turno ID: %d",
-                        solicitud.explorador_solicitante.id,
-                        fecha_cambio,
-                        turno_solicitante_existente.id
-                    )
-                    
-                    # FASE 2.4: TRAZABILIDAD - Buscar solicitud anterior que creó este turno
+                    # FASE 2.4: TRAZABILIDAD - Buscar solicitud anterior antes de borrar
                     solicitud_anterior_solicitante = SolicitudCambio.objects.filter(
                         Q(turno_origen=turno_solicitante_existente) | Q(turno_destino=turno_solicitante_existente),
                         estado='aprobada'
                     ).order_by('-fecha_resolucion').first()
-                    
-                    # FASE 2.4: Agregar comentario de trazabilidad en la solicitud actual
+
                     comentario_trazabilidad = []
                     if solicitud_anterior_solicitante:
                         comentario_trazabilidad.append(
@@ -475,71 +466,47 @@ class CambioTurnoStrategy(SolicitudStrategy):
                             f"Solicitud anterior ID: {solicitud_anterior_solicitante.id} "
                             f"(aprobada el {solicitud_anterior_solicitante.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_anterior_solicitante.fecha_resolucion else 'N/A'})"
                         )
-                        # Relacionar solicitudes para trazabilidad
                         solicitud.solicitud_origen = solicitud_anterior_solicitante
                         logger.info(
-                            "FASE 2.4: Solicitud anterior encontrada para solicitante - Solicitud anterior ID: %d, Nueva solicitud ID: %d",
-                            solicitud_anterior_solicitante.id,
-                            solicitud.id
+                            "FASE 2.4: Solicitud anterior encontrada para solicitante - ID: %d -> nueva ID: %d",
+                            solicitud_anterior_solicitante.id, solicitud.id
                         )
                     else:
                         comentario_trazabilidad.append(
                             "Actualización: cambio previo reemplazado (solicitud anterior no encontrada en el sistema)"
                         )
-                    
-                    # Agregar comentario de trazabilidad al comentario existente
                     if comentario_trazabilidad:
                         comentario_actual = solicitud.comentario or ""
-                        nuevo_comentario = "\n\n".join([comentario_actual] + comentario_trazabilidad) if comentario_actual else "\n\n".join(comentario_trazabilidad)
-                        solicitud.comentario = nuevo_comentario
-                    
-                    turno_solicitante_existente.jornada = jornada_receptor  # Jornada del receptor
-                    turno_solicitante_existente.sala = salas_receptor.first().sala  # Sala del receptor
-                    turno_solicitante_existente.tipo_cambio = 'CT'
-                    turno_solicitante_existente.save()
-                    turno_solicitante = turno_solicitante_existente
-                    logger.info("FASE 2.1-2.4: Turno solicitante actualizado ID: %d con trazabilidad", turno_solicitante.id)
-                else:
-                    # Crear nuevo turno si no existe
-                    logger.info(
-                        "CambioTurnoStrategy.aplicar_cambios - Creando turno para solicitante ID: %d, Fecha: %s, Jornada: %s",
-                        solicitud.explorador_solicitante.id,
-                        fecha_cambio,
-                        jornada_receptor.nombre if jornada_receptor else 'N/A'
-                    )
-                    turno_solicitante = Turno.objects.create(
-                        explorador=solicitud.explorador_solicitante,
-                        fecha=fecha_cambio,
-                        jornada=jornada_receptor,  # Jornada del receptor
-                        sala=salas_receptor.first().sala,  # Sala del receptor
-                        tipo_cambio='CT'
-                    )
-                    logger.info("CambioTurnoStrategy.aplicar_cambios - Turno solicitante creado ID: %d", turno_solicitante.id)
-                
-                # FASE 2.1: CAMBIO SOBRE CAMBIO - Actualizar Turno existente o crear nuevo
-                # 4. Buscar o crear/actualizar turno para el receptor (con jornada del solicitante)
+                        solicitud.comentario = "\n\n".join([comentario_actual] + comentario_trazabilidad) if comentario_actual else "\n\n".join(comentario_trazabilidad)
+
+                # Borrar TODOS los turnos del solicitante en esa fecha (evita huérfanos si tenía doblada)
+                Turno.objects.filter(explorador=solicitud.explorador_solicitante, fecha=fecha_cambio).delete()
+                turno_solicitante = Turno.objects.create(
+                    explorador=solicitud.explorador_solicitante,
+                    fecha=fecha_cambio,
+                    jornada=jornada_receptor,
+                    sala=salas_receptor.first().sala,
+                    tipo_cambio='CT'
+                )
+                logger.info(
+                    "FASE 2.1: Turno solicitante (re)creado ID: %d | Fecha: %s | Jornada: %s",
+                    turno_solicitante.id, fecha_cambio, jornada_receptor.nombre if jornada_receptor else 'N/A'
+                )
+
+                # FASE 2.1: CAMBIO SOBRE CAMBIO
+                # 4. Mismo patrón para el receptor
                 turno_receptor_existente = Turno.objects.filter(
                     explorador=solicitud.explorador_receptor,
                     fecha=fecha_cambio
                 ).first()
-                
+
                 if turno_receptor_existente:
-                    # FASE 2.1: Actualizar turno existente
-                    logger.info(
-                        "FASE 2.1: Actualizando turno existente para receptor ID: %d, Fecha: %s, Turno ID: %d",
-                        solicitud.explorador_receptor.id,
-                        fecha_cambio,
-                        turno_receptor_existente.id
-                    )
-                    
-                    # FASE 2.4: TRAZABILIDAD - Buscar solicitud anterior que creó este turno
+                    # FASE 2.4: TRAZABILIDAD - Capturar antes de borrar
                     solicitud_anterior_receptor = SolicitudCambio.objects.filter(
                         Q(turno_origen=turno_receptor_existente) | Q(turno_destino=turno_receptor_existente),
                         estado='aprobada'
                     ).order_by('-fecha_resolucion').first()
-                    
-                    # FASE 2.4: Agregar comentario de trazabilidad en la solicitud actual (solo si no se agregó ya)
-                    # Solo agregar comentario si la solicitud anterior del receptor es diferente a la del solicitante
+
                     if solicitud_anterior_receptor and (not solicitud_anterior_solicitante or solicitud_anterior_receptor.id != solicitud_anterior_solicitante.id):
                         comentario_trazabilidad_receptor = (
                             f"Actualización (receptor): cambio previo reemplazado. "
@@ -547,42 +514,29 @@ class CambioTurnoStrategy(SolicitudStrategy):
                             f"(aprobada el {solicitud_anterior_receptor.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_anterior_receptor.fecha_resolucion else 'N/A'})"
                         )
                         comentario_actual = solicitud.comentario or ""
-                        nuevo_comentario = "\n\n".join([comentario_actual, comentario_trazabilidad_receptor]) if comentario_actual else comentario_trazabilidad_receptor
-                        solicitud.comentario = nuevo_comentario
+                        solicitud.comentario = "\n\n".join([comentario_actual, comentario_trazabilidad_receptor]) if comentario_actual else comentario_trazabilidad_receptor
                         logger.info(
-                            "FASE 2.4: Solicitud anterior encontrada para receptor - Solicitud anterior ID: %d, Nueva solicitud ID: %d",
-                            solicitud_anterior_receptor.id,
-                            solicitud.id
+                            "FASE 2.4: Solicitud anterior receptor ID: %d -> nueva ID: %d",
+                            solicitud_anterior_receptor.id, solicitud.id
                         )
                     elif not solicitud_anterior_solicitante:
-                        # Solo agregar si no se encontró solicitud anterior para el solicitante
                         comentario_trazabilidad_receptor = "Actualización (receptor): cambio previo reemplazado (solicitud anterior no encontrada en el sistema)"
                         comentario_actual = solicitud.comentario or ""
-                        nuevo_comentario = "\n\n".join([comentario_actual, comentario_trazabilidad_receptor]) if comentario_actual else comentario_trazabilidad_receptor
-                        solicitud.comentario = nuevo_comentario
-                    
-                    turno_receptor_existente.jornada = jornada_solicitante  # Jornada del solicitante
-                    turno_receptor_existente.sala = salas_solicitante.first().sala  # Sala del solicitante
-                    turno_receptor_existente.tipo_cambio = 'CT'
-                    turno_receptor_existente.save()
-                    turno_receptor = turno_receptor_existente
-                    logger.info("FASE 2.1-2.4: Turno receptor actualizado ID: %d con trazabilidad", turno_receptor.id)
-                else:
-                    # Crear nuevo turno si no existe
-                    logger.info(
-                        "CambioTurnoStrategy.aplicar_cambios - Creando turno para receptor ID: %d, Fecha: %s, Jornada: %s",
-                        solicitud.explorador_receptor.id,
-                        fecha_cambio,
-                        jornada_solicitante.nombre if jornada_solicitante else 'N/A'
-                    )
-                    turno_receptor = Turno.objects.create(
-                        explorador=solicitud.explorador_receptor,
-                        fecha=fecha_cambio,
-                        jornada=jornada_solicitante,  # Jornada del solicitante
-                        sala=salas_solicitante.first().sala,  # Sala del solicitante
-                        tipo_cambio='CT'
-                    )
-                    logger.info("CambioTurnoStrategy.aplicar_cambios - Turno receptor creado ID: %d", turno_receptor.id)
+                        solicitud.comentario = "\n\n".join([comentario_actual, comentario_trazabilidad_receptor]) if comentario_actual else comentario_trazabilidad_receptor
+
+                # Borrar TODOS los turnos del receptor en esa fecha (evita huérfanos si tenía doblada)
+                Turno.objects.filter(explorador=solicitud.explorador_receptor, fecha=fecha_cambio).delete()
+                turno_receptor = Turno.objects.create(
+                    explorador=solicitud.explorador_receptor,
+                    fecha=fecha_cambio,
+                    jornada=jornada_solicitante,
+                    sala=salas_solicitante.first().sala,
+                    tipo_cambio='CT'
+                )
+                logger.info(
+                    "FASE 2.1: Turno receptor (re)creado ID: %d | Fecha: %s | Jornada: %s",
+                    turno_receptor.id, fecha_cambio, jornada_solicitante.nombre if jornada_solicitante else 'N/A'
+                )
                 
                 # 5. Actualizar la solicitud con las referencias a los turnos creados
                 solicitud.turno_origen = turno_solicitante  # Turno original del solicitante

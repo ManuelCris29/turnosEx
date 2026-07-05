@@ -95,40 +95,39 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             'empleado_nombre': empleado_actual.nombre
         })
         
-        # Obtener la jornada del usuario actual para esa fecha
-        jornada_usuario = JornadaService.get_jornada_explorador_fecha(
-            empleado_actual.id, fecha
-        )
-        
-        logger.info("get_empleados_jornada_contraria - Jornada del usuario obtenida", extra={
-            'jornada_nombre': getattr(jornada_usuario, 'nombre', None),
-            'jornada_id': getattr(jornada_usuario, 'id', None),
-            'tiene_jornada': jornada_usuario is not None
+        # Jornada REAL del usuario ese día (fuente de verdad estado_dia, igual que Mis Turnos).
+        # Si ese día trabaja DOBLADA (día completo) o descansa, no hay "jornada contraria"
+        # para un CT sencillo: se devuelve vacío (la validación del servidor igual lo bloquearía).
+        from datetime import datetime as _dt
+        from turnos.services.turno_service import TurnoService as _TS
+        _fecha_obj = _dt.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+        _estado = _TS.estado_dia(empleado_actual, _fecha_obj)
+        _jornada_real = _estado['jornada'] if _estado['trabaja'] else None
+
+        logger.info("get_empleados_jornada_contraria - Jornada REAL del usuario", extra={
+            'jornada_real': _jornada_real,
+            'fuente': _estado['fuente'],
+            'trabaja': _estado['trabaja'],
         })
-        
-        if not jornada_usuario:
-            logger.warning("get_empleados_jornada_contraria - Usuario no tiene jornada asignada para esta fecha", extra={
-                'empleado_id': empleado_actual.id,
-                'fecha': fecha
-            })
+
+        if not _estado['trabaja']:
+            logger.warning("get_empleados_jornada_contraria - El usuario no trabaja ese día (%s)",
+                           _estado.get('motivo'), extra={'empleado_id': empleado_actual.id, 'fecha': fecha})
             return Empleado.objects.none()
-        
-        # Determinar la jornada contraria
-        jornada_contraria = None
-        if jornada_usuario.nombre == 'AM':
+
+        # Determinar la jornada contraria a partir de la jornada REAL
+        if _jornada_real == 'AM':
             jornada_contraria = 'PM'
-        elif jornada_usuario.nombre == 'PM':
+        elif _jornada_real == 'PM':
             jornada_contraria = 'AM'
         else:
-            # Si no es AM ni PM, no hay jornada contraria definida
-            logger.warning(f"get_empleados_jornada_contraria - Jornada no reconocida: {jornada_usuario.nombre}", extra={
-                'jornada_nombre': jornada_usuario.nombre,
-                'empleado_id': empleado_actual.id
-            })
+            # DOBLADA (día completo): un CT sencillo no aplica ese día
+            logger.warning("get_empleados_jornada_contraria - Jornada %s sin contraria (día completo)",
+                           _jornada_real, extra={'empleado_id': empleado_actual.id})
             return Empleado.objects.none()
         
         logger.info("get_empleados_jornada_contraria - Jornada contraria determinada", extra={
-            'jornada_usuario': jornada_usuario.nombre,
+            'jornada_usuario': _jornada_real,
             'jornada_contraria': jornada_contraria
         })
         
@@ -154,23 +153,50 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         # OPTIMIZACIÓN - Pre-cargar Turnos de la fecha en una sola consulta
         fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
         ids_empleados_activos = list(empleados_activos.values_list('id', flat=True))
-        
+
         # Consulta batch: traer todos los Turnos de la fecha para los empleados activos
         turnos_fecha = Turno.objects.filter(
             fecha=fecha_obj,
             explorador_id__in=ids_empleados_activos
         ).select_related('jornada', 'explorador')
-        
+
         # Crear diccionario para acceso rápido: {explorador_id: turno}
         turnos_por_explorador = {
             turno.explorador_id: turno
             for turno in turnos_fecha
         }
-        
+
         logger.info("get_empleados_jornada_contraria - Turnos pre-cargados", extra={
             'total_turnos': len(turnos_por_explorador),
             'fecha': str(fecha_obj)
         })
+
+        # Pre-cargar IDs de empleados que descansan por solicitud aprobada (L2).
+        # Solo afecta a empleados sin Turno real (si hay Turno en DB, L1 ya es la fuente de verdad).
+        # Dos queries batch en lugar de N llamadas a estado_dia().
+        from solicitudes.models import SolicitudCambio as _SC
+        _ids_sin_turno = set(ids_empleados_activos) - set(turnos_por_explorador.keys())
+        _descansando_por_solicitud = set()
+        if _ids_sin_turno:
+            # Cedió su jornada ese día
+            _descansando_por_solicitud.update(
+                _SC.objects.filter(
+                    tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+                    estado='aprobada',
+                    explorador_solicitante_id__in=_ids_sin_turno,
+                    fecha_cambio_turno=fecha_obj,
+                ).values_list('explorador_solicitante_id', flat=True)
+            )
+            # Paga doblada ese día (receptor descansa mientras el solicitante dobla)
+            _descansando_por_solicitud.update(
+                _SC.objects.filter(
+                    tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+                    estado='aprobada',
+                    explorador_receptor_id__in=_ids_sin_turno,
+                    doblada__fecha_pago=fecha_obj,
+                ).values_list('explorador_receptor_id', flat=True)
+            )
+        logger.info("get_empleados_jornada_contraria - Empleados descansando por solicitud (L2): %d", len(_descansando_por_solicitud))
         
         # OPTIMIZACIÓN - Pre-cargar Asignaciones de Jornada en una sola consulta
         # Traer todas las asignaciones relevantes (fecha_inicio <= fecha_obj)
@@ -208,8 +234,15 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
                 jornada_empleado = turno.jornada
                 fuente_jornada = 'Turno'
                 empleados_con_turno += 1
+            elif empleado.id in _descansando_por_solicitud:
+                # L2: el empleado descansa ese día por solicitud aprobada — excluirlo del picker
+                logger.debug("get_empleados_jornada_contraria - Empleado descansa por solicitud L2, excluido", extra={
+                    'empleado_id': empleado.id,
+                    'empleado_nombre': empleado.nombre
+                })
+                continue
             else:
-                # 2. Si no hay turno, buscar en asignaciones fijas
+                # 2. Si no hay turno ni solicitud que lo comprometa, buscar en asignaciones fijas
                 asignacion = asignaciones_por_explorador.get(empleado.id)
                 if asignacion:
                     jornada_empleado = asignacion.jornada

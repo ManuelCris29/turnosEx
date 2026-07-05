@@ -1,0 +1,13 @@
+/* Estilos exclusivos del formulario de Doblada Permanente */
+
+/* Override de color del header (purple) */
+.solicitud-header { background: linear-gradient(135deg, #7c3aed, #4f46e5); }
+
+/* Selector de días de la semana como chips */
+.dias-grid { display: flex; flex-wrap: wrap; gap: .5rem; }
+.dias-grid label { font-weight: 500; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 999px; padding: .35rem .8rem; cursor: pointer; display: inline-flex; align-items: center; gap: .4rem; margin: 0; }
+.dias-grid input { margin: 0; }
+
+/* Cajas de cesión y devolución */
+.box-cesion { border-left: 4px solid #16a34a; background: #f0fdf4; padding: 12px 14px; border-radius: 8px; }
+.box-devol  { border-left: 4px solid #4f46e5; background: #eef2ff; padding: 12px 14px; border-radius: 8px; }

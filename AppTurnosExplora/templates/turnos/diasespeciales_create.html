@@ -1,4 +1,4 @@
-{% extends 'base.html' %}
+﻿{% extends 'base.html' %}
 {% load widget_tweaks %}
 {% block title %}Nuevo Día Especial{% endblock %}
 {% block page_title %}Nuevo Día Especial{% endblock %}
@@ -59,13 +59,5 @@
 
 {% block extra_js %}
 <!-- Si usas FontAwesome desde CDN, asegúrate de tenerlo en tu base.html -->
-<script>
-// Helper para agregar clases a los widgets de los campos si no usas django-widget-tweaks
-if (typeof django !== 'undefined' && django.jQuery) {
-    django.jQuery(function($) {
-        $('input, select, textarea').addClass('form-control');
-        $('input[type="checkbox"]').removeClass('form-control').addClass('form-check-input');
-    });
-}
-</script>
+<script src="{% static 'js/turnos/diasespeciales_create.js' %}"></script>
 {% endblock %} 

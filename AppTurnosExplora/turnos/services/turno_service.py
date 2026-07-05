@@ -169,68 +169,53 @@ class TurnoService(ITurnoService):
                     'es_doblada': jornada_display == 'DOBLADA'
                 }
             
-            # 2. Si no hay turno, calcular jornada usando alternancia de fines de semana
-            jornada_predeterminada = JornadaService.get_jornada_predeterminada(explorador)
-            jornada_base_obj = jornada_predeterminada.jornada if jornada_predeterminada else None
-            
-            # Calcular jornada real del día (considera alternancia de fines de semana)
-            jornada_dia = None
-            if jornada_base_obj:
-                try:
-                    jornada_dia_calculada = JornadaUtils.calcular_jornada_dia(
-                        jornada_base_obj.nombre, fecha_obj
-                    )
-                    # Si está en descanso, retornar None (no tiene jornada ese día)
-                    if jornada_dia_calculada == "Descanso":
-                        jornada_dia = None
-                    else:
-                        # Buscar objeto Jornada con el nombre calculado
-                        jornada_dia = Jornada.objects.filter(nombre=jornada_dia_calculada).first()
-                except Exception as e:
-                    logger.warning(f"Error calculando jornada día para {explorador.id} en {fecha_obj}: {e}")
-                    jornada_dia = jornada_base_obj  # Fallback a jornada base
-            
-            # Si está en descanso (jornada_dia es None), retornar None
-            if jornada_dia is None:
+            # 2. Sin turno real: FUENTE DE VERDAD ÚNICA (estado_dia) para el estado virtual.
+            #    Cubre TODAS las capas igual que "Mis Turnos": descanso por solicitud aprobada,
+            #    temporada (descanso o día completo), festivos, alternancia de finde y su
+            #    override manual, mantenimiento y jornada base. Solo si ninguna capa aplica
+            #    queda la jornada predeterminada (base).
+            estado = TurnoService.estado_dia(explorador, fecha_obj)
+            if not estado['trabaja']:
+                # Descansa ese día (igual contrato que antes: sin jornada → None)
                 return None
-            
-            # 2b. Sábado: si por alternancia le corresponde trabajar ese sábado, mostrar DOBLADA (AM+PM)
-            if fecha_obj.weekday() == 5:
-                jornada_trabaja_sab = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
-                if jornada_trabaja_sab and jornada_dia.nombre.upper() == jornada_trabaja_sab.upper():
-                    jornada_am = Jornada.objects.filter(nombre__iexact='AM').first()
-                    jornada_pm = Jornada.objects.filter(nombre__iexact='PM').first()
-                    if jornada_am and jornada_pm:
-                        competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
-                        salas_competencia = [{'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias]
-                        return {
-                            'id': None,
-                            'jornada': 'DOBLADA',
-                            'sala': None,
-                            'sala_id': None,
-                            'hora_inicio': jornada_am.hora_inicio.strftime('%H:%M') if jornada_am.hora_inicio else None,
-                            'hora_fin': jornada_pm.hora_fin.strftime('%H:%M') if jornada_pm.hora_fin else None,
-                            'es_turno_virtual': True,
-                            'tipo_sala': 'competencia',
-                            'salas_competencia': salas_competencia,
-                            'es_doblada_sabado': True,
-                        }
-            
-            # 3. Usar todas las salas de competencia (la sala es informativa: especialidad del explorador)
+
+            jornada_display = estado['jornada']  # 'AM' | 'PM' | 'DOBLADA'
             competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
             salas_competencia = [
                 {'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias
             ]
+
+            if jornada_display == 'DOBLADA':
+                jornada_am = Jornada.objects.filter(nombre__iexact='AM').first()
+                jornada_pm = Jornada.objects.filter(nombre__iexact='PM').first()
+                return {
+                    'id': None,
+                    'jornada': 'DOBLADA',
+                    'sala': None,
+                    'sala_id': None,
+                    'hora_inicio': jornada_am.hora_inicio.strftime('%H:%M') if jornada_am and jornada_am.hora_inicio else None,
+                    'hora_fin': jornada_pm.hora_fin.strftime('%H:%M') if jornada_pm and jornada_pm.hora_fin else None,
+                    'es_turno_virtual': True,
+                    'tipo_sala': 'competencia',
+                    'salas_competencia': salas_competencia,
+                    'es_doblada': True,
+                    'fuente': estado['fuente'],
+                }
+
+            jornada_dia = Jornada.objects.filter(nombre__iexact=jornada_display).first() if jornada_display else None
+            if jornada_dia is None:
+                return None
             return {
                 'id': None,
-                'jornada': jornada_dia.nombre if jornada_dia else None,
+                'jornada': jornada_dia.nombre,
                 'sala': None,
                 'sala_id': None,
-                'hora_inicio': jornada_dia.hora_inicio.strftime('%H:%M') if jornada_dia and jornada_dia.hora_inicio else None,
-                'hora_fin': jornada_dia.hora_fin.strftime('%H:%M') if jornada_dia and jornada_dia.hora_fin else None,
+                'hora_inicio': jornada_dia.hora_inicio.strftime('%H:%M') if jornada_dia.hora_inicio else None,
+                'hora_fin': jornada_dia.hora_fin.strftime('%H:%M') if jornada_dia.hora_fin else None,
                 'es_turno_virtual': True,
                 'tipo_sala': 'competencia',
-                'salas_competencia': salas_competencia
+                'salas_competencia': salas_competencia,
+                'fuente': estado['fuente'],
             }
         except ValueError:
             return None
@@ -260,16 +245,31 @@ class TurnoService(ITurnoService):
             return qs.exclude(id=excluir_id) if excluir_id else qs
 
         # DOBLADA / D FDS: solicitante descansa en cesión; receptor descansa en pago.
+        # Para D FDS, el picker guarda la fecha seleccionada (sáb o dom) pero el día real de
+        # trabajo puede ser el otro día del fin de semana. Verificamos ambos días del finde.
+        from datetime import timedelta as _td
+
+        def _finde_fechas(f):
+            """Devuelve (sábado, domingo) del fin de semana al que pertenece la fecha."""
+            if f.weekday() == 5:   # sábado
+                return f, f + _td(days=1)
+            elif f.weekday() == 6:  # domingo
+                return f - _td(days=1), f
+            return f, f  # entre semana: solo esa fecha
+
+        sab, dom = _finde_fechas(fecha)
+        fechas_finde = {sab, dom} if fecha.weekday() in (5, 6) else {fecha}
+
         s = (_exc(SolicitudCambio.objects
              .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                     explorador_solicitante=empleado, fecha_cambio_turno=fecha))
-             .select_related('explorador_receptor').first())
+                     explorador_solicitante=empleado, fecha_cambio_turno__in=fechas_finde))
+             .select_related('explorador_receptor').order_by('-id').first())
         if s:
             return {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
         s = (_exc(SolicitudCambio.objects
              .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                     explorador_receptor=empleado, doblada__fecha_pago=fecha))
-             .select_related('explorador_solicitante').first())
+                     explorador_receptor=empleado, doblada__fecha_pago__in=fechas_finde))
+             .select_related('explorador_solicitante').order_by('-id').first())
         if s:
             return {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
 
@@ -362,11 +362,15 @@ class TurnoService(ITurnoService):
             asg_fv = (AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_inicio__lte=fecha)
                       .select_related('jornada').order_by('-fecha_inicio').first())
             jb_fv = asg_fv.jornada.nombre.upper() if asg_fv else None
-            try:
-                from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                grupo = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
-            except Exception:
-                grupo = None
+            # Override manual del festivo (si existe); si no, rotación automática.
+            from turnos.services.asignacion_especial_service import AsignacionEspecialService
+            grupo = AsignacionEspecialService.get_grupo_trabaja(fecha)
+            if not grupo:
+                try:
+                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                    grupo = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
+                except Exception:
+                    grupo = None
             if jb_fv and grupo and jb_fv == grupo.upper():
                 return _r(True, 'DOBLADA', 'festivo')
             return _r(False, None, 'festivo', motivo='festivo: descansa el grupo contrario')
@@ -398,18 +402,29 @@ class TurnoService(ITurnoService):
         if not jornada_base:
             return _r(False, None, 'base', motivo='sin jornada asignada')
 
-        # L6: fin de semana (alternancia). Quien trabaja el finde lo hace AM+PM (DOBLADA).
+        # L6: fin de semana. Override manual si existe; si no, alternancia automática.
+        # Quien trabaja el finde lo hace AM+PM (DOBLADA); el otro grupo descansa.
         if fecha.weekday() in (5, 6):
-            trabaja_grp = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha)
+            from turnos.services.asignacion_especial_service import AsignacionEspecialService
+            trabaja_grp = AsignacionEspecialService.get_grupo_trabaja(fecha)
+            fuente_fs = 'manual' if trabaja_grp else 'alternancia'
+            if not trabaja_grp:
+                trabaja_grp = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha)
             if trabaja_grp and jornada_base == trabaja_grp.upper():
-                return _r(True, 'DOBLADA', 'alternancia')
-            return _r(False, None, 'alternancia', motivo='descanso de fin de semana')
+                return _r(True, 'DOBLADA', fuente_fs)
+            return _r(False, None, fuente_fs, motivo='descanso de fin de semana')
 
         # Entre semana: L4 temporada y L3 mantenimiento.
         if DescansoSemanaService.es_descanso_semana_manual(jornada_base, fecha):
             return _r(False, None, 'temporada', motivo='descanso de temporada')
         if DiaEspecial.es_mantenimiento_efectivo(fecha):
             return _r(False, None, 'mantenimiento', motivo='lunes de mantenimiento')
+
+        # L4 (día especial de temporada, lado del que TRABAJA): si el grupo contrario
+        # descansa hoy por temporada, este grupo cubre el DÍA COMPLETO (AM+PM).
+        jornada_contraria = 'PM' if jornada_base == 'AM' else 'AM'
+        if DescansoSemanaService.es_descanso_semana_manual(jornada_contraria, fecha):
+            return _r(True, 'DOBLADA', 'temporada')
 
         # Base: trabaja su jornada.
         return _r(True, jornada_base, 'base')
@@ -455,19 +470,34 @@ class TurnoService(ITurnoService):
         def _comp(emp):
             return {'id': emp.id, 'nombre': f'{emp.nombre} {emp.apellido}'}
 
+        # D FDS = fin de semana COMPLETO: quien cede/paga descansa el sábado Y el domingo
+        # (el compañero cubre los dos días). En finde marcamos AMBOS días; entre semana solo
+        # esa fecha. Debe coincidir con `_descanso_por_solicitud` (estado_dia).
+        def _dias_descanso_solicitud(fecha):
+            if fecha.weekday() == 5:      # sábado → sáb + dom
+                return [fecha, fecha + _td(days=1)]
+            if fecha.weekday() == 6:      # domingo → sáb + dom
+                return [fecha - _td(days=1), fecha]
+            return [fecha]               # entre semana (DOBLADA lun-vie): solo esa fecha
+
         for s in (SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_solicitante=empleado, fecha_cambio_turno__range=(ini, fin))
-                .select_related('explorador_receptor')):
-            rest_sol.setdefault(s.fecha_cambio_turno,
-                                {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)})
+                .select_related('explorador_receptor').order_by('-id')):
+            info = {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
+            for d in _dias_descanso_solicitud(s.fecha_cambio_turno):
+                if ini <= d <= fin:
+                    rest_sol.setdefault(d, info)
         for s in (SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_receptor=empleado, doblada__fecha_pago__range=(ini, fin))
-                .select_related('explorador_solicitante', 'doblada')):
+                .select_related('explorador_solicitante', 'doblada').order_by('-id')):
             fp = s.doblada.fecha_pago if s.doblada else None
             if fp:
-                rest_sol.setdefault(fp, {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)})
+                info = {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
+                for d in _dias_descanso_solicitud(fp):
+                    if ini <= d <= fin:
+                        rest_sol.setdefault(d, info)
         for dcd in CambioDescansoAplicacionService.dias_en_descanso(empleado, ini, fin):
             rest_sol.setdefault(dcd, {'motivo': 'cambio de día de descanso', 'companero': None})
         for s in (SolicitudCambio.objects.filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
@@ -488,20 +518,34 @@ class TurnoService(ITurnoService):
                 dd += _td(days=1)
 
         # L4: temporada (descanso de semana manual de la jornada base)
+        # y días donde descansa la jornada CONTRARIA (este grupo trabaja día completo).
         temporada = set()
+        temporada_trabaja_completo = set()
         if jornada_base:
-            for dsm in DescansoSemanaManual.objects.filter(
-                    fecha__range=(ini, fin), activo=True, jornada__nombre__iexact=jornada_base):
-                if dsm.fecha.weekday() < 5:
+            jornada_contraria = 'PM' if jornada_base == 'AM' else 'AM'
+            for dsm in (DescansoSemanaManual.objects
+                        .filter(fecha__range=(ini, fin), activo=True)
+                        .select_related('jornada')):
+                if dsm.fecha.weekday() >= 5:
+                    continue
+                nombre_dsm = dsm.jornada.nombre.upper()
+                if nombre_dsm == jornada_base:
                     temporada.add(dsm.fecha)
+                elif nombre_dsm == jornada_contraria:
+                    temporada_trabaja_completo.add(dsm.fecha)
 
-        # L5: festivos entre semana → grupo que dobla por rotación (cacheado por fecha)
+        # Override manual de días especiales (finde/festivo) del rango: {fecha: 'AM'/'PM'}
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        override_especial = AsignacionEspecialService.mapa_grupo_trabaja(ini, fin)
+
+        # L5: festivos entre semana → override manual si existe; si no, rotación automática.
         grupo_festivo = {}
         try:
             from turnos.services.festivos_rotacion_service import FestivosRotacionService
             for fdia in festivos:
                 if fdia.weekday() < 5:
-                    grupo_festivo[fdia] = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fdia)
+                    grupo_festivo[fdia] = (override_especial.get(fdia)
+                                           or FestivosRotacionService.get_grupo_que_dobla_en_festivo(fdia))
         except Exception:
             grupo_festivo = {}
 
@@ -545,15 +589,22 @@ class TurnoService(ITurnoService):
             elif not jornada_base:
                 out[d] = _r(False, None, 'base', motivo='sin jornada asignada')
             elif d.weekday() in (5, 6):
-                trabaja_grp = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(d)
+                trabaja_grp = override_especial.get(d)
+                fuente_fs = 'manual' if trabaja_grp else 'alternancia'
+                if not trabaja_grp:
+                    trabaja_grp = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(d)
                 if trabaja_grp and jornada_base == trabaja_grp.upper():
-                    out[d] = _r(True, 'DOBLADA', 'alternancia')
+                    out[d] = _r(True, 'DOBLADA', fuente_fs)
                 else:
-                    out[d] = _r(False, None, 'alternancia', motivo='descanso de fin de semana')
+                    out[d] = _r(False, None, fuente_fs, motivo='descanso de fin de semana')
             elif d in temporada:
                 out[d] = _r(False, None, 'temporada', motivo='descanso de temporada')
             elif DiaEspecial.es_mantenimiento_efectivo(d):
                 out[d] = _r(False, None, 'mantenimiento', motivo='lunes de mantenimiento')
+            elif d in temporada_trabaja_completo:
+                # Día especial de temporada: el grupo contrario descansa,
+                # este grupo cubre el día completo (AM+PM).
+                out[d] = _r(True, 'DOBLADA', 'temporada')
             else:
                 out[d] = _r(True, jornada_base, 'base')
             d += _td(days=1)

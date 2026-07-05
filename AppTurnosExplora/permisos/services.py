@@ -171,3 +171,77 @@ class PermisoNotificacionService:
           </div>
         </div>
         """
+
+
+class PermisoMediaJornadaService:
+    """
+    Aplica/revierte el permiso de MEDIA JORNADA TEMPORADA (compensada, sin deuda):
+    el empleado trabaja `jornada_trabaja` en su día completo de temporada
+    (fecha_inicio) y la jornada contraria en su día de descanso de la misma
+    semana (fecha_compensacion). Al aprobarse modifica los turnos reales para
+    que Mis Turnos refleje el estado; al eliminar/cancelar un permiso aprobado
+    se restauran desde el snapshot.
+    """
+
+    @staticmethod
+    def aplicar(permiso) -> None:
+        from django.db import transaction
+        from solicitudes.services.cambio_descanso_aplicacion_service import (
+            CambioDescansoAplicacionService as _App,
+        )
+        if permiso.tipo != 'MEDIA_JORNADA_TEMPORADA':
+            return
+        if not (permiso.jornada_trabaja and permiso.fecha_compensacion):
+            logger.warning("Permiso %s media jornada sin datos completos; no se aplica", permiso.id)
+            return
+
+        emp = permiso.empleado
+        f_trabajo = permiso.fecha_inicio
+        f_comp = permiso.fecha_compensacion
+        j_dia = permiso.jornada_trabaja.upper()
+        j_comp = 'PM' if j_dia == 'AM' else 'AM'
+
+        with transaction.atomic():
+            # Snapshot idempotente (mismo formato que DobladaDetalle → reutiliza restaurar)
+            if not permiso.snapshot_turnos_previos:
+                snap = _App._capturar_snapshot(emp, emp, [f_trabajo, f_comp])
+                type(permiso).objects.filter(pk=permiso.pk).update(snapshot_turnos_previos=snap)
+                permiso.snapshot_turnos_previos = snap
+            _App._trabaja_jornada(emp, f_trabajo, j_dia, tipo_cambio='PERMISO')
+            _App._trabaja_jornada(emp, f_comp, j_comp, tipo_cambio='PERMISO')
+        logger.info("Permiso media jornada %s aplicado: %s=%s, %s=%s",
+                    permiso.id, f_trabajo, j_dia, f_comp, j_comp)
+
+    @staticmethod
+    def revertir(permiso) -> None:
+        from django.db import transaction
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        snap = getattr(permiso, 'snapshot_turnos_previos', None)
+        if not snap:
+            return
+        with transaction.atomic():
+            DobladaAplicacionService.restaurar_turnos_desde_snapshot(snap)
+        logger.info("Permiso media jornada %s revertido", permiso.id)
+
+    @staticmethod
+    def puede_revertir_limpio(permiso) -> bool:
+        """
+        True si los turnos actuales de los DOS días son EXACTAMENTE los que creó el permiso
+        (una jornada tipo PERMISO cada uno). Si algo más los tocó después, revertir
+        pisaría ese cambio; en ese caso NO es seguro cancelar (hay que resolver antes).
+        """
+        from turnos.models import Turno
+        if permiso.tipo != 'MEDIA_JORNADA_TEMPORADA' or not permiso.jornada_trabaja \
+                or not permiso.fecha_compensacion:
+            return False
+        j_dia = permiso.jornada_trabaja.upper()
+        j_comp = 'PM' if j_dia == 'AM' else 'AM'
+        esperado = {permiso.fecha_inicio: {j_dia}, permiso.fecha_compensacion: {j_comp}}
+        for fecha, jset in esperado.items():
+            turnos = list(Turno.objects.filter(explorador=permiso.empleado, fecha=fecha)
+                          .select_related('jornada'))
+            js = {t.jornada.nombre.upper() for t in turnos}
+            tipos = {(t.tipo_cambio or '') for t in turnos}
+            if js != jset or tipos != {'PERMISO'}:
+                return False
+        return True
