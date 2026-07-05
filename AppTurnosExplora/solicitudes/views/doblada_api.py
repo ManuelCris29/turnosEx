@@ -315,6 +315,30 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                         exc_info=True
                     )
             
+            # CASO TEMPORADA: día entre semana donde el usuario trabaja el día COMPLETO por
+            # temporada (el grupo contrario descansa). No hay turnos reales, pero trabaja AM+PM.
+            # NO es una doblada cedible por este formulario: las cesiones de un día de temporada
+            # van por Cambio de Descanso → «Que me cubran mi día» (cobertura), con pago en la
+            # MISMA semana. Aquí solo informamos y guiamos al flujo correcto.
+            if not es_doblada_turnos and fecha_obj.weekday() < 5:
+                from turnos.services.turno_service import TurnoService as _TSt
+                est_t = _TSt.estado_dia(usuario_actual, fecha_obj)
+                if est_t['trabaja'] and est_t['jornada'] == 'DOBLADA' and est_t['fuente'] == 'temporada':
+                    return json_ok({
+                        'tiene_doblada': False,
+                        'esta_descansando': False,
+                        'puede_ceder': False,
+                        'jornadas': ['AM', 'PM'],
+                        'es_temporada_dia_completo': True,
+                        'mensaje': (
+                            'Este día trabajas la jornada completa (AM + PM) por temporada. '
+                            'La doblada normal no aplica en días de temporada: para ceder una '
+                            'jornada usa Cambio de Descanso → «Que me cubran mi día» (cobertura), '
+                            'donde el pago es en la misma semana.'
+                        ),
+                        'solicitud_id': None,
+                    })
+
             # CASO 2: Usuario tiene turnos pero NO es doblada (solo una jornada)
             # IMPORTANTE: Verificar si estos turnos son resultado de un CT donde el usuario es solicitante
             if jornadas:

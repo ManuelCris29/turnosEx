@@ -1398,10 +1398,31 @@
                     // CASO 1.5: Usuario no puede ceder (festivo donde su grupo descansa, CT aprobado, etc.)
                     if (!puedeCeder && !tieneDobladaExistente && !estaDescansando) {
                         const esFestivoDescansa = !!(data.mensaje_festivo_descansa || '');
+                        const esTemporadaDiaCompleto = !!data.es_temporada_dia_completo;
                         const razon = data.mensaje || 'No puedes solicitar doblada para esta fecha.';
-                        const titulo = esFestivoDescansa
-                            ? 'Este día festivo descansas: no puedes ceder doblada'
-                            : 'No Puedes Solicitar Doblada';
+                        const titulo = esTemporadaDiaCompleto
+                            ? 'Este día trabajas completo por temporada'
+                            : (esFestivoDescansa
+                                ? 'Este día festivo descansas: no puedes ceder doblada'
+                                : 'No Puedes Solicitar Doblada');
+
+                        // En temporada, guiar al flujo correcto (cobertura) con un botón.
+                        const ayudaTemporada = esTemporadaDiaCompleto
+                            ? `<a href="/solicitudes/cambio-turno/solicitar/6/" class="btn btn-sm btn-outline-primary mt-2">
+                                   <i class="fas fa-hands-helping mr-1"></i>Ir a Cambio de Descanso (cobertura)
+                               </a>`
+                            : `<small class="text-muted">
+                                   <i class="fas fa-info-circle"></i>
+                                   Para solicitar una doblada, selecciona una fecha en la que tengas turno asignado.
+                               </small>`;
+
+                        // IMPORTANTE: deshabilitar y limpiar estado ANTES de pintar el mensaje.
+                        // limpiarEstadoDoblada() oculta dobladaExistenteInfo (display:none); si lo
+                        // llamáramos DESPUÉS de pintar, el mensaje quedaría invisible. En festivo no
+                        // se notaba (su aviso visible va en el indicador de festivo), pero en temporada
+                        // dobladaExistenteInfo es el ÚNICO lugar del mensaje → "no aparece nada".
+                        deshabilitarFormularioDoblada();
+                        limpiarEstadoDoblada();
 
                         dobladaExistenteInfo.style.display = 'block';
                         dobladaExistenteInfo.innerHTML = `
@@ -1409,30 +1430,39 @@
                                 <i class="fas fa-exclamation-triangle mr-2"></i>
                                 <strong>${titulo}</strong>
                                 <p class="mb-1">${razon}</p>
-                                <small class="text-muted">
-                                    <i class="fas fa-info-circle"></i>
-                                    Para solicitar una doblada, selecciona una fecha en la que tengas turno asignado.
-                                </small>
+                                ${ayudaTemporada}
                             </div>
                         `;
 
-                        // También reflejar la razón en el recuadro de festivo (el que ve primero el explorador),
-                        // reemplazando el texto genérico "la fecha de pago debe ser otro festivo del mismo mes".
+                        // FESTIVO o TEMPORADA día completo: por este flujo NO hay un turno "cedible",
+                        // así que ocultamos la sección "Tu Jornada para la Fecha de Cesión" (que quedó
+                        // en "Cargando…" porque en estos casos NO se llama a cargarJornadaSolicitante) y
+                        // neutralizamos el aviso genérico "No hay jornada a ceder": el mensaje de arriba
+                        // ya explica el caso (y en temporada guía a cobertura).
+                        if (esFestivoDescansa || esTemporadaDiaCompleto) {
+                            if (turnoSolicitanteInfo) turnoSolicitanteInfo.style.display = 'none';
+                            if (turnoSolicitanteDetalles) turnoSolicitanteDetalles.innerHTML = '';
+                            if (salasSolicitanteDetalles) salasSolicitanteDetalles.innerHTML = '';
+                            // Resetear flags para que actualizarAvisoSinJornadaCeder no dispare el aviso
+                            // con datos de un fetch previo, y ocultarlo explícitamente.
+                            solicitanteCesionTurnoFetchCompleto = false;
+                            solicitanteCesionEsDoblada = false;
+                            ultimaJornadaSolicitanteCesion = null;
+                            const avisoSinJornada = document.getElementById('aviso_sin_jornada_ceder_cesion');
+                            if (avisoSinJornada) avisoSinJornada.style.display = 'none';
+                        }
+
+                        // Solo festivo: reflejar la razón en el recuadro de festivo (el que ve primero el
+                        // explorador), reemplazando el texto genérico "la fecha de pago debe ser otro
+                        // festivo del mismo mes".
                         if (esFestivoDescansa) {
                             const descripcionFestivo = document.getElementById('descripcion_festivo_cesion');
                             if (indicadorFestivoCesion && descripcionFestivo) {
                                 indicadorFestivoCesion.style.display = 'block';
                                 descripcionFestivo.innerHTML = `<span class="d-block">${data.mensaje_festivo_descansa}</span>`;
                             }
-                            // Ocultar la sección de turno del solicitante (ese día no tiene turno).
-                            if (turnoSolicitanteInfo) turnoSolicitanteInfo.style.display = 'none';
-                            if (turnoSolicitanteDetalles) turnoSolicitanteDetalles.innerHTML = '';
-                            if (salasSolicitanteDetalles) salasSolicitanteDetalles.innerHTML = '';
                         }
 
-                        // Deshabilitar todos los controles del formulario
-                        deshabilitarFormularioDoblada();
-                        limpiarEstadoDoblada();
                         return;
                     }
                     
