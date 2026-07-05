@@ -1032,11 +1032,26 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
                     (dia_trabajo == 'sabado' and sabado in comprometidos)
                     or (dia_trabajo == 'domingo' and domingo in comprometidos)
                 )
+                seleccionable = bool(dia_trabajo) and sabado >= hoy and not dia_comprometido
+                # Motivo por el cual NO es seleccionable (para mostrarlo en la tarjeta).
+                motivo = None
+                if not seleccionable:
+                    if sabado < hoy:
+                        motivo = 'Fin de semana pasado'
+                    elif dia_comprometido:
+                        motivo = 'Ese día ya está comprometido en otra solicitud aprobada'
+                    elif trabaja_sab and trabaja_dom:
+                        motivo = 'Trabajas los dos días — no hay un solo día para intercambiar'
+                    elif not trabaja_sab and not trabaja_dom:
+                        motivo = 'Descansas todo el fin de semana — nada que intercambiar'
+                    else:
+                        motivo = 'No disponible para cambio'
                 out.append({
                     'sabado': sabado.isoformat(),
                     'domingo': domingo.isoformat(),
                     'dia_trabajo': dia_trabajo,
-                    'seleccionable': bool(dia_trabajo) and sabado >= hoy and not dia_comprometido,
+                    'seleccionable': seleccionable,
+                    'motivo': motivo,
                 })
                 d += _td(days=7)
             return out

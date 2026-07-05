@@ -180,6 +180,7 @@
                     domingo: parseISO(f.domingo),
                     diaTrabajo: f.dia_trabajo,        // 'sabado' | 'domingo' | null
                     seleccionable: f.seleccionable,
+                    motivo: f.motivo,                 // razón si NO es seleccionable
                 }));
                 window._sinTurnosMes = !!(res && res.sin_turnos_mes);
                 // Sincronizar el selector con el mes que realmente devolvió el backend
@@ -254,7 +255,10 @@
         if (!f.seleccionable) card.classList.add('disabled');
 
         let detalle;
-        if (f.diaTrabajo === 'sabado') {
+        // Deshabilitado: mostrar el MOTIVO (igual que en D FDS), no solo "no disponible".
+        if (!f.seleccionable) {
+            detalle = `<div class="semana-jor neutro">${f.motivo || 'No disponible para cambio'}</div>`;
+        } else if (f.diaTrabajo === 'sabado') {
             detalle = '<div class="semana-jor yo">Trabajas SÁBADO</div><div class="semana-jor descanso">Descansas domingo</div>';
         } else if (f.diaTrabajo === 'domingo') {
             detalle = '<div class="semana-jor yo">Trabajas DOMINGO</div><div class="semana-jor descanso">Descansas sábado</div>';
