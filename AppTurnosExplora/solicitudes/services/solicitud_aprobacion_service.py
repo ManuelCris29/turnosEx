@@ -64,6 +64,33 @@ class SolicitudAprobacionService:
     """
 
     @staticmethod
+    def _verificar_sancion_partes(solicitud):
+        """
+        Verifica que ni el solicitante ni el receptor estén sancionados. Refresca la
+        auto-sanción por deuda de cada uno antes de comprobar. Devuelve (ok, mensaje).
+
+        Un sancionado no puede participar en ninguna solicitud en ningún rol; este
+        chequeo es el backstop común a las dos vías de aprobación (receptor y supervisor).
+        """
+        from empleados.sancion_utils import sancion_activa
+        partes = [
+            (solicitud.explorador_solicitante, 'El solicitante'),
+            (solicitud.explorador_receptor, 'El compañero'),
+        ]
+        for emp, etiqueta in partes:
+            if emp is None:
+                continue
+            try:
+                from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+                DeudaCorporativaService.gestionar_sancion_por_deuda(emp)
+            except Exception:
+                logger.exception('Error gestionando sanción automática por deuda de %s', getattr(emp, 'id', '?'))
+            if sancion_activa(emp):
+                nombre = getattr(emp, 'nombre', None) or str(emp)
+                return False, f"No se puede aprobar: {etiqueta} ({nombre}) está sancionado y no puede participar en la solicitud."
+        return True, ""
+
+    @staticmethod
     def _confirmar_aprobacion_y_aplicar(solicitud):
         """
         Marca la solicitud como 'aprobada' y aplica sus cambios de forma ATÓMICA.
@@ -86,6 +113,15 @@ class SolicitudAprobacionService:
         if not ok_reval:
             logger.warning("Re-validación falló para solicitud ID %d: %s", solicitud.id, msg_reval)
             return False, f"No se puede aprobar: {msg_reval}"
+
+        # Backstop de sanción: si CUALQUIER parte (solicitante o receptor) está sancionada en el
+        # momento de materializar el cambio, no se aplica. La sanción es automática por deuda y
+        # puede caer ENTRE el envío y la aprobación; sin esta guardia, un sancionado podría
+        # participar pidiéndole a un compañero que enviara la solicitud (o aprobándola él mismo).
+        ok_sancion, msg_sancion = SolicitudAprobacionService._verificar_sancion_partes(solicitud)
+        if not ok_sancion:
+            logger.warning("Aprobación bloqueada por sanción — solicitud ID %d: %s", solicitud.id, msg_sancion)
+            return False, msg_sancion
 
         transicionar(solicitud, 'aprobada', save=False)
         solicitud.fecha_resolucion = timezone.now()
@@ -234,6 +270,12 @@ class SolicitudAprobacionService:
                         return False, "Esta solicitud ya fue rechazada"
                     else:
                         return False, "La solicitud no está pendiente de aprobación"
+
+                # Sanción: un receptor sancionado no puede aceptar/participar (aunque otro haya
+                # enviado la solicitud en su nombre). Mensaje claro al intentar aceptar.
+                from empleados.sancion_utils import sancion_activa
+                if sancion_activa(receptor):
+                    return False, "Estás sancionado y no puedes aceptar ni participar en solicitudes de cambio de turno."
 
                 # Marcar como aprobada por receptor
                 solicitud.aprobado_receptor = True

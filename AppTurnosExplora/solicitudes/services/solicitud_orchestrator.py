@@ -28,18 +28,42 @@ class SolicitudOrchestrator:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def verificar_sancion(solicitante) -> JsonResponse | None:
-        """Gestiona la sanción automática y bloquea si el explorador está sancionado."""
+    def _refrescar_y_sancion(empleado):
+        """Refresca la auto-sanción por deuda del empleado y devuelve su sanción activa (o None)."""
+        if empleado is None:
+            return None
         try:
             from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-            DeudaCorporativaService.gestionar_sancion_por_deuda(solicitante)
+            DeudaCorporativaService.gestionar_sancion_por_deuda(empleado)
         except Exception:
-            logger.exception('Error gestionando sanción automática por deuda de %s', solicitante.id)
+            logger.exception('Error gestionando sanción automática por deuda de %s', getattr(empleado, 'id', '?'))
 
-        from empleados.sancion_utils import sancion_activa, mensaje_sancion
-        sancion = sancion_activa(solicitante)
+        from empleados.sancion_utils import sancion_activa
+        return sancion_activa(empleado)
+
+    @classmethod
+    def verificar_sancion(cls, solicitante) -> JsonResponse | None:
+        """Gestiona la sanción automática y bloquea si el SOLICITANTE está sancionado."""
+        sancion = cls._refrescar_y_sancion(solicitante)
         if sancion:
+            from empleados.sancion_utils import mensaje_sancion
             return json_error(mensaje_sancion(sancion), status=403, code='sancionado')
+        return None
+
+    @classmethod
+    def verificar_sancion_receptor(cls, receptor) -> JsonResponse | None:
+        """
+        Bloquea si el COMPAÑERO/receptor está sancionado. Un sancionado no puede
+        participar en NINGUNA solicitud ni siquiera como compañero: de lo contrario
+        bastaría con que otro enviara la solicitud en su nombre para saltarse la sanción.
+        """
+        sancion = cls._refrescar_y_sancion(receptor)
+        if sancion:
+            nombre = getattr(receptor, 'nombre', None) or str(receptor)
+            return json_error(
+                f'El compañero {nombre} está sancionado y no puede participar en la solicitud. '
+                'Elige otro compañero o espera a que termine su sanción.',
+                status=403, code='sancionado_receptor')
         return None
 
     @staticmethod
@@ -180,6 +204,11 @@ class SolicitudOrchestrator:
             except Empleado.DoesNotExist:
                 return json_error('Compañero no válido.', status=400, code='validation_error')
 
+            # Sanción del compañero: un sancionado no puede participar en la doblada.
+            sancion_receptor_resp = cls.verificar_sancion_receptor(receptor)
+            if sancion_receptor_resp:
+                return sancion_receptor_resp
+
             datos = {
                 'explorador_solicitante': solicitante,
                 'explorador_receptor': receptor,
@@ -262,6 +291,11 @@ class SolicitudOrchestrator:
             receptor = Empleado.objects.get(id=receptor_id)
         except Empleado.DoesNotExist:
             return json_error('El compañero seleccionado no existe.', status=400, code='validation_error')
+
+        # 4b. Sanción del receptor: un sancionado no puede participar ni como compañero.
+        sancion_receptor_resp = cls.verificar_sancion_receptor(receptor)
+        if sancion_receptor_resp:
+            return sancion_receptor_resp
 
         # 5. Parsear datos
         datos = SolicitudRequestParser.parse_datos(tipo_nombre, post, solicitante, receptor)
