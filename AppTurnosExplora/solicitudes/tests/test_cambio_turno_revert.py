@@ -83,3 +83,34 @@ class CTRevertTest(TestCase):
         CambioTurnoStrategy.revertir(sol)
         self.assertEqual(self._jornadas(self.sol), [('AM', None)])
         self.assertEqual(self._jornadas(self.rec), [('PM', None)])
+
+    def test_cancelar_por_flujo_completo_no_falla_por_fk_colgante(self):
+        """
+        REGRESIÓN: cancelar un CT aprobado por el flujo REAL (CancelarSolicitudUseCase) no debe
+        fallar. El revert BORRA los turnos materializados y turno_origen/turno_destino apuntaban a
+        ellos; al guardar la solicitud se reescribía un id borrado → IntegrityError. El test unitario
+        de revert no lo veía porque no llama al save() posterior del use case.
+        """
+        from django.utils import timezone
+        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+
+        Turno.objects.create(explorador=self.sol, fecha=self.fecha, jornada=self.am, sala=self.sala)
+        Turno.objects.create(explorador=self.rec, fecha=self.fecha, jornada=self.pm, sala=self.sala)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.sol, explorador_receptor=self.rec,
+            tipo_cambio=self.tipo, fecha_cambio_turno=self.fecha,
+            estado='aprobada', fecha_resolucion=timezone.now(), comentario='Prueba')
+
+        ok, msg = CambioTurnoStrategy().aplicar_cambios(sol)
+        self.assertTrue(ok, msg)
+        sol.refresh_from_db()
+        self.assertIsNotNone(sol.turno_origen_id, "El apply debió enlazar turno_origen")
+
+        # Cancelar por el flujo completo: NO debe explotar y debe restaurar los turnos.
+        okc, msgc = CancelarSolicitudUseCase().execute(sol.id, self.sol)
+        self.assertTrue(okc, f"La cancelación falló: {msgc}")
+        sol.refresh_from_db()
+        self.assertEqual(sol.estado, 'cancelada')
+        self.assertIsNone(sol.turno_origen_id, "turno_origen debió quedar en NULL tras el revert")
+        self.assertEqual(self._jornadas(self.sol), [('AM', None)])
+        self.assertEqual(self._jornadas(self.rec), [('PM', None)])

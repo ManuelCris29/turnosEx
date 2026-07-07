@@ -107,6 +107,16 @@ class CancelarSolicitudUseCase:
 
         self._revertir_por_tipo(solicitud)
 
+        # La reversión BORRA los turnos materializados (y los recrea con ids nuevos). Los FK
+        # turno_origen/turno_destino apuntaban a esos turnos borrados; en BD ya quedaron NULL
+        # (on_delete=SET_NULL), pero este objeto en memoria conserva el id viejo. Sincronizamos
+        # para no reescribir un id inexistente al guardar (evita IntegrityError al cancelar CT).
+        try:
+            solicitud.refresh_from_db(fields=['turno_origen', 'turno_destino'])
+        except Exception:
+            solicitud.turno_origen = None
+            solicitud.turno_destino = None
+
         transicionar(solicitud, 'cancelada', save=False)
         solicitud.comentario = (
             f"{solicitud.comentario or ''}\n\n"
