@@ -515,6 +515,27 @@
                             'Si necesitas otro cambio, elige otro mes con día de temporada.</div>';
                         return;
                     }
+                    // ¿Está vacío porque usó su día de temporada en un permiso de media jornada?
+                    const permisos = (data && data.permisos_temporada) || {};
+                    const permMes = Object.entries(permisos)
+                        .filter(([f]) => { const d = parseISO(f); return d.getMonth() + 1 === mes && d.getFullYear() === anio; })
+                        .sort();
+                    if (permMes.length) {
+                        const items = permMes.map(([fcomp, info]) => {
+                            const dC = parseISO(fcomp);
+                            const jt = (info.jornada_trabaja || '').toUpperCase();
+                            const otra = jt === 'AM' ? 'PM' : (jt === 'PM' ? 'AM' : '');
+                            const dT = info.fecha_trabajo ? parseISO(info.fecha_trabajo) : null;
+                            const trabajoTxt = (dT && jt) ? `trabajas <strong>${jt}</strong> el ${nombreDia(dT)} ${fmt(dT)}` : 'trabajas media jornada';
+                            const compTxt = otra ? ` y <strong>${otra}</strong> el ${nombreDia(dC)} ${fmt(dC)}` : ` y la otra media el ${nombreDia(dC)} ${fmt(dC)}`;
+                            return `<li>${trabajoTxt}${compTxt}</li>`;
+                        }).join('');
+                        cont.innerHTML = '<div class="alert-warning-info">' +
+                            '<strong>Usaste tu día de temporada en un permiso de media jornada.</strong>' +
+                            `<ul class="mb-1 mt-1">${items}</ul>` +
+                            'Por eso no tienes un día de descanso libre este mes para intercambiar (no es un error).</div>';
+                        return;
+                    }
                     cont.innerHTML = '<div class="alert-warning-info">No tienes días de descanso de temporada este mes. ' +
                         'Prueba con otro mes (el intercambio entre semana solo aplica en temporada).</div>';
                     return;
@@ -522,7 +543,9 @@
                 dias.forEach(f => {
                     const fecha = parseISO(f);
                     const card = document.createElement('div');
-                    card.className = 'descanso-card';
+                    // Color por grupo (convención anual): tu descanso lleva el color de TU jornada
+                    // (AM = azul, PM = amarillo).
+                    card.className = 'descanso-card grupo-' + MI_JORNADA.toLowerCase();
                     card.innerHTML = `<div class="descanso-dia">Descansas ${nombreDia(fecha)} ${fmt(fecha)}</div>` +
                         `<div class="descanso-grupo">Tu grupo (${MI_JORNADA})</div>`;
                     card.addEventListener('click', () => seleccionarDescanso(f, card));
@@ -574,6 +597,13 @@
                     document.getElementById('fecha_pago').value = match[0];
                     const fp = parseISO(match[0]);
                     if (infoDia) infoDia.textContent = `${nombreDia(fp)} ${fmt(fp)} — trabajas TODO el día`;
+                    // Tu día de trabajo es cuando descansa el grupo CONTRARIO: la tarjeta lleva
+                    // el color de ese grupo (AM = azul, PM = amarillo).
+                    const contCard = document.querySelector('#descanso-contrario-info .descanso-contrario-card');
+                    if (contCard) {
+                        contCard.classList.remove('grupo-am', 'grupo-pm');
+                        contCard.classList.add('grupo-' + jornadaContraria.toLowerCase());
+                    }
                     if (info) info.style.display = 'block';
                     if (subCont) subCont.style.display = 'block';
                 } else {

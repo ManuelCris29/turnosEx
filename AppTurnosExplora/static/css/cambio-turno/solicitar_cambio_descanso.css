@@ -51,3 +51,11 @@
 .descanso-card.selected { border-color: #6366f1; background: #e0e7ff; }
 .descanso-dia { font-weight: 600; color: #1e293b; margin-bottom: 4px; }
 .descanso-grupo { font-size: .85rem; color: #64748b; }
+
+/* Color por grupo (convención del calendario anual): AM = azul, PM = amarillo. */
+.descanso-card.grupo-am { border-color: #0d6efd; background: #dbeafe; }
+.descanso-card.grupo-am .descanso-dia { color: #0d6efd; }
+.descanso-card.grupo-am.selected { border-color: #0d6efd; background: #dbeafe; box-shadow: 0 4px 12px rgba(13,110,253,.25); }
+.descanso-card.grupo-pm { border-color: #f59e0b; background: #fef3c7; }
+.descanso-card.grupo-pm .descanso-dia { color: #b45309; }
+.descanso-card.grupo-pm.selected { border-color: #f59e0b; background: #fef3c7; box-shadow: 0 4px 12px rgba(245,158,11,.25); }

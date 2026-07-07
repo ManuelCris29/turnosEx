@@ -892,7 +892,26 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
                 if nombre not in cambios_temporada[f.isoformat()]:
                     cambios_temporada[f.isoformat()].append(nombre)
 
-        return json_ok({'descansos': res, 'jornada': jornada, 'cambios_temporada': cambios_temporada})
+        # Permisos de MEDIA JORNADA de temporada aprobados este año: consumen el día de descanso
+        # (fecha_compensacion), por eso ese mes no hay descanso disponible. Se devuelve para que
+        # el formulario explique el porqué en vez de mostrar el mensaje genérico.
+        permisos_temporada = {}
+        if es_propio:
+            from permisos.models import PermisoEspecial
+            for p in PermisoEspecial.objects.filter(
+                    empleado=emp, tipo='MEDIA_JORNADA_TEMPORADA', estado='APROBADO',
+                    fecha_inicio__year=anio):
+                fcomp = getattr(p, 'fecha_compensacion', None)
+                if not fcomp:
+                    continue
+                permisos_temporada[fcomp.isoformat()] = {
+                    'fecha_trabajo': p.fecha_inicio.isoformat() if p.fecha_inicio else None,
+                    'jornada_trabaja': getattr(p, 'jornada_trabaja', None),
+                }
+
+        return json_ok({'descansos': res, 'jornada': jornada,
+                        'cambios_temporada': cambios_temporada,
+                        'permisos_temporada': permisos_temporada})
 
 
 class CoberturaCandidatosView(LoginRequiredMixin, View):
