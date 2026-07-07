@@ -142,22 +142,42 @@
                 <div class="modo-toggle" style="flex-wrap:wrap;">
                   <div class="modo-btn cob-opcion" data-cob="AM">Solo AM</div>
                   <div class="modo-btn cob-opcion" data-cob="PM">Solo PM</div>
-                  <div class="modo-btn cob-opcion" data-cob="AMBAS">Día completo (1 compañero)</div>
                   <div class="modo-btn cob-opcion" data-cob="DOS">Día completo (2 compañeros)</div>
                 </div>
                 <div class="mt-2" id="cob-dia-pago-grupo" style="display:none;">
                   <label><i class="fas fa-calendar-check mr-1"></i>Día de pago (misma semana) <span class="text-danger">*</span></label>
                   <select class="form-control" id="cob-dia-pago"></select>
                   <small class="form-text text-muted">Ese día cubres al compañero lo equivalente. Debe ser de la misma semana.</small>
+                  <div id="cob-mi-jornada-pago" class="form-text" style="display:none;"></div>
                 </div>
-                <div class="mt-2" id="cob-companero-2" style="display:none;">
+                <!-- Compañero (slot 1: cubre la jornada / la AM en modo 2 compañeros) -->
+                <div class="mt-2" id="cob-candidatos-grupo" style="display:none;">
+                  <label id="cob-candidatos-label"><i class="fas fa-user mr-1"></i>Compañero que te cubre <span class="text-danger">*</span></label>
+                  <select class="form-control" id="cob-select-1">
+                    <option value="">Selecciona un compañero…</option>
+                  </select>
+                  <div id="cob-info-1" class="alert-warning-info mt-2" style="display:none;"></div>
+                </div>
+                <!-- Selector de jornada de pago: solo cuando estás libre y el compañero trabaja ambas -->
+                <div class="mt-2" id="cob-jornada-pago-grupo" style="display:none;">
+                  <label><i class="fas fa-hand-holding-usd mr-1"></i>¿Con qué jornada pagas ese día? <span class="text-danger">*</span></label>
+                  <div>
+                    <label class="mr-3" style="cursor:pointer;"><input type="radio" name="cob_jpago" value="AM" class="mr-1">AM</label>
+                    <label style="cursor:pointer;"><input type="radio" name="cob_jpago" value="PM" class="mr-1">PM</label>
+                  </div>
+                  <small class="form-text text-muted">Estás libre ese día: puedes cubrirle su AM o su PM (él descansa esa jornada).</small>
+                </div>
+                <!-- Compañero (slot 2: solo modo 2 compañeros, cubre la PM) -->
+                <div class="mt-2" id="cob-candidatos-2-grupo" style="display:none;">
                   <label><i class="fas fa-user-friends mr-1"></i>Compañero que cubre la PM <span class="text-danger">*</span></label>
-                  <select class="form-control" id="select-receptor-semana-2">
+                  <select class="form-control" id="cob-select-2">
                     <option value="">Selecciona el segundo compañero…</option>
                   </select>
+                  <div id="cob-info-2" class="alert-warning-info mt-2" style="display:none;"></div>
                   <small class="form-text text-muted">Se crearán DOS solicitudes (una por jornada), cada una se aprueba por separado.</small>
                 </div>
                 <div id="aviso-deuda-cob" class="alert-warning-info mt-2" style="display:none;"></div>
+                <div id="cob-aviso-ct" class="alert-warning-info mt-2" style="display:none;"></div>
               </div>
 
               <!-- Bloque: cambio de doblada -->
@@ -199,6 +219,7 @@
             <input type="hidden" id="submodalidad_semana" name="submodalidad_semana">
             <input type="hidden" id="tipo_cesion_input" name="tipo_cesion">
             <input type="hidden" id="jornada_cedida_input" name="jornada_cedida">
+            <input type="hidden" id="jornada_cubre_en_pago_input" name="jornada_cubre_en_pago">
 
             <!-- RESUMEN -->
             <div id="resumen-box" class="resumen-box"></div>
@@ -225,7 +246,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script>window.MI_JORNADA = "{{ mi_jornada|escapejs }}";</script>
+<script>window.MI_JORNADA = "{{ mi_jornada|escapejs }}";
+window.MI_EMPLEADO_ID = "{{ request.user.empleado.id|escapejs }}";</script>
 <script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_cambio_descanso.js' %}"></script>
 {% endblock %}

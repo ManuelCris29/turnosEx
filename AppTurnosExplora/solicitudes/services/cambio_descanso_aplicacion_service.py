@@ -437,12 +437,14 @@ class CambioDescansoAplicacionService:
         # fc: receptor suma las jornadas cedidas; solicitante se las quita.
         post_rec_fc = pre_rec_fc | cedidas
         post_sol_fc = pre_sol_fc - cedidas
-        # fp: el solicitante toma del receptor lo equivalente (media o todo su día).
+        # fp: el solicitante toma del receptor lo equivalente (media o todo su día). En cesión
+        # parcial cubre UNA jornada: la elegida `jornada_cubre_en_pago` (si estaba libre y el
+        # receptor trabajaba ambas), o en su defecto la cedida.
         if completa:
             tomadas = set(pre_rec_fp)
         else:
-            j_ced = (detalle.jornada_cedida or 'AM').upper()
-            tomadas = {j_ced} if j_ced in pre_rec_fp else (set(list(pre_rec_fp)[:1]) if pre_rec_fp else set())
+            j_pago = (getattr(detalle, 'jornada_cubre_en_pago', None) or detalle.jornada_cedida or 'AM').upper()
+            tomadas = {j_pago} if j_pago in pre_rec_fp else (set(list(pre_rec_fp)[:1]) if pre_rec_fp else set())
         post_sol_fp = pre_sol_fp | tomadas
         post_rec_fp = pre_rec_fp - tomadas
 

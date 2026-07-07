@@ -136,6 +136,9 @@ class SolicitudRequestParser:
                     'submodalidad_semana': post.get('submodalidad_semana'),
                     'tipo_cesion': post.get('tipo_cesion'),
                     'jornada_cedida': post.get('jornada_cedida'),
+                    # Cobertura: jornada que YO cubro el día de pago (si estoy libre y el
+                    # compañero trabaja ambas, puedo elegir AM o PM; si no, va la cedida).
+                    'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
                     'fecha_creacion_solicitud': timezone.now().date()}
 
         elif tipo_nombre == "DOBLADA PERMANENTE":

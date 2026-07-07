@@ -867,7 +867,129 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
         for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='mantenimiento', activo=True):
             if de.fecha.weekday() < 5 and DiaEspecial.es_mantenimiento_efectivo(de.fecha):
                 res.setdefault(de.fecha.isoformat(), 'mantenimiento')
-        return json_ok({'descansos': res, 'jornada': jornada})
+
+        # Cambios de descanso de temporada YA realizados (aprobados) este año: permite que el
+        # formulario explique "ya hiciste el cambio con X" en vez de mostrar un mensaje que
+        # parece un error cuando el único día de temporada del mes ya fue cedido. Solo aplica a
+        # la consulta de MIS descansos (es_propio); la del grupo contrario no lo necesita.
+        cambios_temporada = {}
+        if es_propio:
+            from django.db.models import Q as _Q
+            from ..models import SolicitudCambio
+            aprobadas = (SolicitudCambio.objects
+                         .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada',
+                                 fecha_cambio_turno__year=anio)
+                         .filter(_Q(explorador_solicitante=emp) | _Q(explorador_receptor=emp))
+                         .select_related('explorador_solicitante', 'explorador_receptor'))
+            for s in aprobadas:
+                f = s.fecha_cambio_turno
+                if not f or f.weekday() >= 5:
+                    continue  # los de fin de semana no son intercambios "entre semana" de temporada
+                contraparte = (s.explorador_receptor if s.explorador_solicitante_id == emp.id
+                               else s.explorador_solicitante)
+                nombre = getattr(contraparte, 'nombre', None) or str(contraparte)
+                cambios_temporada.setdefault(f.isoformat(), [])
+                if nombre not in cambios_temporada[f.isoformat()]:
+                    cambios_temporada[f.isoformat()].append(nombre)
+
+        return json_ok({'descansos': res, 'jornada': jornada, 'cambios_temporada': cambios_temporada})
+
+
+class CoberturaCandidatosView(LoginRequiredMixin, View):
+    """
+    Candidatos para "Que me cubran mi día" (cobertura de temporada), evaluados en el
+    DÍA DE TRABAJO (`fecha_trabajo`) para la jornada `opcion` (AM o PM).
+
+    Regla: para cubrir mi jornada `opcion` ese día, el compañero NO debe trabajar YA esa
+    jornada (dejaría un hueco). Puede estar:
+      - libre/descansando ese día  → cubre sin deuda,
+      - trabajando la jornada CONTRARIA → cubre pero dobla sobre su jornada → 30 min de deuda.
+    Se descarta a quien ya trabaja `opcion`, a quien ya tiene el día completo, o a quien
+    tiene el día comprometido en otra solicitud. Devuelve tarjetas con disponibilidad +
+    motivo + su jornada el día que cubre y el día de pago (informativo para el front).
+    """
+    def get(self, request):
+        from datetime import datetime as _dt
+        from empleados.models import Empleado
+        from turnos.models import AsignarJornadaExplorador
+        from turnos.services.turno_service import TurnoService
+        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
+
+        emp = getattr(request.user, 'empleado', None)
+        if not emp:
+            return json_ok({'candidatos': []})
+
+        def _fecha(k):
+            v = request.GET.get(k)
+            try:
+                return _dt.strptime(v, '%Y-%m-%d').date() if v else None
+            except ValueError:
+                return None
+
+        fecha_trabajo = _fecha('fecha_trabajo')
+        fecha_pago = _fecha('fecha_pago')
+        opcion = (request.GET.get('opcion') or '').upper()
+        if not fecha_trabajo or opcion not in ('AM', 'PM'):
+            return json_error('Parámetros inválidos (fecha_trabajo, opcion=AM|PM)',
+                              status=400, code='bad_request')
+
+        # Grupo contrario (quienes descansan mi día de trabajo por temporada).
+        asg = (AsignarJornadaExplorador.objects.filter(explorador=emp, fecha_inicio__lte=fecha_trabajo)
+               .select_related('jornada').order_by('-fecha_inicio').first())
+        mi_grupo = asg.jornada.nombre.upper() if asg else None
+        contrario = 'PM' if mi_grupo == 'AM' else 'AM'
+
+        empleados = list(Empleado.objects.filter(activo=True).exclude(id=emp.id).select_related('user'))
+        bases = {}
+        for a in (AsignarJornadaExplorador.objects.filter(explorador__in=empleados, fecha_inicio__lte=fecha_trabajo)
+                  .select_related('jornada').order_by('explorador_id', '-fecha_inicio')):
+            bases.setdefault(a.explorador_id, a.jornada.nombre.upper())
+
+        def _label(js):
+            if js >= {'AM', 'PM'}:
+                return 'DOBLADA'
+            if 'AM' in js:
+                return 'AM'
+            if 'PM' in js:
+                return 'PM'
+            return 'DESCANSO'
+
+        candidatos = []
+        for c in empleados:
+            if bases.get(c.id) != contrario:
+                continue
+            work = _App._jornadas_actuales(c, fecha_trabajo)
+            disponible, motivo, genera_deuda = True, '', False
+            comprometido = TurnoService.dia_comprometido_por_solicitud(c, fecha_trabajo)
+            if opcion in work:
+                disponible = False
+                motivo = f'Ya trabaja {opcion} el {fecha_trabajo:%d/%m}; no puede cubrir esa jornada.'
+            elif work >= {'AM', 'PM'}:
+                disponible = False
+                motivo = f'Ya tiene el día completo (AM+PM) el {fecha_trabajo:%d/%m}.'
+            elif comprometido:
+                disponible = False
+                motivo = f'Ese día ya está comprometido en otra solicitud ({comprometido.get("motivo")}).'
+            else:
+                # Libre → sin deuda; trabaja la jornada contraria → dobla → 30 min de deuda.
+                genera_deuda = bool(work)
+
+            jornada_pago = _label(_App._jornadas_actuales(c, fecha_pago)) if fecha_pago else None
+            candidatos.append({
+                'id': c.id,
+                'nombre': c.nombre,
+                'apellido': c.apellido,
+                'jornada_cubre': _label(work),
+                'jornada_pago': jornada_pago,
+                'disponible': disponible,
+                'genera_deuda': genera_deuda,
+                'motivo': motivo,
+            })
+
+        candidatos.sort(key=lambda x: (not x['disponible'], x['nombre']))
+        # MI jornada en el día de pago (para mostrar "tú tienes X · el compañero tiene Y").
+        mi_jornada_pago = _label(_App._jornadas_actuales(emp, fecha_pago)) if fecha_pago else None
+        return json_ok({'candidatos': candidatos, 'opcion': opcion, 'mi_jornada_pago': mi_jornada_pago})
 
 
 class DobladasSemanaView(LoginRequiredMixin, View):

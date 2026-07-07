@@ -167,6 +167,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             'submodalidad_semana': getattr(det, 'submodalidad_semana', None) if det else None,
             'tipo_cesion': det.tipo_cesion if det else None,
             'jornada_cedida': det.jornada_cedida if det else None,
+            'jornada_cubre_en_pago': getattr(det, 'jornada_cubre_en_pago', None) if det else None,
         }
 
     # --------------------------------------------------------------- validación
@@ -514,9 +515,18 @@ class CambioDescansoStrategy(SolicitudStrategy):
 
         tipo_cesion = datos.get('tipo_cesion') or 'cesion_completa'
         completa = tipo_cesion == 'cesion_completa'
+        # La cobertura de día completo con UN solo compañero se retiró: su resultado es idéntico
+        # a «Intercambiar el día» (mismo estado final, sin deuda). En cobertura solo quedan Solo AM,
+        # Solo PM y día completo con DOS compañeros (dos solicitudes parciales AM+PM). No se bloquea
+        # en re-validación para no romper solicitudes en curso creadas antes del cambio.
+        if completa and not datos.get('es_revalidacion'):
+            return False, (
+                "Para que una sola persona tome tu día completo usa «Intercambiar el día». "
+                "En «Que me cubran mi día» elige Solo AM, Solo PM, o día completo con 2 compañeros."
+            )
         j = (datos.get('jornada_cedida') or '').upper()
         if not completa and j not in ('AM', 'PM'):
-            return False, "Debes indicar qué jornada te cubrirán (AM o PM), o ceder el día completo."
+            return False, "Debes indicar qué jornada te cubrirán (AM o PM)."
         cedidas = {'AM', 'PM'} if completa else {j}
 
         # DUPLICADOS específicos de cobertura (por jornada, no por fecha): permite las 2
@@ -583,11 +593,21 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 f"({comp.get('motivo')})."
             )
         pre_sol_fp = _App._jornadas_actuales(solicitante, fecha_pago)
-        tomadas = set(pre_rec_fp) if completa else ({j} if j in pre_rec_fp else set(list(pre_rec_fp)[:1]))
+        # Jornada que YO cubro el día de pago: la elegida (si estoy libre y el compañero
+        # trabaja ambas puedo escoger AM o PM); si no viene, la cedida.
+        j_pago = (datos.get('jornada_cubre_en_pago') or '').upper()
+        if j_pago not in ('AM', 'PM'):
+            j_pago = j
+        if not completa and j_pago and j_pago not in pre_rec_fp:
+            return False, (
+                f"Tu compañero no trabaja {j_pago} el {fecha_pago.strftime('%d/%m/%Y')}; "
+                f"elige otra jornada de pago."
+            )
+        tomadas = set(pre_rec_fp) if completa else ({j_pago} if j_pago in pre_rec_fp else set(list(pre_rec_fp)[:1]))
         if tomadas & pre_sol_fp:
             return False, (
                 f"El {fecha_pago.strftime('%d/%m/%Y')} ya trabajas esa jornada; "
-                f"elige otro día de la semana para pagar."
+                f"para pagar con esa jornada primero haz un Cambio de Turno sencillo, o elige otra."
             )
         return True, "Solicitud de cobertura válida"
 
@@ -656,6 +676,11 @@ class CambioDescansoStrategy(SolicitudStrategy):
             submodalidad = None if es_finde else (datos.get('submodalidad_semana') or 'intercambio_dia')
             tipo_cesion = datos.get('tipo_cesion') or 'cesion_completa'
             jornada_cedida = (datos.get('jornada_cedida') or '').upper() or None
+            # Cobertura: jornada que el solicitante cubre el día de pago (elegible cuando está
+            # libre y el receptor trabaja ambas). Si no viene, se usa la cedida al aplicar.
+            jornada_cubre_pago = (datos.get('jornada_cubre_en_pago') or '').upper() or None
+            if jornada_cubre_pago not in ('AM', 'PM'):
+                jornada_cubre_pago = None
             # minutos_deuda informativo: la deuda real se calcula al aplicar según la
             # regla de negocio (solo quien dobla sobre su propia jornada).
             minutos = 30 if submodalidad == 'cobertura_misma_semana' else 0
@@ -675,6 +700,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
                     minutos_deuda=minutos,
                     tipo_cesion=tipo_cesion,
                     jornada_cedida=jornada_cedida,
+                    jornada_cubre_en_pago=jornada_cubre_pago,
                     submodalidad_semana=submodalidad,
                     empleado_receptor=receptor,
                 )

@@ -26,10 +26,13 @@
         DESCANSOS: '/solicitudes/descansos-semana-usuario/',
         PROCESAR: '/solicitudes/procesar-solicitud/',
         DOBLADAS_SEMANA: '/solicitudes/dobladas-semana/',
+        COBERTURA_CANDIDATOS: '/solicitudes/cobertura-candidatos/',
+        COINCIDENCIA: '/solicitudes/verificar-coincidencia-jornadas/',
         PERMISO_MEDIA_JORNADA: '/permisos/permisos-especiales/media-jornada/create/',
     };
 
     const MI_JORNADA = (window.MI_JORNADA || '').toUpperCase();
+    const MI_EMPLEADO_ID = window.MI_EMPLEADO_ID || '';
     const TIPO_ID = document.getElementById('tipo_solicitud_id').value;
 
     let modo = 'finde';
@@ -46,9 +49,13 @@
     // Sub-modalidades entre semana (temporada)
     let subtipoSemana = null;        // intercambio_dia | jornadas_partidas | cobertura_misma_semana | cambio_doblada | permiso_media_jornada
     let jpJornada = null;            // jornadas_partidas: jornada que tomo yo (AM/PM)
-    let cobOpcion = null;            // cobertura: AM | PM | AMBAS | DOS
+    let cobOpcion = null;            // cobertura: AM | PM | DOS (el día completo con 1 compañero se quitó: lo cubre "Intercambiar el día")
     let cobDiaPago = null;           // cobertura: ISO del día de pago
     let empleadoReceptor2 = null;    // cobertura DOS: segundo compañero (cubre PM)
+    let coberturaBloqueoCT = false;  // cobertura: pago con misma jornada → hay que hacer un CT sencillo
+    let miJornadaPago = null;        // cobertura: mi jornada en el día de pago (para "tú tienes X")
+    let cobJornadaPago = null;       // cobertura: jornada elegida para pagar (AM/PM) cuando estoy libre
+    let cobCandidato1 = null;        // cobertura: candidato del slot 1 seleccionado (para refrescar info)
     let dobladaSel = null;           // cambio_doblada: {empleado_id, nombre, fecha}
     let permJornada = null;          // permiso: jornada que trabajo mi día completo
 
@@ -489,6 +496,25 @@
                     .sort();
                 cont.innerHTML = '';
                 if (!dias.length) {
+                    // ¿Está vacío porque el (único) día de temporada del mes YA se cambió?
+                    // En ese caso lo explicamos con el/los compañero(s) para que no parezca un error.
+                    const cambios = (data && data.cambios_temporada) || {};
+                    const cambiosMes = Object.entries(cambios)
+                        .filter(([f]) => { const d = parseISO(f); return d.getMonth() + 1 === mes && d.getFullYear() === anio; })
+                        .sort();
+                    if (cambiosMes.length) {
+                        const items = cambiosMes.map(([f, nombres]) => {
+                            const d = parseISO(f);
+                            const conQuien = (nombres && nombres.length) ? ` con ${nombres.join(' y ')}` : '';
+                            return `<li>${nombreDia(d)} ${fmt(d)}${conQuien}</li>`;
+                        }).join('');
+                        cont.innerHTML = '<div class="alert-warning-info">' +
+                            '<strong>Ya hiciste el cambio de descanso de temporada de este mes.</strong>' +
+                            `<ul class="mb-1 mt-1">${items}</ul>` +
+                            'Por eso no aparece disponible para intercambiar (no es un error). ' +
+                            'Si necesitas otro cambio, elige otro mes con día de temporada.</div>';
+                        return;
+                    }
                     cont.innerHTML = '<div class="alert-warning-info">No tienes días de descanso de temporada este mes. ' +
                         'Prueba con otro mes (el intercambio entre semana solo aplica en temporada).</div>';
                     return;
@@ -634,7 +660,7 @@
                     `<div>El ${dPago} pagas a cada uno su media jornada. Se crean <strong>2 solicitudes</strong>.</div>`;
             } else {
                 if (!compa) { resumen.classList.remove('show'); return; }
-                const que = cobOpcion === 'AMBAS' ? 'el día completo (AM y PM)' : `la jornada ${cobOpcion}`;
+                const que = `la jornada ${cobOpcion}`;
                 html = `<div style="font-weight:600;margin-bottom:6px;"><i class="fas fa-hands-helping mr-1"></i> Cobertura misma semana</div>` +
                     `<div>El ${dTrab}: <strong>${compa}</strong> te cubre ${que}.</div>` +
                     `<div>El ${dPago} le pagas lo equivalente.</div>`;
@@ -685,11 +711,20 @@
         };
         if (bloques[st]) document.getElementById(bloques[st]).style.display = 'block';
 
-        // Compañero: no aplica en cambio_doblada (viene de la doblada) ni en permiso
+        // Reset del sub-flujo de cobertura (tarjetas) al cambiar de sub-tipo.
+        empleadoReceptor2 = null; coberturaBloqueoCT = false;
+        cobJornadaPago = null; cobCandidato1 = null;
+        ['cob-candidatos-grupo', 'cob-candidatos-2-grupo', 'cob-dia-pago-grupo', 'cob-jornada-pago-grupo',
+         'aviso-deuda-cob', 'cob-aviso-ct', 'cob-mi-jornada-pago', 'cob-info-1', 'cob-info-2'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.style.display = 'none';
+        });
+
+        // Compañero: en COBERTURA se elige con tarjetas (no el select compartido); en
+        // cambio_doblada viene de la doblada y en permiso no aplica.
         const compa = document.getElementById('compa-container-semana');
         const label = document.getElementById('label-receptor-semana');
         const hint = document.getElementById('hint-receptor-semana');
-        if (st === 'cambio_doblada' || st === 'permiso_media_jornada') {
+        if (st === 'cambio_doblada' || st === 'permiso_media_jornada' || st === 'cobertura_misma_semana') {
             compa.style.display = 'none';
         } else {
             compa.style.display = 'block';
@@ -728,17 +763,23 @@
             document.querySelectorAll('.cob-opcion').forEach(b => b.classList.remove('active'));
             this.classList.add('active');
             cobOpcion = this.dataset.cob;
+            // Reset de selección de compañeros al cambiar de opción.
+            empleadoReceptor = null; empleadoReceptor2 = null; coberturaBloqueoCT = false;
+            cobJornadaPago = null; cobCandidato1 = null;
+            document.getElementById('empleado_receptor').value = '';
+            document.getElementById('cob-aviso-ct').style.display = 'none';
+            document.getElementById('cob-jornada-pago-grupo').style.display = 'none';
             document.getElementById('cob-dia-pago-grupo').style.display = 'block';
-            document.getElementById('cob-companero-2').style.display = cobOpcion === 'DOS' ? 'block' : 'none';
-            if (cobOpcion === 'DOS') clonarOpcionesReceptor2();
-            const lbl = document.getElementById('cob-label-jornada');
-            if (lbl) lbl.textContent = cobOpcion === 'DOS' ? '(cubre la AM)' :
-                (cobOpcion === 'AMBAS' ? '(el día completo)' : `(la ${cobOpcion})`);
+            const lbl = document.getElementById('cob-candidatos-label');
+            if (lbl) lbl.innerHTML = cobOpcion === 'DOS'
+                ? '<i class="fas fa-user mr-1"></i>Compañero que cubre la AM <span class="text-danger">*</span>'
+                : `<i class="fas fa-user mr-1"></i>Compañero que te cubre (la ${cobOpcion}) <span class="text-danger">*</span>`;
             const aviso = document.getElementById('aviso-deuda-cob');
             aviso.style.display = 'block';
             aviso.innerHTML = '<i class="fas fa-info-circle mr-1"></i> <strong>Deuda de 30 min:</strong> solo la debe ' +
                 'quien termine doblando sobre su PROPIA jornada (tú al pagar en un día donde ya trabajas media, o el ' +
                 'compañero si ya tenía media ese día). Cubrir o pagar en el día libre NO genera deuda.';
+            recargarCandidatosCobertura();
             actualizarResumenSemana();
         });
     });
@@ -760,24 +801,230 @@
             sel.appendChild(o);
         }
         cobDiaPago = sel.value || null;
-        sel.onchange = function () { cobDiaPago = this.value || null; actualizarResumenSemana(); };
-    }
-
-    function clonarOpcionesReceptor2() {
-        const src = document.getElementById('select-receptor-semana');
-        const dst = document.getElementById('select-receptor-semana-2');
-        dst.innerHTML = '<option value="">Selecciona el segundo compañero…</option>';
-        Array.from(src.options).forEach(o => {
-            if (!o.value) return;
-            const c = o.cloneNode(true);
-            c.selected = false;
-            dst.appendChild(c);
-        });
-        dst.onchange = function () {
-            const opt = this.options[this.selectedIndex];
-            empleadoReceptor2 = (this.value && opt.dataset.emp) ? JSON.parse(opt.dataset.emp) : null;
+        sel.onchange = function () {
+            cobDiaPago = this.value || null;
+            // El día de pago cambia la jornada_pago de cada candidato y la validación de coincidencia.
+            recargarCandidatosCobertura();
+            verificarPagoCobertura();
             actualizarResumenSemana();
         };
+    }
+
+    // Carga los desplegables de candidatos según la opción elegida (uno, o dos en modo DOS).
+    function recargarCandidatosCobertura() {
+        if (!cobOpcion || !miDiaTrabajo()) return;
+        const g1 = document.getElementById('cob-candidatos-grupo');
+        const g2 = document.getElementById('cob-candidatos-2-grupo');
+        g1.style.display = 'block';
+        if (cobOpcion === 'DOS') {
+            g2.style.display = 'block';
+            cargarCandidatosCobertura('AM', 'cob-select-1', 1);
+            cargarCandidatosCobertura('PM', 'cob-select-2', 2);
+        } else {
+            g2.style.display = 'none';
+            cargarCandidatosCobertura(cobOpcion, 'cob-select-1', 1);
+        }
+    }
+
+    // Llena un <select> con los candidatos: disponibles seleccionables; no disponibles como
+    // opción DESHABILITADA con su motivo. Los datos completos van en dataset.cand para el
+    // detalle del seleccionado (jornada que cubre / jornada de pago / deuda).
+    function cargarCandidatosCobertura(opcion, selectId, slot) {
+        const sel = document.getElementById(selectId);
+        sel.innerHTML = '<option value="">Cargando…</option>';
+        const params = new URLSearchParams({ fecha_trabajo: miDiaTrabajo(), opcion });
+        if (cobDiaPago) params.set('fecha_pago', cobDiaPago);
+        fetch(`${URLs.COBERTURA_CANDIDATOS}?${params.toString()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(res => {
+                const data = (res && res.data) || res || {};
+                const cands = data.candidatos || [];
+                miJornadaPago = data.mi_jornada_pago || null;
+                mostrarMiJornadaPago();
+                const disp = cands.filter(c => c.disponible);
+                const nodisp = cands.filter(c => !c.disponible);
+                sel.innerHTML = `<option value="">${slot === 2 ? 'Selecciona el segundo compañero…' : 'Selecciona un compañero…'}</option>`;
+                disp.forEach(c => {
+                    const o = document.createElement('option');
+                    o.value = c.id;
+                    o.textContent = `${c.nombre} ${c.apellido}` + (c.genera_deuda ? ' — dobla (30 min)' : '');
+                    o.dataset.cand = JSON.stringify(c);
+                    sel.appendChild(o);
+                });
+                if (nodisp.length) {
+                    const og = document.createElement('optgroup');
+                    og.label = 'No disponibles';
+                    nodisp.forEach(c => {
+                        const o = document.createElement('option');
+                        o.disabled = true;
+                        o.textContent = `${c.nombre} ${c.apellido} — ${c.motivo}`;
+                        og.appendChild(o);
+                    });
+                    sel.appendChild(og);
+                }
+                // Reset de la selección de este slot al recargar la lista.
+                const infoId = slot === 2 ? 'cob-info-2' : 'cob-info-1';
+                const info = document.getElementById(infoId);
+                if (info) info.style.display = 'none';
+                if (slot === 2) {
+                    empleadoReceptor2 = null;
+                } else {
+                    empleadoReceptor = null;
+                    cobCandidato1 = null;
+                    cobJornadaPago = null;
+                    document.getElementById('empleado_receptor').value = '';
+                    document.getElementById('cob-jornada-pago-grupo').style.display = 'none';
+                    coberturaBloqueoCT = false;
+                    document.getElementById('cob-aviso-ct').style.display = 'none';
+                }
+            })
+            .catch(() => { sel.innerHTML = '<option value="">Error cargando compañeros</option>'; });
+    }
+
+    // Muestra el selector "¿con qué jornada pagas?" solo cuando hay elección real: opción simple
+    // (AM/PM), estoy LIBRE el día de pago, y el compañero trabaja AMBAS ese día. Default = cedida.
+    function actualizarSelectorJornadaPago(c) {
+        const grupo = document.getElementById('cob-jornada-pago-grupo');
+        const puedeElegir = (cobOpcion === 'AM' || cobOpcion === 'PM')
+            && miJornadaPago === 'DESCANSO' && c && c.jornada_pago === 'DOBLADA';
+        if (puedeElegir) {
+            if (cobJornadaPago !== 'AM' && cobJornadaPago !== 'PM') cobJornadaPago = cobOpcion; // default: la cedida
+            document.querySelectorAll('input[name="cob_jpago"]').forEach(r => { r.checked = (r.value === cobJornadaPago); });
+            grupo.style.display = 'block';
+        } else {
+            grupo.style.display = 'none';
+            cobJornadaPago = null; // sin elección → el backend usa la jornada cedida
+        }
+    }
+
+    // Refresca la línea de info del slot 1 con la jornada de pago EFECTIVA (elegida o cedida).
+    function refrescarInfoSlot1() {
+        if (!cobCandidato1) return;
+        const jornadaCubierta = cobJornadaPago || (cobOpcion === 'DOS' ? 'AM' : cobOpcion);
+        mostrarInfoCandidato(cobCandidato1, 'cob-info-1', jornadaCubierta);
+    }
+
+    document.querySelectorAll('input[name="cob_jpago"]').forEach(r => {
+        r.addEventListener('change', function () {
+            cobJornadaPago = this.value;
+            refrescarInfoSlot1();
+            actualizarResumenSemana();
+        });
+    });
+
+    // Línea persistente bajo el día de pago: MI jornada ese día (independiente del compañero).
+    function mostrarMiJornadaPago() {
+        const el = document.getElementById('cob-mi-jornada-pago');
+        if (!el) return;
+        const pago = cobDiaPago ? fmt(parseISO(cobDiaPago)) : '';
+        if (!miJornadaPago || !pago) { el.style.display = 'none'; return; }
+        const txt = miJornadaPago === 'DESCANSO'
+            ? 'estás <strong>libre</strong> (puedes cubrir sin deuda)'
+            : `trabajas <strong>${miJornadaPago}</strong>`;
+        el.style.display = 'block';
+        el.innerHTML = `<i class="fas fa-user-clock mr-1"></i>El día de pago (${pago}) ${txt}.`;
+    }
+
+    // Detalle del compañero elegido: su jornada el día que cubre + qué pasa el día de pago.
+    // OJO: aunque el compañero trabaje DOBLADA el día de pago, tú solo devuelves UNA jornada
+    // (la que cubres), no las dos. `jornadaCubierta` es la jornada que le pagas (la cedida).
+    function mostrarInfoCandidato(c, infoId, jornadaCubierta) {
+        const info = document.getElementById(infoId);
+        if (!info) return;
+        const work = miDiaTrabajo() ? fmt(parseISO(miDiaTrabajo())) : '';
+        const pago = cobDiaPago ? fmt(parseISO(cobDiaPago)) : '';
+        const estadoWork = c.jornada_cubre === 'DESCANSO'
+            ? 'está <strong>libre</strong> (por eso puede cubrirte)'
+            : `trabaja <strong>${c.jornada_cubre}</strong>`;
+        const cubreDeuda = c.genera_deuda
+            ? ' Al cubrirte queda AM+PM ese día → <strong>30 min</strong> para él.'
+            : '';
+
+        // Día de pago: solo devuelves UNA jornada (la cedida). Se muestra la jornada del
+        // compañero ese día como contexto y la consecuencia según TU jornada ese día.
+        let pagoTxt = '';
+        if (pago) {
+            const suTxt = c.jornada_pago === 'DESCANSO' ? 'libre' : (c.jornada_pago || '—');
+            let consecuencia;
+            if (miJornadaPago === 'DESCANSO') {
+                consecuencia = `estás <strong>libre</strong> → le cubres su <strong>${jornadaCubierta}</strong> (él descansa esa jornada). Sin deuda.`;
+            } else if (miJornadaPago === jornadaCubierta) {
+                consecuencia = `tú también trabajas <strong>${jornadaCubierta}</strong> ese día → no puedes cubrir esa jornada. Hazlo con un Cambio de Turno sencillo (aviso abajo).`;
+            } else {
+                consecuencia = `le cubres su <strong>${jornadaCubierta}</strong> y quedas AM+PM → <strong>30 min</strong> tuyos.`;
+            }
+            pagoTxt = `<br><i class="fas fa-calendar-check mr-1"></i>El día de pago (${pago}): ${c.nombre} trabaja <strong>${suTxt}</strong>; ${consecuencia}`;
+        }
+
+        info.style.display = 'block';
+        info.innerHTML = `<i class="fas fa-info-circle mr-1"></i>Ese día (${work}) ${estadoWork}.${cubreDeuda}${pagoTxt}`;
+    }
+
+    // Handlers de los desplegables de compañero (se registran una sola vez).
+    (function registrarSelectsCobertura() {
+        const s1 = document.getElementById('cob-select-1');
+        const s2 = document.getElementById('cob-select-2');
+        if (s1) s1.addEventListener('change', function () {
+            const o = this.options[this.selectedIndex];
+            const c = (this.value && o.dataset.cand) ? JSON.parse(o.dataset.cand) : null;
+            if (c) {
+                empleadoReceptor = { id: c.id, nombre: c.nombre, apellido: c.apellido };
+                cobCandidato1 = c;
+                document.getElementById('empleado_receptor').value = c.id;
+                actualizarSelectorJornadaPago(c);
+                refrescarInfoSlot1();
+                verificarPagoCobertura();
+            } else {
+                empleadoReceptor = null;
+                cobCandidato1 = null;
+                document.getElementById('empleado_receptor').value = '';
+                document.getElementById('cob-info-1').style.display = 'none';
+                document.getElementById('cob-jornada-pago-grupo').style.display = 'none';
+                coberturaBloqueoCT = false;
+                document.getElementById('cob-aviso-ct').style.display = 'none';
+            }
+            actualizarResumenSemana();
+        });
+        if (s2) s2.addEventListener('change', function () {
+            const o = this.options[this.selectedIndex];
+            const c = (this.value && o.dataset.cand) ? JSON.parse(o.dataset.cand) : null;
+            if (c) {
+                empleadoReceptor2 = { id: c.id, nombre: c.nombre, apellido: c.apellido };
+                mostrarInfoCandidato(c, 'cob-info-2', 'PM');
+            } else {
+                empleadoReceptor2 = null;
+                document.getElementById('cob-info-2').style.display = 'none';
+            }
+            actualizarResumenSemana();
+        });
+    })();
+
+    // Valida el DÍA DE PAGO: si el emisor y el compañero tienen la MISMA jornada ese día, no se
+    // puede pagar (trabajaría dos veces la misma jornada) → hay que hacer un Cambio de Turno sencillo.
+    function verificarPagoCobertura() {
+        coberturaBloqueoCT = false;
+        const aviso = document.getElementById('cob-aviso-ct');
+        aviso.style.display = 'none';
+        if (!empleadoReceptor || !cobDiaPago || !MI_EMPLEADO_ID) return;
+        const params = new URLSearchParams({
+            deudor_id: MI_EMPLEADO_ID, acreedor_id: empleadoReceptor.id, fecha_pago: cobDiaPago,
+        });
+        fetch(`${URLs.COINCIDENCIA}?${params.toString()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(res => {
+                const data = (res && res.data) || res || {};
+                if (data.requiere_cambio_turno) {
+                    coberturaBloqueoCT = true;
+                    aviso.style.display = 'block';
+                    aviso.innerHTML = `<i class="fas fa-exclamation-triangle mr-1"></i> ` +
+                        `<strong>Misma jornada en el día de pago (${data.jornada_comun || ''}).</strong> ` +
+                        `No puedes pagar trabajando dos veces la misma jornada. Para este caso haz un ` +
+                        `<strong>Cambio de Turno sencillo</strong> ese día y luego vuelve. ` +
+                        `<a href="/solicitudes/cambio-turno/solicitar/1/" class="btn btn-sm btn-outline-primary mt-1">` +
+                        `<i class="fas fa-exchange-alt mr-1"></i>Ir a Cambio de Turno</a>`;
+                }
+            })
+            .catch(() => {});
     }
 
     // --- cambio de doblada: cargar dobladas de la semana ---
@@ -844,7 +1091,7 @@
                 if (!empleadoReceptor) errores.push('Selecciona el compañero.');
             }
             if (subtipoSemana === 'cobertura_misma_semana') {
-                if (!cobOpcion) errores.push('Elige qué te cubren (AM, PM o el día completo).');
+                if (!cobOpcion) errores.push('Elige qué te cubren (Solo AM, Solo PM o día completo con 2 compañeros).');
                 if (!cobDiaPago) errores.push('Elige el día de pago (misma semana).');
                 if (!empleadoReceptor) errores.push('Selecciona el compañero que te cubre.');
                 if (cobOpcion === 'DOS') {
@@ -852,6 +1099,8 @@
                     if (empleadoReceptor && empleadoReceptor2 && empleadoReceptor.id === empleadoReceptor2.id)
                         errores.push('Los dos compañeros deben ser personas distintas.');
                 }
+                if (coberturaBloqueoCT)
+                    errores.push('En el día de pago tienes la misma jornada que el compañero: primero haz un Cambio de Turno sencillo.');
             }
             if (subtipoSemana === 'cambio_doblada' && !dobladaSel) errores.push('Selecciona la doblada que tomas.');
             if (subtipoSemana === 'permiso_media_jornada' && !permJornada) errores.push('Elige qué media jornada trabajas tu día.');
@@ -882,8 +1131,9 @@
         } else if (subtipoSemana === 'cobertura_misma_semana') {
             fs.value = miDiaTrabajo(); fp.value = cobDiaPago;
             sm.value = 'cobertura_misma_semana';
-            if (cobOpcion === 'AMBAS') { tc.value = 'cesion_completa'; jc.value = ''; }
-            else if (cobOpcion === 'AM') { tc.value = 'cesion_parcial_am'; jc.value = 'AM'; }
+            const jp = document.getElementById('jornada_cubre_en_pago_input');
+            if (jp) jp.value = (cobOpcion !== 'DOS' && (cobJornadaPago === 'AM' || cobJornadaPago === 'PM')) ? cobJornadaPago : '';
+            if (cobOpcion === 'AM') { tc.value = 'cesion_parcial_am'; jc.value = 'AM'; }
             else if (cobOpcion === 'PM') { tc.value = 'cesion_parcial_pm'; jc.value = 'PM'; }
         } else if (subtipoSemana === 'cambio_doblada') {
             fs.value = miDiaTrabajo(); fp.value = dobladaSel.fecha;

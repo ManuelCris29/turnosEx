@@ -17,6 +17,7 @@ from .views import (
     AlternanciaFindeView, AlternanciaMesView, DFDSCompanerosView,
     DescansosSemanaUsuarioView, CambioDescansoFindesView,
     DobladasSemanaView,
+    CoberturaCandidatosView,
 )
 
 app_name = 'solicitudes'
@@ -64,6 +65,7 @@ urlpatterns = [
     path('alternancia-mes/', AlternanciaMesView.as_view(), name='alternancia_mes'),
     path('dfds-companeros/', DFDSCompanerosView.as_view(), name='dfds_companeros'),
     path('dobladas-semana/', DobladasSemanaView.as_view(), name='dobladas_semana'),
+    path('cobertura-candidatos/', CoberturaCandidatosView.as_view(), name='cobertura_candidatos'),
     path('obtener-detalle-solicitud/<int:solicitud_id>/', ObtenerDetalleSolicitudView.as_view(), name='obtener_detalle_solicitud'),
     path('previsualizar-ct-permanente/', PrevisualizarCTPermanenteView.as_view(), name='previsualizar_ct_permanente'),
     path('previsualizar-doblada-permanente/', PrevisualizarDobladaPermanenteView.as_view(), name='previsualizar_doblada_permanente'),
