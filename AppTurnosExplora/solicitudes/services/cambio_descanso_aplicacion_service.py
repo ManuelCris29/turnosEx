@@ -68,6 +68,11 @@ class CambioDescansoAplicacionService:
         fecha_inicio = _as_date(fecha_inicio)
         fecha_fin = _as_date(fecha_fin)
         rest = set()
+        # Cobertura del solicitante: jornadas cedidas ACUMULADAS por fecha. Una sola parcial
+        # deja media jornada real (L1) y NO es descanso; pero dos parciales (AM y PM, a distintos
+        # compañeros) o una completa suman el día entero → descansa completo. Sin esta suma, ceder
+        # AM y PM por separado dejaba el día "sin turnos" y la temporada lo re-pintaba como DOBLADA.
+        cob_sol_ced = {}
         qs = (SolicitudCambio.objects
               .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
               .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
@@ -91,10 +96,13 @@ class CambioDescansoAplicacionService:
                 if sub == 'intercambio_dia':
                     dias = [fp] if es_sol else [fc]
                 elif sub == 'cobertura_misma_semana':
-                    if det.tipo_cesion == 'cesion_completa':
-                        dias = [fc] if es_sol else [fp]
-                    else:
-                        dias = []  # cesión parcial: ambos conservan media jornada (L1)
+                    dias = []
+                    if es_sol and fc:
+                        ced = ({'AM', 'PM'} if det.tipo_cesion == 'cesion_completa'
+                               else ({(det.jornada_cedida or '').upper()} & {'AM', 'PM'}))
+                        cob_sol_ced.setdefault(fc, set()).update(ced)
+                    elif not es_sol and det.tipo_cesion == 'cesion_completa':
+                        dias = [fp]  # receptor: solo descansa el pago si le cedieron el día entero
                 elif sub == 'cambio_doblada':
                     dias = [fc] if es_sol else [fp]  # cada uno descansa el día que cedió
                 else:
@@ -102,6 +110,10 @@ class CambioDescansoAplicacionService:
             for d in dias:
                 if d and fecha_inicio <= d <= fecha_fin:
                     rest.add(d)
+        # Días donde el solicitante cedió el día COMPLETO por cobertura (parciales que suman AM+PM).
+        for f_ced, js in cob_sol_ced.items():
+            if js >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin:
+                rest.add(f_ced)
         return rest
 
     @staticmethod

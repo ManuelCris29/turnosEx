@@ -645,6 +645,9 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
                 .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')
             )
+            # Cobertura del solicitante: acumula jornadas cedidas por fecha (dos parciales que
+            # suman AM+PM = día completo cedido). Coincide con dias_en_descanso (fuente de verdad).
+            cob_ced = {}  # fecha -> {'js': set, 'companero': Empleado, 'solicitud_id': int}
             for s in cd_qs:
                 det = getattr(s, 'doblada', None)
                 if not det:
@@ -653,14 +656,31 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 fp = det.fecha_pago
                 es_sol = s.explorador_solicitante_id == empleado.id
                 es_finde = bool(fc) and fc.weekday() in (5, 6)
+                companero = s.explorador_receptor if es_sol else s.explorador_solicitante
                 if es_finde:
                     # Solicitante descansa sus días originales (cesión y pago);
                     # receptor descansa los días contrarios de cada finde.
                     rest_days = [fc, fp] if es_sol else [_otro_dia_cd(fc), _otro_dia_cd(fp)]
                 else:
-                    # Entre semana (intercambio directo, sin devolución).
-                    rest_days = [fp] if es_sol else [fc]
-                companero = s.explorador_receptor if es_sol else s.explorador_solicitante
+                    # Entre semana: depende de la sub-modalidad (igual que dias_en_descanso).
+                    sub = getattr(det, 'submodalidad_semana', None) or 'intercambio_dia'
+                    if sub == 'intercambio_dia':
+                        rest_days = [fp] if es_sol else [fc]
+                    elif sub == 'cambio_doblada':
+                        rest_days = [fc] if es_sol else [fp]  # cada uno descansa el día que cedió
+                    elif sub == 'cobertura_misma_semana':
+                        rest_days = []
+                        if es_sol and fc:
+                            ced = ({'AM', 'PM'} if det.tipo_cesion == 'cesion_completa'
+                                   else ({(det.jornada_cedida or '').upper()} & {'AM', 'PM'}))
+                            e = cob_ced.setdefault(fc, {'js': set(), 'companeros': [], 'solicitud_id': s.id})
+                            e['js'].update(ced)
+                            if companero not in e['companeros']:
+                                e['companeros'].append(companero)
+                        elif not es_sol and det.tipo_cesion == 'cesion_completa':
+                            rest_days = [fp]  # receptor solo descansa el pago si le cedieron el día entero
+                    else:
+                        rest_days = []  # jornadas_partidas: ambos trabajan media (L1)
                 for rd in rest_days:
                     if rd and fecha_inicio <= rd <= fecha_fin:
                         descansos_cd[rd] = {
@@ -670,6 +690,16 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'origen': 'cambio_descanso',
                             'solicitud_id': s.id,
                         }
+            # Días donde el solicitante cedió el día COMPLETO por cobertura (parciales que suman AM+PM).
+            for f_ced, e in cob_ced.items():
+                if e['js'] >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin and e['companeros']:
+                    descansos_cd[f_ced] = {
+                        'companero_nombre': ' y '.join(f"{c.nombre} {c.apellido}" for c in e['companeros']),
+                        'companero_id': e['companeros'][0].id,
+                        'tipo': 'cedio',
+                        'origen': 'cambio_descanso',
+                        'solicitud_id': e['solicitud_id'],
+                    }
 
             # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
             # No cambian la jornada; se muestran como indicador en el día.
@@ -698,8 +728,14 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         if di.weekday() in dias_set:
                             permisos_por_fecha[di.strftime('%Y-%m-%d')] = p_info
                         di += timedelta(days=1)
-                elif fecha_inicio <= p.fecha_inicio <= fecha_fin:
-                    permisos_por_fecha[p.fecha_inicio.strftime('%Y-%m-%d')] = p_info
+                else:
+                    if fecha_inicio <= p.fecha_inicio <= fecha_fin:
+                        permisos_por_fecha[p.fecha_inicio.strftime('%Y-%m-%d')] = p_info
+                    # Media jornada de temporada: el permiso también toca el día de COMPENSACIÓN
+                    # (trabajas la otra media ahí), así que se marca también ese día.
+                    fcomp = getattr(p, 'fecha_compensacion', None)
+                    if fcomp and fecha_inicio <= fcomp <= fecha_fin:
+                        permisos_por_fecha[fcomp.strftime('%Y-%m-%d')] = p_info
 
             # RESTRICCIONES del empleado vigentes en el mes (aplican TODOS los días del rango;
             # fecha_fin nula = indefinida/en curso).

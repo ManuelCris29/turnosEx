@@ -715,8 +715,10 @@ function mostrarDetallesDia(fechaStr) {
             }
             let jornadaHTML = `<span class="jornada-value ${claseJornada}">${jornadaTexto}</span>`;
             
-            // Si hay un cambio, mostrar información detallada (sencilla y profesional)
-            if (info.es_cambio) {
+            // Si hay un cambio, mostrar información detallada (sencilla y profesional).
+            // Si el día tiene un PERMISO (p. ej. media jornada de temporada), esa nota ya explica
+            // por qué cambió la jornada; evitamos la nota genérica de "cambio de turno" duplicada.
+            if (info.es_cambio && !info.permiso) {
                 const jornadaPredeterminada = info.jornada_predeterminada || 'N/A';
                 const coincidePredeterminada = info.coincide_con_predeterminada ?? false;
                 const solicitudInfo = info.solicitud_info;
