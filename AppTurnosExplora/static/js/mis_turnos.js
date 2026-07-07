@@ -732,6 +732,15 @@ function mostrarDetallesDia(fechaStr) {
                     if (companero && fechaAprobacion) {
                         mensajeCambio += ` Cambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
                     }
+                } else if (jornadaPredeterminada === 'DESCANSO') {
+                    // Ese día en realidad DESCANSABA (día de temporada de su grupo) y ahora trabaja
+                    // por un intercambio de descanso: no tenía jornada "predeterminada" que mostrar.
+                    mensajeCambio = `Ese día <strong>descansabas</strong> (día de temporada de tu grupo); por el cambio de día de descanso ahora trabajas <strong>${info.jornada}</strong>.`;
+                    if (companero && fechaAprobacion) {
+                        mensajeCambio += ` Intercambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
+                    } else if (companero) {
+                        mensajeCambio += ` Intercambio realizado con <strong>${companero}</strong>.`;
+                    }
                 } else {
                     // Cambio que difiere de la predeterminada
                     mensajeCambio = `Jornada modificada por cambio de turno. Tu jornada predeterminada era <strong>${jornadaPredeterminada}</strong>, ahora trabajas <strong>${info.jornada}</strong>.`;

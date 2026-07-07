@@ -533,6 +533,27 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             def calcular_jornada_dia(j_base, fecha):
                 return JornadaUtils.calcular_jornada_dia(j_base, fecha)
 
+            from turnos.services.descanso_semana_service import DescansoSemanaService as _DSS
+            def calcular_predeterminado(fecha):
+                """
+                Jornada PREDETERMINADA del día (lo que sería SIN ningún cambio), considerando la
+                TEMPORADA además de base+alternancia. En un día de temporada donde el grupo del
+                empleado descansa, lo predeterminado es DESCANSO (no su jornada base); si el grupo
+                CONTRARIO descansa, este cubre el día completo (DOBLADA). Sin esto, el detalle de
+                Mis Turnos decía "tu jornada predeterminada era PM" cuando en realidad ese día
+                descansaba. Devuelve 'AM'/'PM'/'DOBLADA'/'DESCANSO'.
+                """
+                if fecha.weekday() < 5:
+                    if _DSS.es_descanso_semana_manual(jornada_base, fecha):
+                        return 'DESCANSO'
+                    contraria = 'PM' if jornada_base == 'AM' else 'AM'
+                    if _DSS.es_descanso_semana_manual(contraria, fecha):
+                        return 'DOBLADA'
+                    from turnos.models import DiaEspecial as _DE
+                    if _DE.es_mantenimiento_efectivo(fecha):
+                        return 'DESCANSO'
+                return calcular_jornada_dia(jornada_base, fecha)
+
             # FUENTE DE VERDAD ÚNICA (batch): estado predeterminado/calculado por día
             # (alternancia de finde, temporada, mantenimiento, base). Reemplaza la lógica
             # de capas duplicada que antes vivía en este bucle. Ver
@@ -776,8 +797,8 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         jornada_display = 'PM'
                     else:
                         jornada_display = calcular_jornada_dia(jornada_base, fecha) or ''
-                    
-                    jornada_predeterminada = calcular_jornada_dia(jornada_base, fecha)
+
+                    jornada_predeterminada = calcular_predeterminado(fecha)
                     
                     # Detectar si es doblada
                     es_doblada = jornada_display == 'DOBLADA'
@@ -1121,6 +1142,29 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                                 'rol': 'solicitante'
                             }
                 
+                # CAMBIO DESCANSO (intercambio de día de descanso de temporada): el solicitante
+                # trabaja su día completo en fecha_cambio_turno y el receptor en doblada.fecha_pago.
+                # Adjuntamos el compañero (mismo dict que las dobladas) para que Mis Turnos muestre
+                # "con X" en el día doblado por el intercambio.
+                cd_sol = SolicitudCambio.objects.filter(
+                    explorador_solicitante=empleado, tipo_cambio__nombre='CAMBIO DESCANSO',
+                    fecha_cambio_turno__in=fechas_obj, estado='aprobada'
+                ).select_related('explorador_receptor', 'doblada').order_by('-fecha_resolucion', '-id')
+                for sol in cd_sol:
+                    fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
+                    dobladas_dict.setdefault(fecha_str, {
+                        'solicitud': sol, 'companero': sol.explorador_receptor.nombre, 'rol': 'solicitante'})
+
+                cd_rec = SolicitudCambio.objects.filter(
+                    explorador_receptor=empleado, tipo_cambio__nombre='CAMBIO DESCANSO',
+                    doblada__fecha_pago__in=fechas_obj, estado='aprobada'
+                ).select_related('explorador_solicitante', 'doblada').order_by('-fecha_resolucion', '-id')
+                for sol in cd_rec:
+                    if sol.doblada and sol.doblada.fecha_pago:
+                        fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
+                        dobladas_dict.setdefault(fecha_str, {
+                            'solicitud': sol, 'companero': sol.explorador_solicitante.nombre, 'rol': 'receptor'})
+
                 # Asociar información de dobladas a los turnos
                 for fecha_str in fechas_sin_solicitud:
                     if fecha_str not in turnos_mes_dict:
