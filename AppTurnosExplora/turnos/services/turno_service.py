@@ -281,12 +281,25 @@ class TurnoService(ITurnoService):
         if {'AM', 'PM'} <= parciales_cedidas:
             # Cedió ambas medias jornadas → el día queda libre por completo.
             return {'motivo': 'cedió su jornada', 'companero': _comp(dobladas_ced[0].explorador_receptor)}
-        s = (_exc(SolicitudCambio.objects
-             .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                     explorador_receptor=empleado, doblada__fecha_pago__in=fechas_finde))
-             .select_related('explorador_solicitante').order_by('-id').first())
-        if s:
-            return {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
+        # El empleado RECIBE el pago ese día (descansa). Solo es día libre COMPLETO si el pago
+        # cubre todo: cesión completa / D FDS, o AMBAS medias jornadas (parciales AM y PM que
+        # pagan el mismo día). Un solo pago parcial deja media jornada libre (puede recibir otra).
+        pagos_rec = list(_exc(SolicitudCambio.objects
+            .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
+                    explorador_receptor=empleado, doblada__fecha_pago__in=fechas_finde))
+            .select_related('explorador_solicitante', 'doblada').order_by('-id'))
+        parciales_pago = set()
+        for s in pagos_rec:
+            det = getattr(s, 'doblada', None)
+            tipo_cesion = getattr(det, 'tipo_cesion', None) if det else None
+            if tipo_cesion == 'cesion_parcial_am':
+                parciales_pago.add('AM')
+            elif tipo_cesion == 'cesion_parcial_pm':
+                parciales_pago.add('PM')
+            else:
+                return {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
+        if {'AM', 'PM'} <= parciales_pago:
+            return {'motivo': 'paga doblada', 'companero': _comp(pagos_rec[0].explorador_solicitante)}
 
         # CAMBIO DESCANSO (su día cedido).
         from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
@@ -519,16 +532,31 @@ class TurnoService(ITurnoService):
             if e['full'] or {'AM', 'PM'} <= e['parciales']:
                 rest_sol.setdefault(d, {'motivo': 'cedió su jornada',
                                         'companero': _comp(e['rep'].explorador_receptor)})
+        # Pago recibido: día libre completo solo si el pago cubre todo (cesión completa /
+        # D FDS, o ambas medias jornadas). Un pago parcial deja media jornada (L1 la muestra).
+        _pago_por_fecha = {}  # fecha -> {'parciales': set(), 'rep': solicitud, 'full': bool}
         for s in (SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_receptor=empleado, doblada__fecha_pago__range=(ini, fin))
                 .select_related('explorador_solicitante', 'doblada').order_by('-id')):
             fp = s.doblada.fecha_pago if s.doblada else None
-            if fp:
-                info = {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
-                for d in _dias_descanso_solicitud(fp):
-                    if ini <= d <= fin:
-                        rest_sol.setdefault(d, info)
+            if not fp:
+                continue
+            _tc = s.doblada.tipo_cesion if s.doblada else None
+            for d in _dias_descanso_solicitud(fp):
+                if not (ini <= d <= fin):
+                    continue
+                e = _pago_por_fecha.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
+                if _tc == 'cesion_parcial_am':
+                    e['parciales'].add('AM')
+                elif _tc == 'cesion_parcial_pm':
+                    e['parciales'].add('PM')
+                else:
+                    e['full'] = True
+        for d, e in _pago_por_fecha.items():
+            if e['full'] or {'AM', 'PM'} <= e['parciales']:
+                rest_sol.setdefault(d, {'motivo': 'paga doblada',
+                                        'companero': _comp(e['rep'].explorador_solicitante)})
         for dcd in CambioDescansoAplicacionService.dias_en_descanso(empleado, ini, fin):
             rest_sol.setdefault(dcd, {'motivo': 'cambio de día de descanso', 'companero': None})
         for s in (SolicitudCambio.objects.filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')

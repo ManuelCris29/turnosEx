@@ -134,17 +134,32 @@ class ReporteDiaService:
                     'companero': _nombre(e['rep'].explorador_receptor),
                 }
 
-        # Quién DESCANSA por pagar doblada (receptor, en fecha_pago)
-        descansa_por_pago = {}   # emp_id → {motivo, companero}
+        # Quién DESCANSA por pagar doblada (receptor, en fecha_pago). Solo descansa el día
+        # COMPLETO si el pago cubre todo: cesión completa / D FDS, o ambas medias jornadas.
+        # Un solo pago parcial deja media jornada (se ve por su Turno real).
+        _pago_acc = {}   # emp_id → {'parciales': set(), 'rep': solicitud, 'full': bool}
         for s in (SolicitudCambio.objects
                   .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                           estado='aprobada', explorador_receptor_id__in=emp_ids,
                           doblada__fecha_pago=fecha)
                   .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')):
-            descansa_por_pago[s.explorador_receptor_id] = {
-                'motivo': 'paga doblada',
-                'companero': _nombre(s.explorador_solicitante),
-            }
+            _det = getattr(s, 'doblada', None)
+            _tc = getattr(_det, 'tipo_cesion', None) if _det else None
+            e = _pago_acc.setdefault(s.explorador_receptor_id,
+                                     {'parciales': set(), 'rep': s, 'full': False})
+            if _tc == 'cesion_parcial_am':
+                e['parciales'].add('AM')
+            elif _tc == 'cesion_parcial_pm':
+                e['parciales'].add('PM')
+            else:
+                e['full'] = True
+        descansa_por_pago = {}   # emp_id → {motivo, companero}
+        for emp_id, e in _pago_acc.items():
+            if e['full'] or {'AM', 'PM'} <= e['parciales']:
+                descansa_por_pago[emp_id] = {
+                    'motivo': 'paga doblada',
+                    'companero': _nombre(e['rep'].explorador_solicitante),
+                }
 
         # Quién DOBLÓ (receptor en fecha_cambio_turno) → para mostrar "cubre a X"
         dobla_cubre = {}   # emp_id (receptor) → {id, nombre} del cedente
