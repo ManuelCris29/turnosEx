@@ -27,14 +27,27 @@
                 <h3>
                     <i class="fas fa-bell"></i>
                     Centro de Notificaciones
-                    {% if notificaciones %}
-                        <span class="badge badge-light ml-2">{{ notificaciones|length }}</span>
+                    {% if paginator.count %}
+                        <span class="badge badge-light ml-2">{{ paginator.count }}</span>
                     {% endif %}
                 </h3>
             </div>
-            
+
+            <!-- Filtro leídas / no leídas -->
+            <div class="d-flex flex-wrap align-items-center" style="gap:.5rem; padding:.85rem 1.25rem; border-bottom:1px solid #eef2f7;">
+                <span class="small font-weight-bold mr-1">Ver:</span>
+                <a href="?" class="btn btn-sm {% if not filtro_leidas %}btn-primary{% else %}btn-outline-secondary{% endif %}">Todas</a>
+                <a href="?leidas=no" class="btn btn-sm {% if filtro_leidas == 'no' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+                    No leídas{% if no_leidas_count %} <span class="badge badge-light ml-1">{{ no_leidas_count }}</span>{% endif %}
+                </a>
+                <a href="?leidas=si" class="btn btn-sm {% if filtro_leidas == 'si' %}btn-primary{% else %}btn-outline-secondary{% endif %}">Leídas</a>
+            </div>
+
             <div class="notificaciones-container">
                 {% if notificaciones %}
+                    <p class="text-muted small mb-2">
+                        Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ paginator.count }} notificación{{ paginator.count|pluralize:"es" }}.
+                    </p>
                     {% for notificacion in notificaciones %}
                         <div class="notificacion-item {% if not notificacion.leida %}no-leida{% endif %}" id="notificacion-{{ notificacion.id }}">
                             <div class="notificacion-header">
@@ -102,6 +115,14 @@
                             </div>
                         </div>
                     {% endfor %}
+                    {% include 'solicitudes/_paginacion.html' %}
+                {% elif filtro_leidas %}
+                    <div class="empty-state">
+                        <i class="far fa-bell"></i>
+                        <h4>Sin notificaciones</h4>
+                        <p>No hay notificaciones {% if filtro_leidas == 'no' %}sin leer{% else %}leídas{% endif %}.</p>
+                        <a href="?" class="btn btn-outline-secondary btn-sm">Ver todas</a>
+                    </div>
                 {% else %}
                     <div class="empty-state">
                         <i class="far fa-bell"></i>

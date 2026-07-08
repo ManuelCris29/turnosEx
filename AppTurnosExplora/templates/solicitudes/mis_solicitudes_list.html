@@ -34,8 +34,34 @@
                 </a>
             </div>
             
+            <!-- Barra de filtros -->
+            <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem; padding:1rem 1.25rem; border-bottom:1px solid #eef2f7;">
+                <div>
+                    <label class="mb-1 small font-weight-bold d-block">Tipo de solicitud</label>
+                    <select name="tipo" class="form-control form-control-sm" style="min-width:200px;">
+                        <option value="">Todos</option>
+                        {% for t in tipos %}
+                        <option value="{{ t.id }}" {% if filtro_tipo == t.id|stringformat:'s' %}selected{% endif %}>{{ t.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="mb-1 small font-weight-bold d-block">Por página</label>
+                    <select name="per_page" class="form-control form-control-sm" style="width:auto;">
+                        {% for n in per_page_opciones %}
+                        <option value="{{ n }}" {% if per_page == n %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-filter"></i> Aplicar</button>
+                {% if filtro_tipo %}<a href="{% url 'solicitudes:mis_solicitudes_list' %}" class="btn btn-outline-secondary btn-sm">Limpiar</a>{% endif %}
+            </form>
+
             <div class="table-container">
                 {% if solicitudes %}
+                    <p class="text-muted small mb-2" style="padding:.75rem 1.25rem 0;">
+                        Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ paginator.count }} solicitud{{ paginator.count|pluralize:"es" }}.
+                    </p>
                     <div class="table-responsive">
                         <table class="table table-custom">
                             <thead>
@@ -111,6 +137,19 @@
                                 {% endfor %}
                             </tbody>
                         </table>
+                    </div>
+                    <div style="padding:1rem 1.25rem;">
+                        {% include 'solicitudes/_paginacion.html' %}
+                    </div>
+                {% elif filtro_tipo %}
+                    <div class="empty-state">
+                        <i class="fas fa-filter"></i>
+                        <h5>Sin resultados</h5>
+                        <p>No tienes solicitudes de este tipo.</p>
+                        <a href="{% url 'solicitudes:mis_solicitudes_list' %}" class="btn-crear-primera">
+                            <i class="fas fa-times"></i>
+                            Quitar filtro
+                        </a>
                     </div>
                 {% else %}
                     <div class="empty-state">

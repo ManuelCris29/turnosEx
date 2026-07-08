@@ -28,15 +28,61 @@ from core.utils.json_responses import json_ok, json_error
 
 # Create your views here.
 
+PER_PAGE_OPCIONES = [10, 20, 50]
+PER_PAGE_DEFAULT = 20
+
+
+def _resolver_per_page(request):
+    """Lee ?per_page y solo admite valores de la lista blanca (default 20)."""
+    raw = request.GET.get('per_page')
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return PER_PAGE_DEFAULT
+    return val if val in PER_PAGE_OPCIONES else PER_PAGE_DEFAULT
+
+
+def _query_params_sin_page(request):
+    """GET urlencoded sin 'page' (para conservar filtros en los enlaces de paginación)."""
+    params = request.GET.copy()
+    params.pop('page', None)
+    return params.urlencode()
+
+
 class NotificacionesListView(LoginRequiredMixin, ListView):
     model = Notificacion
     template_name = 'solicitudes/notificaciones_list.html'
     context_object_name = 'notificaciones'
-    
+
+    def get_paginate_by(self, queryset):
+        return _resolver_per_page(self.request)
+
     def get_queryset(self):
+        if not hasattr(self.request.user, 'empleado'):
+            return Notificacion.objects.none()
+        qs = NotificacionService.obtener_notificaciones(self.request.user.empleado)
+        leidas = self.request.GET.get('leidas')
+        if leidas == 'no':
+            qs = qs.filter(leida=False)
+        elif leidas == 'si':
+            qs = qs.filter(leida=True)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        no_leidas = 0
         if hasattr(self.request.user, 'empleado'):
-            return NotificacionService.obtener_notificaciones(self.request.user.empleado)
-        return Notificacion.objects.none()
+            no_leidas = Notificacion.objects.filter(
+                destinatario=self.request.user.empleado, leida=False
+            ).count()
+        context.update({
+            'filtro_leidas': self.request.GET.get('leidas', ''),
+            'no_leidas_count': no_leidas,
+            'per_page': _resolver_per_page(self.request),
+            'per_page_opciones': PER_PAGE_OPCIONES,
+            'query_params': _query_params_sin_page(self.request),
+        })
+        return context
 
 class MarcarNotificacionLeidaView(LoginRequiredMixin, View):
     def post(self, request, notificacion_id):
@@ -52,12 +98,30 @@ class MisSolicitudesListView(LoginRequiredMixin, ListView):
     model = SolicitudCambio
     template_name = 'solicitudes/mis_solicitudes_list.html'
     context_object_name = 'solicitudes'
-    
+
+    def get_paginate_by(self, queryset):
+        return _resolver_per_page(self.request)
+
     def get_queryset(self):
-        if hasattr(self.request.user, 'empleado'):
-            from ..services.solicitud_consulta_service import SolicitudConsultaService
-            return SolicitudConsultaService.get_solicitudes_usuario(self.request.user)
-        return SolicitudCambio.objects.none()
+        if not hasattr(self.request.user, 'empleado'):
+            return SolicitudCambio.objects.none()
+        from ..services.solicitud_consulta_service import SolicitudConsultaService
+        qs = SolicitudConsultaService.get_solicitudes_usuario(self.request.user)
+        tipo = self.request.GET.get('tipo')
+        if tipo and str(tipo).isdigit():
+            qs = qs.filter(tipo_cambio_id=int(tipo))
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update({
+            'tipos': TipoSolicitudCambio.objects.filter(activo=True).order_by('nombre'),
+            'filtro_tipo': self.request.GET.get('tipo', ''),
+            'per_page': _resolver_per_page(self.request),
+            'per_page_opciones': PER_PAGE_OPCIONES,
+            'query_params': _query_params_sin_page(self.request),
+        })
+        return context
 
 class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
     """

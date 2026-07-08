@@ -139,6 +139,11 @@ class SolicitudCambio(models.Model):
                 fields=['-fecha_resolucion', 'estado'],
                 name='sol_fecha_resol_estado_idx'
             ),
+            # "Mis Solicitudes": filtra por solicitante y ordena por fecha_solicitud desc.
+            models.Index(
+                fields=['explorador_solicitante', '-fecha_solicitud'],
+                name='sol_solicitante_fecha_idx'
+            ),
         ]
         ordering = ['-fecha_solicitud']
 

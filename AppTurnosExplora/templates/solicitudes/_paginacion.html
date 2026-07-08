@@ -1,0 +1,34 @@
+{% comment %}
+Controles de paginación reutilizables. Requiere en contexto: page_obj, paginator,
+is_paginated y query_params (GET urlencoded sin 'page'). Conserva filtros/per_page.
+{% endcomment %}
+{% if is_paginated %}
+<nav class="pg-paginacion" aria-label="Paginación">
+  <ul class="pagination justify-content-center flex-wrap mb-0">
+    {% if page_obj.has_previous %}
+      <li class="page-item"><a class="page-link" href="?{% if query_params %}{{ query_params }}&{% endif %}page=1" title="Primera">&laquo;</a></li>
+      <li class="page-item"><a class="page-link" href="?{% if query_params %}{{ query_params }}&{% endif %}page={{ page_obj.previous_page_number }}">Anterior</a></li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">&laquo;</span></li>
+      <li class="page-item disabled"><span class="page-link">Anterior</span></li>
+    {% endif %}
+
+    {% for num in paginator.page_range %}
+      {% if num == page_obj.number %}
+        <li class="page-item active" aria-current="page"><span class="page-link">{{ num }}</span></li>
+      {% elif num >= page_obj.number|add:'-2' and num <= page_obj.number|add:'2' %}
+        <li class="page-item"><a class="page-link" href="?{% if query_params %}{{ query_params }}&{% endif %}page={{ num }}">{{ num }}</a></li>
+      {% endif %}
+    {% endfor %}
+
+    {% if page_obj.has_next %}
+      <li class="page-item"><a class="page-link" href="?{% if query_params %}{{ query_params }}&{% endif %}page={{ page_obj.next_page_number }}">Siguiente</a></li>
+      <li class="page-item"><a class="page-link" href="?{% if query_params %}{{ query_params }}&{% endif %}page={{ paginator.num_pages }}" title="Última">&raquo;</a></li>
+    {% else %}
+      <li class="page-item disabled"><span class="page-link">Siguiente</span></li>
+      <li class="page-item disabled"><span class="page-link">&raquo;</span></li>
+    {% endif %}
+  </ul>
+  <p class="text-center text-muted small mt-2 mb-0">Página {{ page_obj.number }} de {{ paginator.num_pages }}</p>
+</nav>
+{% endif %}
