@@ -265,11 +265,8 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     if not coincide and jornada_usuario:
                         grupo_descansa = jornada_usuario
                         mensaje_festivo_descansa = (
-                            f'Este día es festivo y, por la rotación de festivos, le toca trabajar (doblar) al grupo {grupo_que_dobla}. '
-                            f'Tú eres del grupo {grupo_descansa}, así que ese día descansas: no tienes ninguna jornada asignada y por lo tanto '
-                            'no hay nada que puedas ceder. '
-                            'Por eso no se habilitan «Compañero que te cubrirá» ni «Fecha de pago»: solo puede ceder una doblada quien trabaja el festivo. '
-                            f'Si quieres ceder una doblada, elige una fecha en la que sí tengas turno (o un festivo en el que le toque doblar al grupo {grupo_descansa}).'
+                            f'Este día es festivo y le toca doblar al grupo {grupo_que_dobla}; '
+                            f'tú eres del grupo {grupo_descansa}, así que descansas y no tienes jornada que ceder.'
                         )
                     tiene_doblada_real_bd = set(jornadas) == {'AM', 'PM'}
                     # Mensaje único para festivo: el día se trabaja COMPLETO (AM + PM) y, por la regla

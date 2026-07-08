@@ -47,6 +47,9 @@
     let fechasDescanso = []; // Fechas donde el usuario está descansando
     // Indica si el solicitante está descansando en la FECHA DE CESIÓN (según VerificarDobladaExistenteView)
     let solicitanteDescansaCesion = false;
+    // True si en la FECHA DE CESIÓN el solicitante está en descanso de la semana (temporada/mantenimiento):
+    // se muestra la tarjeta limpia "Estás Descansando" y se suprime el aviso amarillo "No hay jornada a ceder".
+    let solicitanteCesionEnDescanso = false;
     /** True si en fecha de cesión el solicitante tiene DOBLADA real (AM+PM) en BD — matriz CASO 4.x (cesión parcial) */
     let solicitanteCesionEsDoblada = false;
     /**
@@ -916,6 +919,36 @@
                 return;
             }
             console.log('[DEBUG] Respuesta obtener-turno-explorador:', data);
+            solicitanteCesionEnDescanso = false;
+            // Descanso de la semana (temporada/mantenimiento) en la fecha de cesión: en vez de las
+            // tarjetas genéricas "No tiene jornada/salas" + aviso amarillo, mostrar una sola tarjeta
+            // clara "Estás Descansando" (igual que el formulario de Cambio de Turno).
+            if (data.esta_descansando && data.descanso_info && data.descanso_info.tipo === 'descanso_semana') {
+                const razon = data.descanso_info.motivo === 'mantenimiento'
+                    ? 'Es tu día de descanso por mantenimiento.'
+                    : 'Es tu día de descanso de la semana (temporada).';
+                if (turnoSolicitanteDetalles) {
+                    turnoSolicitanteDetalles.innerHTML = `
+                        <div class="alert alert-info mb-0">
+                            <i class="fas fa-bed mr-2"></i>
+                            <strong>Estás Descansando</strong>
+                            <p class="mb-1 mt-1">${razon}</p>
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle"></i>
+                                No puedes ceder jornada en un día de descanso. Elige otra fecha de cesión.
+                            </small>
+                        </div>`;
+                }
+                if (salasSolicitanteDetalles) {
+                    salasSolicitanteDetalles.innerHTML = '';
+                }
+                solicitanteCesionEnDescanso = true;
+                solicitanteCesionEsDoblada = false;
+                ultimaJornadaSolicitanteCesion = null;
+                solicitanteCesionTurnoFetchCompleto = true;
+                actualizarVistaPrevia();
+                return;
+            }
             if (data.success && data.turno) {
                 // Alineado con fecha de pago: backend puede marcar jornada 'DOBLADA' o es_doblada sin dos entradas en jornadas[]
                 const esDobladaReal = Boolean(
@@ -950,6 +983,7 @@
                 return;
             }
             solicitanteCesionEsDoblada = false;
+            solicitanteCesionEnDescanso = false;
             ultimaJornadaSolicitanteCesion = null;
             solicitanteCesionTurnoFetchCompleto = true;
             console.error('Error al cargar información del solicitante:', error);
@@ -1452,15 +1486,11 @@
                             if (avisoSinJornada) avisoSinJornada.style.display = 'none';
                         }
 
-                        // Solo festivo: reflejar la razón en el recuadro de festivo (el que ve primero el
-                        // explorador), reemplazando el texto genérico "la fecha de pago debe ser otro
-                        // festivo del mismo mes".
-                        if (esFestivoDescansa) {
-                            const descripcionFestivo = document.getElementById('descripcion_festivo_cesion');
-                            if (indicadorFestivoCesion && descripcionFestivo) {
-                                indicadorFestivoCesion.style.display = 'block';
-                                descripcionFestivo.innerHTML = `<span class="d-block">${data.mensaje_festivo_descansa}</span>`;
-                            }
+                        // Festivo donde descansas: el aviso amarillo de arriba ya lo explica de forma
+                        // concisa. Ocultamos el indicador de festivo para NO repetir el mismo mensaje
+                        // dos veces (antes se pintaba también aquí el texto largo).
+                        if (esFestivoDescansa && indicadorFestivoCesion) {
+                            indicadorFestivoCesion.style.display = 'none';
                         }
 
                         return;
@@ -1839,8 +1869,9 @@
 
         const el = document.getElementById('aviso_sin_jornada_ceder_cesion');
         if (el) {
-            // Si es un DÍA LIBRE (cedió su jornada), el mensaje "Día Libre" ya explica el caso.
-            const esDiaLibre = !!solicitanteDescansaCesion;
+            // Si es un DÍA LIBRE (cedió su jornada) o un descanso de la semana (temporada/mantenimiento),
+            // la tarjeta correspondiente ya explica el caso: no repetir el aviso amarillo genérico.
+            const esDiaLibre = !!solicitanteDescansaCesion || !!solicitanteCesionEnDescanso;
             el.style.display = (fec && sinJornadaCeder && !esDiaLibre) ? 'block' : 'none';
         }
 
