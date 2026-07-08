@@ -398,6 +398,17 @@ class DobladaPermanenteDetalle(models.Model):
         max_length=20, default='',
         help_text='Días de la semana en que el solicitante devuelve (se dobla). 0=lun..6=dom, coma.'
     )
+    # Fechas ESPECÍFICAS elegidas (CSV de YYYY-MM-DD). Si están pobladas, la aplicación usa estas
+    # fechas exactas (permite balancear cuando los weekdays tienen distinto número de ocurrencias).
+    # Si están vacías, se expanden los weekdays de dias_cesion/dias_devolucion (retrocompatible).
+    fechas_cesion = models.TextField(
+        default='', blank=True,
+        help_text='Fechas específicas de cesión (YYYY-MM-DD, coma). Prioridad sobre dias_cesion.'
+    )
+    fechas_devolucion = models.TextField(
+        default='', blank=True,
+        help_text='Fechas específicas de devolución (YYYY-MM-DD, coma). Prioridad sobre dias_devolucion.'
+    )
     minutos_deuda = models.IntegerField(default=30)
     empleado_receptor = models.ForeignKey(
         Empleado, on_delete=models.CASCADE, null=True, blank=True,

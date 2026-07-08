@@ -148,34 +148,64 @@ class SolicitudOrchestrator:
         if not comentario or not comentario.strip():
             return json_error('Ingresa un comentario.', status=400, code='missing_fields')
 
+        from datetime import datetime as _dt
+
         fecha_inicio = post.get('fecha_inicio')
         fecha_fin = post.get('fecha_fin')
-        ces_dias = post.getlist('cesion_dia')
-        ces_comps = post.getlist('cesion_companero')
-        dev_dias = post.getlist('devolucion_dia')
-        dev_comps = post.getlist('devolucion_companero')
 
-        # Agrupar (día, compañero) por compañero
-        cesion_por_comp = {}
-        for dia, comp in zip(ces_dias, ces_comps):
-            if comp and str(dia) != '':
-                cesion_por_comp.setdefault(comp, set()).add(str(dia))
-        devol_por_comp = {}
-        for dia, comp in zip(dev_dias, dev_comps):
-            if comp and str(dia) != '':
-                devol_por_comp.setdefault(comp, set()).add(str(dia))
+        # NUEVO flujo: fechas ESPECÍFICAS por compañero (listas paralelas). Tienen prioridad sobre
+        # los weekdays; permiten balancear cuando los días de la semana tienen distinto número de
+        # ocurrencias. Si no vienen, se usa el flujo antiguo por weekday (retrocompatible).
+        ces_fechas = post.getlist('cesion_fecha')
+        ces_fcomps = post.getlist('cesion_fecha_companero')
+        dev_fechas = post.getlist('devolucion_fecha')
+        dev_fcomps = post.getlist('devolucion_fecha_companero')
+        usa_fechas = bool(ces_fechas)
 
-        if not cesion_por_comp:
+        cesion_fechas_por_comp, devol_fechas_por_comp = {}, {}
+        for f, comp in zip(ces_fechas, ces_fcomps):
+            if comp and f:
+                cesion_fechas_por_comp.setdefault(comp, set()).add(f)
+        for f, comp in zip(dev_fechas, dev_fcomps):
+            if comp and f:
+                devol_fechas_por_comp.setdefault(comp, set()).add(f)
+
+        def _wd(iso):
+            try:
+                return str(_dt.strptime(iso, '%Y-%m-%d').date().weekday())
+            except (ValueError, TypeError):
+                return ''
+
+        # Weekdays por compañero (derivados de las fechas si usa_fechas; del POST si back-compat).
+        cesion_por_comp, devol_por_comp = {}, {}
+        if usa_fechas:
+            for comp, fset in cesion_fechas_por_comp.items():
+                cesion_por_comp[comp] = {_wd(f) for f in fset if _wd(f)}
+            for comp, fset in devol_fechas_por_comp.items():
+                devol_por_comp[comp] = {_wd(f) for f in fset if _wd(f)}
+        else:
+            for dia, comp in zip(post.getlist('cesion_dia'), post.getlist('cesion_companero')):
+                if comp and str(dia) != '':
+                    cesion_por_comp.setdefault(comp, set()).add(str(dia))
+            for dia, comp in zip(post.getlist('devolucion_dia'), post.getlist('devolucion_companero')):
+                if comp and str(dia) != '':
+                    devol_por_comp.setdefault(comp, set()).add(str(dia))
+
+        base_ces = cesion_fechas_por_comp if usa_fechas else cesion_por_comp
+        base_dev = devol_fechas_por_comp if usa_fechas else devol_por_comp
+        if not base_ces:
             return json_error('Agrega al menos un día de cesión con su compañero',
                               status=400, code='missing_fields')
-        for comp in devol_por_comp:
-            if comp not in cesion_por_comp:
+        for comp in base_dev:
+            if comp not in base_ces:
                 return json_error('Solo puedes devolverle a un compañero que te cubra.',
                                   status=400, code='validation_error')
-        for comp, dias_c in cesion_por_comp.items():
-            if len(devol_por_comp.get(comp, set())) != len(dias_c):
+        # BALANCE (bloqueo): por compañero, nº de FECHAS de cesión == nº de FECHAS de devolución.
+        unidad = 'fechas' if usa_fechas else 'días'
+        for comp, cset in base_ces.items():
+            if len(base_dev.get(comp, set())) != len(cset):
                 return json_error(
-                    'A cada compañero debes devolverle la misma cantidad de días que te cubre.',
+                    f'A cada compañero debes devolverle la misma cantidad de {unidad} que te cubre.',
                     status=400, code='validation_error')
 
         # Verificar restricción médica sobre el rango completo
@@ -218,6 +248,8 @@ class SolicitudOrchestrator:
                 'fecha_fin': fecha_fin,
                 'dias_cesion': sorted(dias_c),
                 'dias_devolucion': sorted(devol_por_comp.get(comp_id, set())),
+                'fechas_cesion': sorted(cesion_fechas_por_comp.get(comp_id, set())) if usa_fechas else [],
+                'fechas_devolucion': sorted(devol_fechas_por_comp.get(comp_id, set())) if usa_fechas else [],
                 'fecha_creacion_solicitud': timezone.now().date(),
             }
             es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)

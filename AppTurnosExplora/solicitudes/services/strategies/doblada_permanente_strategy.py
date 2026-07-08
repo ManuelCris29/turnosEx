@@ -32,6 +32,21 @@ def _set(dias_str):
     return {int(x) for x in (dias_str or '').split(',') if str(x).strip().isdigit()}
 
 
+def _csv_fechas(fechas):
+    """Normaliza una lista o csv de fechas ISO a 'YYYY-MM-DD,...' (descarta las mal formadas)."""
+    from datetime import datetime as _d
+    vals = fechas if isinstance(fechas, (list, tuple)) else str(fechas or '').split(',')
+    out = []
+    for v in vals:
+        s = str(v).strip()
+        try:
+            _d.strptime(s, '%Y-%m-%d')
+            out.append(s)
+        except ValueError:
+            continue
+    return ','.join(out)
+
+
 class DobladaPermanenteStrategy(SolicitudStrategy):
 
     def __init__(self):
@@ -76,6 +91,8 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             'fecha_fin': det.fecha_fin.strftime('%Y-%m-%d') if det.fecha_fin else None,
             'dias_cesion': det.dias_cesion,
             'dias_devolucion': det.dias_devolucion,
+            'fechas_cesion': getattr(det, 'fechas_cesion', '') or '',
+            'fechas_devolucion': getattr(det, 'fechas_devolucion', '') or '',
         }
 
     # --------------------------------------------------------------- validación
@@ -154,8 +171,17 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                                "Revisa los días seleccionados.")
 
             # Balance: a cada compañero le devuelves la misma cantidad de jornadas que te cubrió.
-            # (Cada día = una jornada cubierta.)
-            if len(dias_cesion) != len(dias_devolucion):
+            # Si vienen FECHAS específicas se cuentan las fechas (permite balancear cuando los
+            # weekdays tienen distinto número de ocurrencias); si no, se cuentan los weekdays.
+            fechas_cesion = [f for f in _csv_fechas(datos.get('fechas_cesion')).split(',') if f]
+            fechas_devolucion = [f for f in _csv_fechas(datos.get('fechas_devolucion')).split(',') if f]
+            if fechas_cesion or fechas_devolucion:
+                if len(fechas_cesion) != len(fechas_devolucion):
+                    return False, (
+                        f"Debes devolver la misma cantidad de fechas que te cubren: te cubren "
+                        f"{len(fechas_cesion)} y estás devolviendo {len(fechas_devolucion)}. Ajústalas para que queden iguales."
+                    )
+            elif len(dias_cesion) != len(dias_devolucion):
                 return False, (
                     f"Debes devolver la misma cantidad de días que te cubren: te cubren {len(dias_cesion)} "
                     f"día(s) y estás devolviendo {len(dias_devolucion)}. Ajusta los días para que queden iguales."
@@ -255,6 +281,8 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                     fecha_fin=ff,
                     dias_cesion=_csv(datos.get('dias_cesion')),
                     dias_devolucion=_csv(datos.get('dias_devolucion')),
+                    fechas_cesion=_csv_fechas(datos.get('fechas_cesion')),
+                    fechas_devolucion=_csv_fechas(datos.get('fechas_devolucion')),
                     empleado_receptor=receptor,
                 )
             except Exception:

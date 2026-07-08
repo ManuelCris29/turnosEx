@@ -58,6 +58,34 @@ class DobladaPermanenteAplicacionService:
             d += timedelta(days=1)
 
     @staticmethod
+    def _fechas_validas(fechas_csv, fecha_inicio, fecha_fin, solicitante=None, receptor=None, excluir_id=None):
+        """
+        Igual que `_ocurrencias` pero sobre FECHAS ESPECÍFICAS (CSV de YYYY-MM-DD): filtra las que
+        estén en el rango, sean lun-vie y válidas (no festivo/mantenimiento/temporada, y ni el
+        solicitante ni el receptor descansan/ya tienen un cambio ese día). Devuelve fechas ordenadas.
+        """
+        from .ct_permanente_helper import (_es_festivo, _es_mantenimiento, _es_temporada,
+                                            _es_dia_descanso, _tipo_cambio_previo, _dia_libre_por_solicitud)
+        out = []
+        for s in (fechas_csv or '').split(','):
+            s = s.strip()
+            if not s:
+                continue
+            try:
+                d = date.fromisoformat(s)
+            except ValueError:
+                continue
+            if not (fecha_inicio <= d <= fecha_fin and d.weekday() < 5
+                    and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)):
+                continue
+            if any(emp and (_es_dia_descanso(emp, d) or _tipo_cambio_previo(emp, d)
+                            or _dia_libre_por_solicitud(emp, d, excluir_id))
+                   for emp in (solicitante, receptor)):
+                continue
+            out.append(d)
+        return sorted(out)
+
+    @staticmethod
     def _deuda(explorador, fecha, solicitud, etiqueta):
         # Los 30 min solo aplican de lunes a viernes (no sábados ni festivos:
         # esos días se trabaja jornada completa). Los festivos/domingos ya se
@@ -92,16 +120,26 @@ class DobladaPermanenteAplicacionService:
     def aplicar(solicitud, detalle):
         solicitante = solicitud.explorador_solicitante
         receptor = solicitud.explorador_receptor
-        cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
-        devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
+        _ex = solicitud.id  # excluir ESTA solicitud (ya aprobada) de la detección L2
 
         # Ocurrencias VÁLIDAS de cada lado (ya omiten festivo/temporada/mantenimiento/descanso/
-        # día comprometido). BALANCE: solo se aplican PARES cubrir↔devolver, así que se recorta
-        # cada lado al MÍNIMO común → nunca se paga un favor que no se recibió, ni al revés.
-        _occ = DobladaPermanenteAplicacionService._ocurrencias
-        _ex = solicitud.id  # excluir ESTA solicitud (ya aprobada) de la detección L2
-        ocur_ces = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, cesion, solicitante, receptor, _ex))
-        ocur_dev = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, devolucion, solicitante, receptor, _ex))
+        # día comprometido). Si el detalle trae FECHAS específicas se usan esas (permite balancear
+        # con distinto número de ocurrencias por weekday); si no, se expanden los weekdays.
+        fces = getattr(detalle, 'fechas_cesion', '') or ''
+        fdev = getattr(detalle, 'fechas_devolucion', '') or ''
+        if fces or fdev:
+            ocur_ces = DobladaPermanenteAplicacionService._fechas_validas(
+                fces, detalle.fecha_inicio, detalle.fecha_fin, solicitante, receptor, _ex)
+            ocur_dev = DobladaPermanenteAplicacionService._fechas_validas(
+                fdev, detalle.fecha_inicio, detalle.fecha_fin, solicitante, receptor, _ex)
+        else:
+            _occ = DobladaPermanenteAplicacionService._ocurrencias
+            cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
+            devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
+            ocur_ces = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, cesion, solicitante, receptor, _ex))
+            ocur_dev = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, devolucion, solicitante, receptor, _ex))
+        # BALANCE: solo se aplican PARES cubrir↔devolver → se recorta cada lado al MÍNIMO común
+        # (nunca se paga un favor que no se recibió, ni al revés).
         n = min(len(ocur_ces), len(ocur_dev))
         ocur_ces, ocur_dev = ocur_ces[:n], ocur_dev[:n]
 
@@ -153,12 +191,23 @@ class DobladaPermanenteAplicacionService:
         if snapshot:
             DobladaAplicacionService.restaurar_turnos_desde_snapshot(snapshot)
         else:
-            # Sin snapshot: al menos eliminar las dobladas creadas en el rango
-            cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
-            devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
-            for dias_set, quien in ((cesion, solicitud.explorador_receptor),
-                                    (devolucion, solicitud.explorador_solicitante)):
-                for fecha in DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, dias_set):
+            # Sin snapshot: al menos eliminar las dobladas creadas en el rango.
+            fces = getattr(detalle, 'fechas_cesion', '') or ''
+            fdev = getattr(detalle, 'fechas_devolucion', '') or ''
+            if fces or fdev:
+                lados = (
+                    (DobladaPermanenteAplicacionService._fechas_validas(fces, detalle.fecha_inicio, detalle.fecha_fin), solicitud.explorador_receptor),
+                    (DobladaPermanenteAplicacionService._fechas_validas(fdev, detalle.fecha_inicio, detalle.fecha_fin), solicitud.explorador_solicitante),
+                )
+            else:
+                cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
+                devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
+                lados = (
+                    (DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, cesion), solicitud.explorador_receptor),
+                    (DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, devolucion), solicitud.explorador_solicitante),
+                )
+            for fechas, quien in lados:
+                for fecha in fechas:
                     Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio='DOBLADA PERM').delete()
 
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')

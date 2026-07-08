@@ -503,7 +503,9 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
     """
 
     def get(self, request):
+        import json
         from datetime import datetime, timedelta
+        from empleados.models import Empleado
         from ..services.ct_permanente_helper import (
             _es_festivo, _es_mantenimiento, _es_temporada, _es_dia_descanso, _tipo_cambio_previo,
             _dia_libre_por_solicitud,
@@ -522,8 +524,20 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
             return json_error('Usuario sin empleado asociado', status=400, code='no_empleado')
 
         solicitante = request.user.empleado
+        # Compañero asignado a cada weekday (opcional): {"weekday": companero_id}. Si viene, la fecha
+        # también debe ser válida para ESE compañero (mismo criterio que la aplicación/preview), para
+        # que las casillas del formulario reflejen la disponibilidad real por día+compañero.
+        try:
+            dias_comp = json.loads(request.GET.get('dias_companeros', '') or '{}')
+        except json.JSONDecodeError:
+            dias_comp = {}
+        comp_por_dia = {}
+        for k, cid in dias_comp.items():
+            if cid and str(k).isdigit():
+                comp_por_dia[int(k)] = Empleado.objects.filter(id=cid).first()
+
         # Por cada día de la semana (lun-vie), las FECHAS válidas del rango (no solo el conteo),
-        # para mostrar en el formulario cuáles son (ej. "Martes: 14/jul, 28/jul").
+        # para mostrar/seleccionar cuáles son (ej. "Martes: 14/jul, 28/jul").
         por_dia = {w: [] for w in range(5)}
         if ff >= fi:
             d = fi
@@ -532,7 +546,12 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
                 if (w < 5 and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)
                         and not _es_dia_descanso(solicitante, d) and not _tipo_cambio_previo(solicitante, d)
                         and not _dia_libre_por_solicitud(solicitante, d)):
-                    por_dia[w].append(d.strftime('%Y-%m-%d'))
+                    comp = comp_por_dia.get(w)
+                    if comp and (_es_dia_descanso(comp, d) or _dia_libre_por_solicitud(comp, d)
+                                 or _tipo_cambio_previo(comp, d)):
+                        pass  # el compañero no puede ese día → la fecha no se ofrece
+                    else:
+                        por_dia[w].append(d.strftime('%Y-%m-%d'))
                 d += timedelta(days=1)
         return json_ok({'por_dia': por_dia})
 
