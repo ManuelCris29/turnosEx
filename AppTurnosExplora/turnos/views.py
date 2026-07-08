@@ -376,7 +376,9 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
     def get_context_data(self, **kwargs):
         import calendar as _cal
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
-        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+        from turnos.services.alternancia_fines_semana_service import (
+            AlternanciaFinesSemanaService, FECHA_REFERENCIA_SABADO, JORNADA_REFERENCIA_SABADO,
+        )
         from turnos.services.festivos_rotacion_service import FestivosRotacionService
         context = super().get_context_data(**kwargs)
         anio = self._anio()
@@ -412,6 +414,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
 
         bloqueadas = AsignacionEspecialService.fechas_bloqueadas_por_solicitud(anio)
         anio_actual = date.today().year
+        ancla_sabado = JORNADA_REFERENCIA_SABADO.upper()
         context.update({
             'anio': anio,
             'anios_disponibles': list(range(anio_actual, anio_actual + 6)),
@@ -421,6 +424,11 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
             'auto_json': auto,
             'bloqueadas_json': sorted(bloqueadas),
             'anio_editable_completo': len(bloqueadas) == 0,
+            # Ancla de la alternancia automática (para la nota informativa). Se lee de las
+            # constantes del servicio para que la nota nunca quede desactualizada.
+            'ancla_fecha': FECHA_REFERENCIA_SABADO,
+            'ancla_jornada_sabado': ancla_sabado,
+            'ancla_jornada_domingo': 'AM' if ancla_sabado == 'PM' else 'PM',
         })
         return context
 

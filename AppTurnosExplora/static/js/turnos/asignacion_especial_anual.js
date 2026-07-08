@@ -74,5 +74,85 @@
         });
     });
 
+    // ===========================================================
+    //  SEMBRAR: fija el grupo del primer día y rellena TODO el año
+    //  siguiendo la alternancia. Solo existe cuando el año está en
+    //  limpio (los botones no se renderizan si hay solicitudes).
+    // ===========================================================
+    const DAY = 86400000;
+    const oppos = (g) => (g === 'AM' ? 'PM' : 'AM');
+    const parseISO = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+    const isoFromMs = (ms) => {
+        const d = new Date(ms);
+        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+    };
+    const isoMinus1 = (iso) => isoFromMs(parseISO(iso) - DAY);
+
+    // Celdas especiales (sáb/dom y festivos lun-vie) presentes en el calendario.
+    const celdas = Array.from(document.querySelectorAll('.dia[data-fecha]')).filter(esEspecial);
+
+    // Primer sábado del año (ISO menor entre las celdas con weekday 5).
+    function primerSabadoISO() {
+        let best = null;
+        celdas.forEach(s => {
+            if (parseInt(s.dataset.weekday, 10) === 5) {
+                const iso = s.dataset.fecha;
+                if (best === null || iso < best) best = iso;
+            }
+        });
+        return best;
+    }
+
+    // Grupo que trabaja un sábado dado, según paridad de semanas desde el primer sábado.
+    function grupoSabado(satISO, primerSabISO, primerGrupo) {
+        const semanas = Math.floor((parseISO(satISO) - parseISO(primerSabISO)) / (7 * DAY));
+        return (semanas % 2 === 0) ? primerGrupo : oppos(primerGrupo);
+    }
+
+    function repintarTodo() { celdas.forEach(pintar); }
+
+    function sembrarFindes(primerGrupo) {
+        const primerSab = primerSabadoISO();
+        if (!primerSab) return;
+        celdas.forEach(s => {
+            const iso = s.dataset.fecha;
+            if (bloqueadas.has(iso)) return;  // seguridad: nunca tocar días bloqueados
+            const wd = parseInt(s.dataset.weekday, 10);
+            if (wd === 5) {
+                estado[iso] = grupoSabado(iso, primerSab, primerGrupo);
+            } else if (wd === 6) {
+                // Domingo: grupo contrario al de SU sábado (fecha - 1 día).
+                estado[iso] = oppos(grupoSabado(isoMinus1(iso), primerSab, primerGrupo));
+            }
+        });
+        repintarTodo();
+    }
+
+    function sembrarFestivos(primerGrupo) {
+        const fechas = celdas
+            .filter(s => festivos.has(s.dataset.fecha) && !bloqueadas.has(s.dataset.fecha))
+            .map(s => s.dataset.fecha)
+            .sort();  // ISO ordena cronológicamente
+        let g = primerGrupo;
+        fechas.forEach(iso => { estado[iso] = g; g = oppos(g); });
+        repintarTodo();
+    }
+
+    // Prefijar los selectores con el grupo automático del primer día (pista útil).
+    const selFinde = document.getElementById('seed-finde');
+    const selFestivo = document.getElementById('seed-festivo');
+    const btnFinde = document.getElementById('btn-sembrar-finde');
+    const btnFestivo = document.getElementById('btn-sembrar-festivo');
+    if (selFinde) {
+        const ps = primerSabadoISO();
+        if (ps && auto[ps]) selFinde.value = auto[ps];
+    }
+    if (selFestivo) {
+        const primerFest = celdas.filter(s => festivos.has(s.dataset.fecha)).map(s => s.dataset.fecha).sort()[0];
+        if (primerFest && auto[primerFest]) selFestivo.value = auto[primerFest];
+    }
+    if (btnFinde) btnFinde.addEventListener('click', () => sembrarFindes(selFinde.value));
+    if (btnFestivo) btnFestivo.addEventListener('click', () => sembrarFestivos(selFestivo.value));
+
     form.addEventListener('submit', () => { hidden.value = JSON.stringify(estado); });
 })();
