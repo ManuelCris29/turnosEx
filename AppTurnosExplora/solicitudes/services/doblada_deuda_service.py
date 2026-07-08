@@ -131,35 +131,11 @@ class DobladaDeudaService:
                 comentario=f'Doblada efectiva (pago en semana del sábado AMBAS) ({detalle.fecha_pago_semana})',
             )
 
-        # Doblada de semana cedida y pagada en sábado: el emisor debe sus 30 min de la cesión de semana
-        if (fecha_cesion.weekday() < 5
-                and fecha_pago.weekday() == 5
-                and DeudaCorporativaService.aplica_deuda_doblada(fecha_cesion)):
-            _key_emisor = f"{solicitante.id}:{fecha_cesion.isoformat()}"
-            _prev = (getattr(detalle, 'snapshot_turnos_previos', None) or {}).get(_key_emisor, [])
-            _jornadas_prev = {(t.get('jornada_nombre') or '').upper() for t in _prev}
-            if 'AM' in _jornadas_prev and 'PM' in _jornadas_prev:
-                from solicitudes.models import DeudaCorporativa
-                _ya = DeudaCorporativa.objects.filter(
-                    explorador=solicitante, fecha_doblada=fecha_cesion
-                ).exclude(estado='cancelada').exists()
-                if not _ya:
-                    DeudaCorporativaService.crear_deuda_corporativa(
-                        explorador=solicitante,
-                        minutos=30,
-                        fecha_generacion=date.today(),
-                        fecha_doblada=fecha_cesion,
-                        solicitud=solicitud,
-                        comentario=(
-                            f'Doblada de semana cedida y pagada en sábado ({fecha_pago}): '
-                            f'30 min del emisor por la jornada que cedió'
-                        ),
-                    )
-                    logger.info(
-                        "Deuda corporativa (30 min) generada para el EMISOR %s en %s "
-                        "(doblada de semana cedida, pagada en sábado %s).",
-                        solicitante.nombre, fecha_cesion, fecha_pago,
-                    )
+        # NOTA: CEDER una doblada NO genera 30 min al emisor. Los 30 min corporativos son solo
+        # para quien REALMENTE se dobla en día hábil: el receptor en la cesión (arriba) y, si aplica,
+        # el emisor cuando PAGA doblándose en día hábil. Pagar en sábado no genera nada (día completo
+        # por alternancia). Los 30 min previos del emisor (p. ej. de una doblada permanente) quedan
+        # intactos; ceder no le añade otros.
 
         logger.info(
             "Deudas generadas: Solicitud %s - Deuda entre %s y %s, deudas corporativas para ambos",

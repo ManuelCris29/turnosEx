@@ -814,11 +814,12 @@ class TestValidacionesGenerales(MatrizDobladasTestCase):
 # ===========================================================================
 class TestDeudaEmisorDobladaSemanaPagoSabado(MatrizDobladasTestCase):
     """
-    Regla de negocio: cuando el EMISOR cede una jornada de una DOBLADA que tenía
-    en un día de SEMANA y la paga en SÁBADO, deben generarse 30 min para AMBOS:
+    Regla de negocio: CEDER una doblada NO genera 30 min al emisor (ceder no es
+    doblarse). Cuando el EMISOR cede una jornada de una DOBLADA que tenía en un
+    día de SEMANA y la paga en SÁBADO:
       - Receptor: dobla (AM+PM) en la fecha de cesión (día de semana) → 30 min.
-      - Emisor:   por la doblada de semana que cedió, asociada al DÍA DE SEMANA
-                  de la cesión (el sábado por sí solo no genera 30 min).
+      - Emisor:   NO se le generan 30 min por ceder (sus 30 min previos, si los
+                  tuviera de otra doblada, quedan intactos; ceder no añade otros).
     """
 
     def setUp(self):
@@ -856,7 +857,7 @@ class TestDeudaEmisorDobladaSemanaPagoSabado(MatrizDobladasTestCase):
         )
         return sol, detalle
 
-    def test_emisor_recibe_30min_por_doblada_semana_pagada_en_sabado(self):
+    def test_emisor_no_recibe_30min_por_ceder_doblada_semana_pagada_en_sabado(self):
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         from solicitudes.models import DeudaCorporativa
 
@@ -874,15 +875,16 @@ class TestDeudaEmisorDobladaSemanaPagoSabado(MatrizDobladasTestCase):
 
         DobladaAplicacionService.generar_deudas_doblada(sol, detalle)
 
+        # Ceder NO genera 30 min al emisor (no hay deuda previa en este test → no debe existir ninguna).
         deuda_emisor = DeudaCorporativa.objects.filter(
             explorador=self.emisor, fecha_doblada=cesion, estado='activa'
         )
-        self.assertTrue(
+        self.assertFalse(
             deuda_emisor.exists(),
-            "El emisor debe recibir 30 min por la doblada de semana cedida pagada en sábado.",
+            "Ceder una doblada NO debe generar 30 min al emisor.",
         )
-        self.assertEqual(deuda_emisor.first().minutos, 30)
 
+        # El receptor sí recibe sus 30 min por doblar en la fecha de cesión.
         deuda_receptor = DeudaCorporativa.objects.filter(
             explorador=self.receptor, fecha_doblada=cesion, estado='activa'
         )
