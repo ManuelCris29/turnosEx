@@ -94,13 +94,30 @@
    FIXES PARA SIDEBAR Y BADGE DE NOTIFICACIONES
    ============================================ */
 
-/* 1. Eliminar espacio en blanco cuando sidebar está colapsado */
-body.sidebar-collapse .content-wrapper,
-body.sidebar-collapse .main-footer,
-body.sidebar-collapse .main-header {
-    margin-left: 0 !important;
-    width: 100% !important;
-    left: 0 !important;
+/* 1. Sidebar colapsado — el ancho/margen del contenido depende del tamaño:
+   - ESCRITORIO (>=992px): AdminLTE deja la franja de iconos (4.6rem); el contenido
+     va pegado a ella con width:auto (viewport - 4.6rem). Forzar width:100% aquí
+     desbordaba 74px y cortaba el usuario del navbar.
+   - MÓVIL (<992px): el sidebar se oculta fuera de pantalla (off-canvas), así que el
+     contenido debe ir a ancho completo con margin-left:0; si se deja 4.6rem queda
+     una franja blanca de 74px a la izquierda. */
+@media (min-width: 992px) {
+    body.sidebar-collapse .content-wrapper,
+    body.sidebar-collapse .main-footer,
+    body.sidebar-collapse .main-header {
+        margin-left: 4.6rem !important;
+        width: auto !important;
+        left: auto !important;
+    }
+}
+@media (max-width: 991.98px) {
+    body.sidebar-collapse .content-wrapper,
+    body.sidebar-collapse .main-footer,
+    body.sidebar-collapse .main-header {
+        margin-left: 0 !important;
+        width: 100% !important;
+        left: 0 !important;
+    }
 }
 
 /* Asegurar que el contenido use todo el ancho disponible */
@@ -156,11 +173,14 @@ body.sidebar-collapse .wrapper {
     width: 100% !important;
 }
 
-/* Fix para el contenido cuando sidebar está oculto */
-body.sidebar-collapse .content-wrapper {
-    margin-left: 0 !important;
-    width: 100% !important;
-    flex: 1 !important;
+/* Fix para el contenido cuando sidebar está colapsado (solo escritorio; en móvil
+   lo cubre la regla responsive de arriba, que pone margin-left:0 / width:100%). */
+@media (min-width: 992px) {
+    body.sidebar-collapse .content-wrapper {
+        margin-left: 4.6rem !important;
+        width: auto !important;
+        flex: 1 !important;
+    }
 }
 
 /* 4. Asegurar transición suave */
