@@ -106,17 +106,33 @@ class ReporteDiaService:
             jornadas_descanso_temporada.add(dsm.jornada.nombre.upper())
 
         # ── Solicitudes que afectan esta fecha ───────────────────────────────
-        # Quién DESCANSA por haber cedido (DOBLADA / D FDS — solicitante)
-        descansa_por_cesion = {}   # emp_id → {motivo, companero}
+        # Quién DESCANSA por haber cedido (DOBLADA / D FDS — solicitante).
+        # Solo descansa el día COMPLETO si cedió todo: cesión completa / D FDS, o AMBAS
+        # medias jornadas por parciales. Una sola cesión parcial deja la otra jornada
+        # (se muestra por su Turno real). Se acumula por empleado para distinguirlo.
+        _ced_acc = {}   # emp_id → {'parciales': set(), 'rep': solicitud, 'full': bool}
         for s in (SolicitudCambio.objects
                   .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                           estado='aprobada', fecha_cambio_turno=fecha,
                           explorador_solicitante_id__in=emp_ids)
-                  .select_related('explorador_solicitante', 'explorador_receptor')):
-            descansa_por_cesion[s.explorador_solicitante_id] = {
-                'motivo': 'cedió su jornada',
-                'companero': _nombre(s.explorador_receptor),
-            }
+                  .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')):
+            _det = getattr(s, 'doblada', None)
+            _tc = getattr(_det, 'tipo_cesion', None) if _det else None
+            e = _ced_acc.setdefault(s.explorador_solicitante_id,
+                                    {'parciales': set(), 'rep': s, 'full': False})
+            if _tc == 'cesion_parcial_am':
+                e['parciales'].add('AM')
+            elif _tc == 'cesion_parcial_pm':
+                e['parciales'].add('PM')
+            else:
+                e['full'] = True
+        descansa_por_cesion = {}   # emp_id → {motivo, companero}
+        for emp_id, e in _ced_acc.items():
+            if e['full'] or {'AM', 'PM'} <= e['parciales']:
+                descansa_por_cesion[emp_id] = {
+                    'motivo': 'cedió su jornada',
+                    'companero': _nombre(e['rep'].explorador_receptor),
+                }
 
         # Quién DESCANSA por pagar doblada (receptor, en fecha_pago)
         descansa_por_pago = {}   # emp_id → {motivo, companero}

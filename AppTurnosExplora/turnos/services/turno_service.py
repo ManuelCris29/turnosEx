@@ -260,12 +260,27 @@ class TurnoService(ITurnoService):
         sab, dom = _finde_fechas(fecha)
         fechas_finde = {sab, dom} if fecha.weekday() in (5, 6) else {fecha}
 
-        s = (_exc(SolicitudCambio.objects
-             .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                     explorador_solicitante=empleado, fecha_cambio_turno__in=fechas_finde))
-             .select_related('explorador_receptor').order_by('-id').first())
-        if s:
-            return {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
+        # El empleado CEDIÓ ese día. Solo es día libre COMPLETO si no le queda jornada:
+        # cesión completa / D FDS, o cesión PARCIAL de AMBAS jornadas (AM y PM). Una sola
+        # cesión parcial deja la otra jornada → el día NO está comprometido del todo.
+        dobladas_ced = list(_exc(SolicitudCambio.objects
+            .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
+                    explorador_solicitante=empleado, fecha_cambio_turno__in=fechas_finde))
+            .select_related('explorador_receptor', 'doblada').order_by('-id'))
+        parciales_cedidas = set()
+        for s in dobladas_ced:
+            det = getattr(s, 'doblada', None)
+            tipo_cesion = getattr(det, 'tipo_cesion', None) if det else None
+            if tipo_cesion == 'cesion_parcial_am':
+                parciales_cedidas.add('AM')
+            elif tipo_cesion == 'cesion_parcial_pm':
+                parciales_cedidas.add('PM')
+            else:
+                # Cesión completa (o D FDS sin detalle de doblada) → día libre completo.
+                return {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
+        if {'AM', 'PM'} <= parciales_cedidas:
+            # Cedió ambas medias jornadas → el día queda libre por completo.
+            return {'motivo': 'cedió su jornada', 'companero': _comp(dobladas_ced[0].explorador_receptor)}
         s = (_exc(SolicitudCambio.objects
              .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                      explorador_receptor=empleado, doblada__fecha_pago__in=fechas_finde))
@@ -480,14 +495,30 @@ class TurnoService(ITurnoService):
                 return [fecha - _td(days=1), fecha]
             return [fecha]               # entre semana (DOBLADA lun-vie): solo esa fecha
 
+        # Solo es "día libre" completo si el empleado cedió TODO el día: cesión completa /
+        # D FDS, o AMBAS medias jornadas por parciales. Una sola cesión parcial deja la otra
+        # jornada (L1 la mostrará como turno real). Se acumula por fecha para distinguirlo.
+        _ced_por_fecha = {}  # fecha -> {'parciales': set(), 'rep': solicitud, 'full': bool}
         for s in (SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_solicitante=empleado, fecha_cambio_turno__range=(ini, fin))
-                .select_related('explorador_receptor').order_by('-id')):
-            info = {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
+                .select_related('explorador_receptor', 'doblada').order_by('-id')):
+            _det = getattr(s, 'doblada', None)
+            _tc = getattr(_det, 'tipo_cesion', None) if _det else None
             for d in _dias_descanso_solicitud(s.fecha_cambio_turno):
-                if ini <= d <= fin:
-                    rest_sol.setdefault(d, info)
+                if not (ini <= d <= fin):
+                    continue
+                e = _ced_por_fecha.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
+                if _tc == 'cesion_parcial_am':
+                    e['parciales'].add('AM')
+                elif _tc == 'cesion_parcial_pm':
+                    e['parciales'].add('PM')
+                else:
+                    e['full'] = True
+        for d, e in _ced_por_fecha.items():
+            if e['full'] or {'AM', 'PM'} <= e['parciales']:
+                rest_sol.setdefault(d, {'motivo': 'cedió su jornada',
+                                        'companero': _comp(e['rep'].explorador_receptor)})
         for s in (SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_receptor=empleado, doblada__fecha_pago__range=(ini, fin))

@@ -816,10 +816,16 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         }
                     continue
 
-                # Una cesión aprobada tiene prioridad máxima sobre cualquier Turno residual
-                # en la tabla (el empleado cedió su jornada aunque queden registros huérfanos).
-                if solicitudes_descanso_solicitante.get(fecha) and turnos_dia:
-                    turnos_dia = []
+                # Una cesión COMPLETA aprobada tiene prioridad sobre cualquier Turno residual
+                # (el empleado cedió TODO el día aunque queden registros huérfanos). Una cesión
+                # PARCIAL, en cambio, deja la otra jornada como Turno real válido: NO se borra,
+                # para que Mis Turnos muestre la jornada restante (no "día libre").
+                _sol_ced = solicitudes_descanso_solicitante.get(fecha)
+                if _sol_ced and turnos_dia:
+                    _det_ced = getattr(_sol_ced, 'doblada', None)
+                    _tc_ced = getattr(_det_ced, 'tipo_cesion', None) if _det_ced else None
+                    if _tc_ced not in ('cesion_parcial_am', 'cesion_parcial_pm'):
+                        turnos_dia = []
 
                 if turnos_dia:
                     # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
