@@ -122,7 +122,7 @@ class IndicadoresService:
         return res
 
     @staticmethod
-    def get(explorador_id=None, jornada=None, anio=None):
+    def get(explorador_id=None, jornada=None, anio=None, incluir_receptor=False):
         from solicitudes.models import SolicitudCambio
         from permisos.models import PermisoEspecial
 
@@ -136,6 +136,18 @@ class IndicadoresService:
         meses = {m: {c: 0 for c in CATEGORIAS} for m in range(1, 13)}
 
         from django.db.models import Q as _Q
+
+        # Filtro por explorador. Para la vista personal (incluir_receptor=True) se
+        # cuenta toda su participación: solicitante O receptor (permisos: empleado O
+        # quien cubre). Para el supervisor (default) se mantiene solo solicitante.
+        def filtro_sol(eid):
+            return (_Q(explorador_solicitante_id=eid) | _Q(explorador_receptor_id=eid)) if incluir_receptor \
+                else _Q(explorador_solicitante_id=eid)
+
+        def filtro_perm(eid):
+            return (_Q(empleado_id=eid) | _Q(cubre_id=eid)) if incluir_receptor \
+                else _Q(empleado_id=eid)
+
         hoy = date.today()
         hasta = hoy if anio == hoy.year else date(anio, 12, 31)
         ene1, dic31 = date(anio, 1, 1), date(anio, 12, 31)
@@ -146,7 +158,7 @@ class IndicadoresService:
                   .exclude(tipo_cambio__nombre__in=['DOBLADA PERMANENTE', 'CT PERMANENTE'])
                   .select_related('tipo_cambio'))
         if explorador_id:
-            sol_np = sol_np.filter(explorador_solicitante_id=explorador_id)
+            sol_np = sol_np.filter(filtro_sol(explorador_id))
         for s in sol_np.values('tipo_cambio__nombre', 'fecha_cambio_turno', 'explorador_solicitante_id'):
             if not pasa_jornada(s['explorador_solicitante_id']):
                 continue
@@ -167,7 +179,7 @@ class IndicadoresService:
                   .select_related('cambio_permanente').prefetch_related('cambio_permanente__dias'))
 
         # --- Doblada permanente: ocurrencias reales (cesión + devolución) en el mes que toque ---
-        dp = dp_all.filter(explorador_solicitante_id=explorador_id) if explorador_id else dp_all
+        dp = dp_all.filter(filtro_sol(explorador_id)) if explorador_id else dp_all
         for s in dp:
             if not pasa_jornada(s.explorador_solicitante_id):
                 continue
@@ -175,7 +187,7 @@ class IndicadoresService:
                 meses[occ.month]['dobladas'] += 1
 
         # --- CT permanente: ocurrencias reales ---
-        cp = cp_all.filter(explorador_solicitante_id=explorador_id) if explorador_id else cp_all
+        cp = cp_all.filter(filtro_sol(explorador_id)) if explorador_id else cp_all
         for s in cp:
             if not pasa_jornada(s.explorador_solicitante_id):
                 continue
@@ -185,7 +197,7 @@ class IndicadoresService:
         # --- Permisos APROBADOS ---
         pe_aprob = PermisoEspecial.objects.filter(estado='APROBADO', fecha_inicio__year=anio)
         if explorador_id:
-            pe_aprob = pe_aprob.filter(empleado_id=explorador_id)
+            pe_aprob = pe_aprob.filter(filtro_perm(explorador_id))
         for p in pe_aprob.values('fecha_inicio', 'empleado_id'):
             if not pasa_jornada(p['empleado_id']):
                 continue
@@ -208,8 +220,8 @@ class IndicadoresService:
         sol_todas = SolicitudCambio.objects.filter(fecha_cambio_turno__year=anio)
         pe_todas = PermisoEspecial.objects.filter(fecha_inicio__year=anio)
         if explorador_id:
-            sol_todas = sol_todas.filter(explorador_solicitante_id=explorador_id)
-            pe_todas = pe_todas.filter(empleado_id=explorador_id)
+            sol_todas = sol_todas.filter(filtro_sol(explorador_id))
+            pe_todas = pe_todas.filter(filtro_perm(explorador_id))
         if jornada:
             ids_j = [eid for eid, j in jbase.items() if j == jornada]
             sol_todas = sol_todas.filter(explorador_solicitante_id__in=ids_j)

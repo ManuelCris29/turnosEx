@@ -599,6 +599,39 @@ class IndicadoresView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
         return ctx
 
 
+class MisIndicadoresView(LoginRequiredMixin, TemplateView):
+    """Indicadores personales del explorador: mismas gráficas que el supervisor
+    pero filtradas SOLO a sus propios datos (participación como solicitante o
+    receptor). No admite elegir otro explorador ni jornada (privacidad)."""
+    template_name = 'empleados/indicadores.html'
+
+    def get_context_data(self, **kwargs):
+        from .services.indicadores_service import IndicadoresService
+        ctx = super().get_context_data(**kwargs)
+        empleado = getattr(self.request.user, 'empleado', None)
+        if not empleado:
+            return ctx  # se maneja el redirect en get()
+
+        anio_raw = self.request.GET.get('anio')
+        anio = int(anio_raw) if anio_raw and str(anio_raw).isdigit() else None
+
+        data = IndicadoresService.get(explorador_id=empleado.id, anio=anio, incluir_receptor=True)
+        ctx.update(data)
+        ctx['page_title'] = 'Mis Indicadores'
+        ctx['mi_vista'] = True
+        ctx['anios'] = IndicadoresService.anios_disponibles()
+        ctx['filtro_explorador'] = ''
+        ctx['filtro_jornada'] = ''
+        ctx['chart_series_json'] = data['chart_series']
+        ctx['meses_json'] = data['meses_nombres']
+        return ctx
+
+    def get(self, request, *args, **kwargs):
+        if not getattr(request.user, 'empleado', None):
+            return redirect('dashboard')
+        return super().get(request, *args, **kwargs)
+
+
 # CRUD de PDH (Pago de Horas)
 class PDHListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     """Administración: el supervisor/admin ve y gestiona todos los pagos de horas."""

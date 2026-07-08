@@ -10,11 +10,12 @@ from .views import (
     PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView, DeudasPendientesExploradorView,
     ChangePasswordView, RoleUpdateView, RoleDeleteView,
     PDHVisualizarListView, SancionVisualizarListView, RestriccionVisualizarListView,
-    IndicadoresView,
+    IndicadoresView, MisIndicadoresView,
 )
 
 urlpatterns = [
     path('indicadores/', IndicadoresView.as_view(), name='indicadores'),
+    path('mis-indicadores/', MisIndicadoresView.as_view(), name='mis_indicadores'),
     path('', EmpleadoListView.as_view(), name='empleados'),
     path('detail/<int:pk>/', EmpleadoDetailView.as_view(), name='empleado_detail'),
     path('edit/<int:pk>/', EmpleadoEditView.as_view(), name='empleado_edit'),

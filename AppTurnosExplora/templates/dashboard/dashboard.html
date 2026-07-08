@@ -21,25 +21,25 @@
 
 <!-- KPIs -->
 <div class="dash-kpis">
-  <a href="{% if es_admin %}{% url 'indicadores' %}{% else %}{% url 'mis_turnos' %}{% endif %}" class="dash-kpi azul">
+  <a href="{% if es_admin %}{% url 'indicadores' %}{% else %}{% url 'mis_indicadores' %}{% endif %}" class="dash-kpi azul">
     <div class="dash-kpi-icon"><i class="fas fa-exchange-alt"></i></div>
     <div>
       <div class="dash-kpi-num">{{ kpi_cambios }}</div>
-      <div class="dash-kpi-lbl">Cambios realizados ({{ anio }})</div>
+      <div class="dash-kpi-lbl">{% if es_admin %}Cambios realizados ({{ anio }}){% else %}Mis cambios ({{ anio }}){% endif %}</div>
     </div>
   </a>
-  <a href="{% if es_admin %}{% url 'indicadores' %}{% else %}{% url 'mis_turnos' %}{% endif %}" class="dash-kpi verde">
+  <a href="{% if es_admin %}{% url 'indicadores' %}{% else %}{% url 'mis_indicadores' %}{% endif %}" class="dash-kpi verde">
     <div class="dash-kpi-icon"><i class="fas fa-chart-line"></i></div>
     <div>
       <div class="dash-kpi-num">{{ kpi_tasa }}%</div>
-      <div class="dash-kpi-lbl">Tasa de aprobación</div>
+      <div class="dash-kpi-lbl">{% if es_admin %}Tasa de aprobación{% else %}Mi tasa de aprobación{% endif %}</div>
     </div>
   </a>
-  <a href="{% if es_admin %}{% url 'empleados' %}{% else %}{% url 'mis_turnos' %}{% endif %}" class="dash-kpi ambar">
-    <div class="dash-kpi-icon"><i class="fas fa-users"></i></div>
+  <a href="{% if es_admin %}{% url 'empleados' %}{% else %}{% url 'permisos_especiales_list' %}{% endif %}" class="dash-kpi ambar">
+    <div class="dash-kpi-icon"><i class="fas {% if es_admin %}fa-users{% else %}fa-calendar-check{% endif %}"></i></div>
     <div>
-      <div class="dash-kpi-num">{{ kpi_empleados }}</div>
-      <div class="dash-kpi-lbl">Exploradores activos</div>
+      <div class="dash-kpi-num">{% if es_admin %}{{ kpi_empleados }}{% else %}{{ kpi_permisos_usados }}{% endif %}</div>
+      <div class="dash-kpi-lbl">{% if es_admin %}Exploradores activos{% else %}Mis permisos usados{% endif %}</div>
     </div>
   </a>
   <a href="{% url 'permisos_especiales_list' %}" class="dash-kpi rojo">

@@ -12,14 +12,15 @@
 <div class="pg-container">
   <div class="pg-content">
     <div class="pg-header">
-      <h1 class="pg-title"><i class="fas fa-chart-bar"></i> Indicadores</h1>
-      <p class="pg-subtitle">Estadísticas de cambios y permisos — año {{ anio }}</p>
+      <h1 class="pg-title"><i class="fas fa-chart-bar"></i> {% if mi_vista %}Mis Indicadores{% else %}Indicadores{% endif %}</h1>
+      <p class="pg-subtitle">{% if mi_vista %}Estadísticas de mis cambios y permisos{% else %}Estadísticas de cambios y permisos{% endif %} — año {{ anio }}</p>
     </div>
 
     <!-- Filtros -->
     <div class="pg-card" style="margin-bottom:18px;">
       <div class="pg-card-body">
         <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem;">
+          {% if not mi_vista %}
           <div>
             <label class="mb-1 small font-weight-bold d-block">Explorador</label>
             <select name="explorador" class="form-control" style="min-width:230px;">
@@ -35,6 +36,7 @@
               <option value="PM" {% if filtro_jornada == 'PM' %}selected{% endif %}>PM</option>
             </select>
           </div>
+          {% endif %}
           <div>
             <label class="mb-1 small font-weight-bold d-block">Año</label>
             <select name="anio" class="form-control">
@@ -42,7 +44,7 @@
             </select>
           </div>
           <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Aplicar</button>
-          {% if filtro_explorador or filtro_jornada %}<a href="{% url 'indicadores' %}?anio={{ anio }}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}
+          {% if not mi_vista %}{% if filtro_explorador or filtro_jornada %}<a href="{% url 'indicadores' %}?anio={{ anio }}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}{% endif %}
         </form>
       </div>
     </div>
@@ -123,7 +125,7 @@
     <!-- Por explorador: Solicita vs Reemplaza -->
     <div class="pg-card" style="margin-top:18px;">
       <div class="pg-card-head" style="background:linear-gradient(135deg,#0891b2,#06b6d4);">
-        <h3><i class="fas fa-users"></i> Por explorador — Solicita vs Reemplaza</h3>
+        <h3><i class="fas fa-users"></i> {% if mi_vista %}Mi actividad — Solicité vs Reemplacé{% else %}Por explorador — Solicita vs Reemplaza{% endif %}</h3>
       </div>
       <div class="pg-card-body">
         {% if por_explorador %}
