@@ -152,7 +152,10 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
                     'nombre': empleado.nombre,
                     'apellido': empleado.apellido,
                 }
-                
+                # Jornada REAL del día (doblada permanente): etiqueta AM/PM del compañero
+                if getattr(empleado, 'jornada_real', None):
+                    data['jornada'] = empleado.jornada_real
+
                 # Agregar metadatos de compatibilidad si existen (CT Permanente Best Match)
                 if hasattr(empleado, 'compatibilidad_percent'):
                     data['compatibilidad_percent'] = empleado.compatibilidad_percent
@@ -419,11 +422,7 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
     def get(self, request):
         import json
         from datetime import datetime, timedelta
-        from empleados.models import Empleado
-        from ..services.ct_permanente_helper import (
-            _es_festivo, _es_mantenimiento, _es_temporada, _es_dia_descanso, _tipo_cambio_previo,
-            _dia_libre_por_solicitud,
-        )
+        from ..services.ct_permanente_helper import _motivo_no_doblada_perm
 
         fi_s = request.GET.get('fecha_inicio')
         ff_s = request.GET.get('fecha_fin')
@@ -449,37 +448,17 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
         dias = {int(x) for x in dias_s.split(',') if x.strip().isdigit() and 0 <= int(x) < 5}
         dias |= {int(k) for k in dias_comp.keys() if str(k).isdigit() and 0 <= int(k) < 5}
 
-        # Compañero asignado a cada día de la semana (para revisar SUS turnos por día).
-        comp_por_dia = {}
-        for k, cid in dias_comp.items():
-            if cid and str(k).isdigit():
-                comp_por_dia[int(k)] = Empleado.objects.filter(id=cid).first()
-
-        # MISMA política que la aplicación (`_ocurrencias`): helpers (no estado_dia, para no
-        # auto-referenciar). Revisa al solicitante y, si el día tiene compañero, también a él.
+        # Se listan las omisiones que dependen del SOLICITANTE según su estado REAL ("Mis Turnos"):
+        # ya doblada, festivo, temporada, mantenimiento, fin de semana o descanso. La cobertura por
+        # COMPAÑERO (jornadas contrarias) se muestra por fila con sus casillas —un mismo día puede ir
+        # con varios compañeros—, así que aquí NO se evalúa el compañero.
         aplicables, excluidas = [], []
         if dias and ff >= fi:
             d = fi
             while d <= ff:
                 wd = d.weekday()
                 if wd in dias:
-                    razon = None
-                    if _es_festivo(d):
-                        razon = 'Festivo'
-                    elif _es_mantenimiento(d):
-                        razon = 'Mantenimiento'
-                    elif _es_temporada(d):
-                        razon = 'Temporada'
-                    elif _es_dia_descanso(solicitante, d):
-                        razon = 'Tu descanso'
-                    elif _tipo_cambio_previo(solicitante, d) or _dia_libre_por_solicitud(solicitante, d):
-                        razon = 'Ya tienes un cambio/doblada o día libre'
-                    else:
-                        comp = comp_por_dia.get(wd)
-                        if comp and (_es_dia_descanso(comp, d) or _dia_libre_por_solicitud(comp, d)):
-                            razon = f'{comp.nombre} descansa o está libre'
-                        elif comp and _tipo_cambio_previo(comp, d):
-                            razon = f'{comp.nombre} ya tiene un cambio/doblada'
+                    razon = _motivo_no_doblada_perm(solicitante, d)
                     if razon:
                         excluidas.append({'fecha': d.strftime('%Y-%m-%d'), 'razon': razon})
                     else:
@@ -506,10 +485,7 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         import json
         from datetime import datetime, timedelta
         from empleados.models import Empleado
-        from ..services.ct_permanente_helper import (
-            _es_festivo, _es_mantenimiento, _es_temporada, _es_dia_descanso, _tipo_cambio_previo,
-            _dia_libre_por_solicitud,
-        )
+        from ..services.ct_permanente_helper import _jornada_doblada_perm
 
         fi_s = request.GET.get('fecha_inicio')
         ff_s = request.GET.get('fecha_fin')
@@ -524,35 +500,70 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
             return json_error('Usuario sin empleado asociado', status=400, code='no_empleado')
 
         solicitante = request.user.empleado
-        # Compañero asignado a cada weekday (opcional): {"weekday": companero_id}. Si viene, la fecha
-        # también debe ser válida para ESE compañero (mismo criterio que la aplicación/preview), para
-        # que las casillas del formulario reflejen la disponibilidad real por día+compañero.
+        # `pares`: lista [{dia, comp}] — un mismo día de la semana PUEDE ir con varios compañeros
+        # (para cubrir sus fechas AM con uno y las PM con otro). Se calcula la disponibilidad por
+        # PAR (día+compañero). Compat: si viene el formato viejo {"weekday": comp}, se convierte.
         try:
-            dias_comp = json.loads(request.GET.get('dias_companeros', '') or '{}')
+            pares_in = json.loads(request.GET.get('pares', '') or '[]')
         except json.JSONDecodeError:
-            dias_comp = {}
-        comp_por_dia = {}
-        for k, cid in dias_comp.items():
-            if cid and str(k).isdigit():
-                comp_por_dia[int(k)] = Empleado.objects.filter(id=cid).first()
+            pares_in = []
+        if not pares_in:
+            try:
+                dc = json.loads(request.GET.get('dias_companeros', '') or '{}')
+                pares_in = [{'dia': k, 'comp': v} for k, v in dc.items() if v]
+            except json.JSONDecodeError:
+                pares_in = []
 
-        # Por cada día de la semana (lun-vie), las FECHAS válidas del rango (no solo el conteo),
-        # para mostrar/seleccionar cuáles son (ej. "Martes: 14/jul, 28/jul").
+        emp_cache = {}
+        def _emp(cid):
+            if cid not in emp_cache:
+                emp_cache[cid] = Empleado.objects.filter(id=cid).first()
+            return emp_cache[cid]
+
+        # Pares normalizados: {(weekday:int, comp_id:str): Empleado}
+        pares_norm = {}
+        for p in (pares_in or []):
+            try:
+                wd = int(p.get('dia'))
+            except (TypeError, ValueError):
+                continue
+            cid = p.get('comp')
+            if 0 <= wd < 5 and cid:
+                pares_norm[(wd, str(cid))] = _emp(str(cid))
+
+        def _sol_jornada(d):
+            """Jornada real (AM/PM) del solicitante ese día según Mis Turnos; None si no puede doblar
+            (doblada, descanso, festivo, etc.). Fin de semana no aplica a la doblada permanente."""
+            if d.weekday() >= 5:
+                return None
+            return _jornada_doblada_perm(solicitante, d)
+
+        def _comp_jornada_contraria(comp, d, js):
+            """Jornada real del compañero ese día si puede doblar y es CONTRARIA a la del solicitante."""
+            jr = _jornada_doblada_perm(comp, d) if comp else None
+            return jr if (jr and jr != js) else None
+
+        # por_dia["wd"]: por cada día de semana, las fechas del SOLICITANTE con SU jornada real
+        # {f: fecha, ys: 'AM'/'PM'} — para que el formulario indique, ANTES de elegir compañero, en
+        # qué fechas estás AM y en cuáles PM (y así saber si necesitas un compañero PM o AM). El
+        # contador del selector usa la longitud. por_par["wd|comp"]: por cada fecha válida del par,
+        # {f, ys, yc} (jornada de ambos) — para la mini-tabla.
         por_dia = {w: [] for w in range(5)}
+        por_par = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
         if ff >= fi:
             d = fi
             while d <= ff:
-                w = d.weekday()
-                if (w < 5 and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)
-                        and not _es_dia_descanso(solicitante, d) and not _tipo_cambio_previo(solicitante, d)
-                        and not _dia_libre_por_solicitud(solicitante, d)):
-                    comp = comp_por_dia.get(w)
-                    if comp and (_es_dia_descanso(comp, d) or _dia_libre_por_solicitud(comp, d)
-                                 or _tipo_cambio_previo(comp, d)):
-                        pass  # el compañero no puede ese día → la fecha no se ofrece
-                    else:
-                        por_dia[w].append(d.strftime('%Y-%m-%d'))
+                js = _sol_jornada(d)
+                if js:
+                    w = d.weekday()
+                    ds = d.strftime('%Y-%m-%d')
+                    por_dia[w].append({'f': ds, 'ys': js})
+                    for (wd, cid), comp in pares_norm.items():
+                        if wd == w:
+                            yc = _comp_jornada_contraria(comp, d, js)
+                            if yc:
+                                por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': yc})
                 d += timedelta(days=1)
-        return json_ok({'por_dia': por_dia})
+        return json_ok({'por_dia': por_dia, 'por_par': por_par})
 
 

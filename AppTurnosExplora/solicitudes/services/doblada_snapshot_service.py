@@ -138,12 +138,16 @@ class DobladaSnapshotService:
 
         fechas = {f for (_e, f) in afectados}
         exploradores = {e for (e, _f) in afectados}
+        # IMPORTANTE: DOBLADA, D FDS y CAMBIO DESCANSO comparten el modelo DobladaDetalle
+        # (`doblada`). Reconstruimos TODAS las solicitudes aprobadas que tocan las fechas afectadas,
+        # pero cada una con la lógica de SU tipo. Antes se aplicaba lógica de DOBLADA a todas, lo que
+        # CORROMPÍA los turnos de un cambio de descanso (y no re-materializaba su estado real).
         candidatas = (
             SolicitudCambio.objects
             .filter(estado='aprobada', doblada__isnull=False)
             .exclude(id=excluir_solicitud_id)
             .filter(Q(fecha_cambio_turno__in=fechas) | Q(doblada__fecha_pago__in=fechas))
-            .select_related('doblada')
+            .select_related('doblada', 'tipo_cambio')
             .order_by('fecha_resolucion', 'id')
             .distinct()
         )
@@ -152,13 +156,44 @@ class DobladaSnapshotService:
                     and s.explorador_receptor_id not in exploradores):
                 continue
             det = s.doblada
-            # Import local para evitar ciclo circular con DobladaAplicacionService
-            from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-            if s.fecha_cambio_turno in fechas:
-                DobladaAplicacionService.aplicar_doblada_cesion(s, det)
-            if det.fecha_pago in fechas:
-                DobladaAplicacionService.aplicar_doblada_pago(s, det)
+            tipo = s.tipo_cambio.nombre if s.tipo_cambio else ''
+            if tipo == 'CAMBIO DESCANSO':
+                # Re-aplicar con la lógica de CAMBIO DESCANSO (no la de doblada).
+                DobladaSnapshotService._reaplicar_cambio_descanso(s, det)
+            elif tipo == 'D FDS':
+                # D FDS también comparte DobladaDetalle: re-aplicar con SU lógica (finde), no la
+                # de doblada entre semana.
+                from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
+                DFDSAplicacionService.aplicar(s, det)
+            else:
+                # DOBLADA: re-aplicar solo el lado (cesión/pago) que cae en fecha afectada.
+                from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+                if s.fecha_cambio_turno in fechas:
+                    DobladaAplicacionService.aplicar_doblada_cesion(s, det)
+                if det.fecha_pago in fechas:
+                    DobladaAplicacionService.aplicar_doblada_pago(s, det)
             logger.info(
-                "Reconciliación post-revert: re-aplicada doblada aprobada %s sobre fechas afectadas.",
-                s.id,
+                "Reconciliación post-revert: re-aplicada solicitud aprobada %s (%s) sobre fechas afectadas.",
+                s.id, tipo,
             )
+
+    @staticmethod
+    def _reaplicar_cambio_descanso(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
+        """Re-materializa los turnos de un CAMBIO DESCANSO aprobado (mismo dispatch que su
+        estrategia). Solo turnos, sin deudas: el cambio de descanso no genera deudas."""
+        from solicitudes.services.cambio_descanso_aplicacion_service import (
+            CambioDescansoAplicacionService as _CDS,
+        )
+        fc = solicitud.fecha_cambio_turno
+        if fc and fc.weekday() in (5, 6):
+            _CDS.aplicar(solicitud, detalle)
+            return
+        sub = getattr(detalle, 'submodalidad_semana', None) or 'intercambio_dia'
+        if sub == 'jornadas_partidas':
+            _CDS.aplicar_semana_jornadas_partidas(solicitud, detalle)
+        elif sub == 'cobertura_misma_semana':
+            _CDS.aplicar_semana_cobertura(solicitud, detalle)
+        elif sub == 'cambio_doblada':
+            _CDS.aplicar_semana_cambio_doblada(solicitud, detalle)
+        else:
+            _CDS.aplicar_entre_semana(solicitud, detalle)

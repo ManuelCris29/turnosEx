@@ -11,6 +11,7 @@ from .views import (
     ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView, PrevisualizarDobladaPermanenteView,
     DiasDisponiblesDobladaPermanenteView,
     ObtenerExploradoresDobladaView, VerificarDobladaExistenteView, ObtenerFechasDescansoView,
+    ExploradoresConDobladaView, SabadoPagoComprometidoView,
     VerificarCoincidenciaJornadasView,
     GestionSolicitudesView, ReenviarNotificacionSolicitudView,
     GestionCancelarSolicitudView, GestionEliminarSolicitudView,
@@ -75,6 +76,8 @@ urlpatterns = [
     # DOBLADA - Endpoints específicos
     path('obtener-exploradores-doblada/', ObtenerExploradoresDobladaView.as_view(), name='obtener_exploradores_doblada'),
     path('verificar-doblada-existente/', VerificarDobladaExistenteView.as_view(), name='verificar_doblada_existente'),
+    path('exploradores-con-doblada/', ExploradoresConDobladaView.as_view(), name='exploradores_con_doblada'),
+    path('sabado-pago-comprometido/', SabadoPagoComprometidoView.as_view(), name='sabado_pago_comprometido'),
     path('obtener-fechas-descanso/', ObtenerFechasDescansoView.as_view(), name='obtener_fechas_descanso'),
     path('verificar-coincidencia-jornadas/', VerificarCoincidenciaJornadasView.as_view(), name='verificar_coincidencia_jornadas'),
     

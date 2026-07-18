@@ -187,34 +187,18 @@ class SolicitudConsultaService:
         Returns:
             Tupla (mis_solicitudes_count, solicitudes_pendientes_count)
         """
-        from core.services.cache_service import CacheService, CACHE_TTL_SHORT
-        
-        cache_key_mis = f"solicitudes_count_mis_{empleado.id}"
-        cache_key_pend = f"solicitudes_count_pend_{empleado.id}"
-        
-        def calcular_mis_solicitudes():
-            return SolicitudCambio.objects.filter(
-                explorador_solicitante=empleado
-            ).count()
-        
-        def calcular_pendientes():
-            return SolicitudCambio.objects.filter(
-                Q(estado='pendiente', explorador_receptor=empleado, aprobado_receptor=False) |
-                Q(estado='pendiente', explorador_solicitante__supervisor=empleado, aprobado_supervisor=False)
-            ).distinct().count()
-        
-        mis_solicitudes_count = CacheService.get_or_set(
-            cache_key_mis,
-            calcular_mis_solicitudes,
-            ttl=CACHE_TTL_SHORT
-        )
-        
-        solicitudes_pendientes_count = CacheService.get_or_set(
-            cache_key_pend,
-            calcular_pendientes,
-            ttl=CACHE_TTL_SHORT
-        )
-        
+        # Contadores en vivo (sin caché): son COUNT baratos con filtro indexado y la caché
+        # provocaba valores obsoletos porque su invalidación no cubría todas las rutas de
+        # creación ni al supervisor del solicitante. Mismo filtro que la lista de pendientes.
+        mis_solicitudes_count = SolicitudCambio.objects.filter(
+            explorador_solicitante=empleado
+        ).count()
+
+        solicitudes_pendientes_count = SolicitudCambio.objects.filter(
+            Q(estado='pendiente', explorador_receptor=empleado, aprobado_receptor=False) |
+            Q(estado='pendiente', explorador_solicitante__supervisor=empleado, aprobado_supervisor=False)
+        ).distinct().count()
+
         return mis_solicitudes_count, solicitudes_pendientes_count
     
     @staticmethod

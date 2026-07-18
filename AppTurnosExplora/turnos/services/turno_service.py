@@ -304,10 +304,16 @@ class TurnoService(ITurnoService):
         # CAMBIO DESCANSO (su día cedido).
         from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
         if fecha in CambioDescansoAplicacionService.dias_en_descanso(empleado, fecha, fecha, excluir_id=excluir_id):
-            return {'motivo': 'cambio de día de descanso', 'companero': None}
+            comp_cd = CambioDescansoAplicacionService.companero_descanso(empleado, fecha, excluir_id=excluir_id)
+            return {'motivo': 'cambio de día de descanso', 'companero': comp_cd}
 
         # DOBLADA PERMANENTE (descanso recurrente; nunca domingo ni festivo).
-        if fecha.weekday() != 6 and not DiaEspecial.objects.filter(
+        # El compromiso es por PATRÓN (día de la semana). Si ese día hay un Turno REAL (L1) —el
+        # empleado trabaja de verdad, p. ej. una doblada— la realidad manda sobre el patrón: NO se
+        # reporta como comprometido (evita el falso positivo "ya tienes X comprometido" cuando el
+        # empleado sí tiene jornada real que ceder).
+        _hay_turno_real = Turno.objects.filter(explorador=empleado, fecha=fecha).exists()
+        if not _hay_turno_real and fecha.weekday() != 6 and not DiaEspecial.objects.filter(
                 fecha=fecha, tipo='festivo', activo=True).exists():
             perm = (_exc(SolicitudCambio.objects
                     .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
@@ -318,9 +324,21 @@ class TurnoService(ITurnoService):
                 if not det or not (det.fecha_inicio <= fecha <= det.fecha_fin):
                     continue
                 es_sol = sp.explorador_solicitante_id == empleado.id
-                dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
-                dias_set = {int(x) for x in (dias_txt or '').split(',') if x.strip().isdigit()}
-                if fecha.weekday() in dias_set:
+                # El compromiso se decide EXACTAMENTE como se aplicó (ver `aplicar`): si el detalle
+                # trae FECHAS específicas, el descanso solo cae en ESAS fechas (no en todo el weekday
+                # del rango); si no (legacy), se usa el patrón por día de la semana. Esto evita atribuir
+                # el descanso a la solicitud/compañero equivocado cuando el mismo weekday se repartió
+                # entre varios compañeros (p. ej. martes: 25 con Vanesa, 11 con jeison).
+                usa_fechas = bool(det.fechas_cesion or det.fechas_devolucion)
+                if usa_fechas:
+                    fechas_txt = det.fechas_cesion if es_sol else det.fechas_devolucion
+                    fechas_set = {f.strip() for f in (fechas_txt or '').split(',') if f.strip()}
+                    coincide = fecha.isoformat() in fechas_set
+                else:
+                    dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
+                    dias_set = {int(x) for x in (dias_txt or '').split(',') if x.strip().isdigit()}
+                    coincide = fecha.weekday() in dias_set
+                if coincide:
                     comp = sp.explorador_receptor if es_sol else sp.explorador_solicitante
                     return {'motivo': 'doblada permanente', 'companero': _comp(comp)}
         return None
@@ -341,6 +359,42 @@ class TurnoService(ITurnoService):
         if isinstance(fecha, str):
             fecha = _dt.strptime(fecha, '%Y-%m-%d').date()
         return TurnoService._descanso_por_solicitud(empleado, fecha, excluir_id=excluir_id)
+
+    @staticmethod
+    def dobla_en_festivo(empleado, fecha):
+        """
+        ¿Al empleado le corresponde DOBLAR (AM+PM) ese festivo por rotación?
+
+        Regla prístina del festivo (misma que aplica `estado_dia`, líneas L5): en un
+        festivo entre semana trabaja SOLO el grupo cuya jornada base coincide con el
+        grupo que dobla ese día (rotación o override manual); el grupo contrario DESCANSA.
+        Ignora turnos reales y solicitudes: refleja lo que el empleado haría por defecto.
+
+        Devuelve False si la fecha no es festivo de semana, si no hay jornada base, o si
+        al empleado le toca descansar (dobla el grupo contrario).
+        """
+        from datetime import datetime as _dt
+        from turnos.models import DiaEspecial
+        if isinstance(fecha, str):
+            fecha = _dt.strptime(fecha, '%Y-%m-%d').date()
+        if fecha.weekday() >= 5:
+            return False
+        if not DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists():
+            return False
+        asg = (AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_inicio__lte=fecha)
+               .select_related('jornada').order_by('-fecha_inicio').first())
+        jb = asg.jornada.nombre.upper() if asg and asg.jornada else None
+        if not jb:
+            return False
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        grupo = AsignacionEspecialService.get_grupo_trabaja(fecha)
+        if not grupo:
+            try:
+                from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                grupo = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
+            except Exception:
+                grupo = None
+        return bool(grupo and jb == grupo.upper())
 
     @staticmethod
     def estado_dia(empleado, fecha):

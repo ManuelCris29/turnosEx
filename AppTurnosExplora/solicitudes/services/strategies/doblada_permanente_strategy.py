@@ -210,44 +210,78 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                         f"dentro del rango. Elige otros días u otro compañero."
                     )
 
-            # Jornadas contrarias (base) — al inicio del rango
-            grupo_sol = self._grupo_base(solicitante, fi)
-            grupo_rec = self._grupo_base(receptor, fi)
-            if not grupo_sol or not grupo_rec:
-                return False, "No se pudo determinar la jornada base de los exploradores"
-            if grupo_sol == grupo_rec:
-                return False, ("El compañero debe tener la jornada contraria (AM↔PM). "
-                               "No puedes doblarte con alguien de tu misma jornada.")
-
-            # Revalidar al FINAL del rango: si dentro del rango sus jornadas dejan de ser
-            # contrarias (alguno cambia de jornada), no se permite.
-            grupo_sol_fin = self._grupo_base(solicitante, ff)
-            grupo_rec_fin = self._grupo_base(receptor, ff)
-            if grupo_sol_fin and grupo_rec_fin and grupo_sol_fin == grupo_rec_fin:
-                return False, ("Dentro del rango sus jornadas dejan de ser contrarias (alguno cambia de jornada). "
-                               "Ajusta el rango o elige otro compañero.")
-
             # ===========================
-            # OMITIR los días inválidos (como CT Permanente): NO se rechaza toda la solicitud.
+            # Jornadas contrarias por FECHA REAL (no por la base): OMITIR los días inválidos.
             # ===========================
-            # Se aplica solo en los días VÁLIDOS del rango; los inválidos (festivo, fin de semana,
-            # mantenimiento, temporada, descanso o día ya comprometido de cualquiera de los dos)
-            # se SALTAN en la aplicación. Aquí solo exigimos que quede AL MENOS un día válido para
-            # que la solicitud tenga efecto.
+            # La doblada permanente se aplica solo en los días VÁLIDOS del rango; los inválidos se
+            # SALTAN (no se rechaza toda la solicitud). Un día es válido si el solicitante y el
+            # compañero tienen ese día una jornada ÚNICA real (AM/PM) y CONTRARIA entre sí —usando la
+            # jornada REAL del día (incluye cambios por CT sencillo/permanente), no la predeterminada—
+            # y ninguno descansa, está libre, ni tiene doblada/festivo/temporada/mantenimiento ese día.
+            # Esta política vive en `_fechas_validas`/`_ocurrencias` (fuente única con la aplicación).
             from solicitudes.services.doblada_permanente_aplicacion_service import (
                 DobladaPermanenteAplicacionService as _DPAS,
             )
             # BALANCE: deben quedar días válidos en AMBOS lados (cubrir Y devolver). Si un lado
             # queda en 0, la doblada sería injusta (pagar sin cobertura o al revés) → se rechaza.
+            #
+            # IMPORTANTE: se valida EXACTAMENTE lo que se va a aplicar. Si la solicitud trae FECHAS
+            # específicas (formulario nuevo) se re-validan ESAS fechas con `_fechas_validas` —igual que
+            # `aplicar`—, no el barrido por día de la semana; así el formulario, la re-validación al
+            # aprobar y la aplicación miran lo mismo (evita "el form me dejó pero al aprobar falla" y
+            # permite señalar la FECHA exacta que bloquea). Sin fechas (legacy) se expanden los weekdays.
             _ex = datos.get('solicitud_actual_id')
-            ocur_ces = list(_DPAS._ocurrencias(fi, ff, dias_cesion, solicitante, receptor, _ex))
-            ocur_dev = list(_DPAS._ocurrencias(fi, ff, dias_devolucion, solicitante, receptor, _ex))
-            if min(len(ocur_ces), len(ocur_dev)) == 0:
-                return False, (
-                    "En este rango no quedan días válidos para CUBRIR y DEVOLVER a la vez "
-                    "(un lado queda en 0 por festivos, fines de semana, mantenimiento, temporada, "
-                    "descansos o días ya comprometidos). Ajusta el rango o los días seleccionados."
-                )
+            from datetime import date as _date
+
+            def _parse_fechas(csv):
+                out = []
+                for s in (csv or '').split(','):
+                    s = s.strip()
+                    if not s:
+                        continue
+                    try:
+                        out.append(_date.fromisoformat(s))
+                    except ValueError:
+                        pass
+                return out
+
+            if fechas_cesion or fechas_devolucion:
+                # Fechas concretas elegidas por el usuario (las que realmente se aplicarán).
+                # `datos.get(...)` puede venir como lista (POST) o csv (reconstrucción desde BD);
+                # se normaliza a csv con `_csv_fechas` ANTES de parsear/consultar (evita
+                # AttributeError: 'list' object has no attribute 'split').
+                csv_ces = _csv_fechas(datos.get('fechas_cesion'))
+                csv_dev = _csv_fechas(datos.get('fechas_devolucion'))
+                pedidas_ces = _parse_fechas(csv_ces)
+                pedidas_dev = _parse_fechas(csv_dev)
+                validas_ces = _DPAS._fechas_validas(csv_ces, fi, ff, solicitante, receptor, _ex)
+                validas_dev = _DPAS._fechas_validas(csv_dev, fi, ff, solicitante, receptor, _ex)
+                # Si alguna fecha pedida ya NO es válida, se nombra para que el usuario la ajuste.
+                invalidas = sorted(set(pedidas_ces) - set(validas_ces)) + sorted(set(pedidas_dev) - set(validas_dev))
+                if invalidas:
+                    faltan = ', '.join(d.strftime('%d/%m/%Y') for d in invalidas)
+                    return False, (
+                        f"Estas fechas ya no son válidas para la doblada: {faltan}. "
+                        "Ese día tú y el compañero deben tener jornadas CONTRARIAS (AM↔PM) según su jornada "
+                        "real, y no puede caer en festivo, fin de semana, mantenimiento, temporada, descanso, "
+                        "día libre ni un día ya doblado. Ajusta esas fechas o el compañero."
+                    )
+                if min(len(validas_ces), len(validas_dev)) == 0:
+                    return False, (
+                        "No quedan fechas válidas para CUBRIR y DEVOLVER a la vez. Revisa que en esas fechas "
+                        "tú y el compañero tengan jornadas CONTRARIAS (AM↔PM) según su jornada real. "
+                        "Ajusta las fechas o el compañero."
+                    )
+            else:
+                ocur_ces = list(_DPAS._ocurrencias(fi, ff, dias_cesion, solicitante, receptor, _ex))
+                ocur_dev = list(_DPAS._ocurrencias(fi, ff, dias_devolucion, solicitante, receptor, _ex))
+                if min(len(ocur_ces), len(ocur_dev)) == 0:
+                    return False, (
+                        "En este rango no quedan días válidos para CUBRIR y DEVOLVER a la vez. "
+                        "Revisa que en esos días tú y el compañero tengan jornadas CONTRARIAS (AM↔PM) "
+                        "según su jornada real, y que no caigan en festivo, fin de semana, mantenimiento, "
+                        "temporada, descanso, día libre o un día ya doblado. Ajusta el rango, los días o el compañero."
+                    )
 
             return True, "Solicitud de doblada permanente válida"
 
@@ -336,31 +370,34 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
 
     # --------------------------------------------------- empleados disponibles
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
-        """Compañeros con jornada contraria al solicitante (para cubrir la doblada)."""
+        """
+        Compañeros candidatos para la doblada permanente. Se ofrecen los que ese día tienen una
+        jornada ÚNICA real (AM o PM), de **cualquiera de los dos grupos** — porque dentro del rango
+        la jornada real del solicitante puede variar por fecha (por CT sencillo/permanente): unos
+        días es AM (necesita compañero PM) y otros PM (necesita compañero AM). La validez fecha a
+        fecha (jornadas contrarias, sin descanso/doblada) la resuelve la disponibilidad por día
+        (`DiasDisponiblesDobladaPermanenteView`, compañero-aware) y la validación al guardar.
+
+        Se usa la jornada REAL del día (no la predeterminada); se excluye a quien ese día está en
+        DOBLADA, descanso o sin jornada. Cada empleado lleva `jornada_real` para etiquetar el picker.
+        """
         try:
             fecha_obj = self._parse(fecha)
             if not fecha_obj:
                 return []
-            grupo_sol = self._grupo_base(usuario_actual, fecha_obj)
-            if not grupo_sol:
-                return []
-            contrario = 'PM' if grupo_sol == 'AM' else 'AM'
-
-            from turnos.models import AsignarJornadaExplorador
+            from ..ct_permanente_helper import _jornada_unica_real
             empleados = (
                 Empleado.objects.filter(activo=True)
                 .exclude(id=usuario_actual.id)
                 .select_related('supervisor')
             )
-            bases = {}
-            for asg in (
-                AsignarJornadaExplorador.objects
-                .filter(explorador__in=empleados, fecha_inicio__lte=fecha_obj)
-                .select_related('jornada', 'explorador')
-                .order_by('explorador_id', '-fecha_inicio')
-            ):
-                bases.setdefault(asg.explorador_id, asg.jornada.nombre.upper())
-            return [e for e in empleados if bases.get(e.id) == contrario]
+            candidatos = []
+            for e in empleados:
+                jr = _jornada_unica_real(e, fecha_obj)
+                if jr in ('AM', 'PM'):
+                    e.jornada_real = jr
+                    candidatos.append(e)
+            return candidatos
         except Exception:
             return []
 

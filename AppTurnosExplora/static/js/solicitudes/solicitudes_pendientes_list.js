@@ -377,8 +377,26 @@ function renderizarDetalleSolicitud(data) {
                         ` : ''}
                         ${datos.fechas.fecha_doblada ? `
                             <div class="mb-3">
-                                <strong><i class="fas fa-calendar-day mr-2"></i>Fecha de la Doblada:</strong>
+                                <strong><i class="fas fa-calendar-day mr-2"></i>Fecha de Cesión (día de la doblada):</strong>
                                 <p class="mb-0">${datos.fechas.fecha_doblada}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.modalidad ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-exchange-alt mr-2"></i>Modalidad:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.modalidad}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.intercambio_dia_a ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-day mr-2 text-success"></i>Día A:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.intercambio_dia_a}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.intercambio_dia_b ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-calendar-day mr-2 text-primary"></i>Día B:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.intercambio_dia_b}</p>
                             </div>
                         ` : ''}
                         ${datos.fechas.inicio ? `
@@ -472,14 +490,40 @@ function renderizarDetalleSolicitud(data) {
                                 <i class="fas fa-info-circle mr-2"></i><small>${datos.informacion_adicional.nota}</small>
                             </div>
                         ` : ''}
+                        ${datos.fechas.fecha_pago ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-money-bill mr-2"></i>Fecha de Pago/Devolución:</strong>
+                                <p class="mb-0">${datos.fechas.fecha_pago}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.fecha_pago ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-money-bill mr-2"></i>Fecha de Pago:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.fecha_pago}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.te_cubren ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-user-shield mr-2"></i>Cobertura (te cubren):</strong>
+                                <p class="mb-0">${datos.informacion_adicional.te_cubren}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.cubre_en_pago ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-hands-helping mr-2"></i>Cobertura en la fecha de pago:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.cubre_en_pago}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.informacion_adicional.deuda_30min ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-clock mr-2"></i>Deuda de 30 minutos:</strong>
+                                <p class="mb-0">${datos.informacion_adicional.deuda_30min}</p>
+                            </div>
+                        ` : ''}
                         ${datos.informacion_adicional.minutos_deuda !== undefined ? `
                             <div class="mb-3">
                                 <strong><i class="fas fa-clock mr-2"></i>Minutos de Deuda:</strong>
                                 <p class="mb-0">${datos.informacion_adicional.minutos_deuda} minutos</p>
-                            </div>
-                            <div class="mb-3">
-                                <strong><i class="fas fa-money-bill mr-2"></i>Fecha de Pago:</strong>
-                                <p class="mb-0">${datos.informacion_adicional.fecha_pago}</p>
                             </div>
                         ` : ''}
                         ${datos.informacion_adicional.jornada_solicitante ? `

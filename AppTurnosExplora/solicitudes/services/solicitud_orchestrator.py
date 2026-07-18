@@ -170,6 +170,32 @@ class SolicitudOrchestrator:
             if comp and f:
                 devol_fechas_por_comp.setdefault(comp, set()).add(f)
 
+        # UNA fecha = UN solo compañero: una fecha no puede estar asignada a dos compañeros (ni en
+        # cesión ni en devolución). Dos personas no pueden cubrir la misma jornada el mismo día, ni
+        # se puede pagar la misma jornada dos veces ese día. (Cada solicitud se valida por separado,
+        # así que este cruce entre compañeros hay que detectarlo aquí.)
+        def _fecha_repetida(por_comp):
+            vistas = set()
+            for _c, _fset in por_comp.items():
+                for _f in _fset:
+                    if _f in vistas:
+                        return _f
+                    vistas.add(_f)
+            return None
+        _dup_c = _fecha_repetida(cesion_fechas_por_comp)
+        _dup_d = _fecha_repetida(devol_fechas_por_comp)
+        if _dup_c or _dup_d:
+            _f = _dup_c or _dup_d
+            try:
+                _fmt = _dt.strptime(_f, '%Y-%m-%d').strftime('%d/%m/%Y')
+            except (ValueError, TypeError):
+                _fmt = _f
+            _accion = 'cubrirla' if _dup_c else 'pagarla'
+            return json_error(
+                f'La fecha {_fmt} está asignada a dos compañeros; una fecha solo puede {_accion} un '
+                f'compañero (no puedes cubrir ni pagar la misma jornada el mismo día con dos personas).',
+                status=400, code='validation_error')
+
         def _wd(iso):
             try:
                 return str(_dt.strptime(iso, '%Y-%m-%d').date().weekday())

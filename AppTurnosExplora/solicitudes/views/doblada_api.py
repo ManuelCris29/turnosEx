@@ -190,7 +190,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     'esta_descansando': False,
                     'puede_ceder': True,
                     'jornadas': jornadas,
-                    'mensaje': f'Tienes jornada doblada ({", ".join(jornadas)}). Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).',
+                    'mensaje': f'Tienes jornada doblada ({", ".join(jornadas)}) ese día. Puedes ceder una jornada (AM o PM), o intercambiar tu doblada por la de un compañero.',
                     'solicitud_id': solicitud_id,
                     'datos_inconsistentes': False,
                     'requiere_atencion_admin': False
@@ -479,7 +479,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                             'esta_descansando': False,
                             'puede_ceder': True,
                             'jornadas': ['AM', 'PM'],  # DOBLADA por regla de negocio
-                            'mensaje': 'Tienes jornada doblada (AM, PM) por regla de negocio (sábado). Puedes ceder una jornada (AM o PM) o ambas jornadas (cesión total).',
+                            'mensaje': 'Tienes jornada doblada (AM, PM) por regla de negocio (sábado). Puedes ceder una jornada (AM o PM), o intercambiar tu doblada por la de un compañero.',
                             'solicitud_id': None,
                             'datos_inconsistentes': False,
                             'requiere_atencion_admin': False
@@ -516,38 +516,42 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
 
 class ObtenerFechasDescansoView(LoginRequiredMixin, View):
     """
-    Endpoint para obtener fechas donde el usuario está descansando (cedió su jornada).
-    Útil para deshabilitar estas fechas en el calendario de solicitud de doblada.
+    Endpoint para obtener las fechas donde el usuario tiene DÍA LIBRE por una solicitud aprobada
+    (para marcarlas en el calendario de la doblada). Debe ser CONSISTENTE para todos los usuarios:
+    cubre TODAS las formas de quedar libre por solicitud —cedió su jornada, recibe el pago de una
+    doblada (acreedor descansa), cambio de descanso, doblada permanente—, no solo la cesión completa
+    como solicitante. Por eso usa la FUENTE DE VERDAD (estado_mes = estado_dia por lote), en lugar de
+    una consulta parcial que dejaba a unos usuarios con días marcados y a otros no.
     """
     def get(self, request):
         try:
+            from datetime import date
+            from turnos.services.turno_service import TurnoService
             usuario_actual = request.user.empleado
-            
-            # Buscar solicitudes donde usuario es solicitante y estado=aprobada
-            from datetime import datetime
-            
-            # Solo las cesiones COMPLETAS dejan al solicitante descansando todo el día.
-            # En una cesión PARCIAL (parcial_am/parcial_pm) el solicitante conserva media
-            # jornada, así que ESE día NO está descansando y no debe marcarse como descanso.
-            solicitudes_cedidas = (
-                SolicitudCambio.objects
-                .filter(
-                    explorador_solicitante=usuario_actual,
-                    tipo_cambio__nombre='DOBLADA',
-                    estado='aprobada',
-                    doblada__tipo_cesion='cesion_completa',
-                )
-                .values_list('fecha_cambio_turno', flat=True)
-            )
-            
-            fechas_descanso = [f.strftime('%Y-%m-%d') for f in solicitudes_cedidas]
-            
-            return json_ok({
-                'fechas': fechas_descanso,
-                'total': len(fechas_descanso)
-            })
-            
-        except Exception as e:
+
+            hoy = date.today()
+            # Ventana que cubre la navegación típica del datepicker: mes anterior .. +6 meses.
+            anio, mes = hoy.year, hoy.month
+            mes -= 1
+            if mes == 0:
+                mes, anio = 12, anio - 1
+
+            fechas_descanso = []
+            for _ in range(8):
+                estado = TurnoService.estado_mes(usuario_actual, anio, mes)
+                for f, d in estado.items():
+                    # Día libre por SOLICITUD aprobada: no trabaja y la fuente es la capa de
+                    # solicitudes (cedió / paga doblada / cambio de descanso / doblada permanente).
+                    # Se respeta el turno real (L1): si ese día trabaja de verdad, NO se marca.
+                    if not d.get('trabaja') and d.get('fuente') == 'solicitud':
+                        fechas_descanso.append(f.strftime('%Y-%m-%d'))
+                mes += 1
+                if mes == 13:
+                    mes, anio = 1, anio + 1
+
+            return json_ok({'fechas': fechas_descanso, 'total': len(fechas_descanso)})
+
+        except Exception:
             logger.exception("Error obteniendo fechas de descanso")
             return json_error('Error al obtener fechas de descanso', status=500, code='internal_error')
 

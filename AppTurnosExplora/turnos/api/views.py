@@ -607,22 +607,40 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 if not det:
                     continue
                 es_sol = s.explorador_solicitante_id == empleado.id
-                dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
-                dias_set = {int(x) for x in dias_txt.split(',') if x.strip().isdigit()}
-                if not dias_set:
-                    continue
                 companero = s.explorador_receptor if es_sol else s.explorador_solicitante
                 comp_nombre = f"{companero.nombre} {companero.apellido}"
-                ini = max(det.fecha_inicio, fecha_inicio)
-                fin = min(det.fecha_fin, fecha_fin)
-                d = ini
-                while d <= fin:
-                    if d.weekday() in dias_set and d.weekday() != 6 and not _es_festivo(d):
-                        descansos_perm[d] = {
-                            'companero_nombre': comp_nombre,
-                            'tipo': 'cedio' if es_sol else 'pago',
-                        }
-                    d += timedelta(days=1)
+                info_dia = {'companero_nombre': comp_nombre, 'tipo': 'cedio' if es_sol else 'pago'}
+                # El descanso se marca EXACTAMENTE donde se aplicó (ver `aplicar`): si el detalle trae
+                # FECHAS específicas, solo en ESAS fechas (no en todo el weekday del rango); si no
+                # (legacy), por patrón de día de la semana. Sin esto, cuando el mismo weekday se
+                # reparte entre varios compañeros (martes: 25 con Vanesa, 11 con jeison) el detalle
+                # atribuía el descanso al compañero equivocado y marcaba martes que no se cedieron.
+                usa_fechas = bool(det.fechas_cesion or det.fechas_devolucion)
+                if usa_fechas:
+                    fechas_txt = det.fechas_cesion if es_sol else det.fechas_devolucion
+                    for x in (fechas_txt or '').split(','):
+                        x = x.strip()
+                        if not x:
+                            continue
+                        try:
+                            d = date.fromisoformat(x)
+                        except ValueError:
+                            continue
+                        if (fecha_inicio <= d <= fecha_fin and det.fecha_inicio <= d <= det.fecha_fin
+                                and d.weekday() != 6 and not _es_festivo(d)):
+                            descansos_perm[d] = info_dia
+                else:
+                    dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
+                    dias_set = {int(x) for x in dias_txt.split(',') if x.strip().isdigit()}
+                    if not dias_set:
+                        continue
+                    ini = max(det.fecha_inicio, fecha_inicio)
+                    fin = min(det.fecha_fin, fecha_fin)
+                    d = ini
+                    while d <= fin:
+                        if d.weekday() in dias_set and d.weekday() != 6 and not _es_festivo(d):
+                            descansos_perm[d] = info_dia
+                        d += timedelta(days=1)
 
             # CAMBIO DESCANSO: el empleado pasa a DESCANSAR el día que cedió (su trabajo se
             # materializó como Turno en el otro día). Aquí marcamos el día de descanso, que el

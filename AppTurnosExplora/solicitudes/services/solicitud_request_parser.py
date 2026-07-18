@@ -125,6 +125,9 @@ class SolicitudRequestParser:
                     'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
                     'fecha_pago_semana': post.get('fecha_pago_semana'),
                     'tipo_cesion': post.get('tipo_cesion', 'cesion_completa'),
+                    # Intercambio de dobladas: swap de días doblados (sin deuda). Día A = cesión,
+                    # día B = pago. Ambos deben tener DOBLADA en su día.
+                    'es_intercambio': str(post.get('intercambio_doblada', '')).strip() in ('1', 'true', 'True', 'on'),
                     'fecha_creacion_solicitud': timezone.now().date()}
 
         elif tipo_nombre in ("D FDS", "CAMBIO DESCANSO"):

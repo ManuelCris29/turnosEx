@@ -314,6 +314,12 @@ class DobladaDetalle(models.Model):
         blank=True,
         help_text='Jornada específica que se cede (si es cesión parcial)'
     )
+    es_intercambio = models.BooleanField(
+        default=False,
+        help_text='True si es un INTERCAMBIO de dobladas (ambos tienen doblada en días distintos y se '
+                  'intercambian): día de cesión el receptor dobla y el solicitante descansa; día de pago el '
+                  'solicitante dobla y el receptor descansa. NO genera ni altera deudas (es un swap de días).'
+    )
     jornada_pago_sabado = models.CharField(
         max_length=5,
         choices=JORNADA_PAGO_SABADO_CHOICES,

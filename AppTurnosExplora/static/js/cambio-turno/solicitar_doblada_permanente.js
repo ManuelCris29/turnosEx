@@ -13,8 +13,10 @@
     const URL_PROCESAR = '/solicitudes/procesar-solicitud/';
     const URL_PREVIEW = '/solicitudes/previsualizar-doblada-permanente/';
     const URL_DIAS_DISP = '/solicitudes/dias-disponibles-doblada-permanente/';
-    let dispDias = null;  // {0:[fechas],...} fechas válidas por weekday en el rango (compañero-aware)
-    let checkState = {};  // `${tipo}_${weekday}` -> Set de fechas ISO marcadas (si no existe: todas)
+    let dispDias = null;  // {0:[fechas],...} fechas válidas del SOLICITANTE por weekday en el rango
+    let dispPar = {};     // {"weekday|compId":[fechas]} fechas válidas por PAR (día+compañero)
+    let checkState = {};  // `${rid}|${weekday}|${comp}` -> Set de fechas ISO marcadas (si no existe: todas)
+    let rowSeq = 0;       // id incremental por fila (permite el MISMO día de semana con varios compañeros)
     let _hayExcl = false, _hayBal = false;  // control de visibilidad del recuadro de preview
 
     const form = document.getElementById('dobladaPermForm');
@@ -101,7 +103,7 @@
         if (btnAddDevolucion) btnAddDevolucion.disabled = !on;
     }
 
-    // Días ya tomados por los selectores de día (excepto, opcionalmente, uno).
+    // Días ya tomados por los selectores de día (excepto, opcionalmente, uno). Unión de ambos lados.
     function diasUsados(excluir) {
         return new Set(
             Array.from(form.querySelectorAll('select[name$="_dia"]'))
@@ -110,9 +112,25 @@
         );
     }
 
-    function primerDiaLibre() {
-        const usados = diasUsados(null);
-        const libre = DIAS.find(([v]) => !usados.has(v));
+    function ladoDe(sel) { return sel && sel.name && sel.name.indexOf('cesion') === 0 ? 'cesion' : 'devolucion'; }
+    function contDe(tipo) { return tipo === 'cesion' ? cesionRows : devolucionRows; }
+
+    // Días usados en el LADO CONTRARIO (un día de la semana no puede ser de cesión y de devolución
+    // a la vez). En el MISMO lado sí se permite repetir el día con OTRO compañero (para cubrir sus
+    // fechas AM con uno y las PM con otro).
+    function diasUsadosOtroLado(tipo) {
+        const otro = tipo === 'cesion' ? devolucionRows : cesionRows;
+        return new Set(Array.from(otro.querySelectorAll('select[name$="_dia"]'))
+            .filter((s) => s.value !== '').map((s) => s.value));
+    }
+
+    function primerDiaLibre(tipo) {
+        const otroLado = diasUsadosOtroLado(tipo);
+        const esteLado = new Set(Array.from(contDe(tipo).querySelectorAll('select[name$="_dia"]'))
+            .filter((s) => s.value !== '').map((s) => s.value));
+        // Preferir un día no usado aún en este lado; si no queda, cualquiera libre del otro lado.
+        const libre = DIAS.find(([v]) => !otroLado.has(v) && !esteLado.has(v))
+            || DIAS.find(([v]) => !otroLado.has(v));
         return libre ? libre[0] : '';
     }
 
@@ -123,44 +141,122 @@
     function fmtFechaCorta(iso) { const p = iso.split('-'); return `${parseInt(p[2], 10)}/${MESES_AB2[parseInt(p[1], 10) - 1]}`; }
 
     function refreshDias() {
-        const cnt = (v) => (dispDias ? (dispDias[v] || []).length : null);
+        const arrDia = (v) => (dispDias && dispDias[v]) ? dispDias[v] : null;  // [{f, ys}] o null
+        const cnt = (v) => (arrDia(v) ? arrDia(v).length : null);
+        const nombreDia = (v) => { const x = DIAS.find(([val]) => val === v); return x ? x[1] : ''; };
+        const badge = (j) => `<span class="jr-badge ${j === 'AM' ? 'jr-am' : (j === 'PM' ? 'jr-pm' : 'jr-none')}">${j || '—'}</span>`;
+        const contraria = (j) => (j === 'AM' ? 'PM' : 'AM');
+        // Snapshot de fechas MARCADAS por fila (antes de re-render): una fecha = UN solo compañero, así
+        // que una fecha ya marcada en otra fila del mismo lado se bloquea (no doble cobertura).
+        const marcadasPorFila = Array.from(form.querySelectorAll('.perm-row')).map((r) => ({
+            rid: r.dataset.rid || '',
+            tipo: r.querySelector('select[name="cesion_dia"]') ? 'cesion' : 'devolucion',
+            comp: (r.querySelector('select[name$="_companero"]') || {}).value || '',
+            fechas: new Set(Array.from(r.querySelectorAll('.perm-fecha:checked')).map((c) => c.value)),
+        }));
+        const nombreDeComp = (cid) => { const c = companeros.find((x) => String(x.id) === String(cid)); return c ? `${c.nombre} ${c.apellido}` : 'otro compañero'; };
         const selects = Array.from(form.querySelectorAll('select[name$="_dia"]'));
         selects.forEach(function (sel) {
-            const usadosPorOtros = diasUsados(sel);
-            let actual = sel.value;  // su propio día nunca está en "usadosPorOtros"
-            const opts = DIAS.filter(([v]) => !usadosPorOtros.has(v));
-            // Si el día actual quedó SIN días válidos en el rango, moverlo a uno que sí tenga.
+            const tipo = ladoDe(sel);              // 'cesion' | 'devolucion'
+            const bloqueados = diasUsadosOtroLado(tipo);  // solo el LADO CONTRARIO bloquea el día
+            let actual = sel.value;
+            const opts = DIAS.filter(([v]) => !bloqueados.has(v));
             if (dispDias && actual && cnt(actual) === 0) {
                 const libre = opts.find(([v]) => cnt(v) > 0);
                 actual = libre ? libre[0] : actual;
             }
             sel.innerHTML = opts.map(([v, n]) => {
-                const c = cnt(v);
+                const arr = arrDia(v);
+                const c = arr ? arr.length : null;
                 const sinDias = c === 0;
-                const etiqueta = c === null ? n
-                    : (sinDias ? `${n} — sin días disponibles` : `${n} — ${c} ${c === 1 ? 'día' : 'días'} disponible${c === 1 ? '' : 's'}`);
+                let etiqueta;
+                if (c === null) { etiqueta = n; }
+                else if (sinDias) { etiqueta = `${n} — sin días disponibles`; }
+                else {
+                    const am = arr.filter((o) => o.ys === 'AM').length;
+                    const pm = arr.filter((o) => o.ys === 'PM').length;
+                    // Indica el split AM/PM en la etiqueta para saber qué jornada de compañero elegir.
+                    const split = (am && pm) ? ` (${am} en AM, ${pm} en PM)` : (am ? ' (en AM)' : ' (en PM)');
+                    etiqueta = `${n} — ${c} ${c === 1 ? 'día' : 'días'}${split}`;
+                }
                 return `<option value="${v}"${sinDias ? ' disabled' : ''}${v === actual ? ' selected' : ''}>${etiqueta}</option>`;
             }).join('');
             sel.value = actual;
-            // CASILLAS con las FECHAS concretas del día elegido: marca/desmarca cuáles cedes/devuelves.
-            const tipo = sel.name.split('_')[0];  // 'cesion' | 'devolucion'
+
             const row = sel.closest('.perm-row');
             const cont = row && row.querySelector('.perm-dias-hint');
             if (cont) {
-                const fechas = (dispDias && actual) ? (dispDias[actual] || []) : [];
-                const key = `${tipo}_${actual}`;
-                const prev = checkState[key];  // Set de marcadas, o undefined (default: todas)
-                if (!fechas.length) {
-                    cont.innerHTML = (!dispDias || !actual) ? '' : '<span class="text-warning">Sin fechas válidas en el rango</span>';
+                const rid = row.dataset.rid || '';
+                const comp = (row.querySelector('select[name$="_companero"]') || {}).value || '';
+                const misFechas = (actual && arrDia(actual)) ? arrDia(actual) : [];  // [{f, ys}]
+                // Línea "Tus <día>: 11/ago [AM] · 25/ago [PM]" — para saber, ANTES de elegir compañero,
+                // en qué fechas estás AM y en cuáles PM (y qué jornada de compañero necesitas en cada una).
+                const tusFechasHtml = misFechas.length
+                    ? `<div class="perm-tus-fechas">Tus ${nombreDia(actual).toLowerCase()}: ` +
+                      misFechas.map((o) => `<span class="tf-item">${fmtFechaCorta(o.f)} ${badge(o.ys)}</span>`).join(' · ') +
+                      `</div>`
+                    : '';
+                // Con compañero: objetos {f, ys, yc} del PAR (fechas donde es contrario a ti).
+                const items = (actual && comp) ? (dispPar[`${actual}|${comp}`] || []) : [];
+                const key = `${rid}|${actual}|${comp}`;
+                const prev = checkState[key];  // Set de fechas marcadas, o undefined (default: todas)
+
+                if (!comp) {
+                    cont.innerHTML = tusFechasHtml + (actual
+                        ? '<div class="perm-fila-vacia">Elige un compañero de jornada <strong>contraria</strong> a cada fecha: para tus fechas <span class="jr-badge jr-am">AM</span> uno en <span class="jr-badge jr-pm">PM</span>, y para tus <span class="jr-badge jr-pm">PM</span> uno en <span class="jr-badge jr-am">AM</span>. Puedes usar dos compañeros en el mismo día.</div>'
+                        : '');
+                } else if (!items.length) {
+                    cont.innerHTML = tusFechasHtml + '<div class="perm-fila-sin">Ese compañero no te cubre ninguna de esas fechas (su jornada no es contraria a la tuya esos días). Elige un compañero con la jornada contraria a las fechas de arriba.</div>';
                 } else {
-                    cont.innerHTML = '<span class="mr-1">Fechas (marca las que aplican):</span> ' + fechas.map((iso) => {
-                        const marcado = prev ? prev.has(iso) : true;
-                        return `<label class="mr-2" style="font-weight:400;cursor:pointer;"><input type="checkbox" class="perm-fecha mr-1" value="${iso}"${marcado ? ' checked' : ''}>${fmtFechaCorta(iso)}</label>`;
+                    const compObj = companeros.find((x) => String(x.id) === String(comp));
+                    const compNom = compObj ? compObj.nombre : 'Compañero';
+                    const quePasa = () => (tipo === 'cesion')
+                        ? `<span class="accion-dobla comp">${compNom} se dobla (AM+PM)</span> · <span class="accion-descansa">tú descansas</span>`
+                        : `<span class="accion-dobla yo">tú te doblas (AM+PM)</span> · <span class="accion-descansa">${compNom} descansa</span>`;
+                    // Fechas ya MARCADAS en OTRAS filas del MISMO lado → no se pueden re-asignar aquí.
+                    const tomadas = {};  // {fecha: nombreCompañero}
+                    marcadasPorFila.forEach((mf) => {
+                        if (mf.rid === rid || mf.tipo !== tipo) return;
+                        mf.fechas.forEach((f) => { if (!tomadas[f]) tomadas[f] = nombreDeComp(mf.comp); });
+                    });
+                    const filasHtml = items.map((o) => {
+                        const tomadaPor = tomadas[o.f];
+                        if (tomadaPor) {
+                            // Una fecha solo puede tener un compañero: se muestra deshabilitada.
+                            return `<tr class="perm-fecha-tomada">` +
+                                `<td class="col-check"><input type="checkbox" class="perm-fecha" value="${o.f}" disabled></td>` +
+                                `<td class="col-fecha">${fmtFechaCorta(o.f)}</td>` +
+                                `<td>${badge(o.ys)}</td>` +
+                                `<td>${badge(o.yc)}</td>` +
+                                `<td class="col-quepasa"><span class="perm-tomada-nota"><i class="fas fa-lock mr-1"></i>ya asignado a ${tomadaPor}</span></td>` +
+                                `</tr>`;
+                        }
+                        const marcado = prev ? prev.has(o.f) : true;
+                        return `<tr>` +
+                            `<td class="col-check"><input type="checkbox" class="perm-fecha" value="${o.f}"${marcado ? ' checked' : ''}></td>` +
+                            `<td class="col-fecha">${fmtFechaCorta(o.f)}</td>` +
+                            `<td>${badge(o.ys)}</td>` +
+                            `<td>${badge(o.yc)}</td>` +
+                            `<td class="col-quepasa">${quePasa()}</td>` +
+                            `</tr>`;
                     }).join('');
-                    if (!prev) checkState[key] = new Set(fechas);  // inicializar: todas marcadas
-                    cont.querySelectorAll('.perm-fecha').forEach((chk) => chk.addEventListener('change', function () {
+                    // Fechas de este día que ESTE compañero no cubre (jornada no contraria) → aviso claro.
+                    const cubiertas = new Set(items.map((o) => o.f));
+                    const faltan = misFechas.filter((o) => !cubiertas.has(o.f));
+                    const faltanHtml = faltan.length
+                        ? `<div class="perm-faltan"><i class="fas fa-info-circle mr-1"></i>Falta por cubrir: ` +
+                          faltan.map((o) => `${fmtFechaCorta(o.f)} (estás ${o.ys} → necesitas un compañero ${contraria(o.ys)})`).join(', ') +
+                          `. Agrega otra fila de este mismo día con un compañero ${contraria(faltan[0].ys)}.</div>`
+                        : '';
+                    cont.innerHTML = tusFechasHtml +
+                        `<div class="perm-tabla-wrap"><table class="perm-tabla">` +
+                        `<thead><tr><th class="col-check">✓</th><th>Fecha</th><th>Tú</th><th>${compNom}</th><th>Qué pasa ese día</th></tr></thead>` +
+                        `<tbody>${filasHtml}</tbody></table></div>` + faltanHtml;
+                    // Default: marcar todas MENOS las ya tomadas por otra fila (no doble asignación).
+                    if (!prev) checkState[key] = new Set(items.filter((o) => !tomadas[o.f]).map((o) => o.f));
+                    cont.querySelectorAll('.perm-fecha:not(:disabled)').forEach((chk) => chk.addEventListener('change', function () {
                         checkState[key] = new Set(Array.from(cont.querySelectorAll('.perm-fecha:checked')).map((c) => c.value));
-                        actualizarBalance();
+                        refreshDias();  // re-render: propaga el bloqueo de fechas tomadas a las filas hermanas
                     }));
                 }
             }
@@ -173,22 +269,23 @@
     // rango, recalcula y refresca los selectores para deshabilitar/anotar los días.
     function cargarDisponibilidadDias() {
         const fi = inputInicio.value, ff = inputFin.value;
-        if (!fi || !ff || ff < fi) { dispDias = null; refreshDias(); return; }
-        // Compañero-aware: enviar el mapa weekday->compañero para que las fechas disponibles
-        // (casillas) descarten los días en que el compañero de ese día no puede.
-        const mapa = {};
-        filas(cesionRows, 'cesion').forEach((r) => { if (r.dia && r.comp) mapa[r.dia] = r.comp; });
-        filas(devolucionRows, 'devolucion').forEach((r) => { if (r.dia && r.comp) mapa[r.dia] = r.comp; });
-        const qComp = `&dias_companeros=${encodeURIComponent(JSON.stringify(mapa))}`;
-        fetch(`${URL_DIAS_DISP}?fecha_inicio=${encodeURIComponent(fi)}&fecha_fin=${encodeURIComponent(ff)}${qComp}`,
+        if (!fi || !ff || ff < fi) { dispDias = null; dispPar = {}; refreshDias(); return; }
+        // Por-par: se envían TODOS los pares (día + compañero) de ambos lados, para calcular las
+        // fechas que cubre cada compañero por separado (el mismo día puede ir con varios compañeros).
+        const pares = [];
+        filas(cesionRows, 'cesion').forEach((r) => { if (r.dia && r.comp) pares.push({ dia: r.dia, comp: r.comp }); });
+        filas(devolucionRows, 'devolucion').forEach((r) => { if (r.dia && r.comp) pares.push({ dia: r.dia, comp: r.comp }); });
+        const qPares = `&pares=${encodeURIComponent(JSON.stringify(pares))}`;
+        fetch(`${URL_DIAS_DISP}?fecha_inicio=${encodeURIComponent(fi)}&fecha_fin=${encodeURIComponent(ff)}${qPares}`,
               { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then((r) => r.json())
             .then((res) => {
                 const d = (res && res.data) ? res.data : res;
                 dispDias = (d && d.por_dia) || null;
+                dispPar = (d && d.por_par) || {};
                 refreshDias();
             })
-            .catch(() => { dispDias = null; refreshDias(); });
+            .catch(() => { dispDias = null; dispPar = {}; refreshDias(); });
     }
 
     function _syncBox() {
@@ -232,6 +329,46 @@
             btn.disabled = !ok;
             btn.title = ok ? '' : 'Ajusta las fechas: por cada compañero, las que te cubre y las que devuelves deben ser iguales.';
         }
+        actualizarResumen();
+    }
+
+    // Fechas MARCADAS agrupadas por compañero (para el resumen ejecutivo).
+    function fechasMarcadasPorComp(cont, tipo) {
+        const m = {};
+        Array.from(cont.querySelectorAll('.perm-row')).forEach((r) => {
+            const comp = r.querySelector(`select[name="${tipo}_companero"]`).value;
+            if (!comp) return;
+            const fs = Array.from(r.querySelectorAll('.perm-fecha:checked')).map((c) => c.value);
+            m[comp] = (m[comp] || []).concat(fs);
+        });
+        return m;
+    }
+
+    // Resumen ejecutivo en lenguaje natural: por compañero, qué te cubre (descansas) y qué le
+    // devuelves (te doblas), con el balance. Complementa la mini-tabla por fecha.
+    function actualizarResumen() {
+        const box = document.getElementById('resumen_acuerdo');
+        if (!box) return;
+        const nombreComp = (cid) => { const c = companeros.find((x) => String(x.id) === String(cid)); return c ? `${c.nombre} ${c.apellido}` : 'Compañero'; };
+        const fmtLista = (arr) => arr.slice().sort().map(fmtFechaCorta).join(', ');
+        const cubre = fechasMarcadasPorComp(cesionRows, 'cesion');
+        const devu = fechasMarcadasPorComp(devolucionRows, 'devolucion');
+        const comps = Array.from(new Set([...Object.keys(cubre), ...Object.keys(devu)]));
+        if (!comps.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+        let html = '<div class="resumen-titulo"><i class="fas fa-clipboard-check mr-1"></i>Resumen del acuerdo</div>';
+        comps.forEach((cid) => {
+            const c = cubre[cid] || [], v = devu[cid] || [];
+            const partes = [];
+            if (c.length) partes.push(`<span class="cubre">te cubre <strong>${c.length}</strong> día(s) (${fmtLista(c)}) → <strong>tú descansas</strong></span>`);
+            if (v.length) partes.push(`<span class="devuelve">le devuelves <strong>${v.length}</strong> día(s) (${fmtLista(v)}) → <strong>tú te doblas</strong></span>`);
+            const bal = (c.length === v.length && c.length > 0)
+                ? `<span class="bal-ok">✓ balanceado (${c.length}/${v.length})</span>`
+                : `<span class="bal-warn">⚠ te cubre ${c.length} y devuelves ${v.length} — deben ser iguales</span>`;
+            html += `<div class="comp-line"><span class="comp-nombre">${nombreComp(cid)}</span>: ${partes.join('; ') || 'sin fechas marcadas'}. ${bal}</div>`;
+        });
+        html += '<div class="resumen-nota">Cada doblada suma 30 min a tu consolidado. Los días omitidos (festivo, descanso, día libre, doblada, temporada o mantenimiento) no se aplican.</div>';
+        box.innerHTML = html;
+        box.style.display = 'block';
     }
 
     // Preview de "días que se omitirán" en el rango (festivos, descansos, días libres,
@@ -278,17 +415,27 @@
     }
 
     function optCompaneros(lista) {
+        // Se ofrecen compañeros de AMBAS jornadas (AM y PM): dentro del rango tu jornada real puede
+        // variar por fecha (por CT sencillo/permanente), así que unos días necesitas un compañero PM
+        // y otros uno AM. La etiqueta muestra la jornada real del compañero; las casillas de fecha de
+        // cada fila (jornada-aware) indican en qué fechas concretas ese compañero te cubre.
         return ['<option value="">Compañero…</option>']
-            .concat(lista.map((c) => `<option value="${c.id}">${c.nombre} ${c.apellido}</option>`)).join('');
+            .concat(lista.map((c) => {
+                const j = c.jornada ? ` (${c.jornada})` : '';
+                return `<option value="${c.id}">${c.nombre} ${c.apellido}${j}</option>`;
+            })).join('');
     }
 
     function nuevaFila(tipo) {
         const row = document.createElement('div');
         row.className = 'perm-row mb-2';
+        row.dataset.rid = String(++rowSeq);  // id estable → permite el mismo día con varios compañeros
         const lista = (tipo === 'cesion') ? companeros : companerosEnCesion();
-        const usados = diasUsados(null);
-        const diaSel = primerDiaLibre();
-        const optDiasLibres = DIAS.filter(([v]) => !usados.has(v))
+        // Solo se excluyen los días usados en el LADO CONTRARIO (un día no puede ser cesión y
+        // devolución a la vez). En el MISMO lado el día puede repetirse con otro compañero.
+        const bloqueados = diasUsadosOtroLado(tipo);
+        const diaSel = primerDiaLibre(tipo);
+        const optDiasLibres = DIAS.filter(([v]) => !bloqueados.has(v))
             .map(([v, n]) => `<option value="${v}"${v === diaSel ? ' selected' : ''}>${n}</option>`).join('');
         row.innerHTML =
             `<div class="d-flex align-items-center" style="gap:.5rem;">` +
@@ -305,23 +452,22 @@
         return row;
     }
 
-    function hayDiasLibres() {
-        const usados = new Set(
-            Array.from(form.querySelectorAll('select[name$="_dia"]')).filter((s) => s.value !== '').map((s) => s.value)
-        );
-        return DIAS.some(([v]) => !usados.has(v));
+    function hayDiasLibres(tipo) {
+        // Hay días para agregar en este lado si queda al menos un día no usado en el lado contrario.
+        const bloqueados = diasUsadosOtroLado(tipo);
+        return DIAS.some(([v]) => !bloqueados.has(v));
     }
 
     if (btnAddCesion) btnAddCesion.addEventListener('click', function () {
         if (!companeros.length) return;
-        if (!hayDiasLibres()) { notificar('info', 'Sin días libres', 'Ya usaste todos los días (lunes a viernes) entre cesión y devolución.'); return; }
+        if (!hayDiasLibres('cesion')) { notificar('info', 'Sin días libres', 'Esos días de la semana ya los usas en la devolución.'); return; }
         cesionRows.appendChild(nuevaFila('cesion'));
         cargarDisponibilidadDias();
     });
     if (btnAddDevolucion) btnAddDevolucion.addEventListener('click', function () {
         const lista = companerosEnCesion();
         if (!lista.length) { notificar('info', 'Primero agrega cesión', 'Agrega al menos un día de cesión con su compañero antes de definir la devolución.'); return; }
-        if (!hayDiasLibres()) { notificar('info', 'Sin días libres', 'Ya usaste todos los días (lunes a viernes) entre cesión y devolución.'); return; }
+        if (!hayDiasLibres('devolucion')) { notificar('info', 'Sin días libres', 'Esos días de la semana ya los usas en la cesión.'); return; }
         devolucionRows.appendChild(nuevaFila('devolucion'));
         cargarDisponibilidadDias();
     });
@@ -361,6 +507,20 @@
         const diasCes = new Set(ces.map((r) => r.dia));
         if (dev.some((r) => diasCes.has(r.dia))) errores.push('Un día no puede ser de cesión y de devolución a la vez.');
 
+        // El mismo día de semana SÍ puede ir con varios compañeros, pero no repetir el MISMO par
+        // (día + compañero): sería una fila duplicada.
+        const parDup = (rows) => {
+            const seen = new Set();
+            for (const r of rows) {
+                if (!r.dia || !r.comp) continue;
+                const k = `${r.dia}|${r.comp}`;
+                if (seen.has(k)) return true;
+                seen.add(k);
+            }
+            return false;
+        };
+        if (parDup(ces) || parDup(dev)) errores.push('Tienes dos filas con el mismo día y el mismo compañero. Usa compañeros distintos para el mismo día, o quita la fila repetida.');
+
         // Balance por FECHAS marcadas (no por weekday): por cada compañero, nº fechas que te cubre
         // == nº fechas que le devuelves. Cada fila debe tener al menos una fecha marcada.
         const cubreCount = contarPorComp(cesionRows, 'cesion');   // comp -> # fechas de cesión marcadas
@@ -369,6 +529,11 @@
         const fDev = gatherFechas(devolucionRows, 'devolucion');
         if (ces.length && !fCes.length) errores.push('Marca al menos una fecha en los días que cedes.');
         if (dev.length && !fDev.length) errores.push('Marca al menos una fecha en los días que devuelves.');
+        // Una fecha = un solo compañero: no puede estar marcada en dos filas del mismo lado.
+        const fechaDup = (arr) => { const s = new Set(); for (const x of arr) { if (s.has(x.fecha)) return x.fecha; s.add(x.fecha); } return null; };
+        const dupC = fechaDup(fCes), dupD = fechaDup(fDev);
+        if (dupC) errores.push(`El ${fmtFechaCorta(dupC)} está asignado a dos compañeros en los días que cedes. Una fecha solo puede cubrirla un compañero.`);
+        if (dupD) errores.push(`El ${fmtFechaCorta(dupD)} está asignado a dos compañeros en los días que devuelves. Una fecha solo puede pagarla un compañero.`);
         Object.keys(devCount).forEach((comp) => {
             if (!cubreCount[comp]) errores.push('Solo puedes devolverle a un compañero que te cubra.');
         });

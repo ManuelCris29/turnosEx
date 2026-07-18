@@ -234,6 +234,121 @@ def _dia_libre_por_solicitud(empleado: Empleado, fecha: date, excluir_id=None) -
         return False
 
 
+def _jornada_unica_real(explorador: Empleado, fecha: date):
+    """
+    Jornada ÚNICA real (AM/PM) del explorador ese día, para la DOBLADA PERMANENTE. Considera los
+    turnos reales —incluidos los que cambian la jornada del día (CT sencillo/permanente)— y, si no
+    hay turno, la jornada base. Devuelve None si el día tiene DOBLADA (AM+PM real) o no tiene una
+    jornada única (así una doblada permanente no puede armarse sobre un día que ya está doblado).
+
+    Deliberadamente NO usa `estado_dia` (su capa L2 de descanso por solicitud): así la jornada del
+    día no se confunde con el descanso que genera la PROPIA doblada permanente al re-validar o
+    re-aplicar. Los descansos por solicitud se filtran aparte con `_dia_libre_por_solicitud`
+    (que sí admite `excluir_id`).
+    """
+    try:
+        from turnos.models import Turno, AsignarJornadaExplorador
+        turnos = list(
+            Turno.objects.filter(explorador=explorador, fecha=fecha).select_related('jornada')
+        )
+        if turnos:
+            js = {t.jornada.nombre.upper() for t in turnos if t.jornada}
+            if 'AM' in js and 'PM' in js:
+                return None  # doblada real → sin jornada única
+            if 'AM' in js:
+                return 'AM'
+            if 'PM' in js:
+                return 'PM'
+            return None
+        asg = (
+            AsignarJornadaExplorador.objects
+            .filter(explorador=explorador, fecha_inicio__lte=fecha)
+            .select_related('jornada')
+            .order_by('-fecha_inicio')
+            .first()
+        )
+        j = asg.jornada.nombre.upper() if asg and asg.jornada else None
+        return j if j in ('AM', 'PM') else None
+    except Exception:
+        return None
+
+
+def _elegibles_contrarios_doblada(solicitante: Empleado, receptor: Empleado, fecha: date):
+    """
+    ¿En `fecha` el solicitante y el receptor son elegibles para doblarse? Ambos deben tener
+    jornada ÚNICA real (AM/PM) y CONTRARIA entre sí. Devuelve (js, jr) si son contrarios, o None.
+    """
+    js = _jornada_doblada_perm(solicitante, fecha)
+    jr = _jornada_doblada_perm(receptor, fecha)
+    if js and jr and js != jr:
+        return js, jr
+    return None
+
+
+def _jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
+    """
+    Jornada REAL efectiva (AM/PM) del explorador ese día para la DOBLADA PERMANENTE, según la
+    FUENTE DE VERDAD de "Mis Turnos" (`TurnoService.estado_dia`): refleja turnos reales, temporada,
+    alternancia de fin de semana, festivo y cambios (CT sencillo/permanente, cambio de descanso,
+    doblada). Devuelve None si ese día NO tiene una jornada única con la que doblar: ya está en
+    DOBLADA (AM+PM, incluidas las virtuales por temporada), descansa, o no tiene turno.
+
+    A diferencia de `_jornada_unica_real` (que solo miraba turnos reales + base y no veía las
+    dobladas/descansos VIRTUALES), este usa el estado completo del día. `excluir_id`: al
+    re-validar/re-aplicar una doblada permanente ya aprobada, ignora el descanso que genera la
+    PROPIA solicitud —que `estado_dia` no puede excluir— para no auto-excluirse.
+    """
+    try:
+        from turnos.services.turno_service import TurnoService
+        st = TurnoService.estado_dia(explorador, fecha)
+        j = st.get('jornada')
+        if j in ('AM', 'PM'):
+            return j
+        if j == 'DOBLADA':
+            return None
+        # Descanso / sin jornada. Si viene de una solicitud aprobada y —EXCLUYENDO la propia
+        # (excluir_id)— el día ya NO estaría libre, ese descanso es de la PROPIA doblada permanente:
+        # recuperar la jornada previa (turno real o base) para no auto-excluirse al re-validar.
+        if excluir_id is not None and st.get('fuente') == 'solicitud':
+            if not _dia_libre_por_solicitud(explorador, fecha, excluir_id):
+                return _jornada_unica_real(explorador, fecha)
+        return None
+    except Exception:
+        return None
+
+
+def _motivo_no_doblada_perm(explorador: Empleado, fecha: date):
+    """
+    Razón corta (para el preview) por la que el explorador NO puede doblar ese día, o None si SÍ
+    puede (tiene jornada única AM/PM). Usa `estado_dia` para dar el motivo REAL (coincide con
+    "Mis Turnos"): ya doblada, festivo, temporada, mantenimiento, fin de semana o descanso.
+    """
+    try:
+        from turnos.services.turno_service import TurnoService
+        st = TurnoService.estado_dia(explorador, fecha)
+        j = st.get('jornada')
+        if j in ('AM', 'PM'):
+            return None
+        if j == 'DOBLADA':
+            return 'Ese día ya tienes doblada (AM+PM)'
+        fuente = st.get('fuente')
+        motivo = st.get('motivo')
+        etiquetas = {
+            'festivo': 'Festivo',
+            'temporada': 'Descanso de temporada',
+            'mantenimiento': 'Mantenimiento',
+            'alternancia': 'Descanso de fin de semana',
+            'manual': 'Descanso de fin de semana',
+        }
+        if fuente in etiquetas:
+            return etiquetas[fuente]
+        if fuente == 'solicitud':
+            return f'Ese día descansas ({motivo})' if motivo else 'Ese día descansas por otra solicitud'
+        return motivo or 'Ese día descansas o no tienes turno'
+    except Exception:
+        return 'No se pudo determinar tu turno ese día'
+
+
 def _razon_cambio_previo(tipo: str, es_solicitante: bool) -> str:
     """Etiqueta corta (para la vista previa) según el cambio que ya existe ese día."""
     quien = 'Solicitante' if es_solicitante else 'Receptor'

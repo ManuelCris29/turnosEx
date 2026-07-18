@@ -26,7 +26,30 @@
     
     const receptorParcial = document.getElementById('receptor_parcial');
     const fechaPagoParcial = document.getElementById('fecha_pago_parcial');
-    
+
+    // --- MODO INTERCAMBIO: panel dedicado + reubicación de los campos canónicos -------------
+    const panelIntercambio = document.getElementById('panel_intercambio');
+    const panelIntercambioSlot = document.getElementById('panel_intercambio_slot');
+    const resumenIntercambio = document.getElementById('resumen_intercambio');
+    const resumenIntercambioWrap = document.getElementById('resumen_intercambio_wrap');
+    const intercambioAviso = document.getElementById('intercambio_aviso');
+    const intercambioAvisoTexto = document.getElementById('intercambio_aviso_texto');
+    // Fuente de verdad del modo. La UI la refleja el checkbox #intercambiar_doblada.
+    let modoIntercambio = false;
+    // Token para cancelar respuestas en vuelo de la carga de compañeros con doblada (evita que
+    // una respuesta tardía de un modo pise el estado del otro al alternar el checkbox).
+    let interReqToken = 0;
+    // Posición original en el DOM de los grupos que se reubican (para devolverlos al desmarcar).
+    const _origFechaPagoParent = fechaPagoParcial ? fechaPagoParcial.parentNode : null;
+    const _origFechaPagoNext = fechaPagoParcial ? fechaPagoParcial.nextElementSibling : null;
+    const _origReceptorParent = receptorParcial ? receptorParcial.parentNode : null;
+    const _origReceptorNext = receptorParcial ? receptorParcial.nextElementSibling : null;
+    // Textos originales de etiqueta/ayuda del selector de compañero (para restaurar al salir).
+    const _receptorLabelEl = receptorParcial ? receptorParcial.querySelector('label') : null;
+    const _receptorHelpEl = receptorParcial ? receptorParcial.querySelector('.form-text') : null;
+    const _receptorLabelHTML = _receptorLabelEl ? _receptorLabelEl.innerHTML : '';
+    const _receptorHelpHTML = _receptorHelpEl ? _receptorHelpEl.innerHTML : '';
+
     // Indicadores
     const indicadorFestivoCesion = document.getElementById('indicador_festivo_cesion');
     const indicadorMantenimientoCesion = document.getElementById('indicador_mantenimiento_cesion');
@@ -37,7 +60,21 @@
     const opcionesPagoSabado = document.getElementById('opciones_pago_sabado');
     const mensajeNoNecesarioPagoSabado = document.getElementById('mensaje_no_necesario_pago_sabado');
     const jornadaPagoSabadoRadios = document.querySelectorAll('input[name="jornada_pago_sabado"]');
-    
+    const avisoSabadoComprometido = document.getElementById('aviso_sabado_comprometido');
+    const avisoSabadoComprometidoTexto = document.getElementById('aviso_sabado_comprometido_texto');
+    const avisoDeudorDobladaPago = document.getElementById('aviso_deudor_doblada_pago');
+    const avisoDeudorDobladaPagoTexto = document.getElementById('aviso_deudor_doblada_pago_texto');
+    // True si el sábado de pago elegido ya está comprometido por otra doblada aprobada del usuario
+    // (un sábado solo admite un pago de doblada). Bloquea el envío y oculta el selector AM/PM.
+    let sabadoPagoComprometido = false;
+    // True si el DEUDOR ya tiene una doblada (AM+PM) en la fecha de pago (día de semana): no puede
+    // pagar ahí (no le queda jornada libre). Bloquea el envío y oculta el bloque "¿qué cubrirás?".
+    let deudorDobladaEnPago = false;
+    // Cuando el sábado de pago tiene UNA mitad ya comprometida por otra doblada tuya, aquí queda la
+    // mitad LIBRE ('AM'|'PM'). En ese caso no hay elección: se oculta el selector genérico "elige
+    // AM o PM" (redundante y confuso junto al aviso) y se fija esta mitad para el envío.
+    let sabadoSoloMitadLibre = null;
+
     // Variables globales
     let flatpickrCesion = null;
     let flatpickrPago = null;
@@ -116,7 +153,26 @@
      */
     function renderTurnoYSalas(turno, detallesElem, salasElem, esDoblada = false, jornadas = [], opciones = {}) {
         if (!turno) {
-            if (opciones.contexto === 'receptor') {
+            if (opciones.contexto === 'solicitante') {
+                // El DEUDOR descansa ese día (p. ej. sábado por alternancia o festivo): no tiene turno
+                // propio, pero como debe una jornada la pagará trabajando. Texto en primera persona.
+                detallesElem.innerHTML = `
+                    <div class="card mb-3 border-info">
+                        <div class="card-body text-center py-4">
+                            <i class="fas fa-moon text-info fa-2x mb-2" aria-hidden="true"></i>
+                            <p class="mb-1 font-weight-bold text-info">Ese día descansas</p>
+                            <p class="mb-0 small text-muted">No tienes un turno propio en la fecha de pago. Como debes una jornada, la pagarás trabajando el turno que cubres a tu compañero.</p>
+                        </div>
+                    </div>
+                `;
+                salasElem.innerHTML = `
+                    <div class="card mb-3 border-0 bg-light">
+                        <div class="card-body py-2 text-center">
+                            <span class="text-muted small">Sin turno propio — trabajarás para pagar</span>
+                        </div>
+                    </div>
+                `;
+            } else if (opciones.contexto === 'receptor') {
                 // Estado profesional: el receptor está en día de descanso
                 detallesElem.innerHTML = `
                     <div class="card mb-3 border-secondary">
@@ -246,8 +302,77 @@
     }
 
     /**
+     * Sábado con UNA mitad ya comprometida por otra doblada tuya: no hay elección de mitad.
+     * Se oculta el selector genérico "Pago en Sábado / elige AM o PM" (redundante y confuso al lado
+     * del aviso amarillo que ya explica la situación) y se fija la mitad libre para el envío.
+     */
+    function aplicarSabadoMitadLibre(libre) {
+        mostrarMensajeNoNecesarioPagoSabado(false);
+        if (opcionesPagoSabado) opcionesPagoSabado.style.display = 'none';
+        const r = document.querySelector(`input[name="jornada_pago_sabado"][value="${libre}"]`);
+        if (r) r.checked = true;
+    }
+
+    /**
+     * Espejo en la UI del guard del backend: si el sábado de pago elegido ya está comprometido
+     * por otra doblada aprobada del usuario (un sábado solo admite UN pago de doblada), avisar
+     * de una vez y ocultar el selector AM/PM, en lugar de dejar que falle al enviar.
+     */
+    function verificarSabadoComprometido(fecha, token) {
+        if (!fecha || !esSabado(fecha)) {
+            sabadoPagoComprometido = false;
+            if (avisoSabadoComprometido) avisoSabadoComprometido.style.display = 'none';
+            return;
+        }
+        const _sid = (typeof solicitudIdActual !== 'undefined' && solicitudIdActual) ? `&solicitud_id=${solicitudIdActual}` : '';
+        fetch(`/solicitudes/sabado-pago-comprometido/?fecha=${fecha}${_sid}`)
+            .then(r => r.json())
+            .then(d => {
+                // Descartar si la fecha de pago cambió mientras cargaba.
+                if (token != null && token !== pagoReqToken) return;
+                if (d && d.comprometido) {
+                    // Sábado LLENO (ambas mitades ya ocupadas): bloquear el envío.
+                    sabadoPagoComprometido = true;
+                    sabadoSoloMitadLibre = null;
+                    mostrarOpcionesPagoSabado(false);
+                    mostrarMensajeNoNecesarioPagoSabado(false);
+                    if (avisoSabadoComprometido && avisoSabadoComprometidoTexto) {
+                        const delDia = d.fecha_cesion ? ` (cesión del ${d.fecha_cesion})` : '';
+                        avisoSabadoComprometidoTexto.innerHTML =
+                            ` ese sábado ya lo tienes comprometido por completo como pago de otra(s) doblada(s) tuya(s)${delDia}. ` +
+                            'Sus dos mitades (AM y PM) ya están ocupadas. ' +
+                            '<strong>Elige otro día de pago</strong> — un día de semana del mismo mes, u otro sábado válido.';
+                        avisoSabadoComprometido.style.display = 'block';
+                    }
+                } else if (d && d.mitad_libre) {
+                    // Una mitad ocupada, la otra LIBRE: se permite pagar esta doblada con la mitad libre
+                    // (terminarías doblado AM+PM, cada mitad pagando a una persona). No se bloquea.
+                    sabadoPagoComprometido = false;
+                    if (avisoSabadoComprometido && avisoSabadoComprometidoTexto) {
+                        const delDia = d.fecha_cesion ? ` (cesión del ${d.fecha_cesion})` : '';
+                        avisoSabadoComprometidoTexto.innerHTML =
+                            ` ese sábado ya usas la mitad <strong>${d.mitad_ocupada}</strong> para pagar otra doblada tuya${delDia}. ` +
+                            `Esta se paga con la otra mitad (<strong>${d.mitad_libre}</strong>): ese día trabajarás <strong>AM+PM</strong> ` +
+                            `y cubrirás las dos jornadas que debes.`;
+                        avisoSabadoComprometido.style.display = 'block';
+                    }
+                    // No hay elección de mitad: ocultar el selector genérico "elige AM o PM" (redundante
+                    // y confuso al lado del aviso) y fijar la mitad libre. La variable hace que la
+                    // carga de jornada del solicitante tampoco lo re-muestre (evita la carrera async).
+                    sabadoSoloMitadLibre = d.mitad_libre;
+                    aplicarSabadoMitadLibre(d.mitad_libre);
+                } else {
+                    sabadoPagoComprometido = false;
+                    sabadoSoloMitadLibre = null;
+                    if (avisoSabadoComprometido) avisoSabadoComprometido.style.display = 'none';
+                }
+            })
+            .catch(() => { /* si falla la comprobación, el guard del backend sigue protegiendo */ });
+    }
+
+    /**
      * Si el receptor tiene doblada en fecha de pago (día laborable, no sábado con regla especial),
-     * mostrar AM / PM / AMBAS para persistir en DobladaDetalle.jornada_cubre_en_pago.
+     * mostrar AM / PM para persistir en DobladaDetalle.jornada_cubre_en_pago (solo se debe una jornada).
      */
     function sincronizarOpcionesCubrePagoReceptorDoblada() {
         const cont = document.getElementById('opciones_cubre_pago_receptor_doblada');
@@ -257,9 +382,17 @@
         }
         const fp = fechaPagoInput && fechaPagoInput.value;
         const radios = cont.querySelectorAll('input[name="jornada_cubre_en_pago"]');
+        // Modo INTERCAMBIO: ya decidiste cubrir la doblada ENTERA del compañero (es un swap de días),
+        // así que NO tiene sentido preguntar qué jornada cubres → se oculta el selector.
+        const _interActivo = !!(document.getElementById('intercambiar_doblada') &&
+                                document.getElementById('intercambiar_doblada').checked);
         // En FESTIVO se trabaja/cubre el DÍA COMPLETO (no hay media jornada), y el intercambio es
-        // festivo por festivo: no aplica elegir AM/PM/AMBAS → se oculta el selector.
-        const ocultar = !fp || esSabado(fp) || pagoEsFestivo || estadoReceptorPago !== 'doblada';
+        // festivo por festivo: no aplica elegir AM/PM → se oculta el selector.
+        // Si el DEUDOR ya tiene DOBLADA ese día no puede pagar ahí (no le queda jornada libre):
+        // se oculta el selector y el aviso lo explica (mismo criterio que el guard del backend).
+        const deudorDobladaPago = estadoSolicitantePago === 'doblada';
+        const ocultar = _interActivo || !fp || esSabado(fp) || pagoEsFestivo ||
+                        estadoReceptorPago !== 'doblada' || deudorDobladaPago;
         if (ocultar) {
             cont.style.display = 'none';
             radios.forEach(r => {
@@ -270,21 +403,14 @@
             return;
         }
         cont.style.display = 'block';
+        // Defensa: el selector de sábado y este (día de semana) NUNCA deben verse a la vez. Al mostrar
+        // este, ocultar el de sábado por si quedó visible de un estado anterior (evita el "duplicado").
+        if (opcionesPagoSabado) opcionesPagoSabado.style.display = 'none';
         radios.forEach(r => r.setAttribute('required', 'required'));
 
-        // Si el deudor TRABAJA una jornada ese día, solo puede cubrir la CONTRARIA:
-        //  - no la MISMA (la haría dos veces),
-        //  - no AMBAS (su propia jornada quedaría sin cubrir).
-        const radioAM = cont.querySelector('input[name="jornada_cubre_en_pago"][value="AM"]');
-        const radioPM = cont.querySelector('input[name="jornada_cubre_en_pago"][value="PM"]');
-        const radioAmbas = cont.querySelector('input[name="jornada_cubre_en_pago"][value="AMBAS"]');
-        const setEnabled = (radio, enabled) => {
-            if (!radio) return;
-            radio.disabled = !enabled;
-            const wrap = radio.closest('.form-check') || radio.parentElement;
-            if (wrap) wrap.style.opacity = enabled ? '1' : '0.45';
-            if (!enabled && radio.checked) radio.checked = false;
-        };
+        // En una doblada solo se debe UNA jornada, así que al pagar solo se cubre AM o PM (la opción
+        // "toda la doblada" se eliminó del selector). Aquí solo se ajusta la nota de aviso: si ese día
+        // el deudor ya trabaja una jornada, se le orienta a cubrir la contraria.
         const trabajaUna = estadoSolicitantePago === 'una_jornada'
             && (ultimaJornadaSolicitantePago === 'AM' || ultimaJornadaSolicitantePago === 'PM');
         // Nota explicativa dentro del contenedor
@@ -297,36 +423,28 @@
         }
         let contrariaPago = null;
         if (trabajaUna) {
+            // Ese día el deudor trabaja una jornada: lo normal es cubrir la CONTRARIA; si elige la
+            // MISMA, al enviar se le pedirá un cambio de turno sencillo (bloqueo suave). Ambas quedan
+            // seleccionables (no se deshabilita ninguna).
             const propia = ultimaJornadaSolicitantePago;
             const contraria = propia === 'AM' ? 'PM' : 'AM';
             contrariaPago = contraria;
-            // La contraria y la misma quedan SELECCIONABLES:
-            //  - contraria → cubre normal (válido).
-            //  - misma → al enviar pide un cambio de turno sencillo (bloqueo suave).
-            // Solo AMBAS se BLOQUEA (tu propia jornada quedaría sin cubrir).
-            setEnabled(radioAM, true);
-            setEnabled(radioPM, true);
-            setEnabled(radioAmbas, false);
             nota.innerHTML = `<i class="fas fa-info-circle mr-1"></i>Ese día tú trabajas <strong>${propia}</strong>. `
                 + `Lo normal es cubrir la jornada contraria (<strong>${contraria}</strong>). `
                 + `Si eliges <strong>${propia}</strong> (tu misma jornada), primero deberás hacer un `
-                + `<strong>cambio de turno sencillo</strong>. No puedes cubrir el día completo (tu ${propia} quedaría sin cubrir).`;
+                + `<strong>cambio de turno sencillo</strong>.`;
             nota.style.display = 'block';
         } else {
-            setEnabled(radioAM, true);
-            setEnabled(radioPM, true);
-            setEnabled(radioAmbas, true);
             nota.style.display = 'none';
         }
 
-        // Selección por defecto: preferir la jornada CONTRARIA (la opción limpia); si no, la
-        // primera habilitada. Evita dejar marcada AMBAS (deshabilitada).
+        // Selección por defecto: preferir la jornada CONTRARIA (la opción limpia); si no, AM/PM.
         const anyChecked = Array.from(radios).some(r => r.checked && !r.disabled);
         if (!anyChecked) {
             const jc = document.querySelector('input[name="jornada_cedida"]:checked');
             const preferida = contrariaPago
                 || (jc && (jc.value === 'AM' || jc.value === 'PM') ? jc.value : 'AM');
-            const candidatos = [preferida, 'AM', 'PM', 'AMBAS'];
+            const candidatos = [preferida, 'AM', 'PM'];
             for (const v of candidatos) {
                 const rSel = cont.querySelector(`input[name="jornada_cubre_en_pago"][value="${v}"]`);
                 if (rSel && !rSel.disabled) { rSel.checked = true; break; }
@@ -800,7 +918,15 @@
                     mostrarOpcionesPagoSabado(false);
                     mostrarMensajeNoNecesarioPagoSabado(false);
                 }
-                
+                // ¿Ese sábado ya está comprometido por otra doblada mía? (espejo del guard backend).
+                // Resetear y comprobar; si lo está, oculta el selector AM/PM y bloquea el envío.
+                sabadoPagoComprometido = false;
+                sabadoSoloMitadLibre = null;
+                if (avisoSabadoComprometido) avisoSabadoComprometido.style.display = 'none';
+                if (esSabado(fecha)) {
+                    verificarSabadoComprometido(fecha, pagoToken);
+                }
+
                 // Verificar si es día de mantenimiento
                 if (window.DatepickerFestivos && window.DatepickerFestivos.verificarDiaMantenimiento) {
                     window.DatepickerFestivos.verificarDiaMantenimiento(
@@ -824,7 +950,16 @@
                     fechaPagoInput.value = '';
                     return;
                 }
-                
+
+                // MODO INTERCAMBIO: la fecha de pago es el día de la doblada del compañero (día B).
+                // No aplica NADA de la lógica de cesión (pago-sábado, matriz, "¿qué cubres?"):
+                // solo recargar la lista de compañeros con doblada ese día y refrescar el resumen.
+                if (modoIntercambio) {
+                    cargarCompanerosIntercambio();
+                    actualizarResumenIntercambio();
+                    return;
+                }
+
                 // Verificar si tiene doblada en esta fecha (validación preventiva)
                 verificarDobladaEnFechaPago(fecha, 'Pago');
 
@@ -832,6 +967,9 @@
                 casoPagoRechazado = false;
                 mensajeRechazoPago = '';
                 casoPagoRequiereRedireccionCT = false;
+                // Ocultar el aviso de coincidencia de la fecha anterior; se re-evalúa al cargar el receptor.
+                const _avCoincFecha = document.getElementById('aviso_coincidencia_pago');
+                if (_avCoincFecha) _avCoincFecha.style.display = 'none';
                 // No usar estado del receptor de la fecha anterior hasta que llegue el nuevo fetch
                 estadoReceptorPago = null;
                 ultimaJornadaReceptorPago = null;
@@ -920,13 +1058,27 @@
             }
             console.log('[DEBUG] Respuesta obtener-turno-explorador:', data);
             solicitanteCesionEnDescanso = false;
-            // Descanso de la semana (temporada/mantenimiento) en la fecha de cesión: en vez de las
-            // tarjetas genéricas "No tiene jornada/salas" + aviso amarillo, mostrar una sola tarjeta
-            // clara "Estás Descansando" (igual que el formulario de Cambio de Turno).
-            if (data.esta_descansando && data.descanso_info && data.descanso_info.tipo === 'descanso_semana') {
-                const razon = data.descanso_info.motivo === 'mantenimiento'
-                    ? 'Es tu día de descanso por mantenimiento.'
-                    : 'Es tu día de descanso de la semana (temporada).';
+            // Descanso en la fecha de cesión, ya sea por la semana (temporada/mantenimiento) O por una
+            // solicitud aprobada (doblada, cambio de turno, cambio de descanso). En vez de las tarjetas
+            // genéricas "No tiene jornada/salas" + aviso amarillo, mostrar una sola tarjeta clara
+            // "Estás Descansando" con el MOTIVO (igual que en Mis Turnos).
+            if (data.esta_descansando) {
+                const di = data.descanso_info || {};
+                let razon;
+                if (di.tipo === 'descanso_semana') {
+                    razon = di.motivo === 'mantenimiento'
+                        ? 'Es tu día de descanso por mantenimiento.'
+                        : 'Es tu día de descanso de la semana (temporada).';
+                } else if (di.motivo) {
+                    const comp = di.companero_nombre ? ` (con ${di.companero_nombre})` : '';
+                    razon = `Descansas este día por ${di.motivo}${comp}.`;
+                } else if (di.companero_nombre) {
+                    razon = di.tipo === 'pago'
+                        ? `Descansas este día: tu compañero ${di.companero_nombre} cubre tu doblada.`
+                        : `Descansas este día por un acuerdo con ${di.companero_nombre}.`;
+                } else {
+                    razon = 'Descansas este día por una solicitud aprobada.';
+                }
                 if (turnoSolicitanteDetalles) {
                     turnoSolicitanteDetalles.innerHTML = `
                         <div class="alert alert-info mb-0">
@@ -1042,6 +1194,12 @@
         })
         .then(response => response.json())
         .then(data => {
+            // Descartar respuesta OBSOLETA: si el usuario ya cambió de compañero o de fecha de
+            // cesión, no pisar las etiquetas con datos viejos (evita que se queden "pegadas").
+            if (String(empleadoReceptorSelect.value) !== String(empleadoId)
+                    || fechaCesionInput.value !== fecha) {
+                return;
+            }
             if (data.success && data.turno) {
                 const j = (data.turno.jornada || '').toUpperCase();
                 const esDobladaReal = Boolean(data.es_doblada || j === 'DOBLADA');
@@ -1153,23 +1311,49 @@
             } else {
                 ultimaJornadaSolicitantePago = null;
                 estadoSolicitantePago = 'descansando';
-                // Cuando no hay turno en fecha de pago (por ejemplo, festivo donde descansas),
-                // mostrar la tarjeta en modo "Descanso" en lugar de los avisos amarillos.
+                // Cuando no hay turno en fecha de pago (por ejemplo, festivo o sábado donde descansas),
+                // mostrar la tarjeta en modo "Descanso" con texto en primera persona (deudor), no el
+                // texto del receptor.
                 renderTurnoYSalas(
                     null,
                     turnoSolicitantePagoDetalles,
                     salasSolicitantePagoDetalles,
                     false,
                     [],
-                    { contexto: 'receptor' }
+                    { contexto: 'solicitante' }
                 );
             }
-            // Regla doblada: si la fecha de pago es sábado, mostrar selector solo si NO te corresponde trabajar ese sábado por alternancia
-            if (data.jornada_trabaja_sabado !== undefined) {
-                const correspondeTrabajarSabado = data.turno && (
-                    data.turno.jornada === data.jornada_trabaja_sabado ||
-                    data.turno.jornada === 'DOBLADA'
-                );
+            // El DEUDOR ya tiene DOBLADA (AM+PM) en la fecha de pago (día de semana): no le queda
+            // jornada libre para pagar ahí. Avisar de una vez (espejo del guard del backend) y ocultar
+            // el bloque "¿qué cubrirás?". En sábado esto lo gobierna la regla de pago-en-sábado.
+            const _pagoEsSab = esSabado(fecha);
+            if (estadoSolicitantePago === 'doblada' && !_pagoEsSab) {
+                deudorDobladaEnPago = true;
+                if (avisoDeudorDobladaPago && avisoDeudorDobladaPagoTexto) {
+                    avisoDeudorDobladaPagoTexto.textContent =
+                        ` ese día (${formatearFecha(fecha)}) ya tienes una doblada (AM + PM), así que no te ` +
+                        `queda jornada libre para trabajar y devolverla. Elige otra fecha de pago en la que estés libre.`;
+                    avisoDeudorDobladaPago.style.display = 'block';
+                }
+            } else {
+                deudorDobladaEnPago = false;
+                if (avisoDeudorDobladaPago) avisoDeudorDobladaPago.style.display = 'none';
+            }
+            // Regla doblada: si la fecha de pago es sábado, mostrar selector solo si NO te corresponde trabajar ese sábado por alternancia.
+            // IMPORTANTE: usar corresponde_trabajar_sabado (tu GRUPO/alternancia), NO data.turno.jornada,
+            // porque otra doblada pudo dejarte un turno que coincide con el grupo que trabaja y daría un
+            // falso "ya te corresponde trabajar".
+            if (sabadoSoloMitadLibre) {
+                // Sábado con una mitad ya comprometida: no hay elección, se paga con la mitad libre.
+                // El aviso amarillo lo explica; aquí solo se oculta el selector genérico y se fija.
+                aplicarSabadoMitadLibre(sabadoSoloMitadLibre);
+            } else if (sabadoPagoComprometido) {
+                // Ese sábado ya está comprometido por otra doblada: no mostrar selector ni "no necesario"
+                // (el aviso ya está visible y el envío queda bloqueado).
+                mostrarOpcionesPagoSabado(false);
+                mostrarMensajeNoNecesarioPagoSabado(false);
+            } else if (data.jornada_trabaja_sabado !== undefined) {
+                const correspondeTrabajarSabado = data.corresponde_trabajar_sabado === true;
                 if (correspondeTrabajarSabado) {
                     mostrarOpcionesPagoSabado(false);
                     mostrarMensajeNoNecesarioPagoSabado(true);
@@ -1249,6 +1433,13 @@
             if (token != null && token !== pagoReqToken) {
                 return;
             }
+            // Descartar si cambió el COMPAÑERO (respuesta obsoleta): así las etiquetas del receptor
+            // no se quedan pegadas con datos de otra persona. La staleness por FECHA ya la cubre el
+            // token de pago de arriba (no se compara la fecha aquí porque el `fecha` que llega puede
+            // venir del datepicker en otro formato y descartaría respuestas válidas).
+            if (String(empleadoReceptorSelect.value) !== String(empleadoId)) {
+                return;
+            }
             if (data.success && data.turno) {
                 const esDoblada = data.es_doblada || (data.turno.jornada === 'DOBLADA');
                 let jornadas = (data.jornadas && data.jornadas.length) ? data.jornadas : (data.turno.jornada === 'DOBLADA' ? ['AM', 'PM'] : []);
@@ -1322,11 +1513,25 @@
             aviso.style.display = 'none';
             return;
         }
+        // Si el compañero tiene DOBLADA en la fecha de pago, NO hay un choque fijo: depende de qué
+        // jornada elijas cubrir. Ese caso lo gobierna la selección (_avisoCoincidenciaSegunCubre),
+        // no la verificación genérica (que compararía tu jornada con una de las dos del compañero
+        // y avisaría siempre, aunque cubras la contraria).
+        if (estadoReceptorPago === 'doblada') {
+            _avisoCoincidenciaSegunCubre();
+            return;
+        }
         const url = `/solicitudes/verificar-coincidencia-jornadas/?deudor_id=${deudorId}` +
                     `&acreedor_id=${receptorId}&fecha_pago=${encodeURIComponent(fechaPago)}`;
+        // Estado vigente al lanzar el fetch: si al llegar la respuesta cambió la fecha de pago o el
+        // compañero, se descarta (evita que un aviso viejo se quede "pegado" sobre el estado nuevo).
+        const _vigente = () =>
+            (empleadoReceptorSelect ? String(empleadoReceptorSelect.value) : '') === String(receptorId)
+            && (fechaPagoInput ? fechaPagoInput.value : '') === fechaPago;
         fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then((r) => r.json())
             .then((res) => {
+                if (!_vigente()) return;
                 const d = (res && res.data) ? res.data : res;
                 if (d && d.requiere_cambio_turno) {
                     const txt = document.getElementById('aviso_coincidencia_texto');
@@ -1341,7 +1546,33 @@
                     aviso.style.display = 'none';
                 }
             })
-            .catch(() => { aviso.style.display = 'none'; });
+            .catch(() => { if (_vigente()) aviso.style.display = 'none'; });
+    }
+
+    /**
+     * Compañero con DOBLADA en la fecha de pago: el aviso de "trabajarías dos veces la misma jornada"
+     * SOLO aplica si eliges cubrir TU MISMA jornada (la que ya trabajas ese día). Si cubres la
+     * contraria (lo normal) o aún no eliges, no hay choque → no mostrar el aviso (evita confusión).
+     */
+    function _avisoCoincidenciaSegunCubre() {
+        const aviso = document.getElementById('aviso_coincidencia_pago');
+        if (!aviso) return;
+        const sel = document.querySelector('input[name="jornada_cubre_en_pago"]:checked');
+        const jd = ultimaJornadaSolicitantePago;   // jornada del deudor en la fecha de pago
+        if (sel && (jd === 'AM' || jd === 'PM') && String(sel.value).toUpperCase() === jd) {
+            const contraria = jd === 'AM' ? 'PM' : 'AM';
+            const txt = document.getElementById('aviso_coincidencia_texto');
+            const link = document.getElementById('aviso_coincidencia_ct');
+            if (txt) txt.textContent =
+                `No puedes cubrir la jornada ${jd}: ese día ya la trabajas, la harías dos veces. ` +
+                `Cubre la jornada contraria (${contraria}), o realiza primero un cambio de turno sencillo.`;
+            if (link && typeof urlCambioTurnoSencillo === 'function') {
+                link.href = urlCambioTurnoSencillo(fechaPagoInput ? fechaPagoInput.value : '');
+            }
+            aviso.style.display = 'block';
+        } else {
+            aviso.style.display = 'none';
+        }
     }
 
     /**
@@ -1356,28 +1587,207 @@
                 <h6 class="alert-heading">
                     <i class="fas fa-info-circle mr-2"></i>Doblada Existente Detectada
                 </h6>
-                <p class="mb-2">Ya tienes una doblada aprobada para esta fecha. Puedes ceder una jornada (AM o PM).</p>
+                <p class="mb-2">Tienes jornada <strong>doblada (AM + PM)</strong> ese día. Elige qué hacer:</p>
                 <input type="hidden" id="tipo_cesion" name="tipo_cesion" value="cesion_parcial_am">
-                <div id="opciones_cesion_parcial" class="form-group">
-                    <label for="jornada_cedida">
-                        <i class="fas fa-clock mr-1"></i>Jornada a Ceder <span class="text-danger">*</span>
+
+                <!-- Opción A: intercambiar la doblada -->
+                <div class="form-check mb-2">
+                    <input class="form-check-input" type="checkbox" id="intercambiar_doblada" name="intercambio_doblada" value="1">
+                    <label class="form-check-label" for="intercambiar_doblada">
+                        <i class="fas fa-exchange-alt mr-1"></i><strong>Intercambiar mi doblada</strong> por la de un compañero
+                        <small class="d-block text-muted">Elige como <em>Fecha de Pago</em> el día de la doblada del compañero. No se cede jornada.</small>
+                    </label>
+                </div>
+
+                <hr class="my-2">
+
+                <!-- Opción B: ceder una jornada (se desactiva si eliges intercambiar) -->
+                <div id="opciones_cesion_parcial" class="form-group mb-0">
+                    <label for="jornada_cedida" class="mb-1">
+                        <i class="fas fa-clock mr-1"></i>O ceder una jornada — <strong>Jornada a Ceder</strong> <span class="text-danger">*</span>
                     </label>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="jornada_cedida" id="jornada_am" value="AM">
-                        <label class="form-check-label" for="jornada_am">
-                            AM (Mañana)
-                        </label>
+                        <label class="form-check-label" for="jornada_am">AM (Mañana)</label>
                     </div>
                     <div class="form-check">
                         <input class="form-check-input" type="radio" name="jornada_cedida" id="jornada_pm" value="PM">
-                        <label class="form-check-label" for="jornada_pm">
-                            PM (Tarde)
-                        </label>
+                        <label class="form-check-label" for="jornada_pm">PM (Tarde)</label>
                     </div>
                 </div>
             </div>
         `;
     }
+
+    /**
+     * Modo INTERCAMBIO: cargar en el selector de compañero solo a quienes tienen una DOBLADA
+     * (AM+PM) en el día B (fecha de pago). Se llama al entrar al modo y al cambiar la fecha de pago.
+     * Usa un token para descartar respuestas en vuelo si se sale del modo o cambia la fecha.
+     */
+    function _mostrarAvisoIntercambio(texto) {
+        if (!intercambioAviso || !intercambioAvisoTexto) return;
+        if (texto) {
+            intercambioAvisoTexto.textContent = texto;
+            intercambioAviso.style.display = 'block';
+        } else {
+            intercambioAviso.style.display = 'none';
+        }
+    }
+
+    /** Mensaje claro según por qué no hay candidatos (o cadena vacía si sí los hay). */
+    function _motivoSinCandidatos(motivo) {
+        const A = fechaCesionInput ? formatearFecha(fechaCesionInput.value) : '';
+        const B = fechaPagoInput ? formatearFecha(fechaPagoInput.value) : '';
+        switch (motivo) {
+            case 'solicitante_ocupado':
+                return `No estás libre el ${B} (ese día ya trabajas). Para intercambiar tu doblada, elige un día en que descanses.`;
+            case 'ninguno_libre_dia_a':
+                return `Hay compañeros con doblada el ${B}, pero ninguno descansa el ${A} para poder cubrir la tuya. Prueba con otro día.`;
+            case 'mismo_dia':
+                return `El día de la doblada del compañero debe ser distinto al de la tuya.`;
+            default:
+                return `Ningún compañero tiene doblada el ${B}.`;
+        }
+    }
+
+    function cargarCompanerosIntercambio() {
+        if (!modoIntercambio || !empleadoReceptorSelect) return;
+        const fp = fechaPagoInput ? fechaPagoInput.value : '';
+        if (!fp) {
+            empleadoReceptorSelect.innerHTML = '<option value="">Elige primero el día de la doblada de tu compañero…</option>';
+            empleadoReceptorSelect.disabled = true;
+            _mostrarAvisoIntercambio('');
+            return;
+        }
+        const myToken = ++interReqToken;
+        empleadoReceptorSelect.innerHTML = '<option value="">Cargando compañeros con doblada…</option>';
+        empleadoReceptorSelect.disabled = true;
+        _mostrarAvisoIntercambio('');
+        // Día A (fecha de cesión): el candidato debe tener doblada el día B Y estar LIBRE el día A.
+        const fc = fechaCesionInput ? fechaCesionInput.value : '';
+        const qs = `fecha=${fp}` + (fc ? `&fecha_cesion=${fc}` : '');
+        fetch(`/solicitudes/exploradores-con-doblada/?${qs}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(r => r.json())
+            .then(d => {
+                // Respuesta obsoleta (se salió del modo o cambió la fecha): descartar.
+                if (myToken !== interReqToken || !modoIntercambio) return;
+                const exps = (d && d.exploradores) || [];
+                if (exps.length) {
+                    empleadoReceptorSelect.innerHTML =
+                        '<option value="">Selecciona un compañero con doblada ese día…</option>' +
+                        exps.map(e => `<option value="${e.id}">${e.nombre} (DOBLADA)</option>`).join('');
+                    empleadoReceptorSelect.disabled = false;
+                    _mostrarAvisoIntercambio('');
+                } else {
+                    // Sin candidatos: explicar el motivo real en el aviso del panel.
+                    empleadoReceptorSelect.innerHTML = '<option value="">Sin compañeros disponibles</option>';
+                    empleadoReceptorSelect.disabled = true;
+                    _mostrarAvisoIntercambio(_motivoSinCandidatos(d && d.motivo));
+                }
+                actualizarResumenIntercambio();
+            })
+            .catch(() => {
+                if (myToken !== interReqToken || !modoIntercambio) return;
+                empleadoReceptorSelect.disabled = false;
+            });
+    }
+
+    /** Resumen del intercambio dentro del panel (día A ↔ día B). */
+    function actualizarResumenIntercambio() {
+        if (!resumenIntercambio || !resumenIntercambioWrap) return;
+        const fCes = fechaCesionInput ? fechaCesionInput.value : '';
+        const fPago = fechaPagoInput ? fechaPagoInput.value : '';
+        const opt = empleadoReceptorSelect && empleadoReceptorSelect.selectedIndex >= 0
+            ? empleadoReceptorSelect.options[empleadoReceptorSelect.selectedIndex] : null;
+        const nombre = (opt && opt.value) ? opt.text.split(' (')[0] : '';
+        if (fCes && fPago && nombre) {
+            resumenIntercambio.innerHTML =
+                `El día <strong>${formatearFecha(fCes)}</strong> <strong>${nombre}</strong> trabaja tu doblada completa (AM + PM) y <strong>tú descansas</strong>.<br>` +
+                `El día <strong>${formatearFecha(fPago)}</strong> <strong>tú</strong> trabajas la doblada completa (AM + PM) de <strong>${nombre}</strong> y <strong>él/ella descansa</strong>.<br>` +
+                `<small class="text-muted">Es un intercambio de días doblados: no se generan ni alteran deudas.</small>`;
+            resumenIntercambioWrap.style.display = 'block';
+        } else {
+            resumenIntercambioWrap.style.display = 'none';
+        }
+    }
+
+    /** Bloques que son EXCLUSIVOS del flujo de cesión: se ocultan por completo en intercambio. */
+    function _bloquesSoloCesion() {
+        return [
+            'opciones_cesion_parcial', 'turno_receptor_info', 'fechas_pago_total',
+            'turno_solicitante_pago_info', 'turno_receptor_pago_info', 'aviso_coincidencia_pago',
+            'turno_solicitante_pago_am_info', 'turno_receptor_pago_am_info',
+            'turno_solicitante_pago_pm_info', 'turno_receptor_pago_pm_info',
+            'vista_previa_acuerdo', 'opciones_pago_sabado', 'mensaje_no_necesario_pago_sabado',
+            'opciones_cubre_pago_receptor_doblada', 'aviso_sabado_comprometido',
+            'aviso_deudor_doblada_pago'
+        ].map(id => document.getElementById(id)).filter(Boolean);
+    }
+
+    /**
+     * CONTROLADOR CENTRAL del modo intercambio. Única autoridad para entrar/salir del modo:
+     *  - Reubica los campos canónicos (Fecha de Pago y Compañero) en el panel dedicado.
+     *  - Oculta TODO el aparato de cesión (evita cruces como pago-sábado o "¿qué cubres?").
+     *  - Cancela peticiones en vuelo y restaura limpio al salir.
+     */
+    function setModoIntercambio(activo) {
+        modoIntercambio = activo;
+        // Invalida cualquier carga de compañeros en vuelo del estado anterior.
+        interReqToken++;
+
+        if (activo) {
+            // Reubicar Fecha de Pago primero y Compañero después (orden natural del intercambio).
+            if (panelIntercambioSlot && fechaPagoParcial) panelIntercambioSlot.appendChild(fechaPagoParcial);
+            if (panelIntercambioSlot && receptorParcial) panelIntercambioSlot.appendChild(receptorParcial);
+            fechaPagoParcial?.style.setProperty('display', 'block');
+            receptorParcial?.style.setProperty('display', 'block');
+            // Etiquetas propias del intercambio.
+            if (_receptorLabelEl) _receptorLabelEl.innerHTML = '<i class="fas fa-user mr-1"></i>Compañero con doblada ese día <span class="text-danger">*</span>';
+            if (_receptorHelpEl) _receptorHelpEl.textContent = 'Solo aparecen compañeros que tienen una doblada (AM + PM) ese día.';
+            // Ocultar el resto del aparato de cesión.
+            _bloquesSoloCesion().forEach(el => { el.style.display = 'none'; });
+            // Limpiar la jornada a ceder (no aplica en intercambio; evita enviarla por error).
+            document.querySelectorAll('input[name="jornada_cedida"]').forEach(r => { r.checked = false; });
+            // Mostrar panel y (re)cargar candidatos con la fecha de pago actual.
+            if (panelIntercambio) panelIntercambio.style.display = 'block';
+            empleadoReceptorSelect.value = '';
+            cargarCompanerosIntercambio();
+            actualizarResumenIntercambio();
+        } else {
+            // Salir: ocultar panel y devolver los campos a su posición original.
+            if (panelIntercambio) panelIntercambio.style.display = 'none';
+            if (resumenIntercambioWrap) resumenIntercambioWrap.style.display = 'none';
+            if (intercambioAviso) intercambioAviso.style.display = 'none';
+            if (_origFechaPagoParent) _origFechaPagoParent.insertBefore(fechaPagoParcial, _origFechaPagoNext);
+            if (_origReceptorParent) _origReceptorParent.insertBefore(receptorParcial, _origReceptorNext);
+            // Restaurar etiquetas de cesión.
+            if (_receptorLabelEl) _receptorLabelEl.innerHTML = _receptorLabelHTML;
+            if (_receptorHelpEl) _receptorHelpEl.innerHTML = _receptorHelpHTML;
+            // Limpiar selección para no arrastrar un compañero-doblada al flujo de cesión.
+            empleadoReceptorSelect.value = '';
+            empleadoReceptorSelect.disabled = false;
+            // Volvemos a una doblada existente: re-mostrar el selector "Jornada a Ceder" (AM/PM),
+            // que se había ocultado al entrar en intercambio.
+            const _oc = document.getElementById('opciones_cesion_parcial');
+            if (_oc && tieneDobladaExistente) _oc.style.display = 'block';
+            // Reconstruir el flujo de cesión desde la fecha de cesión (recandidatos, estado, vista previa).
+            if (fechaCesionInput && fechaCesionInput.value) {
+                fechaCesionInput.dispatchEvent(new Event('change'));
+            }
+        }
+    }
+
+    // Wiring del modo intercambio (checkbox inyectado dinámicamente → delegación en el form).
+    form.addEventListener('change', function (ev) {
+        const t = ev.target;
+        if (!t) return;
+        if (t.id === 'intercambiar_doblada') {
+            setModoIntercambio(t.checked);
+        } else if (modoIntercambio && (t.id === 'empleado_receptor' || t.name === 'empleado_receptor')) {
+            // En intercambio, elegir compañero solo actualiza el resumen (sin lógica de cesión).
+            actualizarResumenIntercambio();
+        }
+    });
 
     /**
      * Verificar si el solicitante tiene doblada existente en la fecha
@@ -1776,6 +2186,11 @@
      * @param {HTMLElement} selectElement - Elemento select donde cargar (opcional, por defecto empleadoReceptorSelect)
      */
     function cargarExploradoresDisponibles(fecha, jornada = null, selectElement = null, opciones = {}) {
+        // En modo intercambio los candidatos los gestiona cargarCompanerosIntercambio (compañeros
+        // con doblada ese día). No dejar que el flujo de cesión pise ese selector reubicado.
+        if (modoIntercambio && (!selectElement || selectElement === empleadoReceptorSelect)) {
+            return;
+        }
         if (!fecha) {
             const targetSelect = selectElement || empleadoReceptorSelect;
             if (targetSelect) {
@@ -1805,7 +2220,9 @@
         const flagIncluirDescanso = opciones.incluirDescanso ? '&incluir_descanso=1' : '';
         const url = `/solicitudes/obtener-exploradores-doblada/?fecha=${fecha}${jornadaCedida ? `&jornada_cedida=${jornadaCedida}` : ''}${flagDescanso}${flagIncluirDescanso}`;
         
-        const token = (opciones && opciones.token != null) ? opciones.token : null;
+        // Por defecto, capturar el token de cesión VIGENTE: así toda respuesta que llegue tarde
+        // (tras cambiar de fecha) se descarta y la lista no se queda "pegada" con datos viejos.
+        const token = (opciones && opciones.token != null) ? opciones.token : cesionReqToken;
         targetSelect.innerHTML = '<option value="">Cargando...</option>';
 
         fetch(url)
@@ -1885,6 +2302,17 @@
 
     function actualizarVistaPreviaAcuerdo() {
         const fechaCesion = fechaCesionInput.value;
+
+        // MODO INTERCAMBIO: la vista previa vive en el panel dedicado (resumen_intercambio).
+        // Aquí no se ejecuta NADA de la lógica/matriz de cesión y se oculta la vista previa normal.
+        if (modoIntercambio) {
+            casoPagoRechazado = false;
+            casoPagoRequiereRedireccionCT = false;
+            mensajeRechazoPago = '';
+            if (vistaPreviaAcuerdo) vistaPreviaAcuerdo.style.display = 'none';
+            actualizarResumenIntercambio();
+            return;
+        }
 
         if (!vistaPreviaAcuerdo || !resumenAcuerdo) {
             actualizarAvisoSinJornadaCeder();
@@ -1978,7 +2406,7 @@
                             : `El emisor está descansando, por lo tanto puede pagar el turno que debe. En ese caso ${empleadoReceptorNombre} descansa y tú lo reemplazas en su jornada AM o PM.`;
                     } else if (estadoSol === 'descansando' && estadoRec === 'doblada') {
                         casoNum = '1.4';
-                        mensajeValidacion = `Se puede realizar el pago. Ese día lo tienes libre. Como el receptor tiene doblada (AM+PM), indica si cubres solo AM, solo PM o toda la doblada (él descansa el día completo). Por defecto se sugiere la misma jornada que cediste en la cesión.`;
+                        mensajeValidacion = `Se puede realizar el pago. Ese día lo tienes libre y el receptor tiene doblada (AM+PM). Como solo le debes una jornada, elige cuál le cubres (AM o PM); él conserva la otra. Por defecto se sugiere la misma jornada que cediste en la cesión.`;
                     } else if (estadoSol === 'una_jornada' && estadoRec === 'descansando') {
                         casoNum = '1.5/1.8';
                         esRechazado = true;
@@ -2055,11 +2483,12 @@
                 const valCubre = radioCubre ? radioCubre.value : '';
                 let lineaPagoDoblada = `El día <strong>${fechaPagoFormateada}</strong> <strong>tú</strong> cubrirás una de las jornadas de <strong>${empleadoReceptorNombre}</strong> como pago de la doblada.`;
                 if (estadoSol === 'descansando' && estadoRec === 'doblada' && cubreVisible) {
-                    if (valCubre === 'AMBAS') {
-                        lineaPagoDoblada = `El día <strong>${fechaPagoFormateada}</strong> <strong>tú</strong> cubrirás la <strong>doblada completa</strong> (AM y PM) de <strong>${empleadoReceptorNombre}</strong>; él descansa ese día.`;
-                    } else if (valCubre === 'AM' || valCubre === 'PM') {
+                    if (valCubre === 'AM' || valCubre === 'PM') {
                         lineaPagoDoblada = `El día <strong>${fechaPagoFormateada}</strong> <strong>tú</strong> cubrirás su jornada <strong>${valCubre}</strong>; él conserva la otra media jornada.`;
                     }
+                } else if (estadoRec === 'una_jornada' && (ultimaJornadaReceptorPago === 'AM' || ultimaJornadaReceptorPago === 'PM')) {
+                    // El compañero tiene UNA sola jornada ese día: se cubre exactamente esa.
+                    lineaPagoDoblada = `El día <strong>${fechaPagoFormateada}</strong> <strong>tú</strong> cubrirás la jornada <strong>${ultimaJornadaReceptorPago}</strong> de <strong>${empleadoReceptorNombre}</strong> (su único turno ese día) como pago de la doblada.`;
                 }
                 if (emisorSinJornadaParaCederEnCesion) {
                     resumenAcuerdo.innerHTML = `
@@ -2137,6 +2566,8 @@
     if (form) {
         form.addEventListener('change', function(e) {
             if (e.target && e.target.name === 'jornada_cubre_en_pago') {
+                // El aviso "trabajarías dos veces la misma jornada" depende de la opción elegida.
+                _avisoCoincidenciaSegunCubre();
                 actualizarVistaPrevia();
             }
         });
@@ -2237,10 +2668,22 @@
      * Manejar cambio en empleado receptor
      */
     empleadoReceptorSelect.addEventListener('change', function() {
+        // En intercambio, elegir compañero NO dispara la lógica de cesión (jornadas/matriz);
+        // el resumen del panel se actualiza vía el handler delegado del form.
+        if (modoIntercambio) {
+            actualizarResumenIntercambio();
+            return;
+        }
         const empleadoId = this.value;
         const fechaCesion = fechaCesionInput.value;
         const fechaPago = fechaPagoInput.value;
-        
+
+        // El aviso de coincidencia depende del compañero: ocultarlo de inmediato para que no quede
+        // pegado del compañero anterior; se re-evalúa tras cargar la jornada del nuevo (o queda
+        // oculto si ya no aplica).
+        const _avCoincRec = document.getElementById('aviso_coincidencia_pago');
+        if (_avCoincRec) _avCoincRec.style.display = 'none';
+
         // Cargar jornada en fecha de cesión
         if (empleadoId && fechaCesion) {
             cargarJornadaReceptor(empleadoId, fechaCesion);
@@ -2281,31 +2724,9 @@
     
     // Función para verificar si el usuario tiene doblada en una fecha (validación preventiva)
     function verificarDobladaEnFechaPago(fecha, jornada) {
-        fetch(`/solicitudes/verificar-doblada-existente/?fecha=${fecha}`)
-            .then(response => response.json())
-            .then(data => {
-                if (data.success && data.tiene_doblada) {
-                    // Usuario tiene doblada en esta fecha
-                    Swal.fire({
-                        icon: 'warning',
-                        title: 'Advertencia: Doblada Existente',
-                        html: `
-                            <div class="text-left">
-                                <p>⚠️ <strong>Ya tienes una doblada</strong> programada para la fecha seleccionada como pago (${fecha}).</p>
-                                <p class="mt-2">Jornadas detectadas: <strong>${data.jornadas.join(' + ')}</strong></p>
-                                <p class="mt-3"><strong>Importante:</strong></p>
-                                <p class="mt-2">No podrás enviar esta solicitud porque ya estás trabajando ambas jornadas ese día. 
-                                Por favor, elige otra fecha de pago.</p>
-                            </div>
-                        `,
-                        confirmButtonText: 'Entendido',
-                        confirmButtonColor: '#ffc107'
-                    });
-                }
-            })
-            .catch(error => {
-                console.error('Error verificando doblada en fecha de pago:', error);
-            });
+        // El caso "el deudor ya tiene doblada en la fecha de pago" ahora se avisa de forma
+        // PERSISTENTE e inline (aviso_deudor_doblada_pago, calculado en cargarJornadaSolicitantePago),
+        // en lugar de un popup transitorio. Se conserva la función por compatibilidad de llamadas.
     }
     
     /**
@@ -2554,6 +2975,10 @@
 
         // VALIDACIÓN PERSONALIZADA PARA DOBLADA (cesión parcial)
         const erroresValidacion = [];
+        // Modo INTERCAMBIO de dobladas: no aplican las reglas de "jornada a ceder", pago-sábado,
+        // ni "cubre"; el backend valida que ambos tengan doblada. Día A = cesión, día B = pago.
+        const _inter = !!(document.getElementById('intercambiar_doblada') &&
+                          document.getElementById('intercambiar_doblada').checked);
 
         // Comentario obligatorio
         const comentariosInput = document.getElementById('comentarios');
@@ -2576,8 +3001,17 @@
             erroresValidacion.push('Fecha de pago es requerida');
         }
 
-        // Si la fecha de pago es sábado y se muestra el selector, exigir selección
-        if (fechaPagoInput && fechaPagoInput.value && esSabado(fechaPagoInput.value) &&
+        // Ese sábado ya está comprometido por otra doblada mía: no se puede pagar aquí (espejo del guard).
+        if (!_inter && sabadoPagoComprometido) {
+            erroresValidacion.push('Ese sábado ya está comprometido como pago por otra doblada tuya. Elige otro día de pago.');
+        }
+        // El deudor ya tiene doblada en la fecha de pago: no le queda jornada libre para pagar ahí.
+        if (!_inter && deudorDobladaEnPago) {
+            erroresValidacion.push('Ya tienes una doblada (AM + PM) en la fecha de pago; no te queda jornada libre para pagar ahí. Elige otra fecha.');
+        }
+
+        // Si la fecha de pago es sábado y se muestra el selector, exigir selección (no en intercambio)
+        if (!_inter && fechaPagoInput && fechaPagoInput.value && esSabado(fechaPagoInput.value) &&
             opcionesPagoSabado && opcionesPagoSabado.style.display !== 'none') {
             const jornadaPagoSabadoSel = form.querySelector('input[name="jornada_pago_sabado"]:checked');
             if (!jornadaPagoSabadoSel) {
@@ -2586,16 +3020,16 @@
         }
 
         const bloqueCubre = document.getElementById('opciones_cubre_pago_receptor_doblada');
-        if (bloqueCubre && bloqueCubre.style.display !== 'none') {
+        if (!_inter && bloqueCubre && bloqueCubre.style.display !== 'none') {
             const selCubre = form.querySelector('input[name="jornada_cubre_en_pago"]:checked');
             if (!selCubre) {
-                erroresValidacion.push('Indica si cubres la jornada AM, PM o toda la doblada del compañero en la fecha de pago.');
+                erroresValidacion.push('Indica qué jornada (AM o PM) del compañero cubres en la fecha de pago.');
             }
         }
 
-        // Validar jornada a ceder si hay doblada existente.
+        // Validar jornada a ceder si hay doblada existente (no en modo intercambio).
         // Excepción: festivo (tipo_cesion === 'cesion_completa') cede el día COMPLETO.
-        if (tieneDobladaExistente && tipoCesionHidden && tipoCesionHidden.value !== 'cesion_completa') {
+        if (!_inter && tieneDobladaExistente && tipoCesionHidden && tipoCesionHidden.value !== 'cesion_completa') {
             const jornadaCedida = form.querySelector('input[name="jornada_cedida"]:checked');
             if (!jornadaCedida) {
                 erroresValidacion.push('Debe seleccionar la jornada a ceder (AM o PM)');

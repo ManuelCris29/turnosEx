@@ -1303,3 +1303,814 @@ class TestDobladaFestivoSinDeudaCorporativa(MatrizDobladasTestCase):
             DeudaCorporativa.objects.count(), 0,
             "Un día festivo no debe generar ninguna deuda corporativa (30 min).",
         )
+
+
+# ===========================================================================
+# INTERCAMBIO DE DOBLADAS: swap de días doblados (sin deuda)
+# ===========================================================================
+class TestIntercambioDobladas(MatrizDobladasTestCase):
+    """
+    Intercambio de dobladas: dos exploradores que cada uno tiene una DOBLADA (AM+PM) en
+    días distintos intercambian esos días. Día A: el receptor dobla y el solicitante
+    descansa; día B: el solicitante dobla y el receptor descansa. NO genera ni altera
+    deudas (es 'un cambio de turno pero de días doblados').
+    """
+
+    def setUp(self):
+        super().setUp()
+        # En un intercambio, cada uno debe estar LIBRE el día del otro. Partimos SIN jornada base
+        # (ambos descansando en días de semana) y la DOBLADA se fija solo en el día propio de cada
+        # quien con turnos reales (L1). Así el swap válido cumple "libre el día del otro".
+        AsignarJornadaExplorador.objects.filter(
+            explorador__in=[self.emisor, self.receptor]
+        ).delete()
+
+    def _js(self, empleado, fecha):
+        return {t.jornada.nombre.upper()
+                for t in Turno.objects.filter(explorador=empleado, fecha=fecha).select_related('jornada')}
+
+    def test_intercambio_swap_correcto_y_sin_deudas(self):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle, DeudaCorporativa, DeudaExplorador
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        self.assertNotEqual(dia_a, dia_b)
+        # Ambos con DOBLADA (AM+PM) en su día
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+
+        # Validación: intercambio válido cuando ambos tienen doblada
+        self.assertValido(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b)),
+            'intercambio con ambas dobladas',
+        )
+
+        # Crear solicitud aprobada + detalle de intercambio y aplicar
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=dia_a,
+            comentario='intercambio de dobladas',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=dia_b, tipo_cesion='cesion_completa',
+            empleado_receptor=self.receptor, es_intercambio=True,
+        )
+        dc0 = DeudaCorporativa.objects.count()
+        de0 = DeudaExplorador.objects.count()
+
+        ok, _msg = self.strategy.aplicar_cambios(sol)
+        self.assertTrue(ok, _msg)
+
+        # Swap: día A → receptor AM+PM, emisor sin turnos; día B → emisor AM+PM, receptor sin turnos
+        self.assertEqual(self._js(self.receptor, dia_a), {'AM', 'PM'})
+        self.assertEqual(Turno.objects.filter(explorador=self.emisor, fecha=dia_a).count(), 0)
+        self.assertEqual(self._js(self.emisor, dia_b), {'AM', 'PM'})
+        self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=dia_b).count(), 0)
+
+        # SIN deudas nuevas (ni corporativa ni entre exploradores)
+        self.assertEqual(DeudaCorporativa.objects.count(), dc0, 'no debe crear deuda corporativa')
+        self.assertEqual(DeudaExplorador.objects.count(), de0, 'no debe crear deuda entre exploradores')
+        self.assertEqual(DeudaCorporativa.objects.filter(solicitud_origen=sol).count(), 0)
+        self.assertEqual(DeudaExplorador.objects.filter(solicitud_origen=sol).count(), 0)
+
+        # Revertir restaura ambos días (cada uno vuelve a su doblada)
+        DobladaAplicacionService.revertir_doblada_aplicada(sol)
+        self.assertEqual(self._js(self.emisor, dia_a), {'AM', 'PM'})
+        self.assertEqual(self._js(self.receptor, dia_b), {'AM', 'PM'})
+
+    def test_intercambio_rechaza_si_el_companero_no_tiene_doblada(self):
+        # Emisor con doblada en A; receptor con UNA sola jornada en B (no doblada) → rechazado
+        self._crear_doblada_turnos(self.emisor, FECHA_CESION)
+        self._crear_turno(self.receptor, FECHA_PAGO, self.jornada_am)
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(FECHA_CESION), fecha_pago=str(FECHA_PAGO)),
+            'doblada',
+        )
+
+    def test_intercambio_revalidar_al_aprobar_honra_flag(self):
+        """Regresión: la re-validación al aprobar debe reconstruir es_intercambio (si se pierde,
+        corre la regla de cesión normal y rechaza un intercambio válido)."""
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.solicitud_factory import SolicitudFactory
+
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        # Intercambio VÁLIDO: cada uno con doblada en su día y libre el día del otro.
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='pendiente', fecha_cambio_turno=dia_a,
+            comentario='intercambio de dobladas',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=dia_b, tipo_cesion='cesion_completa',
+            empleado_receptor=self.receptor, es_intercambio=True,
+        )
+
+        # Guarda directa del fix de reconstrucción: el flag debe viajar a la re-validación.
+        datos = self.strategy._datos_desde_solicitud(sol)
+        self.assertTrue(datos.get('es_intercambio'),
+                        '_datos_desde_solicitud debe incluir es_intercambio')
+
+        ok, msg = SolicitudFactory.revalidar_para_aprobar(sol)
+        self.assertTrue(ok, f'la re-validación de un intercambio válido no debe rechazar: {msg}')
+
+    def test_intercambio_rechaza_si_receptor_no_libre_dia_a(self):
+        """El receptor debe estar LIBRE el día A para asumir la doblada del solicitante. Si ese
+        día ya trabaja (aunque tenga su doblada el día B), el intercambio se rechaza."""
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        self._crear_doblada_turnos(self.emisor, dia_a)     # emisor doblada en A
+        self._crear_doblada_turnos(self.receptor, dia_b)   # receptor doblada en B
+        self._crear_turno(self.receptor, dia_a, self.jornada_am)  # receptor OCUPADO el día A
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b)),
+            'no está libre',
+        )
+
+    def test_intercambio_rechaza_si_solicitante_no_libre_dia_b(self):
+        """El solicitante debe estar LIBRE el día B para asumir la doblada del receptor."""
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        self._crear_doblada_turnos(self.emisor, dia_a)     # emisor doblada en A
+        self._crear_doblada_turnos(self.receptor, dia_b)   # receptor doblada en B
+        self._crear_turno(self.emisor, dia_b, self.jornada_pm)  # emisor OCUPADO el día B
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b)),
+            'no estás libre',
+        )
+
+
+class TestCesionParcialReceptorDobla(MatrizDobladasTestCase):
+    """Cesión parcial: el receptor que YA trabaja su jornada contraria la conserva y se DOBLA
+    (antes la aplicación le borraba su jornada y quedaba en media, perdiendo su turno y sus 30 min)."""
+
+    def test_receptor_que_trabaja_conserva_su_jornada_y_se_dobla(self):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        dia = FECHA_CESION
+        # Emisor con doblada (AM+PM) ese día; receptor trabaja PM (contraria a la AM cedida).
+        self._crear_doblada_turnos(self.emisor, dia)
+        self._crear_turno(self.receptor, dia, self.jornada_pm)
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=dia,
+            comentario='cesión parcial AM',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_parcial_am', jornada_cedida='AM', empleado_receptor=self.receptor,
+        )
+        DobladaAplicacionService.aplicar_doblada_cesion(sol, det)
+
+        # El receptor CONSERVA su PM y suma la AM cedida = DOBLADA (no media jornada).
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.receptor, fecha=dia).select_related('jornada')}
+        self.assertEqual(js, {'AM', 'PM'}, f'el receptor debe quedar doblado (AM+PM), quedó: {js}')
+
+
+class TestPagoParcialDeudorLibre(MatrizDobladasTestCase):
+    """Pago de cesión parcial: si el DEUDOR está LIBRE ese día y el acreedor tiene UNA sola jornada,
+    el deudor cubre EXACTAMENTE esa jornada (queda con 1 jornada), no una doblada ni día libre."""
+
+    def setUp(self):
+        super().setUp()
+        # El deudor puede quedar sin turno ese día → obtener_sala usa la competencia. Asignar una.
+        from empleados.models import CompetenciaEmpleado
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+
+    def _crear_pago(self, pago):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='pago parcial',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=pago,
+            tipo_cesion='cesion_parcial_am', jornada_cedida='AM', empleado_receptor=self.receptor,
+        )
+        return sol, det
+
+    def test_deudor_libre_cubre_solo_la_jornada_del_acreedor(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        # Deudor SIN jornada base → LIBRE ese día. Acreedor con UNA jornada (PM).
+        self._crear_turno(self.receptor, pago, self.jornada_pm)
+        sol, det = self._crear_pago(pago)
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada')}
+        self.assertEqual(js, {'PM'}, f'deudor libre debe cubrir solo PM (1 jornada), quedó: {js}')
+
+    def test_deudor_que_trabaja_dobla_al_pagar(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        # Deudor con jornada base AM (TRABAJA); acreedor con PM contraria. Al pagar dobla (AM+PM).
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._crear_turno(self.receptor, pago, self.jornada_pm)
+        sol, det = self._crear_pago(pago)
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada')}
+        self.assertEqual(js, {'AM', 'PM'}, f'deudor que trabaja debe doblar (AM+PM), quedó: {js}')
+
+    def _crear_pago_completa(self, pago, jornada_cedida='AM'):
+        """Pago de una cesión COMPLETA (rama jornada_cedida conocida, no la parcial)."""
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='pago completa',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=pago,
+            tipo_cesion='cesion_completa', jornada_cedida=jornada_cedida, empleado_receptor=self.receptor,
+        )
+        return sol, det
+
+    def test_cesion_completa_deudor_libre_cubre_solo_la_del_acreedor(self):
+        """Regresión (sol 451): cesión completa, jornada_cedida=AM, deudor LIBRE en el pago y el
+        acreedor con UNA sola jornada (PM). El deudor debe quedar con PM (la del acreedor), NO doblada."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        # Deudor sin jornada base → LIBRE. Acreedor con base/turno PM (única jornada ese día).
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+        self._crear_turno(self.receptor, pago, self.jornada_pm)
+        sol, det = self._crear_pago_completa(pago, jornada_cedida='AM')
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada')}
+        self.assertEqual(js, {'PM'}, f'deudor libre debe cubrir solo la del acreedor (PM), quedó: {js}')
+
+    def test_cesion_completa_deudor_que_trabaja_dobla(self):
+        """Cesión completa con deudor que TRABAJA su base (AM) y acreedor PM: al pagar dobla (AM+PM)."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+        self._crear_turno(self.receptor, pago, self.jornada_pm)
+        sol, det = self._crear_pago_completa(pago, jornada_cedida='AM')
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada')}
+        self.assertEqual(js, {'AM', 'PM'}, f'deudor que trabaja debe doblar (AM+PM), quedó: {js}')
+
+    def test_fallback_deudor_libre_por_cesion_no_duplica_jornada(self):
+        """Fallback (jornada_cedida=None): deudor LIBRE porque cedió ese día, con base IGUAL a la
+        jornada del acreedor → debe quedar con UNA sola jornada, no duplicada. Regresión del caso
+        real Diana 15/07 (quedaba con ['AM','AM'])."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        # Emisor base AM (igual que la del acreedor abajo), pero LIBRE ese día por cesión previa.
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        u3 = User.objects.create_user('tercero_dup', password='x', email='tdup@t.com')
+        tercero = Empleado.objects.create(user=u3, nombre='Ter', apellido='Dup',
+                                          cedula='4747474747', email='tdup@t.com', activo=True)
+        prev = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=tercero,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=pago,
+            comentario='cede el dia del pago',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=prev, minutos_deuda=30, fecha_pago=FECHA_CESION,
+            tipo_cesion='cesion_completa', empleado_receptor=tercero,
+        )
+        # Acreedor trabaja AM ese día (misma jornada que la base del emisor → dispara el duplicado).
+        self._crear_turno(self.receptor, pago, self.jornada_am)
+        sol, det = self._crear_pago_completa(pago, jornada_cedida=None)  # fallback
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js = [t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada')]
+        self.assertEqual(sorted(js), ['AM'],
+                         f'deudor libre no debe duplicar la jornada del acreedor, quedó: {js}')
+
+    def _crear_pago_jcp(self, pago, jcp):
+        """Pago donde el acreedor tiene DOBLADA y el deudor elige qué jornada (jcp) cubrir."""
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='pago jcp',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=pago,
+            tipo_cesion='cesion_completa', empleado_receptor=self.receptor, jornada_cubre_en_pago=jcp,
+        )
+        return sol, det
+
+    def test_acreedor_doblada_deudor_libre_cubre_una_sola(self):
+        """Acreedor con DOBLADA y deudor LIBRE que elige cubrir una jornada (AM) → el deudor queda
+        con esa jornada (1 sola), NO doblado. El acreedor conserva la otra (PM)."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        # Deudor SIN base → LIBRE ese día. Acreedor con DOBLADA (AM+PM).
+        self._crear_doblada_turnos(self.receptor, pago)
+        sol, det = self._crear_pago_jcp(pago, 'AM')
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js_d = sorted(t.jornada.nombre.upper()
+                      for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada'))
+        js_a = sorted(t.jornada.nombre.upper()
+                      for t in Turno.objects.filter(explorador=self.receptor, fecha=pago).select_related('jornada'))
+        self.assertEqual(js_d, ['AM'], f'deudor libre debe cubrir SOLO AM (1 jornada), quedó: {js_d}')
+        self.assertEqual(js_a, ['PM'], f'acreedor debe conservar PM, quedó: {js_a}')
+
+    def test_acreedor_doblada_deudor_trabaja_dobla(self):
+        """Acreedor con DOBLADA y deudor que TRABAJA su jornada (PM) elige cubrir la contraria (AM)
+        → el deudor DOBLA (PM propia + AM cubierta)."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        pago = FECHA_PAGO
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)  # deudor trabaja PM ese día
+        self._crear_doblada_turnos(self.receptor, pago)           # acreedor doblada
+        sol, det = self._crear_pago_jcp(pago, 'AM')               # cubre la AM del acreedor
+        DobladaAplicacionService.aplicar_doblada_pago(sol, det)
+        js_d = sorted(t.jornada.nombre.upper()
+                      for t in Turno.objects.filter(explorador=self.emisor, fecha=pago).select_related('jornada'))
+        self.assertEqual(js_d, ['AM', 'PM'], f'deudor que trabaja debe doblar (PM propia + AM), quedó: {js_d}')
+
+
+class TestCesionReceptorLiberadoPorAprobacionPrevia(MatrizDobladasTestCase):
+    """Principio 'manda la última aprobada': si el RECEPTOR fue liberado ese día por una solicitud
+    aprobada previa (aquí, es acreedor de un pago de doblada que cae en la fecha de cesión), al
+    aplicarle una NUEVA cesión debe cubrir SOLO la jornada cedida, no doblarse sobre una base que
+    en realidad no trabaja. Regresión de _explorador_descansa (antes solo veía 'cedió como
+    solicitante' y perdía este caso)."""
+
+    def setUp(self):
+        super().setUp()
+        from empleados.models import CompetenciaEmpleado
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+
+    def test_receptor_liberado_por_pago_previo_cubre_solo_la_cedida(self):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        # PREVIA aprobada: el receptor es ACREEDOR de una doblada cuyo PAGO cae en FECHA_CESION,
+        # así que ese día DESCANSA ('paga doblada'). No hace falta aplicarla: la fuente de verdad
+        # L2 la detecta por el registro aprobado.
+        prev = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_PAGO,
+            comentario='previa',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=prev, minutos_deuda=30, fecha_pago=FECHA_CESION,
+            tipo_cesion='cesion_completa', jornada_cedida='AM', empleado_receptor=self.receptor,
+        )
+
+        # Base PM del receptor: si se doblara mal, quedaría PM+AM.
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+
+        # NUEVA cesión: se le cede AM en FECHA_CESION (donde ya está libre por la previa).
+        nueva = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='nueva',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=nueva, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_completa', jornada_cedida='AM', empleado_receptor=self.receptor,
+        )
+        DobladaAplicacionService.aplicar_doblada_cesion(nueva, det)
+
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).select_related('jornada')}
+        self.assertEqual(js, {'AM'}, f'receptor libre por aprobación previa debe cubrir solo AM, quedó: {js}')
+
+
+class TestAcreedorDescansaEnPagoRechaza(MatrizDobladasTestCase):
+    """Regla de negocio: si el COMPAÑERO (acreedor) DESCANSA en la fecha de pago (por cualquier
+    motivo real: otra solicitud, temporada, alternancia), NO tiene jornada que el deudor pueda
+    cubrir para devolverle el día → la doblada se RECHAZA con mensaje claro (no el confuso 'misma
+    jornada'). Aquí el acreedor está libre por una doblada previa aprobada cuyo pago cae en la
+    misma fecha, con jornada base que ANTES disparaba el falso 'misma jornada'."""
+
+    def test_acreedor_descansa_por_solicitud_previa_rechaza_con_mensaje_claro(self):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+
+        # Deudor trabaja su base PM ese día; acreedor base PM (coincidirían por predeterminada)
+        # PERO está LIBRE por una doblada previa aprobada cuyo pago cae en FECHA_PAGO.
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+        prev = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='previa que libera al acreedor en el pago',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=prev, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_completa', jornada_cedida='AM', empleado_receptor=self.receptor,
+        )
+
+        valido, error = self.strategy.validar_solicitud(self._datos(jornada_cedida='PM'))
+        self.assertFalse(valido, f'acreedor que descansa en pago debe rechazarse: {error}')
+        # Mensaje claro (no el confuso 'misma jornada')
+        self.assertNotIn('dos veces la misma jornada', str(error).lower())
+
+        # Y el aviso UPFRONT del formulario (que usa validar_coincidencia_jornadas_pago) tampoco debe
+        # marcar coincidencia: el acreedor descansa, no hay "misma jornada" que colisione.
+        from solicitudes.services.solicitud_validator import SolicitudValidator
+        r = SolicitudValidator.validar_coincidencia_jornadas_pago(self.emisor, self.receptor, FECHA_PAGO)
+        self.assertFalse(r['coinciden'], f'acreedor que descansa no debe marcar coincidencia: {r}')
+        self.assertFalse(r['requiere_cambio_turno'], f'no debe exigir cambio de turno: {r}')
+
+
+class TestDosPagosMismoSabado(MatrizDobladasTestCase):
+    """Ceder AMBAS jornadas de una doblada a DOS personas y pagar las dos en el MISMO sábado:
+    se permite el 2º pago si usa la MITAD LIBRE del sábado → el deudor termina doblado (AM+PM),
+    cada mitad pagando a una persona. Se bloquea si la mitad ya está tomada."""
+
+    def setUp(self):
+        super().setUp()
+        from empleados.models import CompetenciaEmpleado
+        from django.contrib.auth.models import User
+        # Segundo receptor (Y)
+        user_y = User.objects.create_user('yuli_test', password='x', email='y@t.com')
+        self.receptor2 = Empleado.objects.create(
+            user=user_y, nombre='Yuli', apellido='Test', cedula='3333333333', email='y@t.com', activo=True
+        )
+        for e in (self.emisor, self.receptor, self.receptor2):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+
+    @staticmethod
+    def _sabado_futuro():
+        d = date.today() + timedelta(days=10)
+        while d.weekday() != 5:
+            d += timedelta(days=1)
+        return d
+
+    def _sol_pago_sabado(self, receptor, sab, tipo_cesion, jornada_cedida, jps):
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION, comentario='pago mismo sábado',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=sab,
+            tipo_cesion=tipo_cesion, jornada_cedida=jornada_cedida,
+            empleado_receptor=receptor, jornada_pago_sabado=jps,
+        )
+        return sol, det
+
+    def test_dos_pagos_mitades_distintas_deudor_queda_doblado(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        sab = self._sabado_futuro()
+        # Receptores trabajan el sábado (doblada de fin de semana): conservan la mitad contraria.
+        self._crear_doblada_turnos(self.receptor, sab)
+        self._crear_doblada_turnos(self.receptor2, sab)
+        # Cede AM a X (paga mitad AM) y PM a Y (paga mitad PM), ambas en el mismo sábado.
+        sol1, det1 = self._sol_pago_sabado(self.receptor, sab, 'cesion_parcial_am', 'AM', 'AM')
+        sol2, det2 = self._sol_pago_sabado(self.receptor2, sab, 'cesion_parcial_pm', 'PM', 'PM')
+        # Ambas ya aprobadas → al aplicar, cada pago ve la mitad contraria de la otra y ACUMULA.
+        DobladaAplicacionService.aplicar_doblada_pago(sol1, det1)
+        DobladaAplicacionService.aplicar_doblada_pago(sol2, det2)
+        js_emisor = {t.jornada.nombre.upper()
+                     for t in Turno.objects.filter(explorador=self.emisor, fecha=sab).select_related('jornada')}
+        self.assertEqual(js_emisor, {'AM', 'PM'},
+                         f'el deudor debe quedar doblado (AM+PM) pagando a dos personas, quedó: {js_emisor}')
+
+    def test_dos_pagos_mismo_receptor_mismo_sabado_receptor_descansa(self):
+        """Dos dobladas al MISMO compañero pagadas el mismo sábado (una con AM, otra con PM):
+        le cubres las DOS mitades → tú quedas DOBLADO (AM+PM) y él DESCANSA el día completo
+        (no se le da la contraria, porque esa también se la cubres tú)."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        sab = self._sabado_futuro()
+        # El receptor (Marco) trabaja el sábado completo (AM+PM) por alternancia.
+        self._crear_doblada_turnos(self.receptor, sab)
+        # Dos dobladas jeison → MISMO receptor, una paga AM y la otra PM.
+        sol1, det1 = self._sol_pago_sabado(self.receptor, sab, 'cesion_completa', 'AM', 'AM')
+        sol2, det2 = self._sol_pago_sabado(self.receptor, sab, 'cesion_completa', 'PM', 'PM')
+        DobladaAplicacionService.aplicar_doblada_pago(sol1, det1)
+        DobladaAplicacionService.aplicar_doblada_pago(sol2, det2)
+        js_emisor = {t.jornada.nombre.upper()
+                     for t in Turno.objects.filter(explorador=self.emisor, fecha=sab).select_related('jornada')}
+        js_receptor = {t.jornada.nombre.upper()
+                       for t in Turno.objects.filter(explorador=self.receptor, fecha=sab).select_related('jornada')}
+        self.assertEqual(js_emisor, {'AM', 'PM'}, f'el deudor debe quedar doblado (AM+PM), quedó: {js_emisor}')
+        self.assertEqual(js_receptor, set(), f'el receptor debe DESCANSAR (le cubres las dos mitades), quedó: {js_receptor}')
+
+    def test_validacion_no_bloquea_2o_pago_al_mismo_receptor_por_complemento(self):
+        """El guard del receptor NO debe rechazar el 2º pago de doblada al MISMO compañero en el mismo
+        sábado cuando le pagas la mitad CONTRARIA (lo estás relevando tú, no está "no disponible")."""
+        sab = self._sabado_futuro()
+        ces = sab - timedelta(days=1)
+        while ces.weekday() >= 5:
+            ces -= timedelta(days=1)
+        self._crear_doblada_turnos(self.receptor, sab)          # receptor trabaja el sábado
+        self._crear_turno(self.emisor, ces, self.jornada_am)    # cesión válida (emisor AM, receptor PM)
+        self._crear_turno(self.receptor, ces, self.jornada_pm)
+        # Existente: jeison → Marco paga ese sábado con AM.
+        self._sol_pago_sabado(self.receptor, sab, 'cesion_completa', 'AM', 'AM')
+        # Nueva: jeison → Marco, paga el mismo sábado con la mitad libre PM.
+        datos = {
+            'explorador_solicitante': self.emisor, 'explorador_receptor': self.receptor,
+            'fecha_cambio_turno': str(ces), 'fecha_pago': str(sab), 'comentario': 'complemento',
+            'tipo_cesion': 'cesion_completa', 'jornada_cedida': None,
+            'jornada_pago_sabado': 'PM', 'jornada_cubre_en_pago': None,
+        }
+        _, msg = self.strategy.validar_solicitud(datos)
+        # Puede fallar por otra regla de setup, pero NUNCA por el guard "el compañero no puede cubrir".
+        self.assertNotIn('no puede cubrir ese día', str(msg),
+                         f'el 2º pago al mismo compañero (mitad contraria) no debe bloquearse por el receptor: {msg}')
+
+    def test_guardian_permite_mitad_libre_y_bloquea_mitad_tomada(self):
+        sab = self._sabado_futuro()
+        # Cesión: un día de semana del MISMO mes que el sábado (para no chocar con la regla de mes).
+        # Preferir el viernes anterior; si cae en otro mes (sábado = 1º del mes), tomar el lunes siguiente.
+        ces = sab - timedelta(days=1)
+        while ces.weekday() >= 5:
+            ces -= timedelta(days=1)
+        if ces.month != sab.month:
+            ces = sab + timedelta(days=2)
+            while ces.weekday() >= 5:
+                ces += timedelta(days=1)
+        # El compañero del 2º pago trabaja ese sábado (para no chocar con "ambos descansando").
+        self._crear_doblada_turnos(self.receptor2, sab)
+        self._crear_turno(self.emisor, ces, self.jornada_pm)
+        self._crear_turno(self.receptor2, ces, self.jornada_am)
+        # Ya existe una doblada aprobada del emisor que paga ese sábado con la mitad AM.
+        self._sol_pago_sabado(self.receptor, sab, 'cesion_parcial_am', 'AM', 'AM')
+
+        base = {
+            'explorador_solicitante': self.emisor, 'explorador_receptor': self.receptor2,
+            'fecha_cambio_turno': str(ces), 'fecha_pago': str(sab),
+            'comentario': 'segundo pago', 'tipo_cesion': 'cesion_parcial_pm', 'jornada_cedida': 'PM',
+        }
+        # Pedir la MISMA mitad (AM) → bloqueado con mensaje del sábado que indica la mitad libre.
+        _, err_am = self.strategy.validar_solicitud({**base, 'jornada_pago_sabado': 'AM'})
+        self.assertIn('libre la jornada PM', str(err_am),
+                      f'pedir la mitad ya tomada (AM) debe bloquear indicando PM libre: {err_am}')
+        # Pedir la mitad LIBRE (PM) → el guardián del sábado NO debe bloquear (puede fallar otra
+        # validación de estado, pero NO con el mensaje de sábado comprometido).
+        _, err_pm = self.strategy.validar_solicitud({**base, 'jornada_pago_sabado': 'PM'})
+        self.assertNotIn('ya pagas la jornada', str(err_pm),
+                         f'pedir la mitad libre (PM) no debe bloquear por sábado comprometido: {err_pm}')
+        self.assertNotIn('ya está comprometido como', str(err_pm), f'{err_pm}')
+
+
+class TestPagarEnDiaCedidoPermitido(MatrizDobladasTestCase):
+    """Regla nueva (lado del pago): PUEDES pagar una doblada en un día en que estás LIBRE, aunque
+    estés libre porque CEDISTE ese día en otra solicitud aprobada. Un día libre está disponible
+    para cubrir la jornada que debes; la última jornada aprobada del día es la vigente. Antes se
+    bloqueaba con "comprometido" (caso jeison/Diana 15/07); ahora se permite y la aplicación deja
+    al deudor con UNA sola jornada (la del acreedor, ver TestPagoParcialDeudorLibre)."""
+
+    def test_pagar_en_dia_ya_cedido_se_permite(self):
+        from empleados.models import CompetenciaEmpleado
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+        # Emisor base AM (trabaja en la cesión); receptor base PM (trabaja en el pago → jornada a cubrir).
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+
+        d_cede = FECHA_PAGO
+        def _wk(base, n):
+            d = base + timedelta(days=n)
+            while d.weekday() >= 5:
+                d += timedelta(days=1)
+            return d
+        d_prev_pago = _wk(d_cede, 3)
+        d_new_cesion = _wk(d_cede, 6)
+        if d_new_cesion in (d_prev_pago, d_cede):
+            d_new_cesion = _wk(d_new_cesion, 1)
+
+        # PREVIA aprobada: el emisor CEDE completo el día d_cede a un TERCERO → queda LIBRE ese día
+        # (sin ensuciar al receptor, que debe trabajar en el pago para poder ser cubierto).
+        u3 = User.objects.create_user('tercero_ndc', password='x', email='t3ndc@t.com')
+        tercero = Empleado.objects.create(
+            user=u3, nombre='Ter', apellido='Cero', cedula='3939393939', email='t3ndc@t.com', activo=True,
+        )
+        prev = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=tercero,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=d_cede,
+            comentario='cede d_cede al tercero',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=prev, minutos_deuda=30, fecha_pago=d_prev_pago,
+            tipo_cesion='cesion_completa', empleado_receptor=tercero,
+        )
+
+        # NUEVA doblada: cesión en otro día, PAGA en d_cede (el día ya cedido, donde el emisor está
+        # libre) → ahora PERMITIDO.
+        datos = {
+            'explorador_solicitante': self.emisor, 'explorador_receptor': self.receptor,
+            'fecha_cambio_turno': str(d_new_cesion), 'fecha_pago': str(d_cede),
+            'comentario': 'paga sobre un día cedido', 'tipo_cesion': 'cesion_completa',
+            'jornada_cedida': None, 'jornada_pago_sabado': None, 'jornada_cubre_en_pago': None,
+        }
+        ok, msg = self.strategy.validar_solicitud(datos)
+        self.assertTrue(ok, f'pagar en un día libre por cesión debe permitirse ahora: {msg}')
+
+
+class TestCesionReceptorSinBase(MatrizDobladasTestCase):
+    """Borde: si el receptor NO tiene jornada base (ni turno) en la fecha de cesión, no hay con qué
+    doblarlo → debe cubrir SOLO la jornada cedida, sin intentar crear un Turno con jornada nula
+    (antes crasheaba con IntegrityError 'jornada_id cannot be null')."""
+
+    def setUp(self):
+        super().setUp()
+        from empleados.models import CompetenciaEmpleado
+        for e in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+
+    def test_receptor_sin_base_cubre_solo_la_cedida(self):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        # Emisor con DOBLADA en la cesión; receptor SIN base ni turno ese día.
+        self._crear_doblada_turnos(self.emisor, FECHA_CESION)
+        # (self.receptor no tiene AsignarJornadaExplorador ni Turno en FECHA_CESION)
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='receptor sin base',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_parcial_am', jornada_cedida='AM', empleado_receptor=self.receptor,
+        )
+        # No debe lanzar IntegrityError.
+        DobladaAplicacionService.aplicar_doblada_cesion(sol, det)
+
+        js = {t.jornada.nombre.upper()
+              for t in Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).select_related('jornada')}
+        self.assertEqual(js, {'AM'}, f'receptor sin base debe cubrir solo la cedida (AM), quedó: {js}')
+
+
+class TestCesionParcialUnaSolaJornada(MatrizDobladasTestCase):
+    """Si el emisor tiene UNA sola jornada y la cesión llega (por error del formulario) como
+    'cesion_parcial_am/pm', ceder esa jornada debe dejarlo en DÍA LIBRE — NO materializar la
+    otra media jornada (la "PM/AM fantasma" que dejaba el día con jornada errónea). Bug sol 489."""
+
+    def setUp(self):
+        super().setUp()
+        from empleados.models import CompetenciaEmpleado
+        for e in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+
+    def _aplicar(self, tipo_cesion, jornada_cedida):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='una sola jornada',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion=tipo_cesion, jornada_cedida=jornada_cedida, empleado_receptor=self.receptor,
+        )
+        DobladaAplicacionService.aplicar_doblada_cesion(sol, det)
+        return {t.jornada.nombre.upper()
+                for t in Turno.objects.filter(explorador=self.emisor, fecha=FECHA_CESION).select_related('jornada')}
+
+    def test_una_sola_am_parcial_am_queda_libre(self):
+        # Emisor con SOLO AM; receptor con PM (contraria).
+        self._crear_turno(self.emisor, FECHA_CESION, self.jornada_am)
+        self._crear_turno(self.receptor, FECHA_CESION, self.jornada_pm)
+        js = self._aplicar('cesion_parcial_am', 'AM')
+        self.assertEqual(js, set(), f'emisor con una sola jornada (AM) debe quedar LIBRE, quedó: {js}')
+
+    def test_doblada_real_parcial_am_conserva_pm(self):
+        # Regresión: emisor con DOBLADA real (AM+PM) sí conserva la PM al ceder la AM.
+        self._crear_doblada_turnos(self.emisor, FECHA_CESION)
+        self._crear_turno(self.receptor, FECHA_CESION, self.jornada_pm)
+        js = self._aplicar('cesion_parcial_am', 'AM')
+        self.assertEqual(js, {'PM'}, f'emisor con doblada real debe conservar PM, quedó: {js}')
+
+
+# ===========================================================================
+# FESTIVOS — la doblada de festivo es TODO-O-NADA y solo la cede quien dobla
+# ===========================================================================
+class TestFestivoDobladaReglas(MatrizDobladasTestCase):
+    """
+    En un festivo entre semana trabaja la doblada completa (AM+PM) SOLO el grupo cuya
+    jornada base coincide con el grupo que dobla por rotación; el grupo contrario descansa.
+    Reglas que se validan aquí (DobladaStrategy):
+      1. No se admite cesión PARCIAL en un festivo (debe cederse la doblada completa).
+      2. Solo puede ceder en un festivo quien REALMENTE dobla ese día (si descansa, nada que ceder).
+    """
+
+    def setUp(self):
+        super().setUp()
+        from turnos.models import DiaEspecial
+        # Dos festivos de semana el MISMO mes (cesión y pago), tabla DiaEspecial vacía por defecto.
+        # Rotación: primer festivo cronológico -> dobla grupo PM (índice 0); segundo -> AM (índice 1).
+        DiaEspecial.objects.create(fecha=FECHA_CESION, tipo='festivo', activo=True)
+        DiaEspecial.objects.create(fecha=FECHA_PAGO, tipo='festivo', activo=True)
+        # FECHA_CESION es el festivo más temprano -> dobla el grupo PM.
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    def test_dobla_en_festivo_helper(self):
+        from turnos.services.turno_service import TurnoService
+        # Emisor base PM dobla el primer festivo (grupo PM); receptor base AM no.
+        self.assertTrue(TurnoService.dobla_en_festivo(self.emisor, FECHA_CESION),
+                        'emisor PM debe doblar el festivo donde dobla el grupo PM')
+        self.assertFalse(TurnoService.dobla_en_festivo(self.receptor, FECHA_CESION),
+                         'receptor AM NO dobla el festivo donde dobla el grupo PM')
+        # Día NO festivo -> nunca "dobla_en_festivo".
+        self.assertFalse(TurnoService.dobla_en_festivo(self.emisor, FECHA_PAGO - timedelta(days=1)))
+
+    def test_cesion_parcial_en_festivo_rechazada(self):
+        # Emisor dobla el festivo (grupo PM) pero pide cesión PARCIAL -> rechazado: todo-o-nada.
+        datos = self._datos(tipo_cesion='cesion_parcial_pm', jornada_cedida='PM')
+        self.assertRechazado(datos, 'doblada completa', 'cesión parcial en festivo')
+
+    def test_cesion_festivo_sin_doblar_rechazada(self):
+        # El emisor (AM) NO dobla FECHA_CESION (dobla el grupo PM) -> no tiene doblada que ceder.
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        datos = self._datos(tipo_cesion='cesion_completa')
+        self.assertRechazado(datos, 'no doblas el festivo', 'cesión en festivo donde descansa')
+
+    def test_revert_en_festivo_no_recrea_turno_base(self):
+        """Revertir una doblada en festivo NO debe dejar un turno base suelto: la jornada
+        (doblada o descanso) la computa la rotación en estado_dia, sin filas Turno."""
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from turnos.services.turno_service import TurnoService
+        # Simula el estado aplicado: doblada (AM+PM con tipo_cambio DOBLADA) en el festivo de cesión.
+        Turno.objects.create(explorador=self.emisor, fecha=FECHA_CESION, jornada=self.jornada_am,
+                             sala=self.sala, tipo_cambio='DOBLADA')
+        Turno.objects.create(explorador=self.emisor, fecha=FECHA_CESION, jornada=self.jornada_pm,
+                             sala=self.sala, tipo_cambio='DOBLADA')
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='festivo revert',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=0, fecha_pago=FECHA_PAGO, tipo_cesion='cesion_completa',
+            empleado_receptor=self.receptor,
+        )
+        DobladaAplicacionService.revertir_doblada_aplicada(sol)
+        self.assertEqual(
+            Turno.objects.filter(explorador=self.emisor, fecha=FECHA_CESION).count(), 0,
+            'en festivo el revert no debe recrear un turno base suelto',
+        )
+        # El emisor (PM) dobla el festivo de cesión (grupo PM): estado_dia lo computa sin filas Turno.
+        self.assertEqual(TurnoService.estado_dia(self.emisor, FECHA_CESION)['jornada'], 'DOBLADA')
+
+
+# ===========================================================================
+# PAGAR EN UN DÍA LIBRE POR CESIÓN — permitido (un día libre está disponible para pagar)
+# ===========================================================================
+class TestPagoEnDiaLibrePorCesionPermitido(MatrizDobladasTestCase):
+    """El deudor puede PAGAR en un día en que está LIBRE porque cedió ese día en otra doblada
+    aprobada. Antes lo bloqueaba el guard `_comp_pago_sol`; ahora un día libre está disponible
+    para cubrir la jornada que se debe (la última jornada aprobada del día es la vigente).
+    La aplicación deja al deudor con UNA sola jornada (la del acreedor) — cubierto en
+    TestPagoParcialDeudorLibre."""
+
+    def setUp(self):
+        super().setUp()
+        from empleados.models import CompetenciaEmpleado
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+        # Emisor base AM (trabaja en la cesión); receptor base PM (trabaja en el pago → jornada a cubrir).
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+        # Tercero para la cesión PREVIA que deja al emisor LIBRE el día del pago.
+        u3 = User.objects.create_user('tercero_test', password='x', email='t3@t.com')
+        self.tercero = Empleado.objects.create(
+            user=u3, nombre='Ter', apellido='Cero', cedula='3333333333', email='t3@t.com', activo=True,
+        )
+
+    def _emisor_cede_el_dia_del_pago(self):
+        """DOBLADA aprobada: el emisor cede COMPLETA el día del pago (FECHA_PAGO) al tercero,
+        por lo que ese día queda LIBRE (cedió su jornada)."""
+        otra = FECHA_PAGO + timedelta(days=5)
+        while otra.weekday() >= 5:
+            otra += timedelta(days=1)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.tercero,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_PAGO,
+            comentario='cesion previa que deja libre el dia del pago',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=otra,
+            tipo_cesion='cesion_completa', empleado_receptor=self.tercero,
+        )
+        return sol
+
+    def test_precondicion_emisor_libre_por_cesion_en_el_pago(self):
+        from turnos.services.turno_service import TurnoService
+        self._emisor_cede_el_dia_del_pago()
+        self.assertFalse(
+            TurnoService.estado_dia(self.emisor, FECHA_PAGO)['trabaja'],
+            'el emisor debe quedar LIBRE el día del pago por la cesión previa',
+        )
+        self.assertIsNotNone(
+            TurnoService.dia_comprometido_por_solicitud(self.emisor, FECHA_PAGO),
+            'ese día debe estar marcado como cedido por solicitud',
+        )
+
+    def test_pago_en_dia_cedido_es_permitido(self):
+        # El emisor está LIBRE el día del pago porque lo cedió → pagar ahí ahora se permite.
+        self._emisor_cede_el_dia_del_pago()
+        datos = self._datos()  # emisor (AM) cede FECHA_CESION a receptor; paga en FECHA_PAGO (libre)
+        self.assertValido(datos, 'pagar en un día libre por cesión debe permitirse')

@@ -11,3 +11,67 @@
 /* Cajas de cesión y devolución */
 .box-cesion { border-left: 4px solid #16a34a; background: #f0fdf4; padding: 12px 14px; border-radius: 8px; }
 .box-devol  { border-left: 4px solid #4f46e5; background: #eef2ff; padding: 12px 14px; border-radius: 8px; }
+
+/* Badges de jornada AM / PM (con texto, no solo color; legibles sobre tarjeta clara) */
+.jr-badge { display: inline-block; font-size: .72rem; font-weight: 700; line-height: 1; padding: .18rem .42rem;
+            border-radius: 6px; letter-spacing: .02em; border: 1px solid transparent; vertical-align: middle; }
+.jr-am { background: #fef3c7; color: #92400e; border-color: #fcd34d; }   /* mañana */
+.jr-pm { background: #e0e7ff; color: #3730a3; border-color: #a5b4fc; }   /* tarde */
+.jr-none { background: #f1f5f9; color: #64748b; border-color: #e2e8f0; }
+
+/* Mini-tabla de fechas por fila (día + compañero) */
+.perm-tabla-wrap { overflow-x: auto; margin-top: .35rem; }
+.perm-tabla { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.perm-tabla th { text-align: left; font-size: .68rem; font-weight: 600; text-transform: uppercase;
+                 letter-spacing: .03em; color: #64748b; padding: .2rem .5rem; border-bottom: 1px solid #e2e8f0; white-space: nowrap; }
+.perm-tabla td { padding: .28rem .5rem; border-bottom: 1px solid #f1f5f9; white-space: nowrap; vertical-align: middle; }
+.perm-tabla tbody tr:hover { background: #f8fafc; }
+.perm-tabla .col-check { width: 1.4rem; text-align: center; }
+.perm-tabla .perm-fecha { cursor: pointer; }
+.perm-tabla .col-fecha { font-weight: 600; color: #334155; }
+.perm-tabla .col-quepasa { color: #475569; }
+/* Acción del día: quién se dobla se resalta; quién descansa se atenúa */
+.accion-dobla { font-weight: 700; }
+.accion-dobla.yo { color: #4f46e5; }       /* tú te doblas (devolución) */
+.accion-dobla.comp { color: #16a34a; }     /* el compañero se dobla (cesión) */
+.accion-descansa { color: #94a3b8; }
+.perm-fila-sin { color: #b45309; font-size: .8rem; display: block; margin-top: .25rem; }
+.perm-fila-vacia { color: #64748b; font-size: .8rem; display: block; margin-top: .25rem; }
+
+/* Línea "Tus <día>: 11/ago [AM] · 25/ago [PM]" — el split de jornadas antes de elegir compañero */
+.perm-tus-fechas { font-size: .8rem; color: #334155; margin: .3rem 0; display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: center; }
+.perm-tus-fechas .tf-item { display: inline-flex; align-items: center; gap: .25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: .1rem .4rem; }
+/* Aviso de fechas que el compañero elegido NO cubre */
+.perm-faltan { font-size: .78rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: .3rem .5rem; margin-top: .35rem; }
+
+/* Fecha ya asignada a OTRO compañero (una fecha = un solo compañero) → deshabilitada */
+.perm-tabla tr.perm-fecha-tomada { opacity: .6; }
+.perm-tabla tr.perm-fecha-tomada .col-fecha { text-decoration: line-through; color: #94a3b8; }
+.perm-tomada-nota { color: #64748b; font-style: italic; font-size: .78rem; }
+:root[data-theme="dark"] .perm-tomada-nota { color: #94a3b8; }
+:root[data-theme="dark"] .perm-tus-fechas { color: #cbd5e1; }
+:root[data-theme="dark"] .perm-tus-fechas .tf-item { background: rgba(148,163,184,.1); border-color: #334155; }
+:root[data-theme="dark"] .perm-faltan { background: rgba(245,158,11,.12); border-color: #b45309; color: #fcd34d; }
+
+/* Panel de Resumen ejecutivo */
+.resumen-acuerdo { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 12px 14px; }
+.resumen-acuerdo .resumen-titulo { font-weight: 700; color: #1e3a8a; margin-bottom: .4rem; }
+.resumen-acuerdo .comp-line { margin-bottom: .5rem; }
+.resumen-acuerdo .comp-nombre { font-weight: 700; color: #1e293b; }
+.resumen-acuerdo .cubre { color: #166534; }        /* te cubre → descansas */
+.resumen-acuerdo .devuelve { color: #4338ca; }     /* devuelves → te doblas */
+.resumen-acuerdo .bal-ok { color: #166534; font-weight: 600; }
+.resumen-acuerdo .bal-warn { color: #b45309; font-weight: 600; }
+.resumen-acuerdo .resumen-nota { color: #64748b; font-size: .8rem; border-top: 1px solid #dbeafe; padding-top: .4rem; margin-top: .3rem; }
+
+/* Tema oscuro: la tarjeta puede volverse oscura; mantener contraste de badges y paneles */
+:root[data-theme="dark"] .perm-tabla th { color: #94a3b8; border-bottom-color: #334155; }
+:root[data-theme="dark"] .perm-tabla td { border-bottom-color: #1f2937; }
+:root[data-theme="dark"] .perm-tabla tbody tr:hover { background: rgba(148,163,184,.08); }
+:root[data-theme="dark"] .perm-tabla .col-fecha { color: #e2e8f0; }
+:root[data-theme="dark"] .perm-tabla .col-quepasa { color: #cbd5e1; }
+:root[data-theme="dark"] .resumen-acuerdo { background: rgba(59,130,246,.10); border-color: rgba(96,165,250,.35); }
+:root[data-theme="dark"] .resumen-acuerdo .resumen-titulo { color: #93c5fd; }
+:root[data-theme="dark"] .resumen-acuerdo .comp-nombre { color: #e2e8f0; }
+:root[data-theme="dark"] .jr-am { background: #78350f; color: #fde68a; border-color: #b45309; }
+:root[data-theme="dark"] .jr-pm { background: #312e81; color: #c7d2fe; border-color: #4f46e5; }

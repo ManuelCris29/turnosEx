@@ -173,6 +173,30 @@ class CDAplicacionTest(CDBaseTest):
     def _jornadas(self, emp, fecha):
         return sorted(t.jornada.nombre.upper() for t in Turno.objects.filter(explorador=emp, fecha=fecha).select_related('jornada'))
 
+    def test_reconciliacion_doblada_no_corrompe_cambio_descanso(self):
+        """Regresión: al revertir una doblada, la reconciliación post-revert NO debe aplicar
+        lógica de DOBLADA a un CAMBIO DESCANSO (ambos comparten DobladaDetalle). Debe re-aplicarlo
+        con SU propia lógica y restaurar sus turnos, sin dejar turnos DOBLADA colgados."""
+        from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+        self._crear_y_aplicar()
+        # Estado correcto tras aplicar: el receptor trabaja AM+PM el sábado de cesión.
+        self.assertEqual(self._jornadas(self.receptor, self.ces), ['AM', 'PM'])
+        # Simular lo que dejaba una doblada al pisar ese día: borrar los turnos del cambio de
+        # descanso y dejar un turno DOBLADA colgado.
+        Turno.objects.filter(explorador=self.receptor, fecha=self.ces).delete()
+        Turno.objects.create(explorador=self.receptor, fecha=self.ces, jornada=self.am,
+                             sala=self.sala, tipo_cambio='DOBLADA')
+        # Reconciliar como tras revertir una doblada que pagaba ese día.
+        DobladaSnapshotService.reconciliar_dobladas_aprobadas(
+            {(self.receptor.id, self.ces)}, excluir_solicitud_id=None)
+        # El cambio de descanso quedó re-aplicado con SU lógica (AM+PM), sin DOBLADA colgada.
+        turnos = list(Turno.objects.filter(explorador=self.receptor, fecha=self.ces).select_related('jornada'))
+        self.assertEqual(sorted(t.jornada.nombre.upper() for t in turnos), ['AM', 'PM'])
+        self.assertTrue(
+            all(t.tipo_cambio == 'CAMBIO DESCANSO' for t in turnos),
+            f'turnos con tipo inesperado: {[(t.jornada.nombre, t.tipo_cambio) for t in turnos]}',
+        )
+
     def test_aplicacion_intercambio(self):
         self._crear_y_aplicar()
         otro_ces = self.ces + timedelta(days=1)   # domingo del finde de cesión

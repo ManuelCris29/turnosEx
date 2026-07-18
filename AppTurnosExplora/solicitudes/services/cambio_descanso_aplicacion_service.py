@@ -52,31 +52,28 @@ class CambioDescansoAplicacionService:
         return {'AM': Jornada.objects.get(nombre='AM'), 'PM': Jornada.objects.get(nombre='PM')}
 
     @staticmethod
-    def dias_en_descanso(empleado, fecha_inicio, fecha_fin, excluir_id=None):
+    def _mapa_descanso(empleado, fecha_inicio, fecha_fin, excluir_id=None):
         """
-        Conjunto de fechas en [fecha_inicio, fecha_fin] donde el empleado DESCANSA por una
-        solicitud de CAMBIO DESCANSO aprobada (su día cedido, que queda sin registro Turno).
-
-        Misma lógica que usa "Mis Turnos" para pintar el descanso. Sirve para que el
-        formulario/validación NO vuelvan a ofrecer un día ya comprometido.
-
-        `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
+        Base común: { fecha: {'id','nombre'} del compañero } para los días en que el empleado
+        DESCANSA por una solicitud de CAMBIO DESCANSO aprobada. `dias_en_descanso` expone solo las
+        fechas (claves) y `companero_descanso` el compañero. Mantener ambos consistentes de aquí.
         """
         from django.db.models import Q
         from solicitudes.models import SolicitudCambio
 
         fecha_inicio = _as_date(fecha_inicio)
         fecha_fin = _as_date(fecha_fin)
-        rest = set()
+        rest = {}
         # Cobertura del solicitante: jornadas cedidas ACUMULADAS por fecha. Una sola parcial
         # deja media jornada real (L1) y NO es descanso; pero dos parciales (AM y PM, a distintos
         # compañeros) o una completa suman el día entero → descansa completo. Sin esta suma, ceder
         # AM y PM por separado dejaba el día "sin turnos" y la temporada lo re-pintaba como DOBLADA.
         cob_sol_ced = {}
+        cob_sol_comp = {}
         qs = (SolicitudCambio.objects
               .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
               .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
-              .select_related('doblada'))
+              .select_related('doblada', 'explorador_solicitante', 'explorador_receptor'))
         if excluir_id:
             qs = qs.exclude(id=excluir_id)
         for s in qs:
@@ -86,6 +83,8 @@ class CambioDescansoAplicacionService:
             fc = _as_date(s.fecha_cambio_turno)
             fp = _as_date(det.fecha_pago)
             es_sol = s.explorador_solicitante_id == empleado.id
+            otro = s.explorador_receptor if es_sol else s.explorador_solicitante
+            comp = {'id': otro.id, 'nombre': f'{otro.nombre} {getattr(otro, "apellido", "")}'.strip()}
             es_finde = bool(fc) and fc.weekday() in (5, 6)
             if es_finde:
                 dias = [fc, fp] if es_sol else [_otro_dia(fc), _otro_dia(fp)]
@@ -101,6 +100,7 @@ class CambioDescansoAplicacionService:
                         ced = ({'AM', 'PM'} if det.tipo_cesion == 'cesion_completa'
                                else ({(det.jornada_cedida or '').upper()} & {'AM', 'PM'}))
                         cob_sol_ced.setdefault(fc, set()).update(ced)
+                        cob_sol_comp[fc] = comp
                     elif not es_sol and det.tipo_cesion == 'cesion_completa':
                         dias = [fp]  # receptor: solo descansa el pago si le cedieron el día entero
                 elif sub == 'cambio_doblada':
@@ -109,12 +109,34 @@ class CambioDescansoAplicacionService:
                     dias = []  # jornadas_partidas: ambos trabajan media en ambos días (L1)
             for d in dias:
                 if d and fecha_inicio <= d <= fecha_fin:
-                    rest.add(d)
+                    rest[d] = comp
         # Días donde el solicitante cedió el día COMPLETO por cobertura (parciales que suman AM+PM).
         for f_ced, js in cob_sol_ced.items():
             if js >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin:
-                rest.add(f_ced)
+                rest[f_ced] = cob_sol_comp.get(f_ced)
         return rest
+
+    @staticmethod
+    def dias_en_descanso(empleado, fecha_inicio, fecha_fin, excluir_id=None):
+        """
+        Conjunto de fechas en [fecha_inicio, fecha_fin] donde el empleado DESCANSA por una
+        solicitud de CAMBIO DESCANSO aprobada (su día cedido, que queda sin registro Turno).
+
+        Misma lógica que usa "Mis Turnos" para pintar el descanso. Sirve para que el
+        formulario/validación NO vuelvan a ofrecer un día ya comprometido.
+
+        `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
+        """
+        return set(CambioDescansoAplicacionService._mapa_descanso(
+            empleado, fecha_inicio, fecha_fin, excluir_id).keys())
+
+    @staticmethod
+    def companero_descanso(empleado, fecha, excluir_id=None):
+        """Compañero (otro explorador) de la solicitud de CAMBIO DESCANSO que hace que `empleado`
+        descanse `fecha`. Devuelve {'id','nombre'} o None. Mismo criterio que dias_en_descanso."""
+        fecha = _as_date(fecha)
+        return CambioDescansoAplicacionService._mapa_descanso(
+            empleado, fecha, fecha, excluir_id).get(fecha)
 
     @staticmethod
     def _trabaja_dia(explorador, fecha, tipo_cambio='CAMBIO DESCANSO'):

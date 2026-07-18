@@ -31,28 +31,29 @@ class DobladaPermanenteAplicacionService:
     def _ocurrencias(fecha_inicio, fecha_fin, dias_set, solicitante=None, receptor=None, excluir_id=None):
         """
         Fechas del rango cuyo weekday está en dias_set y que son VÁLIDAS para doblada.
-        EXCLUYE (misma política que CT Permanente — se OMITEN, no se rechaza todo):
-        - fines de semana (sábado y domingo) y festivos,
-        - mantenimiento y temporada,
-        - días en que el solicitante o el receptor descansan o YA tienen un cambio
-          (doblada / CT / D FDS) — solo si se pasan ambos exploradores.
+        La elegibilidad se decide con la jornada REAL de "Mis Turnos" (`estado_dia`), no con la
+        base/config, así que se OMITEN (no se rechaza todo) los días en que el solicitante o el
+        receptor NO tienen una jornada única AM/PM ese día: ya están en DOBLADA (incluidas las
+        virtuales por temporada/festivo), descansan (rotación, temporada, mantenimiento, fin de
+        semana, o por otra solicitud) o no tienen turno. Los días cambiados por CT sencillo/permanente
+        o por un cambio de descanso SÍ se incluyen con su jornada real. Cuando se pasan AMBOS
+        exploradores, además exige que ese día tengan jornada CONTRARIA (uno AM y el otro PM).
         """
-        from .ct_permanente_helper import (_es_festivo, _es_mantenimiento, _es_temporada,
-                                            _es_dia_descanso, _tipo_cambio_previo, _dia_libre_por_solicitud)
+        from .ct_permanente_helper import _jornada_doblada_perm
         d = fecha_inicio
         while d <= fecha_fin:
-            if (d.weekday() in dias_set and d.weekday() < 5
-                    and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)):
-                # Excluye si el solicitante o el receptor ese día: descansan (rotación/temporada),
-                # ya tienen un cambio (doblada/CT/D FDS) o están LIBRES por otra solicitud aprobada
-                # (L2 — vía estado de Mis Turnos). `excluir_id` ignora ESTA solicitud al aplicarla
-                # ya aprobada (si no, se auto-excluiría su propio efecto de descanso).
+            if d.weekday() in dias_set and d.weekday() < 5:
+                # `excluir_id` ignora ESTA solicitud (al re-validar/aplicar ya aprobada) para no
+                # auto-excluirse por su propio descanso.
+                js = _jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
+                jr = _jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
                 _ok = True
-                for emp in (solicitante, receptor):
-                    if emp and (_es_dia_descanso(emp, d) or _tipo_cambio_previo(emp, d)
-                                or _dia_libre_por_solicitud(emp, d, excluir_id)):
-                        _ok = False
-                        break
+                if solicitante and js is None:
+                    _ok = False
+                if receptor and jr is None:
+                    _ok = False
+                if _ok and solicitante and receptor and js == jr:
+                    _ok = False  # deben ser contrarias
                 if _ok:
                     yield d
             d += timedelta(days=1)
@@ -61,11 +62,11 @@ class DobladaPermanenteAplicacionService:
     def _fechas_validas(fechas_csv, fecha_inicio, fecha_fin, solicitante=None, receptor=None, excluir_id=None):
         """
         Igual que `_ocurrencias` pero sobre FECHAS ESPECÍFICAS (CSV de YYYY-MM-DD): filtra las que
-        estén en el rango, sean lun-vie y válidas (no festivo/mantenimiento/temporada, y ni el
-        solicitante ni el receptor descansan/ya tienen un cambio ese día). Devuelve fechas ordenadas.
+        estén en el rango, sean lun-vie y válidas según la jornada REAL de "Mis Turnos" (`estado_dia`):
+        ambos con jornada única AM/PM y CONTRARIA ese día; se omiten dobladas (incl. virtuales),
+        descansos y días sin turno. Devuelve ordenadas.
         """
-        from .ct_permanente_helper import (_es_festivo, _es_mantenimiento, _es_temporada,
-                                            _es_dia_descanso, _tipo_cambio_previo, _dia_libre_por_solicitud)
+        from .ct_permanente_helper import _jornada_doblada_perm
         out = []
         for s in (fechas_csv or '').split(','):
             s = s.strip()
@@ -75,12 +76,15 @@ class DobladaPermanenteAplicacionService:
                 d = date.fromisoformat(s)
             except ValueError:
                 continue
-            if not (fecha_inicio <= d <= fecha_fin and d.weekday() < 5
-                    and not _es_festivo(d) and not _es_mantenimiento(d) and not _es_temporada(d)):
+            if not (fecha_inicio <= d <= fecha_fin and d.weekday() < 5):
                 continue
-            if any(emp and (_es_dia_descanso(emp, d) or _tipo_cambio_previo(emp, d)
-                            or _dia_libre_por_solicitud(emp, d, excluir_id))
-                   for emp in (solicitante, receptor)):
+            js = _jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
+            jr = _jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
+            if solicitante and js is None:
+                continue
+            if receptor and jr is None:
+                continue
+            if solicitante and receptor and js == jr:
                 continue
             out.append(d)
         return sorted(out)

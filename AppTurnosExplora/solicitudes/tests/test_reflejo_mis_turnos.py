@@ -173,3 +173,59 @@ class ReflejoMisTurnosTest(TestCase):
         # Martes (devolución): solicitante dobla, receptor descansa
         self.assertEqual(self._cell(self.sol, martes).get('jornada'), 'DOBLADA')
         self.assertTrue(self._cell(self.rec, martes).get('es_descanso'))
+
+    def test_doblada_permanente_multicompanero_atribuye_por_fecha(self):
+        """Regresión (caso marco 11/08): cuando el MISMO día de la semana se reparte entre varios
+        compañeros por FECHAS distintas, Mis Turnos debe atribuir el descanso de cada fecha al
+        compañero de ESA fecha (no al primero que coincida por patrón), y un día del mismo weekday
+        que no se cedió no debe aparecer como descanso."""
+        import calendar
+        # Tercer explorador, también PM (contrario al solicitante AM) para poder cubrir.
+        u_c2 = User.objects.create_user(username='comp2.test', password='x')
+        comp2 = Empleado.objects.create(user=u_c2, nombre='Comp2', apellido='PM', cedula='903', activo=True,
+                                        email='comp2@test.com', supervisor=self.supervisor)
+        AsignarJornadaExplorador.objects.create(explorador=comp2, jornada=self.pm, fecha_inicio=date(2025, 1, 1))
+        CompetenciaEmpleado.objects.create(empleado=comp2, sala=self.sala)
+
+        fi = self._dia_semana(0)  # primer lunes
+        ultimo = date(fi.year, fi.month, calendar.monthrange(fi.year, fi.month)[1])
+        lunes, martes = [], []
+        d = fi
+        while d <= ultimo:
+            if d.weekday() == 0:
+                lunes.append(d)
+            if d.weekday() == 1:
+                martes.append(d)
+            d += timedelta(days=1)
+        if len(lunes) < 3 or len(martes) < 2:
+            self.skipTest('el mes no tiene suficientes lunes/martes para el escenario')
+        ff = ultimo
+        # sol -> rec cubre el lunes[0]; sol -> comp2 cubre el lunes[1] (mismo weekday, fechas distintas).
+        self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {
+            'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
+            'tipo_cambio': self.tipos['DOBLADA PERMANENTE'], 'comentario': 'test',
+            'fecha_inicio': fi.strftime('%Y-%m-%d'), 'fecha_fin': ff.strftime('%Y-%m-%d'),
+            'dias_cesion': ['0'], 'dias_devolucion': ['1'],
+            'fechas_cesion': [lunes[0].strftime('%Y-%m-%d')],
+            'fechas_devolucion': [martes[0].strftime('%Y-%m-%d')],
+        })
+        self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {
+            'explorador_solicitante': self.sol, 'explorador_receptor': comp2,
+            'tipo_cambio': self.tipos['DOBLADA PERMANENTE'], 'comentario': 'test',
+            'fecha_inicio': fi.strftime('%Y-%m-%d'), 'fecha_fin': ff.strftime('%Y-%m-%d'),
+            'dias_cesion': ['0'], 'dias_devolucion': ['1'],
+            'fechas_cesion': [lunes[1].strftime('%Y-%m-%d')],
+            'fechas_devolucion': [martes[1].strftime('%Y-%m-%d')],
+        })
+        # Cada lunes cedido se atribuye a SU compañero.
+        c0 = self._cell(self.sol, lunes[0])
+        c1 = self._cell(self.sol, lunes[1])
+        self.assertTrue(c0.get('es_descanso'))
+        self.assertTrue(c1.get('es_descanso'))
+        self.assertEqual((c0.get('descanso_info') or {}).get('companero_nombre'), 'Rec PM',
+                         f'lunes[0] debe ser de Rec, no {c0.get("descanso_info")}')
+        self.assertEqual((c1.get('descanso_info') or {}).get('companero_nombre'), 'Comp2 PM',
+                         f'lunes[1] debe ser de Comp2, no {c1.get("descanso_info")}')
+        # Un lunes NO cedido no debe aparecer como descanso por patrón.
+        self.assertFalse(self._cell(self.sol, lunes[2]).get('es_descanso'),
+                         'un lunes sin fecha cedida no debe quedar como descanso por patrón de weekday')

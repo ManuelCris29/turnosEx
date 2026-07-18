@@ -727,20 +727,23 @@ class SolicitudValidator:
     # ===== VALIDACIONES ESPECÍFICAS PARA CAMBIO TURNO (CT) =====
     
     @staticmethod
-    def validar_no_doblada_activa(empleado: Empleado, fecha):
+    def validar_no_doblada_activa(empleado: Empleado, fecha, mensaje=None):
         """
         Validar que el empleado no tenga una doblada activa (AM + PM) para la fecha especificada.
-        
+
         Si un explorador tiene doblada para una fecha (ya sea como solicitante o receptor),
         no puede realizar cambios de turno adicionales para esa misma fecha.
-        
+
         Esta validación busca directamente en turnos_turno para detectar si el empleado
         tiene AM + PM en la fecha, sin importar cómo llegó a tener esa doblada.
-        
+
         Args:
             empleado: Empleado a validar
             fecha: Fecha a validar (puede ser string o date)
-            
+            mensaje: Texto de error a usar si hay doblada (opcional). Permite a cada formulario
+                dar un mensaje contextual; por defecto usa el genérico (que remite a la Solicitud
+                de Dobladas, apropiado solo cuando se llama desde OTROS tipos de cambio).
+
         Raises:
             ValidationError: Si el empleado tiene una doblada (AM + PM) para esa fecha
         """
@@ -768,7 +771,7 @@ class SolicitudValidator:
         # Si tiene AM + PM, es una doblada real (jornada completa)
         if 'AM' in jornadas and 'PM' in jornadas:
             raise ValidationError(
-                (
+                mensaje or (
                     'No se puede realizar esta solicitud porque el explorador ya tiene '
                     'una jornada doblada (AM + PM) para el '
                     f'{fecha_obj.strftime("%d/%m/%Y")}. '
@@ -1371,6 +1374,44 @@ class SolicitudValidator:
         if fecha_pago_obj.weekday() == 5:
             logger.info(
                 "Validación coincidencia jornadas pago - OMITIDA por pago en sábado (alternancia)",
+                extra={'deudor_id': deudor.id, 'acreedor_id': acreedor.id, 'fecha_pago': fecha_pago_str},
+            )
+            return {
+                'coinciden': False,
+                'jornada_comun': None,
+                'requiere_cambio_turno': False,
+            }
+
+        # ===========================
+        # DEUDOR LIBRE ese día: no hay "misma jornada"
+        # ===========================
+        # La regla de coincidencia compara la jornada PREDETERMINADA del deudor con la del acreedor.
+        # Pero si el deudor DESCANSA ese día (fin de semana, temporada, descanso por otra solicitud),
+        # no trabaja su base: simplemente cubre la jornada del acreedor sin doblar → nunca hay colisión.
+        # Usar la base daba falsos positivos ("ambos AM") aunque el deudor esté libre.
+        from turnos.services.turno_service import TurnoService as _TS_coinc
+        if not _TS_coinc.estado_dia(deudor, fecha_pago_obj).get('trabaja'):
+            logger.info(
+                "Validación coincidencia jornadas pago - OMITIDA: el deudor descansa ese día",
+                extra={'deudor_id': deudor.id, 'acreedor_id': acreedor.id, 'fecha_pago': fecha_pago_str},
+            )
+            return {
+                'coinciden': False,
+                'jornada_comun': None,
+                'requiere_cambio_turno': False,
+            }
+
+        # ===========================
+        # ACREEDOR LIBRE ese día: tampoco hay "misma jornada"
+        # ===========================
+        # Si el ACREEDOR (compañero) DESCANSA ese día, no tiene una jornada REAL con la que colisionar:
+        # comparar contra su jornada PREDETERMINADA daba el falso positivo "ambos PM" y mostraba el
+        # confuso aviso "trabajarías dos veces la misma jornada". El caso "el compañero descansa" se
+        # rechaza aparte con un mensaje CLARO (guard del receptor en la estrategia); aquí solo se evita
+        # que la coincidencia dispare un mensaje equivocado. Fuente de verdad: estado_dia.
+        if not _TS_coinc.estado_dia(acreedor, fecha_pago_obj).get('trabaja'):
+            logger.info(
+                "Validación coincidencia jornadas pago - OMITIDA: el acreedor descansa ese día",
                 extra={'deudor_id': deudor.id, 'acreedor_id': acreedor.id, 'fecha_pago': fecha_pago_str},
             )
             return {

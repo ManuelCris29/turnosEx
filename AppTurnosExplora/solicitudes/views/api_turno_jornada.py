@@ -318,7 +318,20 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             # override manual o alternancia) — para doblada: ocultar selector si ya le corresponde.
             if fecha_obj.weekday() == 5:
                 from turnos.services.asignacion_especial_service import AsignacionEspecialService as _AES2
-                response_data['jornada_trabaja_sabado'] = _AES2.grupo_trabaja_efectivo(fecha_obj)
+                from turnos.models import AsignarJornadaExplorador as _AJE2
+                _grupo_trabaja_sab = _AES2.grupo_trabaja_efectivo(fecha_obj)
+                response_data['jornada_trabaja_sabado'] = _grupo_trabaja_sab
+                # ¿Al empleado le corresponde trabajar ese sábado por su GRUPO (alternancia)?
+                # Debe basarse en su jornada BASE (AsignarJornadaExplorador), NO en el turno del día
+                # (que otra doblada pudo alterar y coincidir con el grupo que trabaja → falso positivo).
+                # Si su grupo trabaja → la doblada se devuelve en su jornada habitual (sin elegir);
+                # si su grupo descansa → viene especialmente (elige jornada).
+                _asig_sab = (_AJE2.objects.filter(explorador_id=explorador_id, fecha_inicio__lte=fecha_obj)
+                             .select_related('jornada').order_by('-fecha_inicio').first())
+                _jb_sab_nombre = _asig_sab.jornada.nombre.upper() if _asig_sab else None
+                response_data['corresponde_trabajar_sabado'] = bool(
+                    _grupo_trabaja_sab and _jb_sab_nombre and _jb_sab_nombre == str(_grupo_trabaja_sab).upper()
+                )
             
             return json_ok(response_data)
         except Exception as e:
@@ -1235,3 +1248,106 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
 
         return json_ok({'findes': findes, 'meses': meses, 'anio': anio, 'mes': mes,
                         'sin_turnos_mes': False, 'jornada_base': jornada_base})
+
+
+class ExploradoresConDobladaView(LoginRequiredMixin, View):
+    """
+    Candidatos para el modo "Intercambiar doblada" del formulario de doblada. Devuelve
+    exploradores ACTIVOS que tienen una DOBLADA (AM+PM) en el día B (`fecha`) y que, además,
+    están LIBRES el día A (`fecha_cesion`) para poder asumir la doblada del solicitante ese día
+    (una doblada es día completo: quien la cubre debe estar descansando). Excluye al usuario
+    actual y el caso A==B.
+    """
+    def get(self, request):
+        from datetime import datetime as _dt
+        from turnos.services.turno_service import TurnoService as _TS
+        fecha = request.GET.get('fecha')
+        try:
+            fecha_obj = _dt.strptime(fecha, '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return json_error('Fecha inválida', status=400, code='fecha_invalida')
+        # Día A (fecha de cesión): opcional, pero si viene se filtra por "libre ese día".
+        fecha_cesion = request.GET.get('fecha_cesion')
+        fecha_cesion_obj = None
+        if fecha_cesion:
+            try:
+                fecha_cesion_obj = _dt.strptime(fecha_cesion, '%Y-%m-%d').date()
+            except (TypeError, ValueError):
+                fecha_cesion_obj = None
+        if fecha_cesion_obj == fecha_obj:
+            return json_ok({'exploradores': [], 'motivo': 'mismo_dia'})
+        yo = getattr(request.user, 'empleado', None)
+        # El SOLICITANTE debe estar LIBRE el día B para poder asumir la doblada del compañero;
+        # si ese día ya trabaja, ni siquiera tiene sentido buscar candidatos.
+        if yo and _TS.estado_dia(yo, fecha_obj).get('trabaja'):
+            return json_ok({'exploradores': [], 'motivo': 'solicitante_ocupado'})
+        con_doblada_b = 0   # cuántos tienen doblada el día B (antes del filtro "libre el día A")
+        out = []
+        for emp in Empleado.objects.filter(activo=True).exclude(id=getattr(yo, 'id', None)):
+            if _TS.estado_dia(emp, fecha_obj).get('jornada') != 'DOBLADA':
+                continue
+            con_doblada_b += 1
+            # Debe estar LIBRE el día A para poder cubrir tu doblada ese día.
+            if fecha_cesion_obj and _TS.estado_dia(emp, fecha_cesion_obj).get('trabaja'):
+                continue
+            out.append({'id': emp.id, 'nombre': f'{emp.nombre} {emp.apellido}'})
+        out.sort(key=lambda x: x['nombre'])
+        motivo = None
+        if not out:
+            motivo = 'ninguno_libre_dia_a' if con_doblada_b else 'sin_dobladas'
+        return json_ok({'exploradores': out, 'motivo': motivo})
+
+
+class SabadoPagoComprometidoView(LoginRequiredMixin, View):
+    """
+    ¿El sábado dado ya está COMPROMETIDO como fecha de pago por otra doblada aprobada del
+    usuario actual? Un sábado solo admite UN pago de doblada (se reparte en dos mitades), así
+    que si ya hay una que paga ese sábado, el formulario debe avisar de una vez (en lugar de
+    mostrar el selector AM/PM y dejar que el guard del backend lo rechace al enviar).
+
+    Espejo en la UI del guard de DobladaStrategy.validar_solicitud (misma consulta).
+    """
+    def get(self, request):
+        from datetime import datetime as _dt
+        fecha = request.GET.get('fecha')
+        try:
+            fecha_obj = _dt.strptime(fecha, '%Y-%m-%d').date()
+        except (TypeError, ValueError):
+            return json_error('Fecha inválida', status=400, code='fecha_invalida')
+        # Solo aplica a sábados (weekday 5).
+        if fecha_obj.weekday() != 5:
+            return json_ok({'comprometido': False})
+        yo = getattr(request.user, 'empleado', None)
+        if not yo:
+            return json_ok({'comprometido': False})
+        qs = SolicitudCambio.objects.filter(
+            explorador_solicitante=yo,
+            tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+            estado='aprobada',
+            doblada__fecha_pago=fecha_obj,
+        ).select_related('doblada')
+        _sid = request.GET.get('solicitud_id')
+        if _sid:
+            qs = qs.exclude(id=_sid)
+        # Un sábado se reparte en dos MITADES (AM/PM). Solo se bloquea DURO si el sábado ya está
+        # LLENO. Si queda una mitad libre, se permite pagar esta doblada con esa mitad (terminarías
+        # doblado, cada mitad pagando a una persona distinta).
+        ocupadas = set()
+        fecha_cesion_txt = None
+        for o in qs:
+            jps = (getattr(o.doblada, 'jornada_pago_sabado', '') or '').upper()
+            if jps in ('AM', 'PM'):
+                ocupadas.add(jps)
+            else:
+                ocupadas |= {'AM', 'PM'}
+            if fecha_cesion_txt is None and o.fecha_cambio_turno:
+                fecha_cesion_txt = o.fecha_cambio_turno.strftime('%d/%m/%Y')
+        if not ocupadas:
+            return json_ok({'comprometido': False})
+        libre = sorted({'AM', 'PM'} - ocupadas)
+        return json_ok({
+            'comprometido': not libre,                       # bloqueo duro solo si está LLENO
+            'mitad_ocupada': '/'.join(sorted(ocupadas)),
+            'mitad_libre': libre[0] if len(libre) == 1 else None,
+            'fecha_cesion': fecha_cesion_txt,
+        })
