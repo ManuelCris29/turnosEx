@@ -909,6 +909,42 @@ class DobladaAplicacionService:
 
     @staticmethod
     @transaction.atomic
+    def anular_doblada_de_un_dia(solicitud: SolicitudCambio, explorador, fecha, motivo: str) -> int:
+        """
+        Revert PARCIAL y AUDITABLE del día de doblada de UN solo explorador (el que no cumplió):
+        - SOFT-DELETE de sus turnos DOBLADA de esa fecha (marca ``anulado=True`` + motivo; NO borra,
+          para que la auditoría vea "anulado por reprogramación" y no una falta).
+        - Cancela SOLO su ``DeudaCorporativa`` de esa fecha/solicitud (los 30 min de ese día), dejando
+          el historial intacto.
+        NO toca al otro explorador ni las demás deudas/turnos de la doblada. Es el "anti-veneno":
+        revierte el efecto económico y de asistencia de una persona en un día, sin efecto mariposa.
+
+        Devuelve la cantidad de turnos anulados.
+        """
+        from solicitudes.models import DeudaCorporativa
+        from core.services.cache_service import CacheService
+
+        turnos = list(Turno.objects.filter(
+            explorador=explorador, fecha=fecha, tipo_cambio__in=['DOBLADA', 'D FDS', 'DOBLADA PERM']
+        ))
+        for t in turnos:
+            t.anulado = True
+            t.motivo_anulacion = (motivo or 'Anulado por reprogramación')[:200]
+            t.save(update_fields=['anulado', 'motivo_anulacion'])
+
+        DeudaCorporativa.objects.filter(
+            explorador=explorador, fecha_doblada=fecha, solicitud_origen=solicitud, estado='activa'
+        ).update(estado='cancelada')
+
+        CacheService.invalidar_cache_turnos_empleado(explorador.id, fecha.month, fecha.year)
+        logger.info(
+            "Doblada de un día ANULADA (reprogramación): solicitud %s, %s, %s — %d turno(s) soft-deleted.",
+            solicitud.id, getattr(explorador, 'nombre', explorador), fecha, len(turnos),
+        )
+        return len(turnos)
+
+    @staticmethod
+    @transaction.atomic
     def revertir_doblada_aplicada(solicitud: SolicitudCambio) -> None:
         """
         Revierte los cambios de una doblada ya aprobada.

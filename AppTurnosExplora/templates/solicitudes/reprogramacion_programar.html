@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block title %}Programar pago de doblada{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 920px; margin: 1.5rem auto;">
+  <h4 style="font-weight:700;"><i class="fas fa-calendar-check mr-2"></i>Programar el día de pago</h4>
+  <p class="text-muted">
+    <strong>{{ reprog.explorador.nombre }} {{ reprog.explorador.apellido }}</strong> no cumplió su día de doblada
+    del <strong>{{ reprog.fecha_original|date:'d/m/Y' }}</strong>. Elige el día en que <strong>se doblará para pagar</strong>
+    (AM + PM). Solo se pueden elegir días en que la persona tiene una jornada única (para poder doblar la contraria).
+    Se le agregarán los 30 min en esa fecha real.
+  </p>
+
+  <div style="display:flex; align-items:center; gap:1rem; margin-bottom:.6rem;">
+    <a class="btn btn-sm btn-outline-secondary" href="?anio={{ mes_prev.1 }}&mes={{ mes_prev.0 }}">« {{ mes_prev.0 }}/{{ mes_prev.1 }}</a>
+    <strong style="text-transform:capitalize;">{{ mes_nombre }} {{ anio }}</strong>
+    <a class="btn btn-sm btn-outline-secondary" href="?anio={{ mes_next.1 }}&mes={{ mes_next.0 }}">{{ mes_next.0 }}/{{ mes_next.1 }} »</a>
+  </div>
+
+  <form method="post" action="{% url 'solicitudes:reprog_programar' reprog.id %}">
+    {% csrf_token %}
+    <div style="overflow-x:auto;">
+      <table class="table table-sm" style="min-width:640px;">
+        <thead><tr>
+          <th></th><th>Fecha</th><th>Día</th><th>Jornada real</th><th>Al doblar cubre</th>
+        </tr></thead>
+        <tbody>
+          {% for d in dias %}
+          <tr style="{% if not d.valido %}opacity:.5;{% endif %}">
+            <td>
+              {% if d.valido %}
+                <input type="radio" name="fecha_nueva" value="{{ d.fecha|date:'Y-m-d' }}" required>
+              {% else %}—{% endif %}
+            </td>
+            <td><strong>{{ d.fecha|date:'d/m/Y' }}</strong></td>
+            <td>{{ d.fecha|date:'l' }}</td>
+            <td>{{ d.jornada|default:'—' }}</td>
+            <td>{% if d.valido %}<span class="badge badge-warning">agrega {{ d.contraria }}</span>{% else %}<small class="text-muted">no puede doblar</small>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="display:flex; gap:.6rem; justify-content:flex-end; margin-top:.6rem;">
+      <a href="{% url 'solicitudes:reprog_list' %}" class="btn btn-secondary">Volver</a>
+      <button type="submit" class="btn btn-success"><i class="fas fa-check mr-1"></i> Programar pago</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

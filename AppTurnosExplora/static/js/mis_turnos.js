@@ -718,6 +718,16 @@ function mostrarDetallesDia(fechaStr) {
             // Si hay un cambio, mostrar información detallada (sencilla y profesional).
             // Si el día tiene un PERMISO (p. ej. media jornada de temporada), esa nota ya explica
             // por qué cambió la jornada; evitamos la nota genérica de "cambio de turno" duplicada.
+            if (info.tipo_cambio === 'PAGO REPROGRAMADO') {
+                // Doblada por pago reprogramado: la persona no pudo cumplir su día de doblada y
+                // el supervisor le programó este día para pagar (dobla AM+PM).
+                jornadaHTML += `<div class="info-cambio" style="margin-top: 8px; padding: 10px; background-color: #fef3c7; border-left: 3px solid #d97706; border-radius: 4px; font-size: 0.9rem; color: #92400e; line-height: 1.5;">
+                    <i class="fas fa-calendar-check" style="margin-right: 6px;"></i>
+                    <strong>Pago reprogramado:</strong> hoy te doblas (AM + PM) para pagar un día de doblada que no pudiste cumplir. Programado por el supervisor.
+                </div>`;
+                jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
+                return;
+            }
             if (info.es_cambio && !info.permiso) {
                 const jornadaPredeterminada = info.jornada_predeterminada || 'N/A';
                 const coincidePredeterminada = info.coincide_con_predeterminada ?? false;

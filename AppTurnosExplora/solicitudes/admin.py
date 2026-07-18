@@ -2,7 +2,8 @@ from django.contrib import admin
 from .models import (
     Notificacion, TipoSolicitudCambio, SolicitudCambio,
     CambioPermanenteDetalle, CambioPermanenteDia,
-    DobladaDetalle, DeudaExplorador, DeudaCorporativa
+    DobladaDetalle, DeudaExplorador, DeudaCorporativa,
+    ReprogramacionDiaDoblada,
 )
 
 
@@ -105,3 +106,14 @@ class DeudaCorporativaAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('explorador', 'solicitud_origen')
+
+
+@admin.register(ReprogramacionDiaDoblada)
+class ReprogramacionDiaDobladaAdmin(admin.ModelAdmin):
+    list_display = ['explorador', 'doblada_origen', 'fecha_original', 'fecha_reprogramada', 'estado', 'registrado_por', 'creado_en']
+    list_filter = ['estado', 'creado_en']
+    search_fields = ['explorador__nombre', 'explorador__apellido', 'motivo']
+    date_hierarchy = 'creado_en'
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('explorador', 'doblada_origen', 'registrado_por')

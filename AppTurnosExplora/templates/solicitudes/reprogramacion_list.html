@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Reprogramaciones de doblada{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 1040px; margin: 1.5rem auto;">
+  <h4 style="font-weight:700;"><i class="fas fa-calendar-alt mr-2"></i>Reprogramaciones de día de doblada</h4>
+  <p class="text-muted">Días de doblada no cumplidos (inasistencia) y su pago reprogramado.</p>
+
+  <div style="display:flex; gap:.5rem; margin-bottom:.8rem; flex-wrap:wrap;">
+    {% with e=estado_sel %}
+    <a class="btn btn-sm {% if e == 'pendiente' %}btn-warning{% else %}btn-outline-warning{% endif %}" href="?estado=pendiente">Pendientes <span class="badge badge-light">{{ conteos.pendiente }}</span></a>
+    <a class="btn btn-sm {% if e == 'pagada' %}btn-success{% else %}btn-outline-success{% endif %}" href="?estado=pagada">Pagadas <span class="badge badge-light">{{ conteos.pagada }}</span></a>
+    <a class="btn btn-sm {% if e == 'cancelada' %}btn-secondary{% else %}btn-outline-secondary{% endif %}" href="?estado=cancelada">Canceladas <span class="badge badge-light">{{ conteos.cancelada }}</span></a>
+    <a class="btn btn-sm {% if e == 'todos' %}btn-dark{% else %}btn-outline-dark{% endif %}" href="?estado=todos">Todas <span class="badge badge-light">{{ conteos.todos }}</span></a>
+    {% endwith %}
+  </div>
+
+  <div style="overflow-x:auto;">
+    <table class="table table-hover" style="min-width:820px;">
+      <thead><tr>
+        <th>Explorador</th><th>Doblada</th><th>Día no cumplido</th><th>Día de pago</th><th>Estado</th><th>Registró</th><th></th>
+      </tr></thead>
+      <tbody>
+        {% for r in reprogs %}
+        <tr>
+          <td><strong>{{ r.explorador.nombre }} {{ r.explorador.apellido }}</strong></td>
+          <td>#{{ r.doblada_origen_id }}</td>
+          <td>{{ r.fecha_original|date:'d/m/Y' }}{% if r.motivo %}<br><small class="text-muted">{{ r.motivo }}</small>{% endif %}</td>
+          <td>{{ r.fecha_reprogramada|date:'d/m/Y'|default:'— sin programar' }}</td>
+          <td>
+            {% if r.estado == 'pendiente' %}<span class="badge badge-warning">Pendiente</span>
+            {% elif r.estado == 'pagada' %}<span class="badge badge-success">Pagada</span>
+            {% else %}<span class="badge badge-secondary">Cancelada</span>{% endif %}
+          </td>
+          <td><small>{{ r.registrado_por.nombre|default:'—' }}</small></td>
+          <td style="white-space:nowrap;">
+            {% if r.estado == 'pendiente' %}
+              <a class="btn btn-sm btn-success" href="{% url 'solicitudes:reprog_programar' r.id %}"><i class="fas fa-calendar-check"></i> Programar</a>
+            {% endif %}
+            {% if r.estado != 'cancelada' %}
+              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('¿Cancelar esta reprogramación?');">{% csrf_token %}
+                <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fas fa-ban"></i></button>
+              </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:1.5rem;">No hay reprogramaciones {{ estado_sel }}.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

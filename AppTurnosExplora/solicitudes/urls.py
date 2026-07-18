@@ -15,6 +15,8 @@ from .views import (
     VerificarCoincidenciaJornadasView,
     GestionSolicitudesView, ReenviarNotificacionSolicitudView,
     GestionCancelarSolicitudView, GestionEliminarSolicitudView,
+    ReprogramacionListView, RegistrarInasistenciaView,
+    ProgramarReprogramacionView, CancelarReprogramacionView,
     AlternanciaFindeView, AlternanciaMesView, DFDSCompanerosView,
     DescansosSemanaUsuarioView, CambioDescansoFindesView,
     DobladasSemanaView,
@@ -44,7 +46,13 @@ urlpatterns = [
     path('gestion-solicitudes/<int:solicitud_id>/reenviar/', ReenviarNotificacionSolicitudView.as_view(), name='gestion_reenviar_solicitud'),
     path('gestion-solicitudes/<int:solicitud_id>/cancelar/', GestionCancelarSolicitudView.as_view(), name='gestion_cancelar_solicitud'),
     path('gestion-solicitudes/<int:solicitud_id>/eliminar/', GestionEliminarSolicitudView.as_view(), name='gestion_eliminar_solicitud'),
-    
+
+    # Reprogramación del día de doblada por inasistencia (supervisor)
+    path('reprogramaciones/', ReprogramacionListView.as_view(), name='reprog_list'),
+    path('reprogramaciones/registrar/<int:solicitud_id>/', RegistrarInasistenciaView.as_view(), name='reprog_registrar'),
+    path('reprogramaciones/<int:reprog_id>/programar/', ProgramarReprogramacionView.as_view(), name='reprog_programar'),
+    path('reprogramaciones/<int:reprog_id>/cancelar/', CancelarReprogramacionView.as_view(), name='reprog_cancelar'),
+
     # ACCIONES DE SOLICITUDES (funcionales)
     path('aprobar-solicitud/<int:solicitud_id>/', AprobarSolicitudView.as_view(), name='aprobar_solicitud'),
     path('rechazar-solicitud/<int:solicitud_id>/', RechazarSolicitudView.as_view(), name='rechazar_solicitud'),

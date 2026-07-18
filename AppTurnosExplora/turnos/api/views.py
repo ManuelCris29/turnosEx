@@ -743,6 +743,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         'tipo': 'asignado' if es_cambio else 'predeterminado',
                         'es_cambio': es_cambio,
                         'es_doblada': es_doblada,  # Flag para frontend
+                        'tipo_cambio': tipo_cambio_principal,  # p. ej. 'PAGO REPROGRAMADO' (detalle en Mis Turnos)
                         'jornada_predeterminada': jornada_predeterminada,
                         'coincide_con_predeterminada': coincide_con_predeterminada,
                         'turno_id': turno_principal.id

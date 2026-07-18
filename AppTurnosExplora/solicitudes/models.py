@@ -618,4 +618,64 @@ class DeudaCorporativa(models.Model):
         return total or 0
 
 
+class ReprogramacionDiaDoblada(models.Model):
+    """
+    Reprogramación del DÍA DE DOBLADA de UNA persona en una doblada ya aprobada, cuando esa
+    persona no pudo cumplirlo (enfermedad, incapacidad, imprevisto).
+
+    Es simétrico: sirve igual para el solicitante o el receptor, sea el primero o el segundo
+    en doblar. NO afecta al otro explorador (que ya cumplió o cumplirá su día normal). El día
+    original se ANULA (soft-delete del Turno, ver Turno.anulado) y se le resta su deuda de 30
+    min; al programar el día nuevo se le vuelve a agregar la doblada + los 30 min en la fecha
+    real. Todo queda en registro para auditoría (este modelo + HistoricalRecords + los turnos
+    anulados y las deudas canceladas conservan su historial).
+    """
+    ESTADO_CHOICES = [
+        ('pendiente', 'Pendiente de programar'),
+        ('pagada', 'Pagada (día reprogramado cumplido)'),
+        ('cancelada', 'Cancelada'),
+    ]
+    JORNADA_CHOICES = [('AM', 'AM'), ('PM', 'PM')]
+
+    doblada_origen = models.ForeignKey(
+        SolicitudCambio, on_delete=models.CASCADE, related_name='reprogramaciones_dia',
+        help_text='Doblada aprobada cuyo día no se cumplió.'
+    )
+    explorador = models.ForeignKey(
+        Empleado, on_delete=models.CASCADE, related_name='reprogramaciones_doblada',
+        help_text='Explorador que no cumplió su día y debe reprogramarlo (deudor).'
+    )
+    fecha_original = models.DateField(help_text='Día de doblada que no se cumplió (se anuló).')
+    jornada_debida = models.CharField(
+        max_length=2, choices=JORNADA_CHOICES, null=True, blank=True,
+        help_text='Jornada que quedó debiendo (la contraria a su jornada ese día).'
+    )
+    fecha_reprogramada = models.DateField(
+        null=True, blank=True, help_text='Día nuevo en que dobla para pagar (lo organiza el supervisor).'
+    )
+    estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='pendiente')
+    motivo = models.CharField(
+        max_length=200, null=True, blank=True, help_text='Motivo de la inasistencia (enfermedad, incapacidad…).'
+    )
+    registrado_por = models.ForeignKey(
+        Empleado, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='reprogramaciones_registradas', help_text='Supervisor que registró la inasistencia.'
+    )
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Reprogramación de día de doblada'
+        verbose_name_plural = 'Reprogramaciones de día de doblada'
+        indexes = [
+            models.Index(fields=['explorador', 'estado'], name='reprog_explorador_estado_idx'),
+            models.Index(fields=['doblada_origen'], name='reprog_doblada_idx'),
+        ]
+        ordering = ['-creado_en']
+
+    def __str__(self):
+        return f"Reprog. {self.explorador} {self.fecha_original} → {self.fecha_reprogramada or 'sin programar'} ({self.estado})"
+
+
 # Create your models here.

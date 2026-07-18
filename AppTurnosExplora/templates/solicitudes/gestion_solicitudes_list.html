@@ -80,6 +80,9 @@
                 <button type="submit" class="btn-cancelar" title="Cancelar"><i class="fas fa-ban"></i> Cancelar</button>
               </form>
               {% endif %}
+              {% if s.estado == 'aprobada' and s.tipo_cambio.nombre == 'DOBLADA' or s.estado == 'aprobada' and s.tipo_cambio.nombre == 'DOBLADA PERMANENTE' %}
+              <a href="{% url 'solicitudes:reprog_registrar' s.id %}" class="btn-reenviar" title="Reprogramar por inasistencia"><i class="fas fa-calendar-times"></i> Reprogramar</a>
+              {% endif %}
               <form method="post" action="{% url 'solicitudes:gestion_eliminar_solicitud' s.id %}" onsubmit="return confirm('Eliminar definitivamente la solicitud #{{ s.id }}? Esto la borra para que pueda volver a montarse.');">{% csrf_token %}
                 <input type="hidden" name="next" value="{{ request.get_full_path }}">
                 <button type="submit" class="btn-eliminar" title="Eliminar"><i class="fas fa-trash"></i> Eliminar</button>

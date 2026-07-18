@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Reprogramar día de doblada{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block content %}
+<div class="container-fluid" style="max-width: 860px; margin: 1.5rem auto;">
+  <h4 style="font-weight:700;"><i class="fas fa-calendar-times mr-2"></i>Reprogramar día de doblada por inasistencia</h4>
+  <p class="text-muted">
+    Doblada #{{ solicitud.id }} entre
+    <strong>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</strong> y
+    <strong>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</strong>.
+    Elige quién <strong>no cumplió su día de doblada</strong>. Se anulará ese día (queda registrado, no cuenta
+    como falta) y esa persona deberá pagar doblando otro día (lo programas en el siguiente paso). El otro no se ve afectado.
+  </p>
+
+  {% if not puede_cancelar %}
+  <div class="alert alert-info" style="font-size:.9rem;">
+    <i class="fas fa-info-circle mr-1"></i> Uno de los días ya se cumplió: no se puede cancelar toda la doblada
+    (afectaría a quien ya cumplió). Solo se puede reprogramar el día de la persona que faltó.
+  </div>
+  {% endif %}
+
+  <form method="post" action="{% url 'solicitudes:reprog_registrar' solicitud.id %}">
+    {% csrf_token %}
+    <div class="card" style="border-radius:10px;">
+      <div class="card-body">
+        {% if es_permanente %}
+        <p class="text-muted" style="font-size:.85rem;">Doblada permanente: elige la persona y el <strong>día específico</strong> que no se cumplió.</p>
+        {% endif %}
+        {% for c in candidatos %}
+          <div style="padding:.4rem 0; border-bottom:1px solid #eee;">
+            <div style="font-weight:600;">{{ c.explorador.nombre }} {{ c.explorador.apellido }} <small class="text-muted">({{ c.rol }} — se dobla)</small></div>
+            {% if c.fechas %}
+              <div style="display:flex; flex-wrap:wrap; gap:.4rem .9rem; margin-top:.3rem;">
+                {% for f in c.fechas %}
+                <label style="display:inline-flex; align-items:center; gap:.35rem; cursor:pointer;">
+                  <input type="radio" name="seleccion" value="{{ c.rol }}|{{ f|date:'Y-m-d' }}" required>
+                  <span>{{ f|date:'d/m/Y' }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            {% else %}
+              <small class="text-muted">Sin días de doblada activos para reprogramar.</small>
+            {% endif %}
+          </div>
+        {% endfor %}
+        <div class="form-group" style="margin-top:1rem;">
+          <label>Motivo (opcional)</label>
+          <input type="text" name="motivo" class="form-control" maxlength="200"
+                 placeholder="Enfermedad, incapacidad, imprevisto…">
+        </div>
+      </div>
+      <div class="card-footer" style="display:flex; gap:.6rem; justify-content:flex-end;">
+        <a href="{% url 'solicitudes:gestion_solicitudes' %}?estado=aprobada" class="btn btn-secondary">Cancelar</a>
+        <button type="submit" class="btn btn-warning" onclick="return confirm('¿Registrar la inasistencia y anular ese día de doblada?');">
+          <i class="fas fa-calendar-times mr-1"></i> Registrar inasistencia
+        </button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}

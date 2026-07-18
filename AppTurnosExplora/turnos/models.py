@@ -21,13 +21,33 @@ class AsignarJornadaExplorador(models.Model):
     def __str__(self):
         return f"{self.explorador.user.username} - {self.jornada.nombre}" #type:ignore
 
+class TurnoActivoManager(models.Manager):
+    """Manager por defecto de Turno: excluye los ANULADOS (soft-delete).
+
+    Así todas las lecturas activas del sistema (estado_dia/estado_mes, Mis Turnos,
+    consolidado, reportes operativos) ignoran los turnos anulados por reprogramación
+    SIN tener que filtrar en cada consulta. Para auditoría/reportes históricos que sí
+    deben ver los anulados, usar `Turno.all_objects`.
+    """
+    def get_queryset(self):
+        return super().get_queryset().filter(anulado=False)
+
+
 class Turno(models.Model):
     explorador= models.ForeignKey(Empleado, on_delete=models.CASCADE)
     fecha= models.DateField()
     jornada= models.ForeignKey(Jornada, on_delete=models.CASCADE)
     sala= models.ForeignKey(Sala, on_delete=models.CASCADE)
     tipo_cambio= models.CharField(max_length=50, null=True, blank=True)
+    # Soft-delete auditable: un turno anulado NO se borra físicamente (queda para el
+    # historial/estadística), pero no cuenta como turno activo (ni como falta, ni genera deuda).
+    anulado = models.BooleanField(default=False)
+    motivo_anulacion = models.CharField(max_length=200, null=True, blank=True)
     historial= HistoricalRecords()
+
+    # `objects` excluye anulados (lecturas activas); `all_objects` los incluye (auditoría/admin).
+    objects = TurnoActivoManager()
+    all_objects = models.Manager()
 
     class Meta:
         # FASE 1.9: Índice compuesto para búsquedas rápidas por explorador y fecha
