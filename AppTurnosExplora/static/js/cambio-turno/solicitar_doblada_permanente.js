@@ -243,10 +243,16 @@
                     // Fechas de este día que ESTE compañero no cubre (jornada no contraria) → aviso claro.
                     const cubiertas = new Set(items.map((o) => o.f));
                     const faltan = misFechas.filter((o) => !cubiertas.has(o.f));
+                    // El consejo correcto difiere por lado: en CESIÓN basta agregar un compañero
+                    // contrario que te cubra; en DEVOLUCIÓN NO basta —ese compañero además debe
+                    // haberte cubierto en la cesión, o crearías un desbalance (evita el callejón
+                    // sin salida de "agrega un compañero PM" que en realidad no equilibra).
+                    const faltanFechas = faltan.map((o) => `${fmtFechaCorta(o.f)} (estás ${o.ys})`).join(', ');
+                    const cierre = (tipo === 'cesion')
+                        ? `Necesitas un compañero <strong>${contraria(faltan.length ? faltan[0].ys : 'AM')}</strong> que te cubra esos días: agrega otra fila de este mismo día con un compañero de esa jornada.`
+                        : `Esos días tú te doblas, así que solo puedes devolvérselos a un compañero <strong>${contraria(faltan.length ? faltan[0].ys : 'AM')}</strong> que <strong>además te haya cubierto</strong> en la cesión. Si no lo hay, quítalos o reduce tu cesión para equilibrar.`;
                     const faltanHtml = faltan.length
-                        ? `<div class="perm-faltan"><i class="fas fa-info-circle mr-1"></i>Falta por cubrir: ` +
-                          faltan.map((o) => `${fmtFechaCorta(o.f)} (estás ${o.ys} → necesitas un compañero ${contraria(o.ys)})`).join(', ') +
-                          `. Agrega otra fila de este mismo día con un compañero ${contraria(faltan[0].ys)}.</div>`
+                        ? `<div class="perm-faltan"><i class="fas fa-info-circle mr-1"></i>Falta por cubrir: ${faltanFechas}. ${cierre}</div>`
                         : '';
                     cont.innerHTML = tusFechasHtml +
                         `<div class="perm-tabla-wrap"><table class="perm-tabla">` +
@@ -306,9 +312,25 @@
         return m;
     }
 
+    // Fechas contrarias DISPONIBLES por compañero en un lado (unión sobre sus filas): es el
+    // MÁXIMO de días que ese compañero podría cubrirte/devolverte en el rango. Sirve para decir
+    // cuántos se pueden equilibrar realmente (no basta pedir "iguales" si un lado no tiene días).
+    function dispPorComp(rows, tipo) {
+        const m = {};  // cid -> Set(fechas)
+        filas(rows, tipo).forEach((r) => {
+            if (!r.dia || !r.comp) return;
+            const items = dispPar[`${r.dia}|${r.comp}`] || [];
+            const s = m[r.comp] || (m[r.comp] = new Set());
+            items.forEach((o) => s.add(o.f));
+        });
+        return m;
+    }
+
     function actualizarBalance() {
         const cubre = contarPorComp(cesionRows, 'cesion');
         const devuelve = contarPorComp(devolucionRows, 'devolucion');
+        const dispCes = dispPorComp(cesionRows, 'cesion');
+        const dispDev = dispPorComp(devolucionRows, 'devolucion');
         const nombreComp = (cid) => { const c = companeros.find((x) => String(x.id) === String(cid)); return c ? `${c.nombre} ${c.apellido}` : 'Compañero'; };
         const comps = new Set([...Object.keys(cubre), ...Object.keys(devuelve)]);
         const msgs = []; let ok = comps.size > 0;
@@ -316,7 +338,16 @@
             const c = cubre[cid] || 0, v = devuelve[cid] || 0;
             if (c !== v) {
                 ok = false;
-                msgs.push(`<span style="color:#b45309;">⚠️ ${nombreComp(cid)}: te cubre ${c} y devuelves ${v} → ajusta las fechas (deben ser iguales).</span>`);
+                const nom = nombreComp(cid);
+                // Máximo que SÍ se puede equilibrar con este compañero = min de días contrarios
+                // disponibles en cada lado. Si un lado no tiene suficientes, "poner iguales" pasa
+                // por REDUCIR el lado mayor a ese máximo (o elegir otro día/rango).
+                const maxEq = Math.min((dispCes[cid] || new Set()).size, (dispDev[cid] || new Set()).size);
+                if (maxEq === 0) {
+                    msgs.push(`<span style="color:#b45309;">⚠️ ${nom}: no hay días en este rango en que queden en jornada contraria para equilibrar. Elige otro compañero, otro día de la semana o amplía el rango.</span>`);
+                } else {
+                    msgs.push(`<span style="color:#b45309;">⚠️ ${nom}: te cubre ${c} y le devuelves ${v} — deben ser iguales. En este rango solo puedes equilibrar <strong>${maxEq}</strong> día(s) con ${nom} (los días en que quedan en jornada contraria). Reduce el lado mayor a ${maxEq}, o elige otro día de la semana / amplía el rango.</span>`);
+                }
             } else if (c > 0) {
                 msgs.push(`✅ ${nombreComp(cid)}: ${c} cubre / ${c} devuelve (balanceado).`);
             }
