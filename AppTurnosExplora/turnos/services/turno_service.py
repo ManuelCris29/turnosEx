@@ -228,120 +228,15 @@ class TurnoService(ITurnoService):
     def _descanso_por_solicitud(empleado, fecha, excluir_id=None):
         """
         L2: ¿el empleado descansa `fecha` por una solicitud APROBADA (sin registro Turno)?
-        Devuelve dict {motivo, companero} o None. Cubre DOBLADA, D FDS, CAMBIO DESCANSO y
-        DOBLADA PERMANENTE (misma lógica que pinta "Mis Turnos").
+        Devuelve dict {motivo, companero, ...} o None. Cubre DOBLADA, D FDS, CAMBIO DESCANSO
+        y DOBLADA PERMANENTE.
 
-        `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada) para no
-        auto-detectar su efecto.
+        Delega en `DescansoPorSolicitudService` (FUENTE ÚNICA compartida con `estado_mes` y el
+        endpoint de Mis Turnos), para que la atribución de descanso/compañero sea idéntica en
+        todos lados. `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
         """
-        from django.db.models import Q
-        from solicitudes.models import SolicitudCambio
-        from turnos.models import DiaEspecial
-
-        def _comp(emp):
-            return {'id': emp.id, 'nombre': f'{emp.nombre} {emp.apellido}'}
-
-        def _exc(qs):
-            return qs.exclude(id=excluir_id) if excluir_id else qs
-
-        # DOBLADA / D FDS: solicitante descansa en cesión; receptor descansa en pago.
-        # Para D FDS, el picker guarda la fecha seleccionada (sáb o dom) pero el día real de
-        # trabajo puede ser el otro día del fin de semana. Verificamos ambos días del finde.
-        from datetime import timedelta as _td
-
-        def _finde_fechas(f):
-            """Devuelve (sábado, domingo) del fin de semana al que pertenece la fecha."""
-            if f.weekday() == 5:   # sábado
-                return f, f + _td(days=1)
-            elif f.weekday() == 6:  # domingo
-                return f - _td(days=1), f
-            return f, f  # entre semana: solo esa fecha
-
-        sab, dom = _finde_fechas(fecha)
-        fechas_finde = {sab, dom} if fecha.weekday() in (5, 6) else {fecha}
-
-        # El empleado CEDIÓ ese día. Solo es día libre COMPLETO si no le queda jornada:
-        # cesión completa / D FDS, o cesión PARCIAL de AMBAS jornadas (AM y PM). Una sola
-        # cesión parcial deja la otra jornada → el día NO está comprometido del todo.
-        dobladas_ced = list(_exc(SolicitudCambio.objects
-            .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                    explorador_solicitante=empleado, fecha_cambio_turno__in=fechas_finde))
-            .select_related('explorador_receptor', 'doblada').order_by('-id'))
-        parciales_cedidas = set()
-        for s in dobladas_ced:
-            det = getattr(s, 'doblada', None)
-            tipo_cesion = getattr(det, 'tipo_cesion', None) if det else None
-            if tipo_cesion == 'cesion_parcial_am':
-                parciales_cedidas.add('AM')
-            elif tipo_cesion == 'cesion_parcial_pm':
-                parciales_cedidas.add('PM')
-            else:
-                # Cesión completa (o D FDS sin detalle de doblada) → día libre completo.
-                return {'motivo': 'cedió su jornada', 'companero': _comp(s.explorador_receptor)}
-        if {'AM', 'PM'} <= parciales_cedidas:
-            # Cedió ambas medias jornadas → el día queda libre por completo.
-            return {'motivo': 'cedió su jornada', 'companero': _comp(dobladas_ced[0].explorador_receptor)}
-        # El empleado RECIBE el pago ese día (descansa). Solo es día libre COMPLETO si el pago
-        # cubre todo: cesión completa / D FDS, o AMBAS medias jornadas (parciales AM y PM que
-        # pagan el mismo día). Un solo pago parcial deja media jornada libre (puede recibir otra).
-        pagos_rec = list(_exc(SolicitudCambio.objects
-            .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                    explorador_receptor=empleado, doblada__fecha_pago__in=fechas_finde))
-            .select_related('explorador_solicitante', 'doblada').order_by('-id'))
-        parciales_pago = set()
-        for s in pagos_rec:
-            det = getattr(s, 'doblada', None)
-            tipo_cesion = getattr(det, 'tipo_cesion', None) if det else None
-            if tipo_cesion == 'cesion_parcial_am':
-                parciales_pago.add('AM')
-            elif tipo_cesion == 'cesion_parcial_pm':
-                parciales_pago.add('PM')
-            else:
-                return {'motivo': 'paga doblada', 'companero': _comp(s.explorador_solicitante)}
-        if {'AM', 'PM'} <= parciales_pago:
-            return {'motivo': 'paga doblada', 'companero': _comp(pagos_rec[0].explorador_solicitante)}
-
-        # CAMBIO DESCANSO (su día cedido).
-        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
-        if fecha in CambioDescansoAplicacionService.dias_en_descanso(empleado, fecha, fecha, excluir_id=excluir_id):
-            comp_cd = CambioDescansoAplicacionService.companero_descanso(empleado, fecha, excluir_id=excluir_id)
-            return {'motivo': 'cambio de día de descanso', 'companero': comp_cd}
-
-        # DOBLADA PERMANENTE (descanso recurrente; nunca domingo ni festivo).
-        # El compromiso es por PATRÓN (día de la semana). Si ese día hay un Turno REAL (L1) —el
-        # empleado trabaja de verdad, p. ej. una doblada— la realidad manda sobre el patrón: NO se
-        # reporta como comprometido (evita el falso positivo "ya tienes X comprometido" cuando el
-        # empleado sí tiene jornada real que ceder).
-        _hay_turno_real = Turno.objects.filter(explorador=empleado, fecha=fecha).exists()
-        if not _hay_turno_real and fecha.weekday() != 6 and not DiaEspecial.objects.filter(
-                fecha=fecha, tipo='festivo', activo=True).exists():
-            perm = (_exc(SolicitudCambio.objects
-                    .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
-                    .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado)))
-                    .select_related('doblada_permanente', 'explorador_solicitante', 'explorador_receptor'))
-            for sp in perm:
-                det = getattr(sp, 'doblada_permanente', None)
-                if not det or not (det.fecha_inicio <= fecha <= det.fecha_fin):
-                    continue
-                es_sol = sp.explorador_solicitante_id == empleado.id
-                # El compromiso se decide EXACTAMENTE como se aplicó (ver `aplicar`): si el detalle
-                # trae FECHAS específicas, el descanso solo cae en ESAS fechas (no en todo el weekday
-                # del rango); si no (legacy), se usa el patrón por día de la semana. Esto evita atribuir
-                # el descanso a la solicitud/compañero equivocado cuando el mismo weekday se repartió
-                # entre varios compañeros (p. ej. martes: 25 con Vanesa, 11 con jeison).
-                usa_fechas = bool(det.fechas_cesion or det.fechas_devolucion)
-                if usa_fechas:
-                    fechas_txt = det.fechas_cesion if es_sol else det.fechas_devolucion
-                    fechas_set = {f.strip() for f in (fechas_txt or '').split(',') if f.strip()}
-                    coincide = fecha.isoformat() in fechas_set
-                else:
-                    dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
-                    dias_set = {int(x) for x in (dias_txt or '').split(',') if x.strip().isdigit()}
-                    coincide = fecha.weekday() in dias_set
-                if coincide:
-                    comp = sp.explorador_receptor if es_sol else sp.explorador_solicitante
-                    return {'motivo': 'doblada permanente', 'companero': _comp(comp)}
-        return None
+        from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
+        return DescansoPorSolicitudService.en_fecha(empleado, fecha, excluir_id=excluir_id)
 
     @staticmethod
     def dia_comprometido_por_solicitud(empleado, fecha, excluir_id=None):
@@ -520,13 +415,10 @@ class TurnoService(ITurnoService):
         """
         from calendar import monthrange
         from datetime import date as _date, timedelta as _td
-        from django.db.models import Q
         from turnos.models import (Turno, DiaEspecial, AsignarJornadaExplorador,
                                    DescansoSemanaManual)
         from turnos.services.descanso_semana_service import DescansoSemanaService
         from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-        from solicitudes.models import SolicitudCambio
-        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
         ndias = monthrange(anio, mes)[1]
         ini = _date(anio, mes, 1)
@@ -546,89 +438,11 @@ class TurnoService(ITurnoService):
         festivos = set(DiaEspecial.objects.filter(
             fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True))
 
-        # L2: descansos por solicitud aprobada (batch)
-        rest_sol = {}  # fecha -> {motivo, companero}
-
-        def _comp(emp):
-            return {'id': emp.id, 'nombre': f'{emp.nombre} {emp.apellido}'}
-
-        # D FDS = fin de semana COMPLETO: quien cede/paga descansa el sábado Y el domingo
-        # (el compañero cubre los dos días). En finde marcamos AMBOS días; entre semana solo
-        # esa fecha. Debe coincidir con `_descanso_por_solicitud` (estado_dia).
-        def _dias_descanso_solicitud(fecha):
-            if fecha.weekday() == 5:      # sábado → sáb + dom
-                return [fecha, fecha + _td(days=1)]
-            if fecha.weekday() == 6:      # domingo → sáb + dom
-                return [fecha - _td(days=1), fecha]
-            return [fecha]               # entre semana (DOBLADA lun-vie): solo esa fecha
-
-        # Solo es "día libre" completo si el empleado cedió TODO el día: cesión completa /
-        # D FDS, o AMBAS medias jornadas por parciales. Una sola cesión parcial deja la otra
-        # jornada (L1 la mostrará como turno real). Se acumula por fecha para distinguirlo.
-        _ced_por_fecha = {}  # fecha -> {'parciales': set(), 'rep': solicitud, 'full': bool}
-        for s in (SolicitudCambio.objects.filter(
-                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                explorador_solicitante=empleado, fecha_cambio_turno__range=(ini, fin))
-                .select_related('explorador_receptor', 'doblada').order_by('-id')):
-            _det = getattr(s, 'doblada', None)
-            _tc = getattr(_det, 'tipo_cesion', None) if _det else None
-            for d in _dias_descanso_solicitud(s.fecha_cambio_turno):
-                if not (ini <= d <= fin):
-                    continue
-                e = _ced_por_fecha.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
-                if _tc == 'cesion_parcial_am':
-                    e['parciales'].add('AM')
-                elif _tc == 'cesion_parcial_pm':
-                    e['parciales'].add('PM')
-                else:
-                    e['full'] = True
-        for d, e in _ced_por_fecha.items():
-            if e['full'] or {'AM', 'PM'} <= e['parciales']:
-                rest_sol.setdefault(d, {'motivo': 'cedió su jornada',
-                                        'companero': _comp(e['rep'].explorador_receptor)})
-        # Pago recibido: día libre completo solo si el pago cubre todo (cesión completa /
-        # D FDS, o ambas medias jornadas). Un pago parcial deja media jornada (L1 la muestra).
-        _pago_por_fecha = {}  # fecha -> {'parciales': set(), 'rep': solicitud, 'full': bool}
-        for s in (SolicitudCambio.objects.filter(
-                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                explorador_receptor=empleado, doblada__fecha_pago__range=(ini, fin))
-                .select_related('explorador_solicitante', 'doblada').order_by('-id')):
-            fp = s.doblada.fecha_pago if s.doblada else None
-            if not fp:
-                continue
-            _tc = s.doblada.tipo_cesion if s.doblada else None
-            for d in _dias_descanso_solicitud(fp):
-                if not (ini <= d <= fin):
-                    continue
-                e = _pago_por_fecha.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
-                if _tc == 'cesion_parcial_am':
-                    e['parciales'].add('AM')
-                elif _tc == 'cesion_parcial_pm':
-                    e['parciales'].add('PM')
-                else:
-                    e['full'] = True
-        for d, e in _pago_por_fecha.items():
-            if e['full'] or {'AM', 'PM'} <= e['parciales']:
-                rest_sol.setdefault(d, {'motivo': 'paga doblada',
-                                        'companero': _comp(e['rep'].explorador_solicitante)})
-        for dcd in CambioDescansoAplicacionService.dias_en_descanso(empleado, ini, fin):
-            rest_sol.setdefault(dcd, {'motivo': 'cambio de día de descanso', 'companero': None})
-        for s in (SolicitudCambio.objects.filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
-                  .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
-                  .select_related('doblada_permanente', 'explorador_solicitante', 'explorador_receptor')):
-            det = getattr(s, 'doblada_permanente', None)
-            if not det:
-                continue
-            es_sol = s.explorador_solicitante_id == empleado.id
-            dias_set = {int(x) for x in ((det.dias_cesion if es_sol else det.dias_devolucion) or '').split(',')
-                        if x.strip().isdigit()}
-            comp = s.explorador_receptor if es_sol else s.explorador_solicitante
-            dd = max(det.fecha_inicio, ini)
-            dlast = min(det.fecha_fin, fin)
-            while dd <= dlast:
-                if dd.weekday() in dias_set and dd.weekday() != 6 and dd not in festivos:
-                    rest_sol.setdefault(dd, {'motivo': 'doblada permanente', 'companero': _comp(comp)})
-                dd += _td(days=1)
+        # L2: descansos por solicitud aprobada (batch) — FUENTE ÚNICA compartida con
+        # `_descanso_por_solicitud` (estado_dia) y el endpoint de Mis Turnos. Cubre DOBLADA,
+        # D FDS, CAMBIO DESCANSO y DOBLADA PERMANENTE, SIEMPRE por fecha específica.
+        from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
+        rest_sol = DescansoPorSolicitudService.en_rango(empleado, ini, fin)
 
         # L4: temporada (descanso de semana manual de la jornada base)
         # y días donde descansa la jornada CONTRARIA (este grupo trabaja día completo).

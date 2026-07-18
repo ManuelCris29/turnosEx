@@ -565,159 +565,13 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # ya no existe asignación de sala por período.
             asignaciones_activas = None
 
-            # OPTIMIZACIÓN: Precargar dobladas donde el empleado descansa (solicitante o receptor)
-            # Evita 2 consultas por cada día sin turnos
-            from solicitudes.models import SolicitudCambio
-            # Incluye DOBLADA y D FDS: en ambas el solicitante descansa en fecha de
-            # cesión y el receptor descansa en fecha de pago (D FDS reutiliza DobladaDetalle).
-            solicitudes_descanso_solicitante = {
-                s.fecha_cambio_turno: s
-                for s in SolicitudCambio.objects.filter(
-                    explorador_solicitante=empleado,
-                    tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
-                    fecha_cambio_turno__gte=fecha_inicio,
-                    fecha_cambio_turno__lte=fecha_fin,
-                    estado='aprobada'
-                ).select_related('explorador_receptor', 'doblada')
-            }
-            solicitudes_descanso_receptor = {}
-            for s in SolicitudCambio.objects.filter(
-                explorador_receptor=empleado,
-                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
-                estado='aprobada',
-                doblada__fecha_pago__gte=fecha_inicio,
-                doblada__fecha_pago__lte=fecha_fin
-            ).select_related('explorador_solicitante', 'doblada'):
-                fp = s.doblada.fecha_pago if s.doblada else None
-                if fp:
-                    solicitudes_descanso_receptor[fp] = s
-
-            # DOBLADA PERMANENTE: descansos recurrentes (este empleado es cubierto esos días).
-            # Solicitante descansa en sus días de cesión; receptor descansa en los de devolución.
-            from solicitudes.services.ct_permanente_helper import _es_festivo
-            descansos_perm = {}  # fecha -> {'companero_nombre', 'tipo'}
-            perm_qs = (
-                SolicitudCambio.objects
-                .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
-                .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
-                .select_related('explorador_solicitante', 'explorador_receptor', 'doblada_permanente')
-            )
-            for s in perm_qs:
-                det = getattr(s, 'doblada_permanente', None)
-                if not det:
-                    continue
-                es_sol = s.explorador_solicitante_id == empleado.id
-                companero = s.explorador_receptor if es_sol else s.explorador_solicitante
-                comp_nombre = f"{companero.nombre} {companero.apellido}"
-                info_dia = {'companero_nombre': comp_nombre, 'tipo': 'cedio' if es_sol else 'pago'}
-                # El descanso se marca EXACTAMENTE donde se aplicó (ver `aplicar`): si el detalle trae
-                # FECHAS específicas, solo en ESAS fechas (no en todo el weekday del rango); si no
-                # (legacy), por patrón de día de la semana. Sin esto, cuando el mismo weekday se
-                # reparte entre varios compañeros (martes: 25 con Vanesa, 11 con jeison) el detalle
-                # atribuía el descanso al compañero equivocado y marcaba martes que no se cedieron.
-                usa_fechas = bool(det.fechas_cesion or det.fechas_devolucion)
-                if usa_fechas:
-                    fechas_txt = det.fechas_cesion if es_sol else det.fechas_devolucion
-                    for x in (fechas_txt or '').split(','):
-                        x = x.strip()
-                        if not x:
-                            continue
-                        try:
-                            d = date.fromisoformat(x)
-                        except ValueError:
-                            continue
-                        if (fecha_inicio <= d <= fecha_fin and det.fecha_inicio <= d <= det.fecha_fin
-                                and d.weekday() != 6 and not _es_festivo(d)):
-                            descansos_perm[d] = info_dia
-                else:
-                    dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
-                    dias_set = {int(x) for x in dias_txt.split(',') if x.strip().isdigit()}
-                    if not dias_set:
-                        continue
-                    ini = max(det.fecha_inicio, fecha_inicio)
-                    fin = min(det.fecha_fin, fecha_fin)
-                    d = ini
-                    while d <= fin:
-                        if d.weekday() in dias_set and d.weekday() != 6 and not _es_festivo(d):
-                            descansos_perm[d] = info_dia
-                        d += timedelta(days=1)
-
-            # CAMBIO DESCANSO: el empleado pasa a DESCANSAR el día que cedió (su trabajo se
-            # materializó como Turno en el otro día). Aquí marcamos el día de descanso, que el
-            # calendario calcularía como trabajado. Se mira Turno primero (arriba); esto cubre
-            # el día sin Turno que ahora descansa.
-            descansos_cd = {}  # fecha -> {'companero_nombre','companero_id','tipo','solicitud_id'}
-
-            def _otro_dia_cd(f):
-                if not f:
-                    return None
-                if f.weekday() == 5:
-                    return f + timedelta(days=1)
-                if f.weekday() == 6:
-                    return f - timedelta(days=1)
-                return None
-
-            cd_qs = (
-                SolicitudCambio.objects
-                .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
-                .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
-                .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')
-            )
-            # Cobertura del solicitante: acumula jornadas cedidas por fecha (dos parciales que
-            # suman AM+PM = día completo cedido). Coincide con dias_en_descanso (fuente de verdad).
-            cob_ced = {}  # fecha -> {'js': set, 'companero': Empleado, 'solicitud_id': int}
-            for s in cd_qs:
-                det = getattr(s, 'doblada', None)
-                if not det:
-                    continue
-                fc = s.fecha_cambio_turno
-                fp = det.fecha_pago
-                es_sol = s.explorador_solicitante_id == empleado.id
-                es_finde = bool(fc) and fc.weekday() in (5, 6)
-                companero = s.explorador_receptor if es_sol else s.explorador_solicitante
-                if es_finde:
-                    # Solicitante descansa sus días originales (cesión y pago);
-                    # receptor descansa los días contrarios de cada finde.
-                    rest_days = [fc, fp] if es_sol else [_otro_dia_cd(fc), _otro_dia_cd(fp)]
-                else:
-                    # Entre semana: depende de la sub-modalidad (igual que dias_en_descanso).
-                    sub = getattr(det, 'submodalidad_semana', None) or 'intercambio_dia'
-                    if sub == 'intercambio_dia':
-                        rest_days = [fp] if es_sol else [fc]
-                    elif sub == 'cambio_doblada':
-                        rest_days = [fc] if es_sol else [fp]  # cada uno descansa el día que cedió
-                    elif sub == 'cobertura_misma_semana':
-                        rest_days = []
-                        if es_sol and fc:
-                            ced = ({'AM', 'PM'} if det.tipo_cesion == 'cesion_completa'
-                                   else ({(det.jornada_cedida or '').upper()} & {'AM', 'PM'}))
-                            e = cob_ced.setdefault(fc, {'js': set(), 'companeros': [], 'solicitud_id': s.id})
-                            e['js'].update(ced)
-                            if companero not in e['companeros']:
-                                e['companeros'].append(companero)
-                        elif not es_sol and det.tipo_cesion == 'cesion_completa':
-                            rest_days = [fp]  # receptor solo descansa el pago si le cedieron el día entero
-                    else:
-                        rest_days = []  # jornadas_partidas: ambos trabajan media (L1)
-                for rd in rest_days:
-                    if rd and fecha_inicio <= rd <= fecha_fin:
-                        descansos_cd[rd] = {
-                            'companero_nombre': f"{companero.nombre} {companero.apellido}",
-                            'companero_id': companero.id,
-                            'tipo': 'cedio' if es_sol else 'pago',
-                            'origen': 'cambio_descanso',
-                            'solicitud_id': s.id,
-                        }
-            # Días donde el solicitante cedió el día COMPLETO por cobertura (parciales que suman AM+PM).
-            for f_ced, e in cob_ced.items():
-                if e['js'] >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin and e['companeros']:
-                    descansos_cd[f_ced] = {
-                        'companero_nombre': ' y '.join(f"{c.nombre} {c.apellido}" for c in e['companeros']),
-                        'companero_id': e['companeros'][0].id,
-                        'tipo': 'cedio',
-                        'origen': 'cambio_descanso',
-                        'solicitud_id': e['solicitud_id'],
-                    }
+            # DESCANSOS por solicitud aprobada (DOBLADA, D FDS, CAMBIO DESCANSO y DOBLADA
+            # PERMANENTE): FUENTE UNICA compartida con estado_dia/estado_mes. Un solo batch,
+            # SIEMPRE por FECHA especifica (no por patron de weekday), con la info que consume
+            # el detalle del dia. Reemplaza los antiguos dicts inline (que reimplementaban esta
+            # regla y divergian, causando atribuciones al companero equivocado).
+            from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
+            descansos_sol = DescansoPorSolicitudService.en_rango(empleado, fecha_inicio, fecha_fin)
 
             # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
             # No cambian la jornada; se muestran como indicador en el día.
@@ -837,13 +691,12 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 # Una cesión COMPLETA aprobada tiene prioridad sobre cualquier Turno residual
                 # (el empleado cedió TODO el día aunque queden registros huérfanos). Una cesión
                 # PARCIAL, en cambio, deja la otra jornada como Turno real válido: NO se borra,
-                # para que Mis Turnos muestre la jornada restante (no "día libre").
-                _sol_ced = solicitudes_descanso_solicitante.get(fecha)
-                if _sol_ced and turnos_dia:
-                    _det_ced = getattr(_sol_ced, 'doblada', None)
-                    _tc_ced = getattr(_det_ced, 'tipo_cesion', None) if _det_ced else None
-                    if _tc_ced not in ('cesion_parcial_am', 'cesion_parcial_pm'):
-                        turnos_dia = []
+                # para que Mis Turnos muestre la jornada restante (no "día libre"). La fuente única
+                # solo incluye la fecha cuando el día quedó libre COMPLETO (cesión completa o ambas
+                # medias jornadas), así que su presencia como 'cedió su jornada' equivale a completa.
+                _desc_ced = descansos_sol.get(fecha)
+                if _desc_ced and _desc_ced.get('motivo') == 'cedió su jornada' and turnos_dia:
+                    turnos_dia = []
 
                 if turnos_dia:
                     # Hay turno(s) asignado(s) (puede ser cambio aprobado o doblada)
@@ -895,97 +748,36 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         'turno_id': turno_principal.id
                     }
                 else:
-                    # No hay turno asignado
-                    # OPTIMIZACIÓN: Usar dicts precargados en vez de 2 consultas por día
-                    solicitud_como_solicitante = solicitudes_descanso_solicitante.get(fecha)
-                    solicitud_como_receptor = solicitudes_descanso_receptor.get(fecha)
-                    descanso_perm = descansos_perm.get(fecha)
-                    descanso_cd = descansos_cd.get(fecha)
-                    esta_descansando = (
-                        solicitud_como_solicitante is not None
-                        or solicitud_como_receptor is not None
-                        or descanso_perm is not None
-                        or descanso_cd is not None
-                    )
+                    # No hay turno asignado: descansa por una solicitud aprobada?
+                    # FUENTE UNICA (descansos_sol): DOBLADA, D FDS, CAMBIO DESCANSO y DOBLADA PERM.
+                    desc = descansos_sol.get(fecha)
+                    esta_descansando = desc is not None
 
                     if esta_descansando:
-                        # Determinar información detallada del descanso
-                        companero_nombre = None
-                        companero_id = None
-                        tipo_descanso = None  # 'cedio' o 'pago'
-                        solicitud_id = None
-                        fecha_relacionada = None
-                        fecha_solicitud = None
-                        fecha_aprobacion = None
-                        tipo_cesion = None
-                        jornada_cedida = None
-                        fecha_cesion = None
-                        fecha_pago = None
-                        origen_descanso = None  # p. ej. 'cambio_descanso' (intercambio de día)
-
-                        if solicitud_como_solicitante:
-                            # Está descansando porque CEDIÓ su jornada
-                            detalle = solicitud_como_solicitante.doblada
-                            companero_nombre = f"{solicitud_como_solicitante.explorador_receptor.nombre} {solicitud_como_solicitante.explorador_receptor.apellido}"
-                            companero_id = solicitud_como_solicitante.explorador_receptor.id
-                            tipo_descanso = 'cedio'
-                            solicitud_id = solicitud_como_solicitante.id
-                            fecha_cesion = solicitud_como_solicitante.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud_como_solicitante.fecha_cambio_turno else None
-                            fecha_pago = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle and detalle.fecha_pago else None
-                            fecha_relacionada = fecha_pago
-                            fecha_solicitud = solicitud_como_solicitante.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if solicitud_como_solicitante.fecha_solicitud else None
-                            fecha_aprobacion = solicitud_como_solicitante.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_como_solicitante.fecha_resolucion else None
-                            tipo_cesion = detalle.get_tipo_cesion_display() if detalle else None
-                            jornada_cedida = detalle.jornada_cedida if detalle and detalle.jornada_cedida else None
-                        elif solicitud_como_receptor:
-                            # Está descansando porque está PAGANDO una doblada
-                            detalle = solicitud_como_receptor.doblada
-                            companero_nombre = f"{solicitud_como_receptor.explorador_solicitante.nombre} {solicitud_como_receptor.explorador_solicitante.apellido}"
-                            companero_id = solicitud_como_receptor.explorador_solicitante.id
-                            tipo_descanso = 'pago'
-                            solicitud_id = solicitud_como_receptor.id
-                            fecha_cesion = solicitud_como_receptor.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud_como_receptor.fecha_cambio_turno else None
-                            fecha_pago = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle and detalle.fecha_pago else None
-                            fecha_relacionada = fecha_cesion
-                            fecha_solicitud = solicitud_como_receptor.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if solicitud_como_receptor.fecha_solicitud else None
-                            fecha_aprobacion = solicitud_como_receptor.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_como_receptor.fecha_resolucion else None
-                            tipo_cesion = detalle.get_tipo_cesion_display() if detalle else None
-                            jornada_cedida = detalle.jornada_cedida if detalle and detalle.jornada_cedida else None
-                        elif descanso_perm:
-                            # Descanso recurrente por DOBLADA PERMANENTE (cubierto por el compañero)
-                            companero_nombre = descanso_perm['companero_nombre']
-                            tipo_descanso = descanso_perm['tipo']  # 'cedio' o 'pago'
-                        elif descanso_cd:
-                            # Descanso por CAMBIO DE DÍA DE DESCANSO (intercambio de día con compañero)
-                            companero_nombre = descanso_cd['companero_nombre']
-                            companero_id = descanso_cd['companero_id']
-                            tipo_descanso = descanso_cd['tipo']  # 'cedio' o 'pago'
-                            solicitud_id = descanso_cd['solicitud_id']
-                            origen_descanso = descanso_cd.get('origen')  # 'cambio_descanso'
-
-                        # Usuario está descansando
-                        turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                            'jornada': None,  # Sin jornada porque está descansando
-                            'sala': None,
-                            'tipo': 'descanso',
-                            'es_cambio': False,
-                            'es_descanso': True,  # Flag para frontend
-                            'jornada_predeterminada': calcular_jornada_dia(jornada_base, fecha),
-                            'coincide_con_predeterminada': False,
-                            'turno_id': None,
-                            'descanso_info': {  # ✅ MEJORADO: Información detallada sobre el descanso
-                                'tipo': tipo_descanso,  # 'cedio' o 'pago'
-                                'origen': origen_descanso,  # 'cambio_descanso' → es un INTERCAMBIO de descanso
-                                'companero_nombre': companero_nombre,
-                                'companero_id': companero_id,
-                                'solicitud_id': solicitud_id,
-                                'fecha_relacionada': fecha_relacionada,
-                                'fecha_cesion': fecha_cesion,
-                                'fecha_pago': fecha_pago,
-                                'fecha_solicitud': fecha_solicitud,
-                                'fecha_aprobacion': fecha_aprobacion,
-                                'tipo_cesion': tipo_cesion,
-                                'jornada_cedida': jornada_cedida
+                        _cmp = desc.get("companero") or {}
+                        _tipo = desc.get("tipo")
+                        turnos_mes_dict[fecha.strftime("%Y-%m-%d")] = {
+                            "jornada": None,
+                            "sala": None,
+                            "tipo": "descanso",
+                            "es_cambio": False,
+                            "es_descanso": True,
+                            "jornada_predeterminada": calcular_jornada_dia(jornada_base, fecha),
+                            "coincide_con_predeterminada": False,
+                            "turno_id": None,
+                            "descanso_info": {
+                                "tipo": _tipo,
+                                "origen": desc.get("origen"),
+                                "companero_nombre": _cmp.get("nombre"),
+                                "companero_id": _cmp.get("id"),
+                                "solicitud_id": desc.get("solicitud_id"),
+                                "fecha_relacionada": (desc.get("fecha_pago") if _tipo == "cedio" else desc.get("fecha_cesion")),
+                                "fecha_cesion": desc.get("fecha_cesion"),
+                                "fecha_pago": desc.get("fecha_pago"),
+                                "fecha_solicitud": desc.get("fecha_solicitud"),
+                                "fecha_aprobacion": desc.get("fecha_aprobacion"),
+                                "tipo_cesion": desc.get("tipo_cesion"),
+                                "jornada_cedida": desc.get("jornada_cedida"),
                             }
                         }
                     else:
