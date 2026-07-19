@@ -580,80 +580,16 @@ class TurnoService(ITurnoService):
     @staticmethod
     def obtener_jornada_display(explorador: Empleado, fecha) -> str:
         """
-        Obtiene la jornada para mostrar en UI.
-        
-        Si hay AM+PM en la misma fecha → "DOBLADA"
-        Si hay solo AM → "AM"
-        Si hay solo PM → "PM"
-        Si no hay turnos → jornada predeterminada
-        
-        Args:
-            explorador: Instancia de Empleado
-            fecha: Fecha (date object o string 'YYYY-MM-DD')
-        
-        Returns:
-            String con la jornada para mostrar: 'DOBLADA', 'AM', 'PM', o jornada predeterminada
+        Jornada EFECTIVA (real) para mostrar/validar: 'DOBLADA' | 'AM' | 'PM' | None (descansa).
+
+        Delega en la FUENTE DE VERDAD `estado_dia` (turno real → descanso por solicitud → alternancia
+        de fin de semana → mantenimiento → temporada → base). Antes era un híbrido que solo miraba
+        turnos reales o la jornada base, y se le escapaban temporada, mantenimiento y descansos por
+        solicitud → devolvía la base en días de descanso, causando incongruencias con Mis Turnos
+        (p. ej. validar una doblada como si el explorador trabajara cuando en realidad descansa).
+
+        Para la jornada BASE/predeterminada (sin overlays) usar
+        `JornadaService.get_jornada_explorador_fecha` — es un concepto distinto (lo predeterminado),
+        NO la fuente de verdad.
         """
-        from datetime import date as date_type
-        
-        # Convertir fecha a objeto date si es string
-        if isinstance(fecha, str):
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
-        elif isinstance(fecha, date_type):
-            fecha_obj = fecha
-        else:
-            fecha_obj = fecha
-        
-        # Obtener todos los turnos del explorador en esa fecha
-        turnos = Turno.objects.filter(
-            explorador=explorador,
-            fecha=fecha_obj
-        ).select_related('jornada')
-        
-        jornadas = [t.jornada.nombre.upper() for t in turnos]
-        
-        # Si hay AM+PM → DOBLADA
-        if 'AM' in jornadas and 'PM' in jornadas:
-            return 'DOBLADA'
-        elif 'AM' in jornadas:
-            return 'AM'
-        elif 'PM' in jornadas:
-            return 'PM'
-        else:
-            # No hay turnos, calcular jornada usando alternancia de fines de semana
-            jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(
-                explorador.id, fecha_obj.strftime('%Y-%m-%d')
-            )
-            if jornada_predeterminada:
-                try:
-                    # REGLA DE NEGOCIO: Para sábados y domingos, la jornada predeterminada es DOBLADA si corresponde trabajar
-                    if fecha_obj.weekday() == 5:  # Sábado
-                        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                        jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
-                        if jornada_trabaja_sabado and jornada_predeterminada.nombre.upper() == jornada_trabaja_sabado.upper():
-                            # Le corresponde trabajar ese sábado → jornada predeterminada es DOBLADA (AM+PM)
-                            return 'DOBLADA'
-                        # Si no corresponde trabajar, está en descanso
-                        return None
-                    elif fecha_obj.weekday() == 6:  # Domingo
-                        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                        jornada_trabaja_domingo = AlternanciaFinesSemanaService.jornada_trabaja_domingo(fecha_obj)
-                        if jornada_trabaja_domingo and jornada_predeterminada.nombre.upper() == jornada_trabaja_domingo.upper():
-                            # Le corresponde trabajar ese domingo → jornada predeterminada es DOBLADA (AM+PM)
-                            return 'DOBLADA'
-                        # Si no corresponde trabajar, está en descanso
-                        return None
-                    
-                    # Para otros días (lunes-viernes), usar JornadaUtils
-                    jornada_dia_calculada = JornadaUtils.calcular_jornada_dia(
-                        jornada_predeterminada.nombre, fecha_obj
-                    )
-                    # Si está en descanso, retornar None (no tiene jornada ese día)
-                    if jornada_dia_calculada == "Descanso":
-                        return None
-                    return jornada_dia_calculada.upper()
-                except Exception as e:
-                    logger.warning(f"Error calculando jornada día para {explorador.id} en {fecha_obj}: {e}")
-                    # Fallback a jornada predeterminada si hay error
-                    return jornada_predeterminada.nombre.upper()
-            return None
+        return TurnoService.estado_dia(explorador, fecha).get('jornada')

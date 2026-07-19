@@ -13,8 +13,38 @@ from django.utils import timezone
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador, Sala
-from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase
+from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO
 from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
+
+
+class DobladaPagoJornadaRealTest(MatrizDobladasTestCase):
+    """Regresión (caso Vanesa/mildrey): la validación de doblada usa la jornada REAL (estado_dia),
+    no la base. Si en la fecha de pago el deudor DESCANSA por temporada (aunque su base sea AM), sí
+    puede cubrir una jornada de la doblada del compañero; pero si TRABAJA esa jornada de verdad, no."""
+
+    def test_pago_en_temporada_deudor_descansa_cubre_valido(self):
+        from turnos.models import DescansoSemanaManual
+        from django.core.cache import cache
+        # Solicitante AM, receptor PM (contrarios).
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+        # Fecha de pago en temporada: descansa AM → emisor(AM) descansa, receptor(PM) queda DOBLADA.
+        DescansoSemanaManual.objects.create(fecha=FECHA_PAGO, jornada=self.jornada_am, activo=True)
+        cache.clear()
+        datos = self._datos(tipo_cambio=self.tipo_doblada, jornada_cubre_en_pago='AM')
+        ok, msg = self.strategy.validar_solicitud(datos)
+        self.assertTrue(ok, f'el deudor descansa por temporada → cubrir la AM de la doblada es válido: {msg}')
+
+    def test_control_deudor_trabaja_am_no_puede_cubrir_am(self):
+        from django.core.cache import cache
+        self._asignar_jornada_base(self.emisor, self.jornada_am)
+        self._asignar_jornada_base(self.receptor, self.jornada_pm)
+        # Fecha de pago normal: emisor(AM) trabaja AM real; receptor con doblada REAL ese día.
+        self._crear_doblada_turnos(self.receptor, FECHA_PAGO)
+        cache.clear()
+        datos = self._datos(tipo_cambio=self.tipo_doblada, jornada_cubre_en_pago='AM')
+        ok, msg = self.strategy.validar_solicitud(datos)
+        self.assertFalse(ok, 'el deudor trabaja AM de verdad → cubrir AM debe bloquearse (haría AM dos veces)')
 
 
 class DobladaRevalidacionTest(MatrizDobladasTestCase):
