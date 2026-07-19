@@ -55,10 +55,16 @@ def _es_supervisor(user):
 
 
 def _dia_no_laborable(empleado, fecha):
-    """True si el explorador NO trabaja ese día (descanso) y por tanto no puede pedir permiso."""
-    from solicitudes.services.ct_permanente_helper import _es_dia_descanso
+    """True si el explorador NO trabaja ese día (descanso) y por tanto no puede pedir permiso.
+
+    Usa la FUENTE DE VERDAD `estado_dia` (todas las capas: turno real, descanso por solicitud,
+    alternancia de fin de semana, mantenimiento, temporada, base). Antes usaba `_es_dia_descanso`
+    (solo calendario/rotación + temporada de config), que se le escapaban mantenimiento, festivo y
+    los descansos por solicitud (día cedido por doblada, cambio de descanso…), permitiendo pedir
+    permiso en días en que en realidad se descansa (o bloqueándolo cuando sí se trabaja)."""
+    from turnos.services.turno_service import TurnoService
     try:
-        return _es_dia_descanso(empleado, fecha)
+        return not TurnoService.estado_dia(empleado, fecha).get('trabaja')
     except Exception:
         return False
 
