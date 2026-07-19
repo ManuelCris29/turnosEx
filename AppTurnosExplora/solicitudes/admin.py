@@ -4,7 +4,19 @@ from .models import (
     CambioPermanenteDetalle, CambioPermanenteDia,
     DobladaDetalle, DeudaExplorador, DeudaCorporativa,
     ReprogramacionDiaDoblada,
+    CierreSolicitudesConfig, CierreSemanaOverride,
 )
+
+
+@admin.register(CierreSolicitudesConfig)
+class CierreSolicitudesConfigAdmin(admin.ModelAdmin):
+    list_display = ['habilitado', 'dia_cierre', 'hora_cierre', 'actualizado_en']
+
+
+@admin.register(CierreSemanaOverride)
+class CierreSemanaOverrideAdmin(admin.ModelAdmin):
+    list_display = ['semana_lunes', 'habilitado', 'dia_cierre', 'hora_cierre']
+    list_filter = ['habilitado', 'dia_cierre']
 
 
 @admin.register(Notificacion)

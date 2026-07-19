@@ -678,4 +678,66 @@ class ReprogramacionDiaDoblada(models.Model):
         return f"Reprog. {self.explorador} {self.fecha_original} → {self.fecha_reprogramada or 'sin programar'} ({self.estado})"
 
 
+DIA_CIERRE_CHOICES = [
+    ('jueves', 'Jueves'),
+    ('viernes', 'Viernes'),
+    ('sabado', 'Sábado'),
+    ('domingo', 'Domingo'),
+    ('primer_habil', 'Primer día hábil de la semana siguiente'),
+]
+
+
+class CierreSolicitudesConfig(models.Model):
+    """
+    Configuración GLOBAL (por defecto) del cierre semanal de solicitudes.
+
+    Cuando está habilitado, cada semana —a partir del `dia_cierre` a la `hora_cierre`— se cierra
+    la programación del fin de semana: no se pueden enviar NUEVAS solicitudes de cambio de turno
+    ni permisos cuyo objetivo caiga en la ventana [día de cierre … primer día hábil de la semana
+    siguiente]. Es un singleton (una sola fila); las semanas puntuales se ajustan con
+    `CierreSemanaOverride`. Si `habilitado=False` no hay ninguna restricción.
+    """
+    habilitado = models.BooleanField(default=False, help_text='Si está apagado, no hay ninguna restricción.')
+    dia_cierre = models.CharField(max_length=15, choices=DIA_CIERRE_CHOICES, default='jueves')
+    hora_cierre = models.TimeField(default='14:00', help_text='Hora del día de cierre a partir de la cual se bloquea.')
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Cierre de solicitudes (config)'
+        verbose_name_plural = 'Cierre de solicitudes (config)'
+
+    def __str__(self):
+        return f"Cierre {'ON' if self.habilitado else 'OFF'} — {self.get_dia_cierre_display()} {self.hora_cierre}"
+
+    @classmethod
+    def obtener(cls):
+        obj = cls.objects.first()
+        if obj is None:
+            obj = cls.objects.create()
+        return obj
+
+
+class CierreSemanaOverride(models.Model):
+    """
+    Ajuste del cierre para UNA semana específica (identificada por su lunes). Sobre-escribe el
+    default global esa semana: otro día/hora, o deshabilitar el cierre solo esa semana.
+    """
+    semana_lunes = models.DateField(unique=True, help_text='Lunes de la semana a la que aplica el ajuste.')
+    habilitado = models.BooleanField(default=True)
+    dia_cierre = models.CharField(max_length=15, choices=DIA_CIERRE_CHOICES, default='jueves')
+    hora_cierre = models.TimeField(default='14:00')
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Cierre por semana (override)'
+        verbose_name_plural = 'Cierres por semana (overrides)'
+        ordering = ['-semana_lunes']
+
+    def __str__(self):
+        return f"Override {self.semana_lunes} — {'ON' if self.habilitado else 'OFF'} {self.get_dia_cierre_display()} {self.hora_cierre}"
+
+
 # Create your models here.

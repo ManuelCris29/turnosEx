@@ -41,6 +41,41 @@ class SolicitudOrchestrator:
         from empleados.sancion_utils import sancion_activa
         return sancion_activa(empleado)
 
+    @staticmethod
+    def _fechas_objetivo(post, tipo_nombre: str) -> list:
+        """Fechas concretas que la solicitud agenda (para el cierre semanal). CT PERMANENTE expande
+        el rango × días de la semana; el resto usa las fechas puntuales del POST."""
+        from datetime import datetime as _dt, timedelta as _td
+        if tipo_nombre == 'CT PERMANENTE':
+            try:
+                d0 = _dt.strptime(post.get('fecha_inicio'), '%Y-%m-%d').date()
+                d1 = _dt.strptime(post.get('fecha_fin'), '%Y-%m-%d').date()
+            except (ValueError, TypeError):
+                return SolicitudRequestParser.get_fechas_del_post(post)
+            try:
+                dias = set(json.loads(post.get('dias_seleccionados', '{}') or '{}').get('dias_semana', []))
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                dias = set()
+            out, d = [], d0
+            while d <= d1:
+                if not dias or d.weekday() in dias:
+                    out.append(d)
+                d += _td(days=1)
+            return out
+        return SolicitudRequestParser.get_fechas_del_post(post)
+
+    @classmethod
+    def verificar_cierre(cls, fechas) -> JsonResponse | None:
+        """Cierre semanal: bloquea si alguna fecha objetivo cae en una ventana cerrada habilitada."""
+        try:
+            from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService
+            _f, msg = CierreSolicitudesService.validar_fechas([f for f in fechas if f])
+            if msg:
+                return json_error(msg, status=400, code='cierre_semanal')
+        except Exception:
+            logger.exception('Error verificando cierre semanal de solicitudes')
+        return None
+
     @classmethod
     def verificar_sancion(cls, solicitante) -> JsonResponse | None:
         """Gestiona la sanción automática y bloquea si el SOLICITANTE está sancionado."""
@@ -196,6 +231,17 @@ class SolicitudOrchestrator:
                 f'compañero (no puedes cubrir ni pagar la misma jornada el mismo día con dos personas).',
                 status=400, code='validation_error')
 
+        # Cierre semanal: ninguna fecha de cesión/devolución puede caer en una ventana cerrada.
+        _cierre_fechas = []
+        for _s in list(ces_fechas) + list(dev_fechas):
+            try:
+                _cierre_fechas.append(_dt.strptime(_s, '%Y-%m-%d').date())
+            except (ValueError, TypeError):
+                pass
+        cierre_resp = cls.verificar_cierre(_cierre_fechas)
+        if cierre_resp:
+            return cierre_resp
+
         def _wd(iso):
             try:
                 return str(_dt.strptime(iso, '%Y-%m-%d').date().weekday())
@@ -331,6 +377,11 @@ class SolicitudOrchestrator:
         # 2. DOBLADA PERMANENTE multi-compañero (flujo independiente)
         if tipo_nombre == "DOBLADA PERMANENTE":
             return cls._procesar_doblada_permanente_multi(post, tipo_solicitud, solicitante, comentario)
+
+        # 2b. Cierre semanal (programación del fin de semana ya cerrada)
+        cierre_resp = cls.verificar_cierre(cls._fechas_objetivo(post, tipo_nombre))
+        if cierre_resp:
+            return cierre_resp
 
         # 3. Restricción médica
         confirmar = str(post.get('confirmar_restriccion', '')).lower() in ('1', 'true', 'si', 'sí')

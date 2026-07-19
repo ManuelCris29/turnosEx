@@ -17,6 +17,7 @@ from .views import (
     GestionCancelarSolicitudView, GestionEliminarSolicitudView,
     ReprogramacionListView, RegistrarInasistenciaView,
     ProgramarReprogramacionView, CancelarReprogramacionView,
+    CierreConfigView,
     AlternanciaFindeView, AlternanciaMesView, DFDSCompanerosView,
     DescansosSemanaUsuarioView, CambioDescansoFindesView,
     DobladasSemanaView,
@@ -52,6 +53,9 @@ urlpatterns = [
     path('reprogramaciones/registrar/<int:solicitud_id>/', RegistrarInasistenciaView.as_view(), name='reprog_registrar'),
     path('reprogramaciones/<int:reprog_id>/programar/', ProgramarReprogramacionView.as_view(), name='reprog_programar'),
     path('reprogramaciones/<int:reprog_id>/cancelar/', CancelarReprogramacionView.as_view(), name='reprog_cancelar'),
+
+    # Cierre semanal de solicitudes (config del supervisor)
+    path('cierre-solicitudes/', CierreConfigView.as_view(), name='cierre_config'),
 
     # ACCIONES DE SOLICITUDES (funcionales)
     path('aprobar-solicitud/<int:solicitud_id>/', AprobarSolicitudView.as_view(), name='aprobar_solicitud'),

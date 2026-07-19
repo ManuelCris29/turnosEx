@@ -199,6 +199,23 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
                                         'Solo puedes pedir permiso en días que trabajas.')
                 return self.form_invalid(form)
 
+        # Cierre semanal: no se pueden pedir permisos para fechas del fin de semana ya cerrado.
+        from datetime import timedelta as _td
+        from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService
+        if self.es_permanente:
+            _dias_wd = {int(x) for x in form.cleaned_data.get('dias', [])}
+            _fechas_obj, _d = [], permiso.fecha_inicio
+            while _d <= permiso.fecha_fin:
+                if not _dias_wd or _d.weekday() in _dias_wd:
+                    _fechas_obj.append(_d)
+                _d += _td(days=1)
+        else:
+            _fechas_obj = [permiso.fecha_inicio]
+        _fbloq, _msg = CierreSolicitudesService.validar_fechas(_fechas_obj)
+        if _msg:
+            form.add_error('fecha_inicio' if self.es_permanente else 'fecha', _msg)
+            return self.form_invalid(form)
+
         permiso.save()
         _invalidar_turnos_cache(permiso)
 
