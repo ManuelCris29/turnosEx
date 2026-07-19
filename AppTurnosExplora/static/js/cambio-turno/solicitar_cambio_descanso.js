@@ -480,6 +480,8 @@
         document.getElementById('compa-container-semana').style.display = 'none';
         const _dci2 = document.getElementById('descanso-contrario-info');
         if (_dci2) _dci2.style.display = 'none';
+        const _sinc2 = document.getElementById('sin-descanso-contrario');
+        if (_sinc2) _sinc2.style.display = 'none';
         document.getElementById('resumen-box').classList.remove('show');
 
         fetch(`${URLs.DESCANSOS}?anio=${anio}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
@@ -606,9 +608,19 @@
                     }
                     if (info) info.style.display = 'block';
                     if (subCont) subCont.style.display = 'block';
+                    const _sinc = document.getElementById('sin-descanso-contrario');
+                    if (_sinc) _sinc.style.display = 'none';
                 } else {
+                    // No hay descanso del grupo contrario esa semana → no se puede intercambiar.
+                    // En vez de ocultar todo en silencio (parece que "no hace nada"), avisamos.
                     if (info) info.style.display = 'none';
                     if (subCont) subCont.style.display = 'none';
+                    const _compa = document.getElementById('compa-container-semana');
+                    if (_compa) _compa.style.display = 'none';
+                    const _sinc = document.getElementById('sin-descanso-contrario');
+                    if (_sinc) _sinc.style.display = 'block';
+                    descansoReceptor = null;
+                    document.getElementById('fecha_pago').value = '';
                 }
                 actualizarResumenSemana();
             })
