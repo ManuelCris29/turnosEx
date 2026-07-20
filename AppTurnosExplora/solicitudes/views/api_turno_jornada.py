@@ -16,6 +16,7 @@ from ..services.solicitud_factory import SolicitudFactory
 from ..services.permiso_service import PermisoService
 from ..services.notificacion_service import NotificacionService
 from django.utils import timezone
+from core.utils.date_utils import DateUtils
 import hashlib
 import hmac
 import logging
@@ -594,7 +595,7 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
                     'solicitud_id': solicitud.id,
                     'jornada_actual': turno.jornada.nombre if turno.jornada else 'N/A',
                     'companero_nombre': f"{companero.nombre} {companero.apellido}",
-                    'fecha_aprobacion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else 'N/A',
+                    'fecha_aprobacion': DateUtils.format_datetime_display(solicitud.fecha_resolucion) or 'N/A',
                     'es_solicitante': es_solicitante
                 }
                 
@@ -1101,64 +1102,15 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
             """
             estados = TurnoService.estado_mes(emp, anio, mes)
 
-            # Días COMPROMETIDOS: turno creado por otra solicitud aprobada.
-            # Regla diferenciada:
-            #   - CAMBIO DESCANSO < 30 min → sigue bloqueado (aún cancelable, si se reemplaza se pierden datos)
-            #   - CAMBIO DESCANSO >= 30 min → ya NO es cancelable; se puede reemplazar con nuevo cambio
-            #   - Cualquier otro tipo (DOBLADA, D FDS, CT…) → siempre bloqueado
-            from django.utils import timezone as _tz
-            from datetime import timedelta as _tdt
-            from django.db.models import Q as _Q
-            from solicitudes.models import SolicitudCambio as _SC
-            from solicitudes.repositories.turno_repository import TurnoRepository
-            from solicitudes.repositories.solicitud_repository import SolicitudRepository
-
-            VENTANA_CANCELACION = _tdt(minutes=30)
-            ahora = _tz.now()
-
-            # Fechas con turno de CUALQUIER tipo_cambio (via Repository)
-            all_comp_qs = TurnoRepository.comprometidos_por_tipo_cambio(emp, anio, mes)
-            comprometidos_fijos = set()      # DOBLADA, D FDS, CT, etc. → siempre bloqueados
-            comprometidos_cd = set()          # CAMBIO DESCANSO → solo si < 30 min
-
-            for fecha_tc, tipo_tc in all_comp_qs:
-                if tipo_tc == 'CAMBIO DESCANSO':
-                    comprometidos_cd.add(fecha_tc)
-                else:
-                    comprometidos_fijos.add(fecha_tc)
-
-            # De los CAMBIO DESCANSO, solo bloquear los que aún están en ventana de cancelación
-            cancelables_cd = set()
-            if comprometidos_cd:
-                from datetime import timedelta as _td2
-                qs_recientes = _SC.objects.filter(
-                    tipo_cambio__nombre='CAMBIO DESCANSO',
-                    estado='aprobada',
-                    fecha_resolucion__gte=ahora - VENTANA_CANCELACION,
-                ).filter(
-                    _Q(explorador_solicitante=emp) | _Q(explorador_receptor=emp)
-                ).select_related('doblada')
-
-                def _otro(f):
-                    return f + _tdt(days=1) if f.weekday() == 5 else f - _tdt(days=1)
-
-                for s in qs_recientes:
-                    det = getattr(s, 'doblada', None)
-                    if not det:
-                        continue
-                    from datetime import datetime as _dt
-                    fc = s.fecha_cambio_turno if isinstance(s.fecha_cambio_turno, _date) else _date.fromisoformat(str(s.fecha_cambio_turno))
-                    fp_raw = det.fecha_pago
-                    fp = fp_raw if isinstance(fp_raw, _date) else _date.fromisoformat(str(fp_raw))
-                    es_sol = s.explorador_solicitante_id == emp.id
-                    if es_sol:
-                        cancelables_cd.add(_otro(fc))
-                        cancelables_cd.add(_otro(fp))
-                    else:
-                        cancelables_cd.add(fc)
-                        cancelables_cd.add(fp)
-
-            comprometidos = comprometidos_fijos | (comprometidos_cd & cancelables_cd)
+            # Día COMPROMETIDO (no seleccionable): fuente única de verdad, compartida con la
+            # validación del backend (CambioDescansoStrategy._trabaja_dia), para que el selector y
+            # el envío del formulario respondan siempre lo mismo. Regla (ver
+            # dia_bloqueado_para_nuevo_cambio): otro tipo de cambio (DOBLADA, D FDS, CT…) → siempre
+            # bloqueado; un CAMBIO DESCANSO previo → solo bloqueado dentro de los 30 min de su
+            # ventana de cancelación.
+            from solicitudes.services.cambio_descanso_aplicacion_service import (
+                CambioDescansoAplicacionService as _CDAS,
+            )
 
             def trabaja(fecha):
                 e = estados.get(fecha)
@@ -1181,10 +1133,9 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
                     dia_trabajo = 'sabado'
                 elif trabaja_dom and not trabaja_sab:
                     dia_trabajo = 'domingo'
-                # Si el día que trabaja está comprometido en otra solicitud, NO es seleccionable.
-                dia_comprometido = (
-                    (dia_trabajo == 'sabado' and sabado in comprometidos)
-                    or (dia_trabajo == 'domingo' and domingo in comprometidos)
+                # Si el día que trabaja está comprometido (bloqueado), NO es seleccionable.
+                dia_comprometido = bool(dia_trabajo) and _CDAS.dia_bloqueado_para_nuevo_cambio(
+                    emp, sabado if dia_trabajo == 'sabado' else domingo
                 )
                 seleccionable = bool(dia_trabajo) and sabado >= hoy and not dia_comprometido
                 # Motivo por el cual NO es seleccionable (para mostrarlo en la tarjeta).

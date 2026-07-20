@@ -6,8 +6,6 @@ from datetime import date, timedelta
 from typing import List, Dict, Tuple
 from empleados.models import Empleado
 from turnos.models import DiaEspecial
-from core.utils.jornada_utils import JornadaUtils
-from turnos.services.jornada_service import JornadaService
 from solicitudes.models import CambioPermanenteDetalle
 import logging
 
@@ -172,21 +170,21 @@ def _es_temporada(fecha: date) -> bool:
 
 
 def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
-    """Verificar si un explorador está descansando en una fecha específica (estado REAL)."""
+    """¿El explorador DESCANSA ese día? (estado REAL, no la configuración).
+
+    FUENTE DE VERDAD ÚNICA: `TurnoService.estado_dia` — las mismas capas que pinta "Mis Turnos"
+    (turno real, descanso por solicitud aprobada, alternancia de fin de semana, mantenimiento,
+    temporada, festivo, base). Antes esto reimplementaba el cálculo con la CONFIGURACIÓN
+    (jornada predeterminada + descanso de semana manual), lo que producía la incongruencia
+    base-vs-real: días con turno real de trabajo se veían como descanso (y viceversa).
+
+    Las razones de exclusión de grano fino (Festivo / Mantenimiento / Temporada / Día libre /
+    Cambio previo) se siguen calculando aparte y tienen PRIORIDAD sobre 'Descanso', así que el
+    solape con las capas de `estado_dia` no cambia el texto que ve el usuario.
+    """
     try:
-        jornada_base = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
-
-        if not jornada_base:
-            return False
-
-        # Descanso por rotación predeterminada (fin de semana).
-        if JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha) == "Descanso":
-            return True
-        # Descanso de SEMANA manual (temporada/festivo configurado por jornada) entre semana.
-        from turnos.services.descanso_semana_service import DescansoSemanaService
-        if DescansoSemanaService.es_descanso_semana_manual(jornada_base.nombre, fecha):
-            return True
-        return False
+        from turnos.services.turno_service import TurnoService
+        return not TurnoService.estado_dia(explorador, fecha).get('trabaja')
     except Exception:
         return False
 

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
 from core.utils.json_responses import json_ok, json_error
+from core.utils.date_utils import DateUtils
 
 # Create your views here.
 
@@ -68,12 +69,12 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
             # InformaciÃ³n bÃ¡sica comÃºn
             datos = {
                 'id': solicitud.id,
-                'fecha_solicitud': solicitud.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_solicitud else None,
+                'fecha_solicitud': DateUtils.format_datetime_display(solicitud.fecha_solicitud),
                 'tipo': solicitud.tipo_cambio.nombre,
                 'tipo_codigo': solicitud.tipo_cambio.codigo_estrategia or solicitud.tipo_cambio.nombre.upper(),
                 'estado': solicitud.estado,
                 'comentario': solicitud.comentario or 'Sin comentario',
-                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None,
+                'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion),
                 'solicitante': {
                     'id': solicitud.explorador_solicitante.id,
                     'nombre': f"{solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido}",
@@ -89,11 +90,11 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 'aprobaciones': {
                     'receptor': {
                         'aprobado': solicitud.aprobado_receptor,
-                        'fecha': solicitud.fecha_aprobacion_receptor.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_aprobacion_receptor else None,
+                        'fecha': DateUtils.format_datetime_display(solicitud.fecha_aprobacion_receptor),
                     },
                     'supervisor': {
                         'aprobado': solicitud.aprobado_supervisor,
-                        'fecha': solicitud.fecha_aprobacion_supervisor.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_aprobacion_supervisor else None,
+                        'fecha': DateUtils.format_datetime_display(solicitud.fecha_aprobacion_supervisor),
                     },
                 },
                 'fechas': {},
@@ -194,7 +195,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                             )
                         else:
                             datos['fechas']['fecha_doblada'] = _fc
-                            datos['informacion_adicional']['fecha_pago'] = _fp
+                            datos['fechas']['fecha_pago'] = _fp
 
                             # Tipo de cesión y jornada cedida
                             _tc = {
@@ -284,8 +285,25 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         datos['informacion_adicional']['nota'] = (
                             'El compañero (receptor) te cubre doblándose en tus días de cesión, y tú le devuelves '
                             'doblándote en los días de devolución, durante el rango indicado. '
-                            'No aplica domingos, festivos ni días de mantenimiento.'
+                            'No aplica domingos, festivos ni días de mantenimiento. Solo se aplican pares completos '
+                            '(si un lado tiene más fechas elegibles que el otro, el sobrante queda excluido por balance).'
                         )
+
+                        from ..services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
+                        resultado = DobladaPermanenteAplicacionService.calcular_fechas_aplicables_y_excluidas(
+                            detalle, solicitud.explorador_solicitante, solicitud.explorador_receptor
+                        )
+                        datos['fechas']['cesion_aplicables'] = [f.strftime('%d/%m/%Y') for f in resultado['cesion']['aplicables']]
+                        datos['fechas']['cesion_excluidas'] = [
+                            {'fecha': fi['fecha'].strftime('%d/%m/%Y'), 'razon': fi['razon']}
+                            for fi in resultado['cesion']['excluidas']
+                        ]
+                        datos['fechas']['devolucion_aplicables'] = [f.strftime('%d/%m/%Y') for f in resultado['devolucion']['aplicables']]
+                        datos['fechas']['devolucion_excluidas'] = [
+                            {'fecha': fi['fecha'].strftime('%d/%m/%Y'), 'razon': fi['razon']}
+                            for fi in resultado['devolucion']['excluidas']
+                        ]
+                        datos['fechas']['total_dias'] = len(resultado['cesion']['aplicables']) + len(resultado['devolucion']['aplicables'])
                 except Exception as e:
                     logger.error(f"Error obteniendo detalles de DOBLADA PERMANENTE: {e}")
                     datos['fechas']['error'] = 'No se pudieron obtener los detalles de la doblada permanente'
@@ -296,7 +314,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                     detalle = solicitud.doblada
                     if detalle:
                         fc = solicitud.fecha_cambio_turno
-                        datos['fechas']['fecha_cambio'] = fc.strftime('%d/%m/%Y') if fc else 'No especificada'
+                        datos['fechas']['fecha_cesion'] = fc.strftime('%d/%m/%Y') if fc else 'No especificada'
                         datos['fechas']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else '—'
                         es_finde = bool(fc) and fc.weekday() in (5, 6)
                         if es_finde:
@@ -311,7 +329,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                             }.get(sub, sub)
                             datos['informacion_adicional']['modalidad'] = sub_legible
                             if sub == 'jornadas_partidas' and detalle.jornada_cedida:
-                                datos['informacion_adicional']['jornada_solicitante'] = detalle.jornada_cedida.upper()
+                                datos['informacion_adicional']['jornada_cedida_partida'] = detalle.jornada_cedida.upper()
                             if sub == 'cobertura_misma_semana':
                                 _tc = {
                                     'cesion_completa': 'Día completo (AM y PM)',
@@ -354,11 +372,33 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 if solicitud.fecha_cambio_turno:
                     datos['fechas']['fecha_cambio'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')
                     
-                    # Obtener informaciÃ³n de jornadas si hay turnos asociados
-                    if solicitud.turno_origen:
-                        datos['informacion_adicional']['jornada_solicitante'] = solicitud.turno_origen.jornada.nombre if solicitud.turno_origen.jornada else None
-                    if solicitud.turno_destino:
-                        datos['informacion_adicional']['jornada_receptor'] = solicitud.turno_destino.jornada.nombre if solicitud.turno_destino.jornada else None
+                    # Jornada de cada uno en la fecha del cambio. Si la solicitud ya fue aplicada,
+                    # turno_origen/turno_destino reflejan el turno YA intercambiado (jornada final).
+                    # Si sigue pendiente, esos turnos aún no existen: se calcula la jornada ACTUAL
+                    # (antes del intercambio) para que el revisor sepa qué se va a intercambiar.
+                    if solicitud.turno_origen and solicitud.turno_origen.jornada:
+                        datos['informacion_adicional']['jornada_solicitante'] = solicitud.turno_origen.jornada.nombre
+                    else:
+                        from turnos.services.jornada_service import JornadaService
+                        j_sol = JornadaService.get_jornada_explorador_fecha(
+                            solicitud.explorador_solicitante.id, solicitud.fecha_cambio_turno
+                        )
+                        datos['informacion_adicional']['jornada_solicitante'] = j_sol.nombre if j_sol else None
+
+                    if solicitud.turno_destino and solicitud.turno_destino.jornada:
+                        datos['informacion_adicional']['jornada_receptor'] = solicitud.turno_destino.jornada.nombre
+                    else:
+                        from turnos.services.jornada_service import JornadaService
+                        j_rec = JornadaService.get_jornada_explorador_fecha(
+                            solicitud.explorador_receptor.id, solicitud.fecha_cambio_turno
+                        )
+                        datos['informacion_adicional']['jornada_receptor'] = j_rec.nombre if j_rec else None
+
+                    if solicitud.estado == 'pendiente':
+                        datos['informacion_adicional']['nota_jornadas'] = (
+                            'Jornadas actuales (antes del intercambio): al aprobarse, el solicitante '
+                            'pasa a la jornada del receptor y viceversa.'
+                        )
                     
                     # Analizar fecha para mostrar información detallada
                     from ..services.fechas_helper import obtener_informacion_fecha_para_detalle

@@ -381,8 +381,11 @@ class DobladaPermJornadaRealTest(TestCase):
 
     def test_cambio_descanso_da_jornada_real_elegible(self):
         """Regresión (caso marco 11/08): un cambio de descanso deja un turno REAL AM en un día que la
-        config marca como descanso. La fuente real (estado_dia) es AM → elegible en AM, aunque la
-        config (_es_dia_descanso) diga descanso."""
+        CONFIG marca como descanso. La fuente de verdad (estado_dia) es AM → elegible en AM.
+
+        Tras unificar `_es_dia_descanso` en `estado_dia` (antes era config-based), ambos helpers
+        coinciden: el explorador trabaja AM de verdad, así que NI `_es_dia_descanso` lo ve como
+        descanso NI `_jornada_doblada_perm` lo omite. Antes divergían (config decía descanso)."""
         from django.core.cache import cache
         from turnos.models import DescansoSemanaManual, Turno
         from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm, _es_dia_descanso
@@ -390,8 +393,9 @@ class DobladaPermJornadaRealTest(TestCase):
         DescansoSemanaManual.objects.create(fecha=m, jornada=self.am, activo=True)  # config: AM descansa
         Turno.objects.create(explorador=self.sol, fecha=m, jornada=self.am, sala=self.sala, tipo_cambio='CAMBIO DESCANSO')
         cache.clear()
-        self.assertTrue(_es_dia_descanso(self.sol, m), 'la CONFIG marca descanso (lo que fallaba antes)')
-        self.assertEqual(_jornada_doblada_perm(self.sol, m), 'AM', 'pero trabaja AM de verdad → elegible')
+        # Fuente de verdad: trabaja AM de verdad → NO descansa (ni por _es_dia_descanso ni por elegibilidad).
+        self.assertFalse(_es_dia_descanso(self.sol, m), 'trabaja AM de verdad → no descansa (estado_dia)')
+        self.assertEqual(_jornada_doblada_perm(self.sol, m), 'AM', 'y es elegible en AM')
 
 
 class DobladaPermRevertRestauraEstadoPrevioTest(TestCase):

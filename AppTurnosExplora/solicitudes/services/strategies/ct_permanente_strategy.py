@@ -748,42 +748,14 @@ class CTPermanenteStrategy(SolicitudStrategy):
         }.get(tipo, f'ya tiene un cambio previo ({tipo}) ese día')
 
     def _es_dia_descanso(self, explorador: Empleado, fecha: date) -> bool:
+        """¿El explorador DESCANSA ese día? Delega en el helper (fuente única `estado_dia`).
+
+        Antes esto era una TERCERA reimplementación del cálculo (config + L2), que podía
+        divergir de la validación/vista previa. Ahora validar, previsualizar y aplicar
+        responden exactamente lo mismo.
         """
-        Verificar si un explorador está descansando en una fecha específica.
-        
-        Args:
-            explorador: Instancia de Empleado
-            fecha: Fecha a verificar
-            
-        Returns:
-            True si el explorador está descansando, False en caso contrario
-        """
-        try:
-            from core.utils.jornada_utils import JornadaUtils
-            from turnos.services.jornada_service import JornadaService
-            
-            # Obtener jornada base del explorador
-            jornada_base = JornadaService.get_jornada_explorador_fecha(explorador.id, fecha.strftime('%Y-%m-%d'))
-            
-            if not jornada_base:
-                return False
-            
-            # Descanso por rotación predeterminada (fin de semana).
-            if JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha) == "Descanso":
-                return True
-            # Descanso de SEMANA manual (temporada/festivo configurado por jornada) entre semana.
-            from turnos.services.descanso_semana_service import DescansoSemanaService
-            if DescansoSemanaService.es_descanso_semana_manual(jornada_base.nombre, fecha):
-                return True
-            # L2: día YA comprometido (descanso) por otra solicitud aprobada — cambio descanso /
-            # d_fds / doblada / doblada permanente — que dejó el día sin turno. No se puede
-            # aplicar un CT permanente sobre un día que el explorador ya cedió.
-            from turnos.services.turno_service import TurnoService
-            if TurnoService.dia_comprometido_por_solicitud(explorador, fecha):
-                return True
-            return False
-        except Exception:
-            return False
+        from ..ct_permanente_helper import _es_dia_descanso as _descansa
+        return _descansa(explorador, fecha)
     
     def _es_festivo(self, fecha):
         """Verificar si es festivo"""

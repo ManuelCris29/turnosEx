@@ -111,12 +111,14 @@ class CambioDescansoStrategy(SolicitudStrategy):
         """
         Verifica que el explorador TRABAJE ese día y que ese día esté DISPONIBLE para un
         cambio de descanso, con la regla del sistema:
-        1) ¿El día tiene un turno COMPROMETIDO en otra solicitud (tipo_cambio: doblada, d_fds,
-           CT, doblada permanente, otro cambio de descanso)? → NO disponible (no se puede tocar
-           un día que ya es parte de otra solicitud, aunque ese día se trabaje).
-        2) Turno REAL del día (horario importado, sin tipo_cambio) → trabaja.
-        3) ¿Una solicitud de CAMBIO DESCANSO aprobada ya lo dejó descansando? → NO trabaja.
-        4) En otro caso, turno VIRTUAL (jornada base + alternancia).
+        1) ¿El día está BLOQUEADO para un nuevo cambio de descanso
+           (`dia_bloqueado_para_nuevo_cambio`)? Otro tipo de cambio (doblada, d_fds, CT, doblada
+           permanente) SIEMPRE bloquea; un CAMBIO DESCANSO previo (en cualquiera de los dos lados
+           del intercambio) solo bloquea DENTRO de los 30 min de su ventana de cancelación —
+           pasada la ventana esa solicitud ya no se puede revertir y el día queda libre para un
+           nuevo intercambio ("última aprobada gana por día").
+        2) Turno REAL del día (horario importado, o CAMBIO DESCANSO ya fuera de ventana) → trabaja.
+        3) En otro caso, turno VIRTUAL (jornada base + alternancia).
 
         Devuelve (True, jornada) o (False, motivo).
         En fin de semana, quien trabaja lo hace el día completo (AM+PM): eso es NORMAL.
@@ -125,29 +127,43 @@ class CambioDescansoStrategy(SolicitudStrategy):
         from turnos.services.turno_service import TurnoService
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
-        turnos = list(Turno.objects.filter(explorador=explorador, fecha=fecha))
-
-        # 1) Día COMPROMETIDO en otra solicitud (turno con tipo_cambio). No se puede usar para
-        #    un cambio de descanso, aunque la persona trabaje ese día (p. ej. media jornada de
-        #    una doblada en sábado). Cubre el caso donde el día se TRABAJA comprometido.
-        comprometidos = sorted({t.tipo_cambio for t in turnos if t.tipo_cambio})
-        if comprometidos:
+        # 1) Bloqueo (ver docstring). Mensaje diferenciado: otro tipo de cambio (permanente) vs.
+        #    un CAMBIO DESCANSO todavía cancelable (temporal).
+        if CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(explorador, fecha):
+            turnos_bloq = list(
+                Turno.objects.filter(explorador=explorador, fecha=fecha)
+                .exclude(tipo_cambio__isnull=True).exclude(tipo_cambio='')
+            )
+            otros_tipos = sorted({t.tipo_cambio for t in turnos_bloq if t.tipo_cambio != 'CAMBIO DESCANSO'})
+            if otros_tipos:
+                return False, (
+                    f"Ese día ya tiene un cambio aplicado ({', '.join(otros_tipos)}). "
+                    f"Para rehacerlo, primero cancela ese cambio (dentro de los 30 min de aprobado) "
+                    f"y vuelve a intentarlo."
+                )
             return False, (
-                f"Ese día ya tiene un cambio aplicado ({', '.join(comprometidos)}). "
-                f"Para rehacerlo, primero cancela ese cambio (dentro de los 30 min de aprobado) "
-                f"y vuelve a intentarlo."
+                "Ese día tiene un cambio de descanso reciente (dentro de los 30 min de aprobado). "
+                "Cancélalo primero, o espera a que pase la ventana de cancelación para volver a "
+                "intentar el intercambio."
             )
 
-        # 2) Turno real sin tipo_cambio (horario base materializado) → trabaja.
+        # 2) Turno real (importado, o CAMBIO DESCANSO ya fuera de la ventana) → trabaja.
+        # En fin de semana el día completo es AM+PM (DOBLADA); si el Turno real es de
+        # MEDIA jornada (solo AM o solo PM, por un cambio previo), no hay día completo
+        # para intercambiar.
+        turnos = list(Turno.objects.filter(explorador=explorador, fecha=fecha))
         if turnos:
+            js = {t.jornada.nombre.upper() for t in turnos if t.jornada}
+            if not ({'AM', 'PM'} <= js):
+                jornada_parcial = 'AM' if 'AM' in js else ('PM' if 'PM' in js else 'parcial')
+                return False, (
+                    f"Solo tienes media jornada ({jornada_parcial}) ese día por un cambio previo; "
+                    "no tienes el día completo del fin de semana para el intercambio."
+                )
             t = TurnoService.get_turno_explorador(explorador.id, fecha.strftime('%Y-%m-%d'))
             return True, (t.get('jornada') if t else 'TRABAJA')
 
-        # 3) ¿Ya cedió este día en otra solicitud de cambio de descanso aprobada (lado descanso)?
-        if fecha in CambioDescansoAplicacionService.dias_en_descanso(explorador, fecha, fecha):
-            return False, "Día ya comprometido en otro cambio de descanso"
-
-        # 4) Turno virtual (predeterminado)
+        # 3) Turno virtual (predeterminado)
         t = TurnoService.get_turno_explorador(explorador.id, fecha.strftime('%Y-%m-%d'))
         if not t:
             return False, "Descanso"
@@ -274,7 +290,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             # El solicitante debe tener UN turno (su jornada base) en fecha_cesion
             tiene_turno_sol_ces, jor_sol_ces = self._trabaja_dia(solicitante, fecha_cesion)
             if not tiene_turno_sol_ces:
-                return False, (
+                return False, jor_sol_ces or (
                     f"No tienes un turno válido el {fecha_cesion.strftime('%d/%m/%Y')}. "
                     f"No puedes cambiar descanso sin tu turno normal."
                 )
@@ -282,7 +298,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             otro_dia_cesion = self._otro_dia_finde(fecha_cesion)
             tiene_turno_rec_otro, jor_rec_otro = self._trabaja_dia(receptor, otro_dia_cesion)
             if not tiene_turno_rec_otro:
-                return False, (
+                return False, jor_rec_otro or (
                     f"Tu compañero no tiene un turno válido el {otro_dia_cesion.strftime('%d/%m/%Y')}. "
                     f"No puede hacer el intercambio."
                 )
@@ -307,7 +323,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             # El solicitante debe tener UN turno (su jornada base) en fecha_pago
             tiene_turno_sol_pago, jor_sol_pago = self._trabaja_dia(solicitante, fecha_pago)
             if not tiene_turno_sol_pago:
-                return False, (
+                return False, jor_sol_pago or (
                     f"No tienes un turno válido el {fecha_pago.strftime('%d/%m/%Y')} (devolución). "
                     f"No puedes completar el intercambio."
                 )
@@ -315,7 +331,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             otro_dia_pago = self._otro_dia_finde(fecha_pago)
             tiene_turno_rec_otro_pago, jor_rec_otro_pago = self._trabaja_dia(receptor, otro_dia_pago)
             if not tiene_turno_rec_otro_pago:
-                return False, (
+                return False, jor_rec_otro_pago or (
                     f"Tu compañero no tiene un turno válido el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución). "
                     f"No puede completar el intercambio."
                 )

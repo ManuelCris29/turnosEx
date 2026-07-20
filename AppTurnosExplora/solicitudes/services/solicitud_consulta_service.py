@@ -5,6 +5,7 @@ Responsabilidad única: Consultar y filtrar solicitudes según diferentes criter
 """
 from django.db.models import Q
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
+from core.utils.date_utils import DateUtils
 from datetime import datetime
 import logging
 
@@ -234,7 +235,7 @@ class SolicitudConsultaService:
                         'solicitud_id': solicitud.id,
                         'companero_nombre': solicitud.explorador_receptor.nombre,
                         'rol': 'solicitante',
-                        'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                        'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
                     }
             
             # Para turno_destino (receptor)
@@ -244,7 +245,7 @@ class SolicitudConsultaService:
                         'solicitud_id': solicitud.id,
                         'companero_nombre': solicitud.explorador_solicitante.nombre,
                         'rol': 'receptor',
-                        'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                        'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
                     }
         
         return solicitudes_info

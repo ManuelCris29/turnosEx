@@ -4,6 +4,7 @@ Responsabilidad única: Conversión y formateo de fechas.
 """
 from datetime import datetime, date
 from typing import Union
+from django.utils import timezone as _tz
 
 
 class DateUtils:
@@ -71,14 +72,24 @@ class DateUtils:
     @staticmethod
     def format_datetime_display(dt: datetime) -> str:
         """
-        Formatea un datetime para mostrar al usuario (DD/MM/YYYY HH:MM).
-        
+        Formatea un datetime para mostrar al usuario (DD/MM/YYYY HH:MM), en hora LOCAL
+        (TIME_ZONE, America/Bogota).
+
+        Con USE_TZ=True los datetimes del ORM son aware en UTC internamente; formatear con
+        strftime() directo imprime la hora UTC cruda (5h adelantada respecto a Bogotá). Hay que
+        convertir con `timezone.localtime()` antes, igual que hacen los filtros de plantilla
+        `{{ ...|date }}` / `{{ ...|time }}`.
+
         Args:
-            dt: Objeto datetime
-            
+            dt: Objeto datetime (aware o naive)
+
         Returns:
             String en formato 'DD/MM/YYYY HH:MM'
         """
-        return dt.strftime(DateUtils.DISPLAY_DATETIME_FORMAT) if dt else None
+        if not dt:
+            return None
+        if _tz.is_aware(dt):
+            dt = _tz.localtime(dt)
+        return dt.strftime(DateUtils.DISPLAY_DATETIME_FORMAT)
 
 

@@ -40,7 +40,7 @@ class Notificacion(models.Model):
 
 class TipoSolicitudCambio(models.Model):
     """Modelo para representar los tipos de solicitudes de cambio de turno."""
-    nombre = models.CharField(max_length=50)
+    nombre = models.CharField(max_length=50, unique=True)
     codigo_estrategia = models.CharField(
         max_length=50, 
         null=True, 

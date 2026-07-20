@@ -247,6 +247,75 @@ class CDConcurrenciaReceptorTest(CDBaseTest):
         self.assertFalse(ok2, f"B debió bloquearse (receptor ya comprometido por A). msg={msg2}")
 
 
+class CDVentanaCancelacionTest(CDBaseTest):
+    """Pasados los 30 min de aprobada, un finde ya intercambiado puede volver a intercambiarse
+    (el balance de sábados/domingos siempre se mantiene, salvo advertencia de 5 findes que es solo
+    informativa); dentro de la ventana sigue bloqueado para no romper un posible revert/LIFO.
+    Ver CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio."""
+
+    def _crear_y_aplicar(self, resuelta_hace_minutos=0):
+        sol = self._crear()
+        sol.estado = 'aprobada'
+        sol.fecha_resolucion = timezone.now() - timedelta(minutes=resuelta_hace_minutos)
+        sol.save()
+        ok, msg = self.strat.aplicar_cambios(sol)
+        self.assertTrue(ok, msg)
+        return sol
+
+    def _datos_reintercambio(self):
+        """Los MISMOS dos compañeros vuelven a intercambiar el mismo finde (roles invertidos:
+        ahora el receptor original cede lo que recibió). Estructuralmente es el único par válido
+        sobre ese finde concreto, porque tras aplicar A cada uno tiene un turno REAL en un día
+        distinto del finde (no se puede meter a un tercero sin liberar antes esos turnos)."""
+        return self._datos(
+            explorador_solicitante=self.receptor,
+            explorador_receptor=self.solicitante,
+        )
+
+    def test_dentro_de_ventana_bloqueado(self):
+        self._crear_y_aplicar(resuelta_hace_minutos=5)  # recién aprobada, aún cancelable
+        ok, msg = self.strat.validar_solicitud(self._datos_reintercambio())
+        self.assertFalse(ok, f"Dentro de la ventana de 30 min debe seguir bloqueado. msg={msg}")
+
+    def test_pasada_la_ventana_se_puede_reintercambiar(self):
+        self._crear_y_aplicar(resuelta_hace_minutos=31)  # ya no es cancelable
+        ok, msg = self.strat.validar_solicitud(self._datos_reintercambio())
+        self.assertTrue(ok, f"Pasada la ventana debe poder reintercambiarse. msg={msg}")
+
+    def test_otro_tipo_de_cambio_sigue_bloqueado_permanentemente(self):
+        # DOBLADA (u otro tipo distinto de CAMBIO DESCANSO): bloqueo PERMANENTE, sin ventana.
+        Turno.objects.create(explorador=self.solicitante, fecha=self.ces, jornada=self.am,
+                             sala=self.sala, tipo_cambio='DOBLADA')
+        Turno.objects.create(explorador=self.solicitante, fecha=self.ces, jornada=self.pm,
+                             sala=self.sala, tipo_cambio='DOBLADA')
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+
+    def test_5_findes_solo_advertencia_no_bloqueo(self):
+        # La advertencia de mes con 5 domingos es informativa; no debe bloquear la validación.
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertTrue(ok, msg)
+
+    def test_dia_bloqueado_para_nuevo_cambio_directo(self):
+        sol = self._crear_y_aplicar(resuelta_hace_minutos=5)
+        self.assertTrue(
+            CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.receptor, self.ces),
+            "Dentro de la ventana, el lado que ahora TRABAJA (receptor) debe seguir bloqueado")
+        self.assertTrue(
+            CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.solicitante, self.ces),
+            "Dentro de la ventana, el lado que ahora DESCANSA (solicitante) debe seguir bloqueado")
+
+        sol.fecha_resolucion = timezone.now() - timedelta(minutes=31)
+        sol.save()
+
+        self.assertFalse(
+            CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.receptor, self.ces),
+            "Pasada la ventana, el lado que TRABAJA debe quedar libre")
+        self.assertFalse(
+            CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.solicitante, self.ces),
+            "Pasada la ventana, el lado que DESCANSA debe quedar libre")
+
+
 class CDRevalidacionTest(CDBaseTest):
     def test_revalidacion_ok_no_se_autobloquea_por_duplicado(self):
         # La solicitud existe (pendiente). Al re-validar para aprobar NO debe verse a sí

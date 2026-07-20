@@ -158,6 +158,14 @@ class DFDSStrategy(SolicitudStrategy):
             sol_trabaja_ces_por_turno = (
                 est_sol_ces_pre.get('trabaja') and est_sol_ces_pre.get('fuente') == 'turno'
             )
+            # Si el Turno real es de MEDIA jornada (solo AM o solo PM, por un cambio previo),
+            # no tiene el día completo del finde para ceder: un finde normal es DOBLADA (AM+PM).
+            if sol_trabaja_ces_por_turno and est_sol_ces_pre.get('jornada') != 'DOBLADA':
+                return False, (
+                    f"El {fecha_cesion.strftime('%d/%m/%Y')} solo tienes media jornada "
+                    f"({est_sol_ces_pre.get('jornada') or 'parcial'}) por un cambio previo; "
+                    "no tienes el día completo del fin de semana para ceder en D FDS."
+                )
             from turnos.services.asignacion_especial_service import AsignacionEspecialService
             if not sol_trabaja_ces_por_turno:
                 # Alternancia EFECTIVA: respeta el override manual del finde si existe.
@@ -178,6 +186,14 @@ class DFDSStrategy(SolicitudStrategy):
             rec_trabaja_pago_por_turno = (
                 est_rec_pago_pre.get('trabaja') and est_rec_pago_pre.get('fuente') == 'turno'
             )
+            # Mismo criterio: si el receptor solo tiene media jornada real ese día de pago,
+            # no puede recibir la doblada (no hay día completo que "devolver").
+            if rec_trabaja_pago_por_turno and est_rec_pago_pre.get('jornada') != 'DOBLADA':
+                return False, (
+                    f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) tu compañero solo tiene "
+                    f"media jornada ({est_rec_pago_pre.get('jornada') or 'parcial'}) por un cambio previo; "
+                    "no hay día completo del fin de semana para cubrir."
+                )
             if not rec_trabaja_pago_por_turno:
                 trabaja_pago = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_pago)
                 if not trabaja_pago:
@@ -319,9 +335,16 @@ class DFDSStrategy(SolicitudStrategy):
             if not fecha_obj or fecha_obj.weekday() not in (5, 6):
                 return []
 
+            from turnos.services.turno_service import TurnoService
+
             grupo_sol = self._grupo_base(usuario_actual, fecha_obj)
             if not grupo_sol:
                 return []
+            # Si el solicitante ya tiene un Turno real ese día (fuente='turno', p.ej. por un
+            # cambio previo que lo dejó con media jornada), ese es su grupo efectivo real.
+            est_sol = TurnoService.estado_dia(usuario_actual, fecha_obj)
+            if est_sol.get('trabaja') and est_sol.get('fuente') == 'turno' and est_sol.get('jornada') in ('AM', 'PM'):
+                grupo_sol = est_sol['jornada']
             grupo_contrario = 'PM' if grupo_sol == 'AM' else 'AM'
 
             from turnos.models import AsignarJornadaExplorador
@@ -341,7 +364,30 @@ class DFDSStrategy(SolicitudStrategy):
             ):
                 bases.setdefault(asg.explorador_id, asg.jornada.nombre.upper())
 
-            return [e for e in empleados if bases.get(e.id) == grupo_contrario]
+            # Grupo EFECTIVO de cada candidato: si tiene un Turno real ese día (fuente='turno',
+            # p.ej. media jornada por un cambio previo), ese Turno manda sobre la jornada base
+            # (igual que en validar_solicitud). Se calcula en 1 sola query batch, no N+1.
+            from turnos.models import Turno
+
+            jornadas_reales = {}
+            for t in (
+                Turno.objects
+                .filter(explorador__in=empleados, fecha=fecha_obj)
+                .select_related('jornada')
+                .only('explorador_id', 'jornada__nombre')
+            ):
+                if t.jornada:
+                    jornadas_reales.setdefault(t.explorador_id, set()).add(t.jornada.nombre.upper())
+
+            grupos_efectivos = dict(bases)
+            for emp_id, js in jornadas_reales.items():
+                if 'AM' in js and 'PM' not in js:
+                    grupos_efectivos[emp_id] = 'AM'
+                elif 'PM' in js and 'AM' not in js:
+                    grupos_efectivos[emp_id] = 'PM'
+                # AM+PM (ya doblado ese día): se mantiene la base, no aplica override.
+
+            return [e for e in empleados if grupos_efectivos.get(e.id) == grupo_contrario]
         except Exception:
             return []
 

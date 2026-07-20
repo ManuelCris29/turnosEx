@@ -6,6 +6,7 @@ from django.db.models import Q
 from turnos.models import Turno, AsignarJornadaExplorador, DiaEspecial
 from turnos.services.turno_service import TurnoService
 from turnos.services.temporada_service import TemporadaService
+from core.utils.date_utils import DateUtils
 from datetime import datetime, timedelta, date
 
 
@@ -866,7 +867,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                                 'solicitud_id': solicitud.id,
                                 'companero_nombre': solicitud.explorador_receptor.nombre,
                                 'rol': 'solicitante',
-                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                                'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
                             }
                     
                     # Para turno_destino (receptor)
@@ -876,7 +877,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                                 'solicitud_id': solicitud.id,
                                 'companero_nombre': solicitud.explorador_solicitante.nombre,
                                 'rol': 'receptor',
-                                'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                                'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
                             }
             
             # Agregar información de solicitudes a los turnos
@@ -1034,7 +1035,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                             'solicitud_id': sol.id,
                             'companero_nombre': doblada_info['companero'],
                             'rol': doblada_info['rol'],
-                            'fecha_resolucion': sol.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if sol.fecha_resolucion else None
+                            'fecha_resolucion': DateUtils.format_datetime_display(sol.fecha_resolucion)
                         }
             
             # Adjuntar el permiso especial (si lo hay) a cada día — antes de cachear

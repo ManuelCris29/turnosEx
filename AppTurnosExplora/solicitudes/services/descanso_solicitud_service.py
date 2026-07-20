@@ -32,6 +32,7 @@ que se aplica realmente.
 `estado_dia`/`estado_mes` (TurnoService) y el endpoint `mis-turnos-por-mes` delegan aquí.
 """
 from datetime import date, timedelta
+from core.utils.date_utils import DateUtils
 
 
 class DescansoPorSolicitudService:
@@ -104,8 +105,8 @@ class DescansoPorSolicitudService:
                     'fecha_pago': _fmt(det.fecha_pago) if det else None,
                     'tipo_cesion': det.get_tipo_cesion_display() if det else None,
                     'jornada_cedida': (det.jornada_cedida if det and det.jornada_cedida else None),
-                    'fecha_solicitud': (s.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if s.fecha_solicitud else None),
-                    'fecha_aprobacion': (s.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if s.fecha_resolucion else None),
+                    'fecha_solicitud': DateUtils.format_datetime_display(s.fecha_solicitud),
+                    'fecha_aprobacion': DateUtils.format_datetime_display(s.fecha_resolucion),
                 })
 
         # ---------- DOBLADA / D FDS: el RECEPTOR descansa en el pago ----------
@@ -140,8 +141,8 @@ class DescansoPorSolicitudService:
                     'fecha_pago': _fmt(det.fecha_pago) if det else None,
                     'tipo_cesion': det.get_tipo_cesion_display() if det else None,
                     'jornada_cedida': (det.jornada_cedida if det and det.jornada_cedida else None),
-                    'fecha_solicitud': (s.fecha_solicitud.strftime('%d/%m/%Y %H:%M') if s.fecha_solicitud else None),
-                    'fecha_aprobacion': (s.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if s.fecha_resolucion else None),
+                    'fecha_solicitud': DateUtils.format_datetime_display(s.fecha_solicitud),
+                    'fecha_aprobacion': DateUtils.format_datetime_display(s.fecha_resolucion),
                 })
 
         # ---------- CAMBIO DESCANSO (intercambio de día): fuente de verdad ----------

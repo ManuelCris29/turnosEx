@@ -12,6 +12,7 @@ from solicitudes.models import SolicitudCambio
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service, get_turno_service
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -464,7 +465,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                         comentario_trazabilidad.append(
                             f"Actualización: cambio previo reemplazado. "
                             f"Solicitud anterior ID: {solicitud_anterior_solicitante.id} "
-                            f"(aprobada el {solicitud_anterior_solicitante.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_anterior_solicitante.fecha_resolucion else 'N/A'})"
+                            f"(aprobada el {DateUtils.format_datetime_display(solicitud_anterior_solicitante.fecha_resolucion) or 'N/A'})"
                         )
                         solicitud.solicitud_origen = solicitud_anterior_solicitante
                         logger.info(
@@ -511,7 +512,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                         comentario_trazabilidad_receptor = (
                             f"Actualización (receptor): cambio previo reemplazado. "
                             f"Solicitud anterior ID: {solicitud_anterior_receptor.id} "
-                            f"(aprobada el {solicitud_anterior_receptor.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud_anterior_receptor.fecha_resolucion else 'N/A'})"
+                            f"(aprobada el {DateUtils.format_datetime_display(solicitud_anterior_receptor.fecha_resolucion) or 'N/A'})"
                         )
                         comentario_actual = solicitud.comentario or ""
                         solicitud.comentario = "\n\n".join([comentario_actual, comentario_trazabilidad_receptor]) if comentario_actual else comentario_trazabilidad_receptor

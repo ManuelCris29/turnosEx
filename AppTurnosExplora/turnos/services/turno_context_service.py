@@ -8,6 +8,7 @@ from django.db.models import Q
 from turnos.models import Turno, AsignarJornadaExplorador
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
+from core.utils.date_utils import DateUtils
 import logging
 
 logger = logging.getLogger(__name__)
@@ -245,7 +246,7 @@ class TurnoContextService:
                             'solicitud_id': solicitud.id,
                             'companero_nombre': solicitud.explorador_receptor.nombre,
                             'rol': 'solicitante',
-                            'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                            'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
                         }
                 
                 # Para turno_destino (receptor)
@@ -255,7 +256,7 @@ class TurnoContextService:
                             'solicitud_id': solicitud.id,
                             'companero_nombre': solicitud.explorador_solicitante.nombre,
                             'rol': 'receptor',
-                            'fecha_resolucion': solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') if solicitud.fecha_resolucion else None
+                            'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
                         }
         
         # Convertir fechas a strings para JSON (solo mes actual)

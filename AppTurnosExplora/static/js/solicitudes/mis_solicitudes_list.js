@@ -103,6 +103,21 @@ function agruparFechasExcluidas(fechasExcluidas) {
     return html;
 }
 
+function colorTipoBadge(tipoCodigo) {
+    const t = (tipoCodigo || '').toUpperCase();
+    const mapa = {
+        'CAMBIO DESCANSO': 'warning',
+        'CAMBIO_DESCANSO': 'warning',
+        'CT': 'primary',
+        'CAMBIO DE TURNO': 'primary',
+        'CT PERMANENTE': 'info',
+        'DOBLADA': 'success',
+        'D FDS': 'success',
+        'DOBLADA PERMANENTE': 'dark',
+    };
+    return mapa[t] || 'secondary';
+}
+
 function renderizarDetalleSolicitud(data) {
     const modalContent = document.getElementById('detalleSolicitudContent');
     
@@ -149,8 +164,8 @@ function renderizarDetalleSolicitud(data) {
                                 <p class="mb-0">${datos.fecha_solicitud || 'No especificada'}</p>
                             </div>
                             <div class="col-md-6 mb-3">
-                                <strong><i class="fas fa-tag mr-2"></i>Tipo:</strong>
-                                <p class="mb-0"><span class="badge badge-primary">${datos.tipo}</span></p>
+                                <strong><i class="fas fa-tag mr-2"></i>Tipo de formulario:</strong>
+                                <p class="mb-0"><span class="badge badge-${colorTipoBadge(datos.tipo_codigo || datos.tipo)}" style="font-size: 0.95em;">${datos.tipo}</span></p>
                             </div>
                             <div class="col-md-6 mb-3">
                                 <strong><i class="fas fa-check-circle mr-2"></i>Estado:</strong>
@@ -208,8 +223,14 @@ function renderizarDetalleSolicitud(data) {
                     <div class="card-body">
                         ${datos.fechas.fecha_cambio ? `
                             <div class="mb-3">
-                                <strong><i class="fas fa-calendar-day mr-2"></i>Fecha del Cambio:</strong>
+                                <strong><i class="fas fa-calendar-day mr-2"></i>Fecha del Cambio de Turno:</strong>
                                 <p class="mb-0">${datos.fechas.fecha_cambio}</p>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.fecha_cesion ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-hand-paper mr-2 text-success"></i>Fecha de Cesión (día que cedes/descansas):</strong>
+                                <p class="mb-0">${datos.fechas.fecha_cesion}</p>
                             </div>
                         ` : ''}
                         ${datos.fechas.fecha_doblada ? `
@@ -294,6 +315,38 @@ function renderizarDetalleSolicitud(data) {
                                 <p class="mb-0"><span class="badge badge-primary">${datos.fechas.total_dias} día${datos.fechas.total_dias !== 1 ? 's' : ''}</span></p>
                             </div>
                         ` : ''}
+                        ${datos.fechas.cesion_aplicables && datos.fechas.cesion_aplicables.length > 0 ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas de Cesión Aplicables (te cubre el compañero):</strong>
+                                <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                                    <p class="mb-0 small">${datos.fechas.cesion_aplicables.join(', ')}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.cesion_excluidas && datos.fechas.cesion_excluidas.length > 0 ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas de Cesión Excluidas:</strong>
+                                <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                                    ${agruparFechasExcluidas(datos.fechas.cesion_excluidas)}
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.devolucion_aplicables && datos.fechas.devolucion_aplicables.length > 0 ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas de Devolución Aplicables (te doblas tú):</strong>
+                                <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                                    <p class="mb-0 small">${datos.fechas.devolucion_aplicables.join(', ')}</p>
+                                </div>
+                            </div>
+                        ` : ''}
+                        ${datos.fechas.devolucion_excluidas && datos.fechas.devolucion_excluidas.length > 0 ? `
+                            <div class="mb-3">
+                                <strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas de Devolución Excluidas:</strong>
+                                <div class="mt-2" style="max-height: 200px; overflow-y: auto;">
+                                    ${agruparFechasExcluidas(datos.fechas.devolucion_excluidas)}
+                                </div>
+                            </div>
+                        ` : ''}
                         ${datos.fechas.aplicables && datos.fechas.aplicables.length > 0 ? `
                             <div class="mb-3">
                                 <strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas Aplicables:</strong>
@@ -333,10 +386,10 @@ function renderizarDetalleSolicitud(data) {
                                 <p class="mb-0">${datos.fechas.fecha_pago}</p>
                             </div>
                         ` : ''}
-                        ${datos.informacion_adicional.fecha_pago ? `
+                        ${datos.informacion_adicional.jornada_cedida_partida ? `
                             <div class="mb-3">
-                                <strong><i class="fas fa-money-bill mr-2"></i>Fecha de Pago:</strong>
-                                <p class="mb-0">${datos.informacion_adicional.fecha_pago}</p>
+                                <strong><i class="fas fa-clock mr-2 text-success"></i>Jornada que cedes (jornada partida):</strong>
+                                <p class="mb-0">${datos.informacion_adicional.jornada_cedida_partida}</p>
                             </div>
                         ` : ''}
                         ${datos.informacion_adicional.te_cubren ? `
@@ -375,11 +428,16 @@ function renderizarDetalleSolicitud(data) {
                                 <p class="mb-0">${datos.informacion_adicional.jornada_receptor}</p>
                             </div>
                         ` : ''}
+                        ${datos.informacion_adicional.nota_jornadas ? `
+                            <div class="alert alert-info mb-0">
+                                <i class="fas fa-info-circle mr-2"></i><small>${datos.informacion_adicional.nota_jornadas}</small>
+                            </div>
+                        ` : ''}
                     </div>
                 </div>
             </div>
             ` : ''}
-            
+
             <!-- Aprobaciones -->
             <div class="col-12 mb-4">
                 <div class="card border-0 shadow-sm">

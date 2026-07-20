@@ -90,6 +90,95 @@ class DobladaPermanenteAplicacionService:
         return sorted(out)
 
     @staticmethod
+    def calcular_fechas_aplicables_y_excluidas(detalle, solicitante, receptor):
+        """
+        Fechas CONCRETAS de cesión y devolución dentro del rango vigente, con las mismas reglas
+        de elegibilidad y de balance (recorte al mínimo común) que `aplicar()`, para mostrarlas
+        en el detalle de la solicitud (igual que hace CT Permanente).
+
+        Returns:
+            {'cesion': {'aplicables': [date], 'excluidas': [{'fecha': date, 'razon': str}]},
+             'devolucion': {'aplicables': [date], 'excluidas': [{'fecha': date, 'razon': str}]}}
+        """
+        from .ct_permanente_helper import _jornada_doblada_perm, _motivo_no_doblada_perm
+
+        fi = detalle.fecha_inicio
+        ff = detalle.fecha_fin or date(fi.year, 12, 31)
+
+        def _elegible(d):
+            js = _jornada_doblada_perm(solicitante, d)
+            jr = _jornada_doblada_perm(receptor, d)
+            if js is not None and jr is not None and js != jr:
+                return True, None
+            razon = (
+                _motivo_no_doblada_perm(solicitante, d)
+                or _motivo_no_doblada_perm(receptor, d)
+                or 'Sin jornada única disponible'
+            )
+            return False, razon
+
+        def _explorar_dias_semana(dias_set):
+            aplicables = []
+            excluidas = []
+            d = fi
+            while d <= ff:
+                if d.weekday() in dias_set and d.weekday() < 5:
+                    ok, razon = _elegible(d)
+                    if ok:
+                        aplicables.append(d)
+                    else:
+                        excluidas.append({'fecha': d, 'razon': razon})
+                d += timedelta(days=1)
+            return aplicables, excluidas
+
+        def _explorar_fechas_especificas(fechas_csv):
+            aplicables = []
+            excluidas = []
+            for s in (fechas_csv or '').split(','):
+                s = s.strip()
+                if not s:
+                    continue
+                try:
+                    d = date.fromisoformat(s)
+                except ValueError:
+                    continue
+                if not (fi <= d <= ff and d.weekday() < 5):
+                    continue
+                ok, razon = _elegible(d)
+                if ok:
+                    aplicables.append(d)
+                else:
+                    excluidas.append({'fecha': d, 'razon': razon})
+            return sorted(aplicables), sorted(excluidas, key=lambda x: x['fecha'])
+
+        fces = getattr(detalle, 'fechas_cesion', '') or ''
+        fdev = getattr(detalle, 'fechas_devolucion', '') or ''
+        if fces or fdev:
+            ces_ap, ces_ex = _explorar_fechas_especificas(fces)
+            dev_ap, dev_ex = _explorar_fechas_especificas(fdev)
+        else:
+            dias_cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
+            dias_devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
+            ces_ap, ces_ex = _explorar_dias_semana(dias_cesion)
+            dev_ap, dev_ex = _explorar_dias_semana(dias_devolucion)
+
+        # Balance: igual que aplicar(), solo se aplican PARES completos (recorte al mínimo común).
+        n = min(len(ces_ap), len(dev_ap))
+        for fecha in ces_ap[n:]:
+            ces_ex.append({'fecha': fecha, 'razon': 'Sin par de devolución disponible (balance)'})
+        for fecha in dev_ap[n:]:
+            dev_ex.append({'fecha': fecha, 'razon': 'Sin par de cesión disponible (balance)'})
+        ces_ap, dev_ap = ces_ap[:n], dev_ap[:n]
+
+        ces_ex.sort(key=lambda x: x['fecha'])
+        dev_ex.sort(key=lambda x: x['fecha'])
+
+        return {
+            'cesion': {'aplicables': ces_ap, 'excluidas': ces_ex},
+            'devolucion': {'aplicables': dev_ap, 'excluidas': dev_ex},
+        }
+
+    @staticmethod
     def _deuda(explorador, fecha, solicitud, etiqueta):
         # Los 30 min solo aplican de lunes a viernes (no sábados ni festivos:
         # esos días se trabaja jornada completa). Los festivos/domingos ya se
