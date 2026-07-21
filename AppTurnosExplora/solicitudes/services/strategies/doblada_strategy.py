@@ -213,37 +213,7 @@ class DobladaStrategy(SolicitudStrategy):
             # Requiere que AMBOS tengan DOBLADA (AM+PM) en su día: solicitante en el día A
             # (fecha de cesión) y receptor en el día B (fecha de pago), con A != B.
             if datos.get('es_intercambio'):
-                from turnos.services.turno_service import TurnoService as _TSint
-                fp_obj = DateUtils.parse_date(fecha_pago)
-                if not fp_obj:
-                    return False, "La fecha del día B (doblada del compañero) no es válida."
-                if fp_obj < fecha_actual:
-                    return False, f"El día B ({fp_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
-                if fecha_cesion_obj == fp_obj:
-                    return False, "Para intercambiar dobladas, el día A y el día B deben ser distintos."
-                if _TSint.estado_dia(explorador_solicitante, fecha_cesion_obj).get('jornada') != 'DOBLADA':
-                    return False, (f"Para intercambiar, debes tener una DOBLADA (AM+PM) el "
-                                   f"{fecha_cesion_obj.strftime('%d/%m/%Y')}.")
-                if _TSint.estado_dia(explorador_receptor, fp_obj).get('jornada') != 'DOBLADA':
-                    return False, (f"El compañero debe tener una DOBLADA (AM+PM) el "
-                                   f"{fp_obj.strftime('%d/%m/%Y')} para intercambiar.")
-                # El que ASUME la doblada del otro debe estar LIBRE ese día: una doblada es AM+PM
-                # (día completo), así que si ya trabaja no puede cubrirla. Simétrico en ambos días.
-                if _TSint.estado_dia(explorador_receptor, fecha_cesion_obj).get('trabaja'):
-                    return False, (f"El compañero no está libre el {fecha_cesion_obj.strftime('%d/%m/%Y')}: "
-                                   f"ese día ya trabaja y no puede cubrir tu doblada. Elige un compañero que "
-                                   f"descanse ese día.")
-                if _TSint.estado_dia(explorador_solicitante, fp_obj).get('trabaja'):
-                    return False, (f"No estás libre el {fp_obj.strftime('%d/%m/%Y')} (día de la doblada del "
-                                   f"compañero): ese día ya trabajas y no puedes cubrirla.")
-                if _TSint.dia_comprometido_por_solicitud(explorador_solicitante, fecha_cesion_obj):
-                    return False, (f"Tu doblada del {fecha_cesion_obj.strftime('%d/%m/%Y')} ya está "
-                                   f"comprometida en otra solicitud aprobada.")
-                if _TSint.dia_comprometido_por_solicitud(explorador_receptor, fp_obj):
-                    return False, (f"La doblada del compañero del {fp_obj.strftime('%d/%m/%Y')} ya está "
-                                   f"comprometida en otra solicitud aprobada.")
-                return True, "Intercambio de dobladas válido."
-
+                return DobladaStrategy._validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago, fecha_actual)
             # Validar acuerdo previo obligatorio
             SolicitudValidator.validar_acuerdo_previo_obligatorio(
                 fecha_cesion,
@@ -447,130 +417,9 @@ class DobladaStrategy(SolicitudStrategy):
             es_pago_sabado = fecha_pago_obj.weekday() == 5 and jornada_pago_sabado
 
             if es_pago_sabado:
-                jornada_pago_sabado_upper = str(jornada_pago_sabado).upper()
-                if jornada_pago_sabado_upper not in ("AM", "PM", "AMBAS"):
-                    logger.warning(f"Validación fallida: jornada_pago_sabado inválida: {jornada_pago_sabado}")
-                    return False, "Para pagar en sábado debes seleccionar una jornada válida (AM, PM o ambas)."
-
-                # Validar que el receptor TRABAJA ese sábado según alternancia
-                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_pago_obj)
-                if not jornada_trabaja_sabado:
-                    logger.warning(f"Validación fallida: no se pudo determinar alternancia para {fecha_pago_obj}")
-                    return False, "No se pudo determinar la alternancia para el sábado seleccionado."
-
-                # Si el receptor tiene un Turno REAL en ese sábado (p. ej. por un cambio de
-                # descanso previo que le asignó ese día), ese turno es la fuente de verdad:
-                # ya trabaja ahí independientemente de la alternancia.
-                from turnos.services.turno_service import TurnoService
-                estado_receptor_sab = TurnoService.estado_dia(explorador_receptor, fecha_pago_obj)
-                receptor_trabaja_sab_por_turno = (
-                    estado_receptor_sab.get('trabaja') and
-                    estado_receptor_sab.get('fuente') == 'turno'
-                )
-
-                jornada_receptor_pago = JornadaService.get_jornada_explorador_fecha(
-                    explorador_receptor.id, fecha_pago_obj.strftime('%Y-%m-%d')
-                )
-                if not jornada_receptor_pago:
-                    logger.warning(f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_pago_obj}")
-                    return False, "El receptor no tiene jornada asignada para la fecha de pago (sábado)."
-
-                if not receptor_trabaja_sab_por_turno and jornada_receptor_pago.nombre.upper() != jornada_trabaja_sabado:
-                    logger.warning(
-                        f"Validación fallida: receptor {explorador_receptor.id} tiene {jornada_receptor_pago.nombre.upper()} "
-                        f"pero debe ser {jornada_trabaja_sabado} para sábado {fecha_pago_obj}"
-                    )
-                    return False, (
-                        f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')}, el receptor debe ser del grupo "
-                        f"que trabaja ese sábado ({jornada_trabaja_sabado}). El receptor tiene {jornada_receptor_pago.nombre.upper()}."
-                    )
-
-                # ===========================
-                # Validar que sábado de pago corresponda a jornada del receptor (quien hizo doble turno)
-                # ===========================
-                # Regla de negocio:
-                # - Si cedes jornada AM → receptor es PM → sábado de pago debe ser para PM
-                # - Si cedes jornada PM → receptor es AM → sábado de pago debe ser para AM
-                # Excepción: si el receptor tiene un Turno real en ese sábado (p. ej. swapeado
-                # por un cambio de descanso previo), esa asignación real supera a la alternancia.
-                jornada_a_ceder = None
-                if jornada_cedida:
-                    jornada_a_ceder = jornada_cedida.upper()
-                else:
-                    jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
-                        explorador_solicitante.id, fecha_cesion
-                    )
-                    if jornada_solicitante:
-                        jornada_a_ceder = jornada_solicitante.nombre.upper()
-
-                if jornada_a_ceder and not receptor_trabaja_sab_por_turno:
-                    jornada_receptor_cesion = JornadaService.get_jornada_explorador_fecha(
-                        explorador_receptor.id, fecha_cesion
-                    )
-                    if not jornada_receptor_cesion:
-                        logger.warning(
-                            f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_cesion}"
-                        )
-                        return False, "El receptor no tiene jornada asignada para la fecha de cesión."
-
-                    jornada_receptor_nombre = jornada_receptor_cesion.nombre.upper()
-
-                    if jornada_receptor_nombre != jornada_trabaja_sabado:
-                        logger.warning(
-                            f"Validación fallida: receptor {explorador_receptor.id} tiene jornada {jornada_receptor_nombre} "
-                            f"pero el sábado {fecha_pago_obj} es para {jornada_trabaja_sabado}. "
-                            f"El sábado debe corresponder a la jornada del receptor (quien hizo el doble turno)."
-                        )
-                        return False, (
-                            f"No se puede realizar esta solicitud. El sábado {fecha_pago_obj.strftime('%d/%m/%Y')} "
-                            f"corresponde al turno {jornada_trabaja_sabado}, pero el compañero que cubrirá tu jornada "
-                            f"({jornada_a_ceder}) tiene jornada {jornada_receptor_nombre}. "
-                            f"El sábado de pago siempre debe coincidir con el turno de la persona que realizó el doble turno. "
-                            f"Por favor, selecciona otro sábado que corresponda al turno {jornada_receptor_nombre}."
-                        )
-
-                # ===========================
-                # Pago en sábado AMBAS: validar el día de devolución en semana
-                # ===========================
-                # Al cubrir el sábado completo, el receptor queda debiendo una jornada que devuelve
-                # un día de semana (lun-vie) del mismo mes; ese día el receptor dobla y el solicitante
-                # descansa, por lo que deben tener jornadas contrarias.
-                if jornada_pago_sabado_upper == 'AMBAS':
-                    if not fecha_pago_semana:
-                        return False, ("Al cubrir ambas jornadas el sábado, debes elegir el día de la semana "
-                                       "en que el compañero te devolverá la jornada.")
-                    fps_obj = DateUtils.parse_date(fecha_pago_semana)
-                    if not fps_obj:
-                        return False, "El día de pago en semana no es una fecha válida."
-                    if fps_obj.weekday() >= 5:
-                        return False, "El día de pago en semana debe ser de lunes a viernes."
-                    if (fps_obj.year, fps_obj.month) != (fecha_pago_obj.year, fecha_pago_obj.month):
-                        return False, "El día de pago en semana debe estar dentro del mismo mes que el sábado."
-                    from turnos.models import DiaEspecial
-                    if SolicitudValidator.es_festivo_semana(fps_obj) or DiaEspecial.es_mantenimiento_efectivo(fps_obj):
-                        return False, "El día de pago en semana no puede ser festivo ni de mantenimiento."
-                    if fps_obj < date.today():
-                        return False, "El día de pago en semana no puede ser en el pasado."
-                    j_sol = JornadaService.get_jornada_explorador_fecha(
-                        explorador_solicitante.id, fps_obj.strftime('%Y-%m-%d'))
-                    j_rec = JornadaService.get_jornada_explorador_fecha(
-                        explorador_receptor.id, fps_obj.strftime('%Y-%m-%d'))
-                    if not j_sol or not j_rec:
-                        return False, "No se pudo determinar la jornada de los exploradores en el día de pago en semana."
-                    if j_sol.nombre.upper() == j_rec.nombre.upper():
-                        # Reutiliza el mismo recuadro + botón "Ir a Cambio de Turno Sencillo"
-                        # que ya existe para la fecha de pago, pero apuntando al día de semana.
-                        return False, json.dumps({
-                            'code': 'requiere_cambio_turno_previo',
-                            'message': (
-                                f"El {fps_obj.strftime('%d/%m/%Y')} tú y el compañero tienen la misma jornada "
-                                f"({j_sol.nombre.upper()}). Para que él te pague (doblándose por ti) ese día deben "
-                                f"quedar en jornadas contrarias. Realiza primero un cambio de turno sencillo."
-                            ),
-                            'fecha_pago': str(fps_obj),
-                            'jornada_comun': j_sol.nombre.upper(),
-                        })
-
+                res = DobladaStrategy._validar_pago_en_sabado(explorador_solicitante, explorador_receptor, fecha_pago_obj, jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana)
+                if res is not None:
+                    return res
             # Cobertura explícita AM / PM / AMBAS cuando el receptor tiene doblada en fecha de pago (no aplica a pago sábado especial)
             if jornada_cubre_en_pago and jornada_cubre_en_pago not in ('AM', 'PM', 'AMBAS'):
                 return False, "Valor inválido para la jornada que cubrirás en la fecha de pago."
@@ -701,6 +550,169 @@ class DobladaStrategy(SolicitudStrategy):
             logger.error(f"Error validando doblada: {str(e)}", exc_info=True)
             return False, f"Error validando doblada: {str(e)}"
     
+
+    @staticmethod
+    def _validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago, fecha_actual) -> Tuple[bool, str]:
+        from turnos.services.turno_service import TurnoService as _TSint
+        fp_obj = DateUtils.parse_date(fecha_pago)
+        if not fp_obj:
+            return False, "La fecha del día B (doblada del compañero) no es válida."
+        if fp_obj < fecha_actual:
+            return False, f"El día B ({fp_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
+        if fecha_cesion_obj == fp_obj:
+            return False, "Para intercambiar dobladas, el día A y el día B deben ser distintos."
+        if _TSint.estado_dia(explorador_solicitante, fecha_cesion_obj).get('jornada') != 'DOBLADA':
+            return False, (f"Para intercambiar, debes tener una DOBLADA (AM+PM) el "
+                           f"{fecha_cesion_obj.strftime('%d/%m/%Y')}.")
+        if _TSint.estado_dia(explorador_receptor, fp_obj).get('jornada') != 'DOBLADA':
+            return False, (f"El compañero debe tener una DOBLADA (AM+PM) el "
+                           f"{fp_obj.strftime('%d/%m/%Y')} para intercambiar.")
+        # El que ASUME la doblada del otro debe estar LIBRE ese día: una doblada es AM+PM
+        # (día completo), así que si ya trabaja no puede cubrirla. Simétrico en ambos días.
+        if _TSint.estado_dia(explorador_receptor, fecha_cesion_obj).get('trabaja'):
+            return False, (f"El compañero no está libre el {fecha_cesion_obj.strftime('%d/%m/%Y')}: "
+                           f"ese día ya trabaja y no puede cubrir tu doblada. Elige un compañero que "
+                           f"descanse ese día.")
+        if _TSint.estado_dia(explorador_solicitante, fp_obj).get('trabaja'):
+            return False, (f"No estás libre el {fp_obj.strftime('%d/%m/%Y')} (día de la doblada del "
+                           f"compañero): ese día ya trabajas y no puedes cubrirla.")
+        if _TSint.dia_comprometido_por_solicitud(explorador_solicitante, fecha_cesion_obj):
+            return False, (f"Tu doblada del {fecha_cesion_obj.strftime('%d/%m/%Y')} ya está "
+                           f"comprometida en otra solicitud aprobada.")
+        if _TSint.dia_comprometido_por_solicitud(explorador_receptor, fp_obj):
+            return False, (f"La doblada del compañero del {fp_obj.strftime('%d/%m/%Y')} ya está "
+                           f"comprometida en otra solicitud aprobada.")
+        return True, "Intercambio de dobladas válido."
+
+
+    @staticmethod
+    def _validar_pago_en_sabado(explorador_solicitante, explorador_receptor, fecha_pago_obj, jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana) -> Optional[Tuple[bool, str]]:
+        from ..solicitud_validator import SolicitudValidator
+        jornada_pago_sabado_upper = str(jornada_pago_sabado).upper()
+        if jornada_pago_sabado_upper not in ("AM", "PM", "AMBAS"):
+            logger.warning(f"Validación fallida: jornada_pago_sabado inválida: {jornada_pago_sabado}")
+            return False, "Para pagar en sábado debes seleccionar una jornada válida (AM, PM o ambas)."
+
+        # Validar que el receptor TRABAJA ese sábado según alternancia
+        jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_pago_obj)
+        if not jornada_trabaja_sabado:
+            logger.warning(f"Validación fallida: no se pudo determinar alternancia para {fecha_pago_obj}")
+            return False, "No se pudo determinar la alternancia para el sábado seleccionado."
+
+        # Si el receptor tiene un Turno REAL en ese sábado (p. ej. por un cambio de
+        # descanso previo que le asignó ese día), ese turno es la fuente de verdad:
+        # ya trabaja ahí independientemente de la alternancia.
+        from turnos.services.turno_service import TurnoService
+        estado_receptor_sab = TurnoService.estado_dia(explorador_receptor, fecha_pago_obj)
+        receptor_trabaja_sab_por_turno = (
+            estado_receptor_sab.get('trabaja') and
+            estado_receptor_sab.get('fuente') == 'turno'
+        )
+
+        jornada_receptor_pago = JornadaService.get_jornada_explorador_fecha(
+            explorador_receptor.id, fecha_pago_obj.strftime('%Y-%m-%d')
+        )
+        if not jornada_receptor_pago:
+            logger.warning(f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_pago_obj}")
+            return False, "El receptor no tiene jornada asignada para la fecha de pago (sábado)."
+
+        if not receptor_trabaja_sab_por_turno and jornada_receptor_pago.nombre.upper() != jornada_trabaja_sabado:
+            logger.warning(
+                f"Validación fallida: receptor {explorador_receptor.id} tiene {jornada_receptor_pago.nombre.upper()} "
+                f"pero debe ser {jornada_trabaja_sabado} para sábado {fecha_pago_obj}"
+            )
+            return False, (
+                f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')}, el receptor debe ser del grupo "
+                f"que trabaja ese sábado ({jornada_trabaja_sabado}). El receptor tiene {jornada_receptor_pago.nombre.upper()}."
+            )
+
+        # ===========================
+        # Validar que sábado de pago corresponda a jornada del receptor (quien hizo doble turno)
+        # ===========================
+        # Regla de negocio:
+        # - Si cedes jornada AM → receptor es PM → sábado de pago debe ser para PM
+        # - Si cedes jornada PM → receptor es AM → sábado de pago debe ser para AM
+        # Excepción: si el receptor tiene un Turno real en ese sábado (p. ej. swapeado
+        # por un cambio de descanso previo), esa asignación real supera a la alternancia.
+        jornada_a_ceder = None
+        if jornada_cedida:
+            jornada_a_ceder = jornada_cedida.upper()
+        else:
+            jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
+                explorador_solicitante.id, fecha_cesion
+            )
+            if jornada_solicitante:
+                jornada_a_ceder = jornada_solicitante.nombre.upper()
+
+        if jornada_a_ceder and not receptor_trabaja_sab_por_turno:
+            jornada_receptor_cesion = JornadaService.get_jornada_explorador_fecha(
+                explorador_receptor.id, fecha_cesion
+            )
+            if not jornada_receptor_cesion:
+                logger.warning(
+                    f"Validación fallida: receptor {explorador_receptor.id} sin jornada para {fecha_cesion}"
+                )
+                return False, "El receptor no tiene jornada asignada para la fecha de cesión."
+
+            jornada_receptor_nombre = jornada_receptor_cesion.nombre.upper()
+
+            if jornada_receptor_nombre != jornada_trabaja_sabado:
+                logger.warning(
+                    f"Validación fallida: receptor {explorador_receptor.id} tiene jornada {jornada_receptor_nombre} "
+                    f"pero el sábado {fecha_pago_obj} es para {jornada_trabaja_sabado}. "
+                    f"El sábado debe corresponder a la jornada del receptor (quien hizo el doble turno)."
+                )
+                return False, (
+                    f"No se puede realizar esta solicitud. El sábado {fecha_pago_obj.strftime('%d/%m/%Y')} "
+                    f"corresponde al turno {jornada_trabaja_sabado}, pero el compañero que cubrirá tu jornada "
+                    f"({jornada_a_ceder}) tiene jornada {jornada_receptor_nombre}. "
+                    f"El sábado de pago siempre debe coincidir con el turno de la persona que realizó el doble turno. "
+                    f"Por favor, selecciona otro sábado que corresponda al turno {jornada_receptor_nombre}."
+                )
+
+        # ===========================
+        # Pago en sábado AMBAS: validar el día de devolución en semana
+        # ===========================
+        # Al cubrir el sábado completo, el receptor queda debiendo una jornada que devuelve
+        # un día de semana (lun-vie) del mismo mes; ese día el receptor dobla y el solicitante
+        # descansa, por lo que deben tener jornadas contrarias.
+        if jornada_pago_sabado_upper == 'AMBAS':
+            if not fecha_pago_semana:
+                return False, ("Al cubrir ambas jornadas el sábado, debes elegir el día de la semana "
+                               "en que el compañero te devolverá la jornada.")
+            fps_obj = DateUtils.parse_date(fecha_pago_semana)
+            if not fps_obj:
+                return False, "El día de pago en semana no es una fecha válida."
+            if fps_obj.weekday() >= 5:
+                return False, "El día de pago en semana debe ser de lunes a viernes."
+            if (fps_obj.year, fps_obj.month) != (fecha_pago_obj.year, fecha_pago_obj.month):
+                return False, "El día de pago en semana debe estar dentro del mismo mes que el sábado."
+            from turnos.models import DiaEspecial
+            if SolicitudValidator.es_festivo_semana(fps_obj) or DiaEspecial.es_mantenimiento_efectivo(fps_obj):
+                return False, "El día de pago en semana no puede ser festivo ni de mantenimiento."
+            if fps_obj < date.today():
+                return False, "El día de pago en semana no puede ser en el pasado."
+            j_sol = JornadaService.get_jornada_explorador_fecha(
+                explorador_solicitante.id, fps_obj.strftime('%Y-%m-%d'))
+            j_rec = JornadaService.get_jornada_explorador_fecha(
+                explorador_receptor.id, fps_obj.strftime('%Y-%m-%d'))
+            if not j_sol or not j_rec:
+                return False, "No se pudo determinar la jornada de los exploradores en el día de pago en semana."
+            if j_sol.nombre.upper() == j_rec.nombre.upper():
+                # Reutiliza el mismo recuadro + botón "Ir a Cambio de Turno Sencillo"
+                # que ya existe para la fecha de pago, pero apuntando al día de semana.
+                return False, json.dumps({
+                    'code': 'requiere_cambio_turno_previo',
+                    'message': (
+                        f"El {fps_obj.strftime('%d/%m/%Y')} tú y el compañero tienen la misma jornada "
+                        f"({j_sol.nombre.upper()}). Para que él te pague (doblándose por ti) ese día deben "
+                        f"quedar en jornadas contrarias. Realiza primero un cambio de turno sencillo."
+                    ),
+                    'fecha_pago': str(fps_obj),
+                    'jornada_comun': j_sol.nombre.upper(),
+                })
+
+        return None
     def crear_solicitud(self, datos: Dict[str, Any]) -> Tuple[Optional[SolicitudCambio], str]:
         """
         Create a doblada solicitud.
