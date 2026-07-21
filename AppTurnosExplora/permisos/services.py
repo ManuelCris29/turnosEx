@@ -16,7 +16,7 @@ import logging
 from django.conf import settings
 
 from solicitudes.models import Notificacion
-from solicitudes.services.notificacion_service import NotificacionService
+from solicitudes.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class PermisoNotificacionService:
         html = PermisoNotificacionService._email_html(permiso, url_aprobar, url_rechazar)
 
         try:
-            return NotificacionService._enviar_email_desde_usuario(
+            return EmailService._enviar_email_desde_usuario(
                 subject=titulo,
                 message=texto,
                 from_email=settings.DEFAULT_FROM_EMAIL,
@@ -136,7 +136,7 @@ class PermisoNotificacionService:
 
         if emp.email:
             try:
-                NotificacionService._enviar_email_desde_usuario(
+                EmailService._enviar_email_desde_usuario(
                     subject=titulo, message=detalle,
                     from_email=settings.DEFAULT_FROM_EMAIL, recipient_list=[emp.email],
                 )

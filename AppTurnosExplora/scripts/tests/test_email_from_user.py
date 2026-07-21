@@ -11,7 +11,7 @@ django.setup()
 
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from solicitudes.services.notificacion_service import NotificacionService
+from solicitudes.services.email_service import EmailService
 from datetime import date
 
 def test_email_from_user():
@@ -51,18 +51,18 @@ def test_email_from_user():
         
         # Email al receptor
         print("   - Enviando email al receptor...")
-        NotificacionService._enviar_email_receptor(solicitud)
+        EmailService._enviar_email_receptor(solicitud)
         
         # Email al supervisor (si existe)
         if luisa.supervisor:
             print("   - Enviando email al supervisor...")
-            NotificacionService._enviar_email_supervisor(solicitud)
+            EmailService._enviar_email_supervisor(solicitud)
         else:
             print("   - No hay supervisor asignado")
         
         # Email de confirmación al solicitante
         print("   - Enviando email de confirmación al solicitante...")
-        NotificacionService._enviar_email_solicitante(solicitud)
+        EmailService._enviar_email_solicitante(solicitud)
         
         print(f"\n✅ Prueba completada. Verifica los emails recibidos.")
         print(f"   Los emails deberían aparecer como enviados desde: {luisa.email}")
