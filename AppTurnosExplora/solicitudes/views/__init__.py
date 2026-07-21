@@ -4,6 +4,9 @@ from .dashboard_admin import *  # noqa: F401,F403
 from .cambio_turno_pages import *  # noqa: F401,F403
 from .api_disponibles_ct_preview import *  # noqa: F401,F403
 from .api_turno_jornada import *  # noqa: F401,F403
+from .api_alternancia import *  # noqa: F401,F403
+from .api_fin_semana import *  # noqa: F401,F403
+from .api_dobladas_consulta import *  # noqa: F401,F403
 from .procesar_solicitud import *  # noqa: F401,F403
 from .notificaciones_listas import *  # noqa: F401,F403
 from .aprobacion_views import *  # noqa: F401,F403
