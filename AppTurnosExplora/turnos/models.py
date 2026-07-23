@@ -102,6 +102,14 @@ class DiaEspecial(models.Model):
             return False
 
     @classmethod
+    def es_festivo(cls, fecha):
+        """True si la fecha es un festivo activo. Fuente única para "¿es festivo?"."""
+        try:
+            return cls.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
+        except Exception:
+            return False
+
+    @classmethod
     def es_mantenimiento_efectivo(cls, fecha):
         """
         True si la fecha es día de mantenimiento EFECTIVO.

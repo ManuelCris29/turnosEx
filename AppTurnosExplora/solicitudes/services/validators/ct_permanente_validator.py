@@ -264,11 +264,7 @@ class CTPermanenteValidator:
             es_festivo = False
             try:
                 from turnos.models import DiaEspecial
-                es_festivo = DiaEspecial.objects.filter(
-                    fecha=fecha,
-                    tipo='festivo',
-                    activo=True
-                ).exists()
+                es_festivo = DiaEspecial.es_festivo(fecha)
             except ImportError:
                 pass
 
@@ -294,11 +290,7 @@ class CTPermanenteValidator:
             es_temporada = False
             try:
                 from turnos.models import DiaEspecial
-                es_temporada = DiaEspecial.objects.filter(
-                    fecha=fecha,
-                    es_temporada=True,
-                    activo=True
-                ).exists()
+                es_temporada = DiaEspecial.es_temporada_en(fecha)
             except ImportError:
                 pass
 

@@ -144,10 +144,7 @@ def calcular_fechas_aplicables_ct_permanente(
 
 def _es_festivo(fecha: date) -> bool:
     """Verificar si es festivo"""
-    try:
-        return DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
-    except Exception:
-        return False
+    return DiaEspecial.es_festivo(fecha)
 
 
 def _es_mantenimiento(fecha: date) -> bool:
@@ -159,14 +156,7 @@ def _es_mantenimiento(fecha: date) -> bool:
 
 def _es_temporada(fecha: date) -> bool:
     """Verificar si es temporada"""
-    try:
-        return DiaEspecial.objects.filter(
-            fecha=fecha,
-            es_temporada=True,
-            activo=True
-        ).exists()
-    except Exception:
-        return False
+    return DiaEspecial.es_temporada_en(fecha)
 
 
 def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:

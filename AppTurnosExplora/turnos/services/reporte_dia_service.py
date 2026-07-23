@@ -72,8 +72,7 @@ class ReporteDiaService:
             turnos_por_emp.setdefault(t.explorador_id, []).append(t)
 
         # ── Festivo ──────────────────────────────────────────────────────────
-        es_festivo = DiaEspecial.objects.filter(
-            fecha=fecha, tipo='festivo', activo=True).exists()
+        es_festivo = DiaEspecial.es_festivo(fecha)
         es_finde = fecha.weekday() in (5, 6)
         es_mantenimiento = (not es_festivo and not es_finde
                             and DiaEspecial.es_mantenimiento_efectivo(fecha))

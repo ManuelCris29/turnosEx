@@ -84,11 +84,7 @@ def analizar_fecha_solicitud(
     
     # Verificar temporada
     try:
-        resultado['es_temporada'] = DiaEspecial.objects.filter(
-            fecha=fecha,
-            es_temporada=True,
-            activo=True
-        ).exists()
+        resultado['es_temporada'] = DiaEspecial.es_temporada_en(fecha)
         if resultado['es_temporada']:
             resultado['razones_exclusion'].append('Temporada')
     except Exception:

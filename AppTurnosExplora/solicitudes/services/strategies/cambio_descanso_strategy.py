@@ -60,7 +60,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
     @staticmethod
     def _es_festivo(fecha) -> bool:
         from turnos.models import DiaEspecial
-        return DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
+        return DiaEspecial.es_festivo(fecha)
 
     @staticmethod
     def _otro_dia_finde(fecha):

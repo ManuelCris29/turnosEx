@@ -275,7 +275,7 @@ class TurnoService(ITurnoService):
             fecha = DateUtils.parse_date(fecha)
         if fecha.weekday() >= 5:
             return False
-        if not DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists():
+        if not DiaEspecial.es_festivo(fecha):
             return False
         asg = (AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_inicio__lte=fecha)
                .select_related('jornada').order_by('-fecha_inicio').first())
@@ -320,7 +320,7 @@ class TurnoService(ITurnoService):
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)
 
-        es_festivo = DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
+        es_festivo = DiaEspecial.es_festivo(fecha)
 
         def _r(trabaja, jornada, fuente, motivo=None, companero=None):
             return {'trabaja': trabaja, 'jornada': jornada, 'fuente': fuente,

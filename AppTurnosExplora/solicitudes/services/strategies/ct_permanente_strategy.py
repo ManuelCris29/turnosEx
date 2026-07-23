@@ -760,11 +760,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
     
     def _es_festivo(self, fecha):
         """Verificar si es festivo"""
-        try:
-            from turnos.models import DiaEspecial
-            return DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
-        except:
-            return False
+        from turnos.models import DiaEspecial
+        return DiaEspecial.es_festivo(fecha)
 
     def _es_mantenimiento(self, fecha):
         """Verificar si es día de mantenimiento EFECTIVO (temporada manda sobre mantenimiento)."""

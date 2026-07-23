@@ -317,11 +317,7 @@ class BaseValidator:
             from turnos.models import DiaEspecial
             if isinstance(fecha, str):
                 fecha = DateUtils.parse_date(fecha)
-            return DiaEspecial.objects.filter(
-                fecha=fecha,
-                es_temporada=True,
-                activo=True
-            ).exists()
+            return DiaEspecial.es_temporada_en(fecha)
         except Exception:
             return False
 
