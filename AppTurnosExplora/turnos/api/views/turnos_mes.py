@@ -166,81 +166,9 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
             descansos_sol = DescansoPorSolicitudService.en_rango(empleado, fecha_inicio, fecha_fin)
 
-            # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
-            # No cambian la jornada; se muestran como indicador en el día.
-            from permisos.models import PermisoEspecial
-            permisos_por_fecha = {}
-            pe_qs = (
-                PermisoEspecial.objects
-                .filter(empleado=empleado, estado__in=['APROBADO', 'PENDIENTE'],
-                        fecha_inicio__lte=fecha_fin, fecha_fin__gte=fecha_inicio)
-                .select_related('cubre')
-            )
-            for p in pe_qs:
-                p_info = {
-                    'horas': float(p.tiempo or 0),
-                    'especificacion': p.especificacion or '',
-                    'tipo': p.get_tipo_display(),
-                    'cubre': f"{p.cubre.nombre} {p.cubre.apellido}" if p.cubre else None,
-                    'estado': p.estado,
-                    'es_permanente': p.es_permanente,
-                }
-                if p.es_permanente:
-                    dias_set = {int(x) for x in p.dias_semana.split(',') if x.strip().isdigit()}
-                    di = max(p.fecha_inicio, fecha_inicio)
-                    dfin = min(p.fecha_fin, fecha_fin)
-                    while di <= dfin:
-                        if di.weekday() in dias_set:
-                            permisos_por_fecha[di.strftime('%Y-%m-%d')] = p_info
-                        di += timedelta(days=1)
-                else:
-                    if fecha_inicio <= p.fecha_inicio <= fecha_fin:
-                        permisos_por_fecha[p.fecha_inicio.strftime('%Y-%m-%d')] = p_info
-                    # Media jornada de temporada: el permiso también toca el día de COMPENSACIÓN
-                    # (trabajas la otra media ahí), así que se marca también ese día.
-                    fcomp = getattr(p, 'fecha_compensacion', None)
-                    if fcomp and fecha_inicio <= fcomp <= fecha_fin:
-                        permisos_por_fecha[fcomp.strftime('%Y-%m-%d')] = p_info
-
-            # RESTRICCIONES del empleado vigentes en el mes (aplican TODOS los días del rango;
-            # fecha_fin nula = indefinida/en curso).
-            from empleados.models import RestriccionEmpleado
-            restricciones_por_fecha = {}
-            rest_qs = RestriccionEmpleado.objects.filter(
-                empleado=empleado, fecha_inicio__lte=fecha_fin
-            ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
-            for r in rest_qs:
-                r_info = {
-                    'tipo': r.tipo_restriccion or 'Restricción',
-                    'recomendacion': r.recomendacion or '',
-                    'indefinida': r.fecha_fin is None,
-                }
-                ini = max(r.fecha_inicio, fecha_inicio)
-                fin = min(r.fecha_fin, fecha_fin) if r.fecha_fin else fecha_fin
-                di = ini
-                while di <= fin:
-                    restricciones_por_fecha[di.strftime('%Y-%m-%d')] = r_info
-                    di += timedelta(days=1)
-
-            # SANCIONES del empleado vigentes en el mes (no puede solicitar nada esos días)
-            from empleados.models import SancionEmpleado
-            sanciones_por_fecha = {}
-            sanc_qs = SancionEmpleado.objects.filter(
-                explorador=empleado, fecha_inicio__lte=fecha_fin
-            ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
-            for s in sanc_qs:
-                s_info = {
-                    'motivo': s.motivo or '',
-                    'desde': s.fecha_inicio.strftime('%d/%m/%Y'),
-                    'hasta': s.fecha_fin.strftime('%d/%m/%Y') if s.fecha_fin else None,
-                }
-                ini = max(s.fecha_inicio, fecha_inicio)
-                fin = min(s.fecha_fin, fecha_fin) if s.fecha_fin else fecha_fin
-                di = ini
-                while di <= fin:
-                    sanciones_por_fecha[di.strftime('%Y-%m-%d')] = s_info
-                    di += timedelta(days=1)
-
+            permisos_por_fecha = MisTurnosPorMesView._permisos_por_fecha(empleado, fecha_inicio, fecha_fin)
+            restricciones_por_fecha = MisTurnosPorMesView._restricciones_por_fecha(empleado, fecha_inicio, fecha_fin)
+            sanciones_por_fecha = MisTurnosPorMesView._sanciones_por_fecha(empleado, fecha_inicio, fecha_fin)
             # Crear estructura de datos para el mes
             turnos_mes_dict = {}
             dias_mes = (fecha_fin - fecha_inicio).days + 1
@@ -430,206 +358,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                                 'turno_id': None
                             }
 
-            # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
-            # Limitar a las solicitudes más recientes para mejorar rendimiento
-            from solicitudes.models import SolicitudCambio
-            # CORRECCIÓN: turnos_por_fecha ahora contiene listas de turnos, no turnos individuales
-            turno_ids_con_cambio = []
-            for turnos_lista in turnos_por_fecha.values():
-                for turno in turnos_lista:
-                    if turno.tipo_cambio is not None:
-                        turno_ids_con_cambio.append(turno.id)
-            solicitudes_info = {}
-
-            if turno_ids_con_cambio:
-                # FASE 3.3: Limitar a las 50 solicitudes más recientes para evitar consultas lentas
-                # Obtener todas las solicitudes que afectaron estos turnos
-                solicitudes = SolicitudCambio.objects.filter(
-                    Q(turno_origen_id__in=turno_ids_con_cambio) | Q(turno_destino_id__in=turno_ids_con_cambio),
-                    estado='aprobada'
-                ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')[:50]
-
-                # Procesar solicitudes en orden descendente (más reciente primero)
-                # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)
-                for solicitud in solicitudes:
-                    # Para turno_origen (solicitante)
-                    if solicitud.turno_origen_id and solicitud.turno_origen_id in turno_ids_con_cambio:
-                        if solicitud.turno_origen_id not in solicitudes_info:
-                            solicitudes_info[solicitud.turno_origen_id] = {
-                                'solicitud_id': solicitud.id,
-                                'companero_nombre': solicitud.explorador_receptor.nombre,
-                                'rol': 'solicitante',
-                                'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
-                            }
-
-                    # Para turno_destino (receptor)
-                    if solicitud.turno_destino_id and solicitud.turno_destino_id in turno_ids_con_cambio:
-                        if solicitud.turno_destino_id not in solicitudes_info:
-                            solicitudes_info[solicitud.turno_destino_id] = {
-                                'solicitud_id': solicitud.id,
-                                'companero_nombre': solicitud.explorador_solicitante.nombre,
-                                'rol': 'receptor',
-                                'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
-                            }
-
-            # Agregar información de solicitudes a los turnos
-            # Para dobladas, buscar en todos los turnos de esa fecha
-            for fecha_str, info in turnos_mes_dict.items():
-                turno_id = info.get('turno_id')
-                solicitud_encontrada = None
-
-                # Si hay turno_id, buscar directamente
-                if turno_id and turno_id in solicitudes_info:
-                    solicitud_encontrada = solicitudes_info[turno_id]
-                else:
-                    # Si no se encontró, puede ser una doblada con múltiples turnos
-                    # Buscar en todos los turnos de esa fecha
-                    fecha_obj = DateUtils.parse_date(fecha_str)
-                    turnos_fecha = turnos_por_fecha.get(fecha_obj, [])
-                    for turno in turnos_fecha:
-                        if turno.id in solicitudes_info:
-                            solicitud_encontrada = solicitudes_info[turno.id]
-                            break  # Usar la primera encontrada
-
-                info['solicitud_info'] = solicitud_encontrada
-
-            # BÚSQUEDA ADICIONAL PARA DOBLADAS
-            # Las dobladas no tienen turno_origen/turno_destino asignados, así que buscamos por fecha y empleado
-            # Solo buscar para fechas que aún no tienen solicitud_info y tienen cambios (es_cambio o es_doblada)
-            fechas_sin_solicitud = [
-                fecha_str for fecha_str, info in turnos_mes_dict.items()
-                if not info.get('solicitud_info') and (info.get('es_cambio', False) or info.get('es_doblada', False))
-            ]
-
-            if fechas_sin_solicitud:
-                # Convertir fechas string a objetos date
-                fechas_obj = [DateUtils.parse_date(f) for f in fechas_sin_solicitud]
-
-                # IMPORTANTE: Para dobladas, necesitamos buscar en ambos escenarios:
-                # 1. Empleado como SOLICITANTE en fecha de cesión (empleado cedió, receptor trabaja)
-                # 2. Empleado como RECEPTOR en fecha de cesión (empleado trabaja/dobla, solicitante descansa)
-                # 3. Empleado como RECEPTOR en fecha de pago (empleado descansa, solicitante trabaja/dobla)
-                # 4. Empleado como SOLICITANTE en fecha de pago (empleado trabaja/dobla, receptor descansa)
-
-                # Buscar donde el empleado es SOLICITANTE y la fecha es de CESIÓN (empleado descansa, receptor trabaja)
-                solicitudes_solicitante_cesion = SolicitudCambio.objects.filter(
-                    explorador_solicitante=empleado,
-                    tipo_cambio__nombre='DOBLADA',
-                    fecha_cambio_turno__in=fechas_obj,
-                    estado='aprobada'
-                ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
-
-                # Buscar donde el empleado es RECEPTOR y la fecha es de CESIÓN (empleado trabaja/dobla, solicitante descansa)
-                solicitudes_receptor_cesion = SolicitudCambio.objects.filter(
-                    explorador_receptor=empleado,
-                    tipo_cambio__nombre='DOBLADA',
-                    fecha_cambio_turno__in=fechas_obj,
-                    estado='aprobada'
-                ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
-
-                # Buscar donde el empleado es RECEPTOR y la fecha es de PAGO (empleado descansa, solicitante trabaja/dobla)
-                solicitudes_receptor_pago = SolicitudCambio.objects.filter(
-                    explorador_receptor=empleado,
-                    tipo_cambio__nombre='DOBLADA',
-                    doblada__fecha_pago__in=fechas_obj,
-                    estado='aprobada'
-                ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
-
-                # Buscar donde el empleado es SOLICITANTE y la fecha es de PAGO (empleado trabaja/dobla, receptor descansa)
-                solicitudes_solicitante_pago = SolicitudCambio.objects.filter(
-                    explorador_solicitante=empleado,
-                    tipo_cambio__nombre='DOBLADA',
-                    doblada__fecha_pago__in=fechas_obj,
-                    estado='aprobada'
-                ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
-
-                # Crear diccionarios para búsqueda rápida (solo la más reciente por fecha)
-                dobladas_dict = {}
-
-                # Solicitudes donde empleado es solicitante en fecha de cesión
-                for sol in solicitudes_solicitante_cesion:
-                    fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
-                    if fecha_str not in dobladas_dict:
-                        dobladas_dict[fecha_str] = {
-                            'solicitud': sol,
-                            'companero': sol.explorador_receptor.nombre,
-                            'rol': 'solicitante'
-                        }
-
-                # Solicitudes donde empleado es receptor en fecha de cesión
-                for sol in solicitudes_receptor_cesion:
-                    fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
-                    if fecha_str not in dobladas_dict:
-                        dobladas_dict[fecha_str] = {
-                            'solicitud': sol,
-                            'companero': sol.explorador_solicitante.nombre,
-                            'rol': 'receptor'
-                        }
-
-                # Solicitudes donde empleado es receptor en fecha de pago
-                for sol in solicitudes_receptor_pago:
-                    if sol.doblada and sol.doblada.fecha_pago:
-                        fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
-                        if fecha_str not in dobladas_dict:
-                            dobladas_dict[fecha_str] = {
-                                'solicitud': sol,
-                                'companero': sol.explorador_solicitante.nombre,
-                                'rol': 'receptor'
-                            }
-
-                # Solicitudes donde empleado es solicitante en fecha de pago
-                for sol in solicitudes_solicitante_pago:
-                    if sol.doblada and sol.doblada.fecha_pago:
-                        fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
-                        if fecha_str not in dobladas_dict:
-                            dobladas_dict[fecha_str] = {
-                                'solicitud': sol,
-                                'companero': sol.explorador_receptor.nombre,
-                                'rol': 'solicitante'
-                            }
-
-                # CAMBIO DESCANSO (intercambio de día de descanso de temporada): el solicitante
-                # trabaja su día completo en fecha_cambio_turno y el receptor en doblada.fecha_pago.
-                # Adjuntamos el compañero (mismo dict que las dobladas) para que Mis Turnos muestre
-                # "con X" en el día doblado por el intercambio.
-                cd_sol = SolicitudCambio.objects.filter(
-                    explorador_solicitante=empleado, tipo_cambio__nombre='CAMBIO DESCANSO',
-                    fecha_cambio_turno__in=fechas_obj, estado='aprobada'
-                ).select_related('explorador_receptor', 'doblada').order_by('-fecha_resolucion', '-id')
-                for sol in cd_sol:
-                    fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
-                    dobladas_dict.setdefault(fecha_str, {
-                        'solicitud': sol, 'companero': sol.explorador_receptor.nombre, 'rol': 'solicitante'})
-
-                cd_rec = SolicitudCambio.objects.filter(
-                    explorador_receptor=empleado, tipo_cambio__nombre='CAMBIO DESCANSO',
-                    doblada__fecha_pago__in=fechas_obj, estado='aprobada'
-                ).select_related('explorador_solicitante', 'doblada').order_by('-fecha_resolucion', '-id')
-                for sol in cd_rec:
-                    if sol.doblada and sol.doblada.fecha_pago:
-                        fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
-                        dobladas_dict.setdefault(fecha_str, {
-                            'solicitud': sol, 'companero': sol.explorador_solicitante.nombre, 'rol': 'receptor'})
-
-                # Asociar información de dobladas a los turnos
-                for fecha_str in fechas_sin_solicitud:
-                    if fecha_str not in turnos_mes_dict:
-                        continue
-
-                    info = turnos_mes_dict[fecha_str]
-                    if info.get('solicitud_info'):
-                        continue  # Ya tiene información
-
-                    doblada_info = dobladas_dict.get(fecha_str)
-                    if doblada_info:
-                        sol = doblada_info['solicitud']
-                        info['solicitud_info'] = {
-                            'solicitud_id': sol.id,
-                            'companero_nombre': doblada_info['companero'],
-                            'rol': doblada_info['rol'],
-                            'fecha_resolucion': DateUtils.format_datetime_display(sol.fecha_resolucion)
-                        }
-
+            MisTurnosPorMesView._enriquecer_solicitud_info(turnos_mes_dict, turnos_por_fecha, empleado)
             # Adjuntar el permiso especial (si lo hay) a cada día — antes de cachear
             for _fstr, _pinfo in permisos_por_fecha.items():
                 if _fstr in turnos_mes_dict:
@@ -661,3 +390,293 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 'error': f'Error al procesar fechas: {str(e)}',
                 'traceback': error_trace if request.user.is_staff else None  # Solo mostrar traceback a staff
             }, status=400)
+
+    @staticmethod
+    def _permisos_por_fecha(empleado, fecha_inicio, fecha_fin):
+        # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
+        # No cambian la jornada; se muestran como indicador en el día.
+        from permisos.models import PermisoEspecial
+        permisos_por_fecha = {}
+        pe_qs = (
+            PermisoEspecial.objects
+            .filter(empleado=empleado, estado__in=['APROBADO', 'PENDIENTE'],
+                    fecha_inicio__lte=fecha_fin, fecha_fin__gte=fecha_inicio)
+            .select_related('cubre')
+        )
+        for p in pe_qs:
+            p_info = {
+                'horas': float(p.tiempo or 0),
+                'especificacion': p.especificacion or '',
+                'tipo': p.get_tipo_display(),
+                'cubre': f"{p.cubre.nombre} {p.cubre.apellido}" if p.cubre else None,
+                'estado': p.estado,
+                'es_permanente': p.es_permanente,
+            }
+            if p.es_permanente:
+                dias_set = {int(x) for x in p.dias_semana.split(',') if x.strip().isdigit()}
+                di = max(p.fecha_inicio, fecha_inicio)
+                dfin = min(p.fecha_fin, fecha_fin)
+                while di <= dfin:
+                    if di.weekday() in dias_set:
+                        permisos_por_fecha[di.strftime('%Y-%m-%d')] = p_info
+                    di += timedelta(days=1)
+            else:
+                if fecha_inicio <= p.fecha_inicio <= fecha_fin:
+                    permisos_por_fecha[p.fecha_inicio.strftime('%Y-%m-%d')] = p_info
+                # Media jornada de temporada: el permiso también toca el día de COMPENSACIÓN
+                # (trabajas la otra media ahí), así que se marca también ese día.
+                fcomp = getattr(p, 'fecha_compensacion', None)
+                if fcomp and fecha_inicio <= fcomp <= fecha_fin:
+                    permisos_por_fecha[fcomp.strftime('%Y-%m-%d')] = p_info
+
+        return permisos_por_fecha
+
+    @staticmethod
+    def _restricciones_por_fecha(empleado, fecha_inicio, fecha_fin):
+        # RESTRICCIONES del empleado vigentes en el mes (aplican TODOS los días del rango;
+        # fecha_fin nula = indefinida/en curso).
+        from empleados.models import RestriccionEmpleado
+        restricciones_por_fecha = {}
+        rest_qs = RestriccionEmpleado.objects.filter(
+            empleado=empleado, fecha_inicio__lte=fecha_fin
+        ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
+        for r in rest_qs:
+            r_info = {
+                'tipo': r.tipo_restriccion or 'Restricción',
+                'recomendacion': r.recomendacion or '',
+                'indefinida': r.fecha_fin is None,
+            }
+            ini = max(r.fecha_inicio, fecha_inicio)
+            fin = min(r.fecha_fin, fecha_fin) if r.fecha_fin else fecha_fin
+            di = ini
+            while di <= fin:
+                restricciones_por_fecha[di.strftime('%Y-%m-%d')] = r_info
+                di += timedelta(days=1)
+
+        return restricciones_por_fecha
+
+    @staticmethod
+    def _sanciones_por_fecha(empleado, fecha_inicio, fecha_fin):
+        # SANCIONES del empleado vigentes en el mes (no puede solicitar nada esos días)
+        from empleados.models import SancionEmpleado
+        sanciones_por_fecha = {}
+        sanc_qs = SancionEmpleado.objects.filter(
+            explorador=empleado, fecha_inicio__lte=fecha_fin
+        ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
+        for s in sanc_qs:
+            s_info = {
+                'motivo': s.motivo or '',
+                'desde': s.fecha_inicio.strftime('%d/%m/%Y'),
+                'hasta': s.fecha_fin.strftime('%d/%m/%Y') if s.fecha_fin else None,
+            }
+            ini = max(s.fecha_inicio, fecha_inicio)
+            fin = min(s.fecha_fin, fecha_fin) if s.fecha_fin else fecha_fin
+            di = ini
+            while di <= fin:
+                sanciones_por_fecha[di.strftime('%Y-%m-%d')] = s_info
+                di += timedelta(days=1)
+
+        return sanciones_por_fecha
+
+    @staticmethod
+    def _enriquecer_solicitud_info(turnos_mes_dict, turnos_por_fecha, empleado):
+        # FASE 3.3: Obtener información de solicitudes para turnos con cambios (optimizado)
+        # Limitar a las solicitudes más recientes para mejorar rendimiento
+        from solicitudes.models import SolicitudCambio
+        # CORRECCIÓN: turnos_por_fecha ahora contiene listas de turnos, no turnos individuales
+        turno_ids_con_cambio = []
+        for turnos_lista in turnos_por_fecha.values():
+            for turno in turnos_lista:
+                if turno.tipo_cambio is not None:
+                    turno_ids_con_cambio.append(turno.id)
+        solicitudes_info = {}
+
+        if turno_ids_con_cambio:
+            # FASE 3.3: Limitar a las 50 solicitudes más recientes para evitar consultas lentas
+            # Obtener todas las solicitudes que afectaron estos turnos
+            solicitudes = SolicitudCambio.objects.filter(
+                Q(turno_origen_id__in=turno_ids_con_cambio) | Q(turno_destino_id__in=turno_ids_con_cambio),
+                estado='aprobada'
+            ).select_related('explorador_solicitante', 'explorador_receptor').order_by('-fecha_resolucion', '-id')[:50]
+
+            # Procesar solicitudes en orden descendente (más reciente primero)
+            # Para cada turno, solo guardar la primera solicitud encontrada (más reciente)
+            for solicitud in solicitudes:
+                # Para turno_origen (solicitante)
+                if solicitud.turno_origen_id and solicitud.turno_origen_id in turno_ids_con_cambio:
+                    if solicitud.turno_origen_id not in solicitudes_info:
+                        solicitudes_info[solicitud.turno_origen_id] = {
+                            'solicitud_id': solicitud.id,
+                            'companero_nombre': solicitud.explorador_receptor.nombre,
+                            'rol': 'solicitante',
+                            'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
+                        }
+
+                # Para turno_destino (receptor)
+                if solicitud.turno_destino_id and solicitud.turno_destino_id in turno_ids_con_cambio:
+                    if solicitud.turno_destino_id not in solicitudes_info:
+                        solicitudes_info[solicitud.turno_destino_id] = {
+                            'solicitud_id': solicitud.id,
+                            'companero_nombre': solicitud.explorador_solicitante.nombre,
+                            'rol': 'receptor',
+                            'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion)
+                        }
+
+        # Agregar información de solicitudes a los turnos
+        # Para dobladas, buscar en todos los turnos de esa fecha
+        for fecha_str, info in turnos_mes_dict.items():
+            turno_id = info.get('turno_id')
+            solicitud_encontrada = None
+
+            # Si hay turno_id, buscar directamente
+            if turno_id and turno_id in solicitudes_info:
+                solicitud_encontrada = solicitudes_info[turno_id]
+            else:
+                # Si no se encontró, puede ser una doblada con múltiples turnos
+                # Buscar en todos los turnos de esa fecha
+                fecha_obj = DateUtils.parse_date(fecha_str)
+                turnos_fecha = turnos_por_fecha.get(fecha_obj, [])
+                for turno in turnos_fecha:
+                    if turno.id in solicitudes_info:
+                        solicitud_encontrada = solicitudes_info[turno.id]
+                        break  # Usar la primera encontrada
+
+            info['solicitud_info'] = solicitud_encontrada
+
+        # BÚSQUEDA ADICIONAL PARA DOBLADAS
+        # Las dobladas no tienen turno_origen/turno_destino asignados, así que buscamos por fecha y empleado
+        # Solo buscar para fechas que aún no tienen solicitud_info y tienen cambios (es_cambio o es_doblada)
+        fechas_sin_solicitud = [
+            fecha_str for fecha_str, info in turnos_mes_dict.items()
+            if not info.get('solicitud_info') and (info.get('es_cambio', False) or info.get('es_doblada', False))
+        ]
+
+        if fechas_sin_solicitud:
+            # Convertir fechas string a objetos date
+            fechas_obj = [DateUtils.parse_date(f) for f in fechas_sin_solicitud]
+
+            # IMPORTANTE: Para dobladas, necesitamos buscar en ambos escenarios:
+            # 1. Empleado como SOLICITANTE en fecha de cesión (empleado cedió, receptor trabaja)
+            # 2. Empleado como RECEPTOR en fecha de cesión (empleado trabaja/dobla, solicitante descansa)
+            # 3. Empleado como RECEPTOR en fecha de pago (empleado descansa, solicitante trabaja/dobla)
+            # 4. Empleado como SOLICITANTE en fecha de pago (empleado trabaja/dobla, receptor descansa)
+
+            # Buscar donde el empleado es SOLICITANTE y la fecha es de CESIÓN (empleado descansa, receptor trabaja)
+            solicitudes_solicitante_cesion = SolicitudCambio.objects.filter(
+                explorador_solicitante=empleado,
+                tipo_cambio__nombre='DOBLADA',
+                fecha_cambio_turno__in=fechas_obj,
+                estado='aprobada'
+            ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+
+            # Buscar donde el empleado es RECEPTOR y la fecha es de CESIÓN (empleado trabaja/dobla, solicitante descansa)
+            solicitudes_receptor_cesion = SolicitudCambio.objects.filter(
+                explorador_receptor=empleado,
+                tipo_cambio__nombre='DOBLADA',
+                fecha_cambio_turno__in=fechas_obj,
+                estado='aprobada'
+            ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+
+            # Buscar donde el empleado es RECEPTOR y la fecha es de PAGO (empleado descansa, solicitante trabaja/dobla)
+            solicitudes_receptor_pago = SolicitudCambio.objects.filter(
+                explorador_receptor=empleado,
+                tipo_cambio__nombre='DOBLADA',
+                doblada__fecha_pago__in=fechas_obj,
+                estado='aprobada'
+            ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+
+            # Buscar donde el empleado es SOLICITANTE y la fecha es de PAGO (empleado trabaja/dobla, receptor descansa)
+            solicitudes_solicitante_pago = SolicitudCambio.objects.filter(
+                explorador_solicitante=empleado,
+                tipo_cambio__nombre='DOBLADA',
+                doblada__fecha_pago__in=fechas_obj,
+                estado='aprobada'
+            ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
+
+            # Crear diccionarios para búsqueda rápida (solo la más reciente por fecha)
+            dobladas_dict = {}
+
+            # Solicitudes donde empleado es solicitante en fecha de cesión
+            for sol in solicitudes_solicitante_cesion:
+                fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
+                if fecha_str not in dobladas_dict:
+                    dobladas_dict[fecha_str] = {
+                        'solicitud': sol,
+                        'companero': sol.explorador_receptor.nombre,
+                        'rol': 'solicitante'
+                    }
+
+            # Solicitudes donde empleado es receptor en fecha de cesión
+            for sol in solicitudes_receptor_cesion:
+                fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
+                if fecha_str not in dobladas_dict:
+                    dobladas_dict[fecha_str] = {
+                        'solicitud': sol,
+                        'companero': sol.explorador_solicitante.nombre,
+                        'rol': 'receptor'
+                    }
+
+            # Solicitudes donde empleado es receptor en fecha de pago
+            for sol in solicitudes_receptor_pago:
+                if sol.doblada and sol.doblada.fecha_pago:
+                    fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
+                    if fecha_str not in dobladas_dict:
+                        dobladas_dict[fecha_str] = {
+                            'solicitud': sol,
+                            'companero': sol.explorador_solicitante.nombre,
+                            'rol': 'receptor'
+                        }
+
+            # Solicitudes donde empleado es solicitante en fecha de pago
+            for sol in solicitudes_solicitante_pago:
+                if sol.doblada and sol.doblada.fecha_pago:
+                    fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
+                    if fecha_str not in dobladas_dict:
+                        dobladas_dict[fecha_str] = {
+                            'solicitud': sol,
+                            'companero': sol.explorador_receptor.nombre,
+                            'rol': 'solicitante'
+                        }
+
+            # CAMBIO DESCANSO (intercambio de día de descanso de temporada): el solicitante
+            # trabaja su día completo en fecha_cambio_turno y el receptor en doblada.fecha_pago.
+            # Adjuntamos el compañero (mismo dict que las dobladas) para que Mis Turnos muestre
+            # "con X" en el día doblado por el intercambio.
+            cd_sol = SolicitudCambio.objects.filter(
+                explorador_solicitante=empleado, tipo_cambio__nombre='CAMBIO DESCANSO',
+                fecha_cambio_turno__in=fechas_obj, estado='aprobada'
+            ).select_related('explorador_receptor', 'doblada').order_by('-fecha_resolucion', '-id')
+            for sol in cd_sol:
+                fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
+                dobladas_dict.setdefault(fecha_str, {
+                    'solicitud': sol, 'companero': sol.explorador_receptor.nombre, 'rol': 'solicitante'})
+
+            cd_rec = SolicitudCambio.objects.filter(
+                explorador_receptor=empleado, tipo_cambio__nombre='CAMBIO DESCANSO',
+                doblada__fecha_pago__in=fechas_obj, estado='aprobada'
+            ).select_related('explorador_solicitante', 'doblada').order_by('-fecha_resolucion', '-id')
+            for sol in cd_rec:
+                if sol.doblada and sol.doblada.fecha_pago:
+                    fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
+                    dobladas_dict.setdefault(fecha_str, {
+                        'solicitud': sol, 'companero': sol.explorador_solicitante.nombre, 'rol': 'receptor'})
+
+            # Asociar información de dobladas a los turnos
+            for fecha_str in fechas_sin_solicitud:
+                if fecha_str not in turnos_mes_dict:
+                    continue
+
+                info = turnos_mes_dict[fecha_str]
+                if info.get('solicitud_info'):
+                    continue  # Ya tiene información
+
+                doblada_info = dobladas_dict.get(fecha_str)
+                if doblada_info:
+                    sol = doblada_info['solicitud']
+                    info['solicitud_info'] = {
+                        'solicitud_id': sol.id,
+                        'companero_nombre': doblada_info['companero'],
+                        'rol': doblada_info['rol'],
+                        'fecha_resolucion': DateUtils.format_datetime_display(sol.fecha_resolucion)
+                    }
+
