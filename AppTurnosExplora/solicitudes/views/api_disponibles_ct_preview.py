@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import logging
 from django.core.cache import cache
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -215,8 +216,8 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
             )
 
         try:
-            fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
-            fecha_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+            fecha_inicio = DateUtils.parse_date(fecha_inicio_str)
+            fecha_fin = DateUtils.parse_date(fecha_fin_str)
         except ValueError:
             return json_error(
                 'Formato de fecha inválido. Use YYYY-MM-DD.',
@@ -280,7 +281,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                     for fecha_str in fechas_especificas:
                         try:
                             if isinstance(fecha_str, str):
-                                fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                                fecha_obj = DateUtils.parse_date(fecha_str)
                             else:
                                 fecha_obj = fecha_str
                             if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
@@ -432,8 +433,8 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
         if not fi_s or not ff_s:
             return json_error('Faltan fecha_inicio o fecha_fin', status=400, code='missing_params')
         try:
-            fi = datetime.strptime(fi_s, '%Y-%m-%d').date()
-            ff = datetime.strptime(ff_s, '%Y-%m-%d').date()
+            fi = DateUtils.parse_date(fi_s)
+            ff = DateUtils.parse_date(ff_s)
         except ValueError:
             return json_error('Formato de fecha inválido (YYYY-MM-DD)', status=400, code='invalid_date')
         if not hasattr(request.user, 'empleado'):
@@ -492,8 +493,8 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         if not fi_s or not ff_s:
             return json_error('Faltan fecha_inicio o fecha_fin', status=400, code='missing_params')
         try:
-            fi = datetime.strptime(fi_s, '%Y-%m-%d').date()
-            ff = datetime.strptime(ff_s, '%Y-%m-%d').date()
+            fi = DateUtils.parse_date(fi_s)
+            ff = DateUtils.parse_date(ff_s)
         except ValueError:
             return json_error('Formato de fecha inválido (YYYY-MM-DD)', status=400, code='invalid_date')
         if not hasattr(request.user, 'empleado'):

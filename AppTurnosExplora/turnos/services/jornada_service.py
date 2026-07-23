@@ -8,6 +8,7 @@ from empleados.models import Empleado
 from turnos.models import Turno, AsignarJornadaExplorador
 from core.services.cache_service import CacheService, CACHE_TTL_LONG
 import logging
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class JornadaService:
         try:
             # Convertir fecha a objeto date si es string
             if isinstance(fecha, str):
-                fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+                fecha_obj = DateUtils.parse_date(fecha)
             else:
                 fecha_obj = fecha
             

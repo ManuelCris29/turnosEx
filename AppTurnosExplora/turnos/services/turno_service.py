@@ -13,6 +13,7 @@ from django.db.models import Q
 import re
 import logging
 from core.interfaces import ITurnoService
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class TurnoService(ITurnoService):
             Diccionario con listas de exploradores por jornada: {'am': [...], 'pm': [...]}
         """
         fecha_str = re.match(r"\d{4}-\d{2}-\d{2}", fecha).group(0)
-        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+        fecha_obj = DateUtils.parse_date(fecha_str)
         
         # OPTIMIZACIÓN: Pre-cargar todos los exploradores activos con relaciones
         exploradores = Empleado.objects.filter(activo=True).select_related('supervisor')
@@ -103,8 +104,8 @@ class TurnoService(ITurnoService):
     def get_exploradores_por_jornada_rango(fecha_inicio, fecha_fin):
         inicio_str = re.match(r"\d{4}-\d{2}-\d{2}", fecha_inicio).group(0)
         fin_str = re.match(r"\d{4}-\d{2}-\d{2}", fecha_fin).group(0)
-        inicio = datetime.strptime(inicio_str, '%Y-%m-%d').date()
-        fin = datetime.strptime(fin_str, '%Y-%m-%d').date()
+        inicio = DateUtils.parse_date(inicio_str)
+        fin = DateUtils.parse_date(fin_str)
         dias = (fin - inicio).days + 1
         resultado = {}
         for i in range(dias):
@@ -130,7 +131,7 @@ class TurnoService(ITurnoService):
             Diccionario con información del turno o None si hay error
         """
         try:
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
             explorador = Empleado.objects.get(id=explorador_id)
             
             # 1. Buscar turnos específicos para esa fecha (puede haber múltiples si es doblada)
@@ -252,7 +253,7 @@ class TurnoService(ITurnoService):
         """
         from datetime import datetime as _dt
         if isinstance(fecha, str):
-            fecha = _dt.strptime(fecha, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha)
         return TurnoService._descanso_por_solicitud(empleado, fecha, excluir_id=excluir_id)
 
     @staticmethod
@@ -271,7 +272,7 @@ class TurnoService(ITurnoService):
         from datetime import datetime as _dt
         from turnos.models import DiaEspecial
         if isinstance(fecha, str):
-            fecha = _dt.strptime(fecha, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha)
         if fecha.weekday() >= 5:
             return False
         if not DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists():
@@ -317,7 +318,7 @@ class TurnoService(ITurnoService):
         from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 
         if isinstance(fecha, str):
-            fecha = _dt.strptime(fecha, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha)
 
         es_festivo = DiaEspecial.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
 

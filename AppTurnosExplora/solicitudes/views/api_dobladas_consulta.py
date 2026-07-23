@@ -82,7 +82,7 @@ class ExploradoresConDobladaView(LoginRequiredMixin, View):
         from turnos.services.turno_service import TurnoService as _TS
         fecha = request.GET.get('fecha')
         try:
-            fecha_obj = _dt.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
         except (TypeError, ValueError):
             return json_error('Fecha inválida', status=400, code='fecha_invalida')
         # Día A (fecha de cesión): opcional, pero si viene se filtra por "libre ese día".
@@ -90,7 +90,7 @@ class ExploradoresConDobladaView(LoginRequiredMixin, View):
         fecha_cesion_obj = None
         if fecha_cesion:
             try:
-                fecha_cesion_obj = _dt.strptime(fecha_cesion, '%Y-%m-%d').date()
+                fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
             except (TypeError, ValueError):
                 fecha_cesion_obj = None
         if fecha_cesion_obj == fecha_obj:
@@ -130,7 +130,7 @@ class SabadoPagoComprometidoView(LoginRequiredMixin, View):
         from datetime import datetime as _dt
         fecha = request.GET.get('fecha')
         try:
-            fecha_obj = _dt.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
         except (TypeError, ValueError):
             return json_error('Fecha inválida', status=400, code='fecha_invalida')
         # Solo aplica a sábados (weekday 5).

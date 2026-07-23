@@ -4,6 +4,7 @@ from django.http import JsonResponse
 from turnos.models import DiaEspecial
 from turnos.services.temporada_service import TemporadaService
 from datetime import datetime
+from core.utils.date_utils import DateUtils
 
 
 class DiasFestivosView(LoginRequiredMixin, View):
@@ -105,14 +106,14 @@ class DiasFestivosView(LoginRequiredMixin, View):
 
             # Filtrar por rango de fechas si se proporciona
             if fecha_inicio and fecha_fin:
-                fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-                fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+                fecha_inicio_obj = DateUtils.parse_date(fecha_inicio)
+                fecha_fin_obj = DateUtils.parse_date(fecha_fin)
                 festivos = festivos.filter(fecha__gte=fecha_inicio_obj, fecha__lte=fecha_fin_obj)
             elif fecha_inicio:
-                fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+                fecha_inicio_obj = DateUtils.parse_date(fecha_inicio)
                 festivos = festivos.filter(fecha__gte=fecha_inicio_obj)
             elif fecha_fin:
-                fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+                fecha_fin_obj = DateUtils.parse_date(fecha_fin)
                 festivos = festivos.filter(fecha__lte=fecha_fin_obj)
 
             # Filtrar por año si se proporciona

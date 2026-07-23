@@ -25,6 +25,7 @@ from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from turnos.services.jornada_service import JornadaService
+from core.utils.date_utils import DateUtils
 
 
 class CambioDescansoStrategy(SolicitudStrategy):
@@ -38,7 +39,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             return None
         if isinstance(fecha, str):
             try:
-                return datetime.strptime(fecha, '%Y-%m-%d').date()
+                return DateUtils.parse_date(fecha)
             except ValueError:
                 return None
         return fecha

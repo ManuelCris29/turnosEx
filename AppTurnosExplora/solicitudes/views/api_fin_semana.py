@@ -207,7 +207,7 @@ class CoberturaCandidatosView(LoginRequiredMixin, View):
         def _fecha(k):
             v = request.GET.get(k)
             try:
-                return _dt.strptime(v, '%Y-%m-%d').date() if v else None
+                return DateUtils.parse_date(v) if v else None
             except ValueError:
                 return None
 

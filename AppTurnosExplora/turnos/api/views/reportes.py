@@ -2,6 +2,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
 from datetime import datetime
+from core.utils.date_utils import DateUtils
 
 
 class ReporteDiaView(LoginRequiredMixin, View):
@@ -23,7 +24,7 @@ class ReporteDiaView(LoginRequiredMixin, View):
         if not fecha_str:
             return JsonResponse({'error': 'Debe enviar fecha (YYYY-MM-DD)'}, status=400)
         try:
-            fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha_str)
         except ValueError:
             return JsonResponse({'error': 'Formato de fecha inválido'}, status=400)
 
@@ -57,7 +58,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, View):
         if not fecha_str:
             return JsonResponse({'error': 'Debe enviar fecha (YYYY-MM-DD)'}, status=400)
         try:
-            fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha_str)
         except ValueError:
             return JsonResponse({'error': 'Formato de fecha inválido'}, status=400)
 

@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError  # type: ignore
 from empleados.models import Empleado
+from core.utils.date_utils import DateUtils
 
 
 class CTValidator:
@@ -48,7 +49,7 @@ class CTValidator:
         from datetime import datetime
 
         if isinstance(fecha, str):
-            fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha)
 
         # Para CT PERMANENTE: Validar estrictamente (NO permitir domingos)
         if es_cambio_permanente:
@@ -71,7 +72,7 @@ class CTValidator:
         from datetime import datetime
 
         if isinstance(fecha, str):
-            fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha)
 
         if fecha.weekday() == 5:  # Sábado
             raise ValidationError('No se puede cambiar sábado por día de semana')

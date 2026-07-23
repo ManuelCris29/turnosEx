@@ -148,7 +148,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         # Resumen informativo del rango (UX)
                         try:
                             fi = detalle.fecha_inicio
-                            ff = detalle.fecha_fin or _dt.strptime(f"{fi.year}-12-31", "%Y-%m-%d").date()
+                            ff = detalle.fecha_fin or DateUtils.parse_date(f"{fi.year}-12-31")
                             total_dias_rango = (ff - fi).days + 1
                             fines_semana = 0
                             cur = fi

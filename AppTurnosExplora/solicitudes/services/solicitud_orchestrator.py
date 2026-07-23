@@ -17,6 +17,7 @@ from ..models import TipoSolicitudCambio
 from .solicitud_factory import SolicitudFactory
 from .solicitud_request_parser import SolicitudRequestParser
 from core.utils.json_responses import json_ok, json_error
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,8 @@ class SolicitudOrchestrator:
         from datetime import datetime as _dt, timedelta as _td
         if tipo_nombre == 'CT PERMANENTE':
             try:
-                d0 = _dt.strptime(post.get('fecha_inicio'), '%Y-%m-%d').date()
-                d1 = _dt.strptime(post.get('fecha_fin'), '%Y-%m-%d').date()
+                d0 = DateUtils.parse_date(post.get('fecha_inicio'))
+                d1 = DateUtils.parse_date(post.get('fecha_fin'))
             except (ValueError, TypeError):
                 return SolicitudRequestParser.get_fechas_del_post(post)
             try:
@@ -235,7 +236,7 @@ class SolicitudOrchestrator:
         _cierre_fechas = []
         for _s in list(ces_fechas) + list(dev_fechas):
             try:
-                _cierre_fechas.append(_dt.strptime(_s, '%Y-%m-%d').date())
+                _cierre_fechas.append(DateUtils.parse_date(_s))
             except (ValueError, TypeError):
                 pass
         cierre_resp = cls.verificar_cierre(_cierre_fechas)
@@ -244,7 +245,7 @@ class SolicitudOrchestrator:
 
         def _wd(iso):
             try:
-                return str(_dt.strptime(iso, '%Y-%m-%d').date().weekday())
+                return str(DateUtils.parse_date(iso).weekday())
             except (ValueError, TypeError):
                 return ''
 
@@ -285,8 +286,8 @@ class SolicitudOrchestrator:
         try:
             from datetime import datetime as _dt
             fechas_rango = [
-                _dt.strptime(fecha_inicio, '%Y-%m-%d').date(),
-                _dt.strptime(fecha_fin, '%Y-%m-%d').date(),
+                DateUtils.parse_date(fecha_inicio),
+                DateUtils.parse_date(fecha_fin),
             ]
         except (ValueError, TypeError):
             fechas_rango = []

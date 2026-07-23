@@ -10,6 +10,7 @@ from django.db.models import Q
 from datetime import datetime
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
+from core.utils.date_utils import DateUtils
 
 
 class Command(BaseCommand):
@@ -28,7 +29,7 @@ class Command(BaseCommand):
         fechas = []
         for s in fechas_str:
             try:
-                fechas.append(datetime.strptime(s, '%Y-%m-%d').date())
+                fechas.append(DateUtils.parse_date(s))
             except ValueError:
                 self.stdout.write(self.style.WARNING(f'Fecha ignorada (formato inválido): {s}'))
                 continue

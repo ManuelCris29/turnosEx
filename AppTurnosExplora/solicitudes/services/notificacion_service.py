@@ -4,6 +4,7 @@ from datetime import datetime
 from django.utils import timezone
 import logging
 from solicitudes.services.email_service import EmailService
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ class NotificacionService:
         """Convierte fecha a objeto date si es string"""
         if isinstance(fecha, str):
             from datetime import datetime
-            return datetime.strptime(fecha, '%Y-%m-%d').date()
+            return DateUtils.parse_date(fecha)
         return fecha
 
     @staticmethod

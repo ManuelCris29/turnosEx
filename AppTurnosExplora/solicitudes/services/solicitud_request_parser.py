@@ -8,6 +8,7 @@ import json
 import logging
 from datetime import datetime
 from django.utils import timezone
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ class SolicitudRequestParser:
             v = post.get(campo)
             if v:
                 try:
-                    fechas.append(datetime.strptime(v, '%Y-%m-%d').date())
+                    fechas.append(DateUtils.parse_date(v))
                 except (ValueError, TypeError):
                     pass
         return fechas

@@ -16,6 +16,7 @@ from solicitudes.models import SolicitudCambio, DobladaPermanenteDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from turnos.services.jornada_service import JornadaService
+from core.utils.date_utils import DateUtils
 
 
 def _csv(dias):
@@ -58,7 +59,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             return None
         if isinstance(fecha, str):
             try:
-                return datetime.strptime(fecha, '%Y-%m-%d').date()
+                return DateUtils.parse_date(fecha)
             except ValueError:
                 return None
         return fecha

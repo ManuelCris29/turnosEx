@@ -12,6 +12,7 @@ from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle, CambioP
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service, get_turno_service
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             dias_seleccionados = datos.get('dias_seleccionados', {})  # Dict con 'fechas_especificas' y 'dias_semana'
             
             # Convert fecha_inicio to date for the main solicitud
-            fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            fecha_inicio_obj = DateUtils.parse_date(fecha_inicio)
             
             # Create the main solicitud
             solicitud = SolicitudCambio.objects.create(
@@ -170,7 +171,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # Create the CT permanente detail
             fecha_fin_obj = None
             if fecha_fin:
-                fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+                fecha_fin_obj = DateUtils.parse_date(fecha_fin)
             
             detalle = CambioPermanenteDetalle.objects.create(
                 solicitud=solicitud,
@@ -195,7 +196,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 for fecha_str in fechas_especificas:
                     try:
                         if isinstance(fecha_str, str):
-                            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                            fecha_obj = DateUtils.parse_date(fecha_str)
                         else:
                             fecha_obj = fecha_str
                         
@@ -509,8 +510,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 return super().get_empleados_disponibles(fecha, usuario_actual)
             
             # Convertir fechas
-            fecha_inicio = datetime.strptime(fecha_inicio_str, '%Y-%m-%d').date()
-            fecha_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+            fecha_inicio = DateUtils.parse_date(fecha_inicio_str)
+            fecha_fin = DateUtils.parse_date(fecha_fin_str)
             
             # 1. Generar todas las fechas válidas del rango
             fechas_a_evaluar = self._generar_fechas_validas_params(
@@ -652,7 +653,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             for fecha_str in fechas_especificas_list:
                 try:
                     if isinstance(fecha_str, str):
-                        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                        fecha_obj = DateUtils.parse_date(fecha_str)
                     else:
                         fecha_obj = fecha_str
                     

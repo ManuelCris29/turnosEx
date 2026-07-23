@@ -67,7 +67,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
 
             # Caso A: Validar que la fecha no sea pasada
             from datetime import date as _date, datetime as _datetime
-            _fecha_obj = _datetime.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+            _fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
             if _fecha_obj < _date.today():
                 return False, "No se puede solicitar un cambio de turno para una fecha pasada."
 
@@ -222,7 +222,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
             LIMITE_CAMBIOS_POR_FECHA = 3
             from ..solicitud_consulta_service import SolicitudConsultaService
             from datetime import datetime as _dt_b
-            _fecha_b = _dt_b.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+            _fecha_b = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
 
             cambios_solicitante = SolicitudConsultaService.contar_cambios_explorador_fecha(
                 explorador_solicitante.id, _fecha_b

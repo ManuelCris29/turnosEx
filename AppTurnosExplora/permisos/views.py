@@ -6,6 +6,7 @@ from .models import PDH, PermisoEspecial
 
 # Importar mixin común desde core
 from core.mixins import AdminRequiredMixin
+from core.utils.date_utils import DateUtils
 
 # Create your views here.
 
@@ -114,7 +115,7 @@ class PermisoEspecialListView(LoginRequiredMixin, ListView):
         if fecha:
             from datetime import datetime
             try:
-                f = datetime.strptime(fecha, '%Y-%m-%d').date()
+                f = DateUtils.parse_date(fecha)
                 qs = qs.filter(fecha_inicio__lte=f, fecha_fin__gte=f)
             except ValueError:
                 pass

@@ -14,6 +14,7 @@ from django.views import View
 from core.mixins import AdminRequiredMixin
 from ..models import CierreSolicitudesConfig, CierreSemanaOverride, DIA_CIERRE_CHOICES
 from ..services.cierre_solicitudes_service import CierreSolicitudesService as CS
+from core.utils.date_utils import DateUtils
 
 N_SEMANAS = 8
 
@@ -63,7 +64,7 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
             messages.success(request, 'Configuración por defecto del cierre guardada.')
         elif accion == 'override':
             try:
-                lunes = datetime.strptime(request.POST.get('semana_lunes'), '%Y-%m-%d').date()
+                lunes = DateUtils.parse_date(request.POST.get('semana_lunes'))
             except (ValueError, TypeError):
                 messages.error(request, 'Semana inválida.')
                 return redirect('solicitudes:cierre_config')
@@ -75,7 +76,7 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
             messages.success(request, f'Ajuste guardado para la semana del {lunes.strftime("%d/%m/%Y")}.')
         elif accion == 'quitar_override':
             try:
-                lunes = datetime.strptime(request.POST.get('semana_lunes'), '%Y-%m-%d').date()
+                lunes = DateUtils.parse_date(request.POST.get('semana_lunes'))
                 CierreSemanaOverride.objects.filter(semana_lunes=lunes).delete()
                 messages.success(request, 'Ajuste de semana eliminado (vuelve al valor por defecto).')
             except (ValueError, TypeError):

@@ -45,7 +45,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 from datetime import datetime
                 from empleados.models import Empleado
                 
-                fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+                fecha_obj = DateUtils.parse_date(fecha)
                 explorador = Empleado.objects.get(id=explorador_id)
                 
                 # Obtener jornada base (sin considerar Turnos)
@@ -102,7 +102,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             from turnos.models import Turno
             from datetime import datetime
             
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
             turnos_en_fecha = Turno.objects.filter(
                 explorador_id=explorador_id,
                 fecha=fecha_obj
@@ -421,8 +421,8 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             from turnos.services.jornada_service import JornadaService
             import json
             
-            fecha_inicio_obj = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
-            fecha_fin_obj = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            fecha_inicio_obj = DateUtils.parse_date(fecha_inicio)
+            fecha_fin_obj = DateUtils.parse_date(fecha_fin)
             
             # Parsear días seleccionados
             try:
@@ -561,7 +561,7 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
             from django.db.models import Q
             from turnos.models import Turno
             
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
             empleado = request.user.empleado
             
             # Buscar si existe un Turno para este empleado y fecha

@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError  # type: ignore
 from empleados.models import Empleado
 
 from .base_validator import BaseValidator
+from core.utils.date_utils import DateUtils
 
 
 class DobladaValidator:
@@ -219,12 +220,12 @@ class DobladaValidator:
         from datetime import datetime
 
         if isinstance(fecha1, str):
-            fecha1_obj = datetime.strptime(fecha1, '%Y-%m-%d').date()
+            fecha1_obj = DateUtils.parse_date(fecha1)
         else:
             fecha1_obj = fecha1
 
         if isinstance(fecha2, str):
-            fecha2_obj = datetime.strptime(fecha2, '%Y-%m-%d').date()
+            fecha2_obj = DateUtils.parse_date(fecha2)
         else:
             fecha2_obj = fecha2
 
@@ -317,7 +318,7 @@ class DobladaValidator:
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_pago, str):
-            fecha_pago_obj = datetime.strptime(fecha_pago, '%Y-%m-%d').date()
+            fecha_pago_obj = DateUtils.parse_date(fecha_pago)
         else:
             fecha_pago_obj = fecha_pago
 

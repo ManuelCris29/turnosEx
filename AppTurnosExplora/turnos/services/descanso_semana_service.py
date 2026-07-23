@@ -9,6 +9,7 @@ from datetime import date, datetime
 from collections import defaultdict
 from django.db import transaction
 from turnos.models import DescansoSemanaManual
+from core.utils.date_utils import DateUtils
 
 
 class DescansoSemanaService:
@@ -54,7 +55,7 @@ class DescansoSemanaService:
         creados = 0
         for fecha_iso, lista in (seleccion or {}).items():
             try:
-                fecha = datetime.strptime(fecha_iso, '%Y-%m-%d').date()
+                fecha = DateUtils.parse_date(fecha_iso)
             except (ValueError, TypeError):
                 continue
             if fecha.weekday() >= 5 or fecha.year != int(anio):

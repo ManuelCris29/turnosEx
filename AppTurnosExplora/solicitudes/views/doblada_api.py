@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import logging
 from django.core.cache import cache
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +145,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             
             # Verificar si tiene doblada aprobada en esa fecha
             from datetime import datetime
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
             
             # ✅ PRIORIDAD ABSOLUTA: Usar Turno como fuente de verdad única
             # Si hay turnos AM+PM en Turno, significa que ya está aplicado (aprobado y ejecutado)

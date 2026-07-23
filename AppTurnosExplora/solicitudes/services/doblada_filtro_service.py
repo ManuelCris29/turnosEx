@@ -11,6 +11,7 @@ from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
 from datetime import date, datetime
 import logging
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,7 @@ class DobladaFiltroService:
         """
         # Convertir fecha a objeto date si es string
         if isinstance(fecha, str):
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
         else:
             fecha_obj = fecha
         
@@ -187,7 +188,7 @@ class DobladaFiltroService:
         from turnos.services.jornada_service import JornadaService
         from turnos.services.turno_service import TurnoService
 
-        fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+        fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
 
         empleados_activos = (
             Empleado.objects.filter(activo=True)

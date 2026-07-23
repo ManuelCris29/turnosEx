@@ -9,6 +9,7 @@ from turnos.models import Turno, AsignarJornadaExplorador
 from datetime import datetime
 import logging
 from core.interfaces import IEmpleadoDisponibilidadService
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +101,7 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         # para un CT sencillo: se devuelve vacío (la validación del servidor igual lo bloquearía).
         from datetime import datetime as _dt
         from turnos.services.turno_service import TurnoService as _TS
-        _fecha_obj = _dt.strptime(fecha, '%Y-%m-%d').date() if isinstance(fecha, str) else fecha
+        _fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
         _estado = _TS.estado_dia(empleado_actual, _fecha_obj)
         _jornada_real = _estado['jornada'] if _estado['trabaja'] else None
 
@@ -151,7 +152,7 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             return empleados_contrarios
         
         # OPTIMIZACIÓN - Pre-cargar Turnos de la fecha en una sola consulta
-        fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+        fecha_obj = DateUtils.parse_date(fecha)
         ids_empleados_activos = list(empleados_activos.values_list('id', flat=True))
 
         # Consulta batch: traer todos los Turnos de la fecha para los empleados activos

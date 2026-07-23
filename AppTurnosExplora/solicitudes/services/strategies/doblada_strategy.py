@@ -916,7 +916,7 @@ class DobladaStrategy(SolicitudStrategy):
             from ..doblada_filtro_service import DobladaFiltroService
             from turnos.services.jornada_service import JornadaService
             
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
             es_sabado = fecha_obj.weekday() == 5
 
             solicitante_descansa = bool(kwargs.get('solicitante_descansa'))

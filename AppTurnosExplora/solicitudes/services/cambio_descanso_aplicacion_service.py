@@ -26,6 +26,7 @@ from django.db import transaction
 
 from turnos.models import Turno
 from turnos.services.doblada_turno_service import DobladaTurnoService
+from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ def _as_date(fecha):
     """Normaliza a date: acepta date o str 'YYYY-MM-DD'."""
     if isinstance(fecha, str):
         from datetime import datetime
-        return datetime.strptime(fecha, '%Y-%m-%d').date()
+        return DateUtils.parse_date(fecha)
     return fecha
 
 

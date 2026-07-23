@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta
 from django.db import transaction
 
 from turnos.models import AsignacionEspecialManual
+from core.utils.date_utils import DateUtils
 
 
 class AsignacionEspecialConflicto(Exception):
@@ -143,7 +144,7 @@ class AsignacionEspecialService:
         creados = 0
         for fecha_iso, grupo in seleccion.items():
             try:
-                fecha = datetime.strptime(fecha_iso, '%Y-%m-%d').date()
+                fecha = DateUtils.parse_date(fecha_iso)
             except (ValueError, TypeError):
                 continue
             if fecha.year != int(anio):

@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError  # type: ignore
 from django.db import models
 from empleados.models import Empleado
+from core.utils.date_utils import DateUtils
 
 
 class CTPermanenteValidator:
@@ -19,9 +20,9 @@ class CTPermanenteValidator:
 
         # Convertir a date si es string
         if isinstance(fecha_inicio, str):
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            fecha_inicio = DateUtils.parse_date(fecha_inicio)
         if fecha_fin and isinstance(fecha_fin, str):
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            fecha_fin = DateUtils.parse_date(fecha_fin)
 
         # Validar que fecha_inicio no sea en el pasado
         if fecha_inicio < date.today():
@@ -58,9 +59,9 @@ class CTPermanenteValidator:
 
         # Convertir fechas a date si son strings
         if isinstance(fecha_inicio, str):
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            fecha_inicio = DateUtils.parse_date(fecha_inicio)
         if isinstance(fecha_fin, str):
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            fecha_fin = DateUtils.parse_date(fecha_fin)
 
         # Generar lista de fechas a evaluar
         fechas_a_evaluar = []
@@ -74,7 +75,7 @@ class CTPermanenteValidator:
                 for fecha_str in fechas_especificas:
                     try:
                         if isinstance(fecha_str, str):
-                            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                            fecha_obj = DateUtils.parse_date(fecha_str)
                         else:
                             fecha_obj = fecha_str
                         # Solo lunes-viernes
@@ -152,16 +153,16 @@ class CTPermanenteValidator:
         if fechas_especificas:
             # Convertir fecha_inicio y fecha_fin a date si son strings
             if isinstance(fecha_inicio, str):
-                fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+                fecha_inicio = DateUtils.parse_date(fecha_inicio)
             if isinstance(fecha_fin, str):
-                fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+                fecha_fin = DateUtils.parse_date(fecha_fin)
 
             # Validar que todas las fechas estén dentro del rango
             fechas_fuera_rango = []
             for fecha_str in fechas_especificas:
                 try:
                     if isinstance(fecha_str, str):
-                        fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                        fecha_obj = DateUtils.parse_date(fecha_str)
                     else:
                         fecha_obj = fecha_str
 
@@ -206,9 +207,9 @@ class CTPermanenteValidator:
         from datetime import datetime, timedelta
 
         if isinstance(fecha_inicio, str):
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            fecha_inicio = DateUtils.parse_date(fecha_inicio)
         if isinstance(fecha_fin, str):
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            fecha_fin = DateUtils.parse_date(fecha_fin)
 
         # Generar lista de fechas candidatas
         fechas_candidatas = []
@@ -222,7 +223,7 @@ class CTPermanenteValidator:
                 for fecha_str in fechas_especificas:
                     try:
                         if isinstance(fecha_str, str):
-                            fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                            fecha_obj = DateUtils.parse_date(fecha_str)
                         else:
                             fecha_obj = fecha_str
                         # Solo agregar si está dentro del rango y es lunes-viernes
@@ -367,9 +368,9 @@ class CTPermanenteValidator:
         from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle
 
         if isinstance(fecha_inicio, str):
-            fecha_inicio = datetime.strptime(fecha_inicio, '%Y-%m-%d').date()
+            fecha_inicio = DateUtils.parse_date(fecha_inicio)
         if fecha_fin and isinstance(fecha_fin, str):
-            fecha_fin = datetime.strptime(fecha_fin, '%Y-%m-%d').date()
+            fecha_fin = DateUtils.parse_date(fecha_fin)
 
         # Buscar cambios permanentes existentes entre estos empleados
         # Verificar en ambas direcciones: solicitante->receptor y receptor->solicitante

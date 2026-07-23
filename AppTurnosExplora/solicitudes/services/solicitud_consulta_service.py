@@ -157,7 +157,7 @@ class SolicitudConsultaService:
         """
         # Convertir fecha a objeto date si es string
         if isinstance(fecha, str):
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
         else:
             fecha_obj = fecha
         

@@ -1,5 +1,6 @@
 from django.core.exceptions import ValidationError  # type: ignore
 from empleados.models import Empleado
+from core.utils.date_utils import DateUtils
 
 
 class BaseValidator:
@@ -59,7 +60,7 @@ class BaseValidator:
             from turnos.models import DiaEspecial
 
             if isinstance(fecha, str):
-                fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+                fecha = DateUtils.parse_date(fecha)
 
             # Verificar si es día de mantenimiento EFECTIVO.
             # La temporada manda: si la fecha cae en temporada, NO se considera mantenimiento.
@@ -111,7 +112,7 @@ class BaseValidator:
 
         # Convertir fecha a date si es string
         if isinstance(fecha, str):
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
         elif hasattr(fecha, 'strftime'):
             fecha_obj = fecha
         else:
@@ -155,7 +156,7 @@ class BaseValidator:
         from turnos.models import DiaEspecial
 
         if isinstance(fecha, str):
-            fecha_obj = datetime.strptime(fecha, '%Y-%m-%d').date()
+            fecha_obj = DateUtils.parse_date(fecha)
         else:
             fecha_obj = fecha
 
@@ -244,7 +245,7 @@ class BaseValidator:
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_cesion, str):
-            fecha_cesion_obj = datetime.strptime(fecha_cesion, '%Y-%m-%d').date()
+            fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
         else:
             fecha_cesion_obj = fecha_cesion
 
@@ -283,7 +284,7 @@ class BaseValidator:
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_cesion, str):
-            fecha_cesion_obj = datetime.strptime(fecha_cesion, '%Y-%m-%d').date()
+            fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
         else:
             fecha_cesion_obj = fecha_cesion
 
@@ -315,7 +316,7 @@ class BaseValidator:
         try:
             from turnos.models import DiaEspecial
             if isinstance(fecha, str):
-                fecha = datetime.strptime(fecha, '%Y-%m-%d').date()
+                fecha = DateUtils.parse_date(fecha)
             return DiaEspecial.objects.filter(
                 fecha=fecha,
                 es_temporada=True,

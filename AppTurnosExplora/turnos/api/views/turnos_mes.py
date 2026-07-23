@@ -82,11 +82,11 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
 
         try:
             # Calcular inicio y fin del mes solicitado
-            fecha_inicio = datetime.strptime(f"{anio}-{mes}-01", "%Y-%m-%d").date()
+            fecha_inicio = DateUtils.parse_date(f"{anio}-{mes}-01")
             if int(mes) == 12:
-                fecha_fin = datetime.strptime(f"{int(anio)+1}-01-01", "%Y-%m-%d").date() - timedelta(days=1)
+                fecha_fin = DateUtils.parse_date(f"{int(anio)+1}-01-01") - timedelta(days=1)
             else:
-                fecha_fin = datetime.strptime(f"{anio}-{int(mes)+1:02d}-01", "%Y-%m-%d").date() - timedelta(days=1)
+                fecha_fin = DateUtils.parse_date(f"{anio}-{int(mes)+1:02d}-01") - timedelta(days=1)
 
             # Obtener turnos del mes solicitado (optimizado, evitando N+1)
             turnos_mes = (
@@ -484,7 +484,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 else:
                     # Si no se encontró, puede ser una doblada con múltiples turnos
                     # Buscar en todos los turnos de esa fecha
-                    fecha_obj = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+                    fecha_obj = DateUtils.parse_date(fecha_str)
                     turnos_fecha = turnos_por_fecha.get(fecha_obj, [])
                     for turno in turnos_fecha:
                         if turno.id in solicitudes_info:
@@ -503,7 +503,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
 
             if fechas_sin_solicitud:
                 # Convertir fechas string a objetos date
-                fechas_obj = [datetime.strptime(f, '%Y-%m-%d').date() for f in fechas_sin_solicitud]
+                fechas_obj = [DateUtils.parse_date(f) for f in fechas_sin_solicitud]
 
                 # IMPORTANTE: Para dobladas, necesitamos buscar en ambos escenarios:
                 # 1. Empleado como SOLICITANTE en fecha de cesión (empleado cedió, receptor trabaja)

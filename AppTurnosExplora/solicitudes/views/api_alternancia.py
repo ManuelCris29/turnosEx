@@ -146,7 +146,7 @@ class AlternanciaFindeView(LoginRequiredMixin, View):
         if not fecha_str:
             return json_error('Falta el parámetro fecha', status=400, code='missing_params')
         try:
-            fecha = datetime.strptime(fecha_str, '%Y-%m-%d').date()
+            fecha = DateUtils.parse_date(fecha_str)
         except ValueError:
             return json_error('Formato de fecha inválido (use YYYY-MM-DD)', status=400, code='invalid_date')
         if fecha.weekday() not in (5, 6):
