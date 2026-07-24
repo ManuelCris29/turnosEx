@@ -121,7 +121,7 @@ class ObtenerExploradoresDobladaView(LoginRequiredMixin, View):
                 'total': len(empleados_disponibles)
             })
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error obteniendo exploradores para doblada")
             return json_error('Error al obtener exploradores disponibles', status=500, code='internal_error')
 

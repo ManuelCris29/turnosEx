@@ -630,7 +630,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             
             return resultados
             
-        except Exception as e:
+        except Exception:
             import logging
             logger = logging.getLogger(__name__)
             logger.exception("Error en get_empleados_disponibles CT PERMANENTE (Rango)")

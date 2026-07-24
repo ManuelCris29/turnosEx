@@ -1,0 +1,6 @@
+projectKey=SWALP
+serverUrl=http://localhost:9000
+serverVersion=26.7.0.124771
+dashboardUrl=http://localhost:9000/dashboard?id=SWALP
+ceTaskId=83f38ae2-3fdf-4295-ae40-1a527e006d74
+ceTaskUrl=http://localhost:9000/api/ce/task?id=83f38ae2-3fdf-4295-ae40-1a527e006d74

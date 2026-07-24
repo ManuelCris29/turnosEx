@@ -128,10 +128,11 @@
 
 {% block extra_js %}
 <script src="{% static_v 'js/turnos/calendario_temporadas.js' %}"></script>
+{{ dias_por_mes|json_script:"temporadas-dias-data" }}
 <script>
 window.TEMPORADAS_INIT = {
   anio: {{ anio_seleccionado }},
-  diasPorMes: {{ dias_por_mes|safe }},
+  diasPorMes: JSON.parse(document.getElementById('temporadas-dias-data').textContent),
   tieneTemporadas: {{ tiene_temporadas|yesno:"true,false" }},
   url: "{% url 'dias_especiales_temporadas_anual' %}"
 };

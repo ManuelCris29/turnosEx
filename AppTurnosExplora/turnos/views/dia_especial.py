@@ -11,7 +11,6 @@ from ..services.temporada_service import TemporadaService
 from ..services.dia_especial_service import DiaEspecialService
 from datetime import timedelta, date
 from django.utils import timezone
-import json
 
 # Create your views here.
 
@@ -201,7 +200,7 @@ class DiaEspecialTemporadasAnualView(LoginRequiredMixin, AdminRequiredMixin, Tem
             'anio_seleccionado': anio_seleccionado,
             'anio_actual': anio_actual,
             'tiene_temporadas': tiene_temporadas,
-            'dias_por_mes': json.dumps(dias_por_mes),  # Serializar a JSON para JavaScript
+            'dias_por_mes': dias_por_mes,  # dict crudo; el template lo serializa con json_script (XSS-safe)
             'meses_data': meses_data,
             'anios_con_temporadas': anios_con_temporadas,  # Para referencia
             'anios_disponibles': anios_disponibles,  # Lista completa de años para el selector

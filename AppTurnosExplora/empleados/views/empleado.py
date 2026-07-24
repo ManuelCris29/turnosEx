@@ -53,13 +53,6 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
             # Obtener IDs de empleados
             empleado_ids = [e.id for e in empleados]
 
-            # Pre-cargar todas las asignaciones de jornada más recientes en una consulta
-            # Usar subquery para obtener la asignación más reciente por empleado
-            from django.db.models import OuterRef, Subquery
-            asignaciones_recientes = AsignarJornadaExplorador.objects.filter(
-                explorador_id=OuterRef('explorador_id')
-            ).order_by('-fecha_inicio')[:1]
-
             # Obtener todas las asignaciones con select_related
             asignaciones = (
                 AsignarJornadaExplorador.objects

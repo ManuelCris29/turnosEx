@@ -54,7 +54,7 @@ class EmpleadoService:
         Valida si un empleado puede ser asignado a un turno específico
         considerando sus restricciones y reglas de negocio
         """
-        empleado = Empleado.objects.get(id=empleado_id)  # type: ignore
+        Empleado.objects.get(id=empleado_id)  # type: ignore  # valida existencia
         # Aquí irían las validaciones específicas
         # Por ejemplo:
         # - Verificar horas máximas semanales

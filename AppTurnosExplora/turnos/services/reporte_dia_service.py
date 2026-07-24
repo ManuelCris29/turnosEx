@@ -55,8 +55,6 @@ class ReporteDiaService:
         Las fechas dentro de restriccion/sancion/deuda_reprogramacion son
         strings ISO (YYYY-MM-DD) o None.
         """
-        anio, mes = fecha.year, fecha.month
-
         # ── Empleados activos ────────────────────────────────────────────────
         empleados = list(
             Empleado.objects.filter(activo=True)

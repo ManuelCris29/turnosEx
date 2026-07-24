@@ -87,7 +87,7 @@ class SolicitudService:
             try:
                 NotificacionService.crear_notificacion_cancelacion(solicitud_anterior)
                 logger.info("Notificación de cancelación enviada", extra={'solicitud_id': solicitud_anterior.id})
-            except Exception as e:
+            except Exception:
                 logger.exception("Error enviando notificación de cancelación")
         
         # 5. Crear la nueva solicitud
