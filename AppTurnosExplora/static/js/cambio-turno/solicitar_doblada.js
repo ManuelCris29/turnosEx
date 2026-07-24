@@ -908,6 +908,8 @@
                     indicadorDomingoPago.style.display = 'block';
                     fechaPagoInput.value = '';
                     mostrarOpcionesPagoSabado(false);
+                    // Intercambio: al invalidar la fecha, refrescar (limpia el aviso viejo).
+                    if (modoIntercambio) cargarCompanerosIntercambio();
                     return;
                 } else {
                     indicadorDomingoPago.style.display = 'none';
@@ -936,6 +938,8 @@
                     ).then(esMantenimiento => {
                         if (esMantenimiento) {
                             fechaPagoInput.value = '';
+                            // Intercambio: al invalidar la fecha, refrescar (limpia el aviso viejo).
+                            if (modoIntercambio) cargarCompanerosIntercambio();
                         }
                     });
                 }
@@ -948,6 +952,8 @@
                         text: `La fecha de pago debe ser posterior a ${fechaCreacionSolicitud}.`
                     });
                     fechaPagoInput.value = '';
+                    // Intercambio: al invalidar la fecha, refrescar (limpia el aviso viejo).
+                    if (modoIntercambio) cargarCompanerosIntercambio();
                     return;
                 }
 
