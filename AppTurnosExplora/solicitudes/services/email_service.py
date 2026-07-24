@@ -182,7 +182,8 @@ class EmailService:
                 html_message = render_to_string('solicitudes/emails/solicitud_supervisor_receptor.html', {
                     'solicitud': solicitud_completa,
                     'supervisor_receptor': supervisor_receptor,
-                    'enlaces': enlaces
+                    'enlaces': enlaces,
+                    'site_url': settings.SITE_URL
                 })
             except Exception as e:
                 logger.exception(f"Error renderizando template de email supervisor-receptor: {e}")
@@ -230,7 +231,8 @@ class EmailService:
                 html_message = render_to_string('solicitudes/emails/solicitud_supervisor.html', {
                     'solicitud': solicitud_completa,
                     'supervisor': supervisor,
-                    'enlaces': enlaces
+                    'enlaces': enlaces,
+                    'site_url': settings.SITE_URL
                 })
             except Exception as e:
                 logger.exception(f"Error renderizando template de email supervisor: {e}")
@@ -273,7 +275,8 @@ class EmailService:
             try:
                 html_message = render_to_string('solicitudes/emails/solicitud_receptor.html', {
                     'solicitud': solicitud_completa,
-                    'enlaces': enlaces
+                    'enlaces': enlaces,
+                    'site_url': settings.SITE_URL
                 })
             except Exception as e:
                 logger.exception(f"Error renderizando template de email receptor: {e}")
@@ -531,7 +534,8 @@ class EmailService:
         
         # Renderizar template HTML
         html_message = render_to_string('solicitudes/emails/cancelacion_solicitud.html', {
-            'solicitud': solicitud
+            'solicitud': solicitud,
+            'site_url': settings.SITE_URL
         })
         
         # Versión texto plano

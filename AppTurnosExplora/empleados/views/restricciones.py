@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, UpdateView
 from django.views.generic.edit import CreateView, DeleteView
@@ -9,6 +11,8 @@ from core.mixins import AdminRequiredMixin
 
 from ..models import Empleado, RestriccionEmpleado
 from ..forms import RestriccionEmpleadoForm
+
+logger = logging.getLogger(__name__)
 
 
 # CRUD de Restricciones
@@ -84,7 +88,7 @@ def _invalidar_turnos_cache_restriccion(restriccion):
         for m, y in meses:
             CacheService.invalidar_cache_turnos_empleado(restriccion.empleado.id, m, y)
     except Exception:
-        pass
+        logger.warning("Error invalidando caché de turnos por restricción (empleado=%s)", restriccion.empleado_id, exc_info=True)
 
 
 class RestriccionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):

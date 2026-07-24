@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, UpdateView
 from django.views.generic.edit import CreateView, DeleteView
@@ -8,6 +10,8 @@ from core.mixins import AdminRequiredMixin
 
 from ..models import Empleado, SancionEmpleado
 from ..forms import SancionEmpleadoForm
+
+logger = logging.getLogger(__name__)
 
 
 # CRUD de Sanciones
@@ -81,7 +85,7 @@ def _invalidar_turnos_cache_sancion(sancion):
         for m, y in meses:
             CacheService.invalidar_cache_turnos_empleado(sancion.explorador.id, m, y)
     except Exception:
-        pass
+        logger.warning("Error invalidando caché de turnos por sanción (explorador=%s)", sancion.explorador_id, exc_info=True)
 
 
 class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):

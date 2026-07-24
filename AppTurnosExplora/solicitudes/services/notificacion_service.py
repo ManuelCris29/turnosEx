@@ -171,7 +171,7 @@ class NotificacionService:
                     'Tenga en cuenta las necesidades de personal antes de aprobar.'
                 )
         except Exception:
-            pass
+            logger.warning("Error detectando aviso de temporada para notificación (fecha=%s)", fecha_cesion, exc_info=True)
 
         titulo = 'Nueva solicitud de cambio de turno'
         mensaje = f"""
@@ -229,7 +229,7 @@ class NotificacionService:
                     'Tenga en cuenta las necesidades de personal antes de aprobar.'
                 )
         except Exception:
-            pass
+            logger.warning("Error detectando aviso de temporada para notificación rol doble (fecha=%s)", fecha_cesion, exc_info=True)
 
         titulo = 'Solicitud de cambio de turno - Rol Doble (Supervisor + Receptor)'
         mensaje = f"""

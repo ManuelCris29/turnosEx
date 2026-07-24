@@ -3,7 +3,7 @@ Comando para instalar y verificar la biblioteca calendario-colombiano
 Ejecutar: python manage.py instalar_calendario_colombiano
 """
 from django.core.management.base import BaseCommand
-import subprocess
+import subprocess  # nosec B404 - comando de instalación con args fijos, sin input externo
 import sys
 
 
@@ -14,7 +14,8 @@ class Command(BaseCommand):
         self.stdout.write(self.style.WARNING('Instalando calendario-colombiano...'))
         
         try:
-            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'calendario-colombiano'])
+            # nosec B603 - argumentos fijos (sys.executable + pip), sin datos de usuario
+            subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'calendario-colombiano'])  # nosec B603
             self.stdout.write(self.style.SUCCESS('✓ Biblioteca instalada correctamente'))
             
             # Verificar instalación

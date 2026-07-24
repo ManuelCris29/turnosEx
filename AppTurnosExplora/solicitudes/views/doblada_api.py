@@ -102,7 +102,7 @@ class ObtenerExploradoresDobladaView(LoginRequiredMixin, View):
                             if jd is None:
                                 emp_dict['jornada'] = 'Descanso'
                         except Exception:
-                            pass
+                            logger.warning("Error resolviendo jornada display (empleado=%s)", eid, exc_info=True)
 
                 en_descanso = DobladaFiltroService.obtener_empleados_en_descanso(fecha, usuario_actual.id)
                 en_descanso = DobladaFiltroService.filtrar_empleados_sin_doblada_activa(en_descanso, fecha)
@@ -184,7 +184,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                         solicitud_id = doblada_solicitud.id
                 except Exception:
                     # Si falla la búsqueda de solicitud, no es crítico
-                    pass
+                    logger.warning("Error buscando solicitud de doblada asociada", exc_info=True)
                 
                 return json_ok({
                     'tiene_doblada': True,
@@ -342,7 +342,8 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             if jornadas:
                 # Verificar si alguno de los turnos que tiene el usuario está relacionado con un CT donde él es solicitante
                 # turno_origen es el turno del solicitante (con jornada del receptor)
-                from django.db.models import Q
+                # (Q ya está importado a nivel de módulo; un import local aquí volvía
+                #  'Q' local a todo el método y rompía su uso en el CASO 1 de arriba.)
                 turnos_ids = [t.id for t in turnos]
                 ct_como_solicitante = (
                     SolicitudCambio.objects

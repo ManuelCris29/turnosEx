@@ -7,11 +7,14 @@ Genera el reporte operacional de un día para supervisores: quién trabaja
 Usa las mismas capas de prioridad que TurnoService.estado_mes pero en batch
 para TODOS los empleados activos en una sola pasada (~10 queries totales).
 """
+import logging
 from datetime import date as _date
 from django.db.models import Q
 from empleados.models import Empleado
 from turnos.models import Turno, AsignarJornadaExplorador, DiaEspecial, DescansoSemanaManual
 from solicitudes.models import SolicitudCambio
+
+logger = logging.getLogger(__name__)
 
 
 def _nombre(emp):
@@ -31,19 +34,26 @@ class ReporteDiaService:
             {id, nombre, apellido, jornada_base, jornada_dia,
              tipo,          # 'oficial' | 'cambio' | 'doblada'
              cubre_a,       # None | {id, nombre}  (cuando dobló por alguien)
-             permiso}       # None | {horas, tipo, especificacion}
+             permiso,       # None | {horas, tipo, especificacion, estado}
+             restriccion,   # None | {tipo, recomendacion, fecha_fin}
+             sancion,       # None | {motivo, fecha_inicio, fecha_fin}
+             deuda_reprogramacion}  # None | {fecha_original, jornada_debida,
+                            #   fecha_reprogramada, motivo, estado, paga_hoy}
           ],
           'descansando': [
             {id, nombre, apellido, jornada_base,
              motivo,        # texto legible
              companero,     # None | {id, nombre}
-             permiso}       # None | {horas, tipo, especificacion}
+             permiso, restriccion, sancion, deuda_reprogramacion}  # (idem)
           ],
           'dia_info': {
             'es_festivo', 'es_finde', 'es_mantenimiento',
             'grupo_dobla_festivo'
           }
         }
+
+        Las fechas dentro de restriccion/sancion/deuda_reprogramacion son
+        strings ISO (YYYY-MM-DD) o None.
         """
         anio, mes = fecha.year, fecha.month
 
@@ -85,7 +95,7 @@ class ReporteDiaService:
                 if grupo_dobla_festivo:
                     grupo_dobla_festivo = grupo_dobla_festivo.upper()
             except Exception:
-                pass
+                logger.warning("Error obteniendo grupo que dobla en festivo (fecha=%s)", fecha, exc_info=True)
 
         # ── Grupo que trabaja el fin de semana ───────────────────────────────
         grupo_trabaja_finde = None
@@ -96,7 +106,7 @@ class ReporteDiaService:
                 if grupo_trabaja_finde:
                     grupo_trabaja_finde = grupo_trabaja_finde.upper()
             except Exception:
-                pass
+                logger.warning("Error obteniendo grupo que trabaja el fin de semana (fecha=%s)", fecha, exc_info=True)
 
         # ── Descanso de semana manual (temporada) por jornada ───────────────
         jornadas_descanso_temporada = set()
@@ -174,10 +184,6 @@ class ReporteDiaService:
         try:
             from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
             from datetime import timedelta
-            ini_mes = _date(anio, mes, 1)
-            fin_mes = _date(anio, mes, 28 + 4)  # fin holgado
-            from calendar import monthrange
-            fin_mes = _date(anio, mes, monthrange(anio, mes)[1])
             for s in (SolicitudCambio.objects
                       .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
                       .filter(Q(explorador_solicitante_id__in=emp_ids) |
@@ -207,7 +213,7 @@ class ReporteDiaService:
                     descansa_por_cd[s.explorador_receptor_id] = {
                         'motivo': 'cambio de día de descanso', 'companero': comp_rec}
         except Exception:
-            pass
+            logger.warning("Error resolviendo descansos por cambio de descanso (fecha=%s)", fecha, exc_info=True)
 
         # Quién DESCANSA por DOBLADA PERMANENTE
         descansa_por_perm = {}   # emp_id → {motivo, companero}
@@ -252,6 +258,57 @@ class ReporteDiaService:
                 'especificacion': p.especificacion or '',
                 'estado': p.estado,
             }
+
+        # ── Restricciones activas en la fecha (batch) ────────────────────────
+        from django.db.models import Q as _Q
+        from empleados.models import RestriccionEmpleado, SancionEmpleado
+        restricciones_por_emp = {}
+        for r in (RestriccionEmpleado.objects
+                  .filter(empleado_id__in=emp_ids, fecha_inicio__lte=fecha)
+                  .filter(_Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=fecha))
+                  .order_by('empleado_id', '-fecha_inicio')):
+            restricciones_por_emp.setdefault(r.empleado_id, {
+                'tipo': r.tipo_restriccion or '',
+                'recomendacion': r.recomendacion or '',
+                'fecha_fin': r.fecha_fin.isoformat() if r.fecha_fin else None,
+            })
+
+        # ── Sanciones activas en la fecha (batch) ────────────────────────────
+        sanciones_por_emp = {}
+        for s in (SancionEmpleado.objects
+                  .filter(explorador_id__in=emp_ids, fecha_inicio__lte=fecha)
+                  .filter(_Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=fecha))
+                  .order_by('explorador_id', '-fecha_inicio')):
+            sanciones_por_emp.setdefault(s.explorador_id, {
+                'motivo': s.motivo or '',
+                'fecha_inicio': s.fecha_inicio.isoformat(),
+                'fecha_fin': s.fecha_fin.isoformat() if s.fecha_fin else None,
+            })
+
+        # ── Deuda de doblada por reprogramación (batch) ──────────────────────
+        # 'pendiente'  → deuda abierta sin fecha (no cumplió su día de doblada).
+        # 'pagada' + fecha_reprogramada>=hoy → ya tiene fecha para pagarla.
+        # paga_hoy = ese día le toca cumplir la doblada reprogramada.
+        from solicitudes.models import ReprogramacionDiaDoblada
+        deudas_por_emp = {}
+        for rep in (ReprogramacionDiaDoblada.objects
+                    .filter(explorador_id__in=emp_ids)
+                    .filter(_Q(estado='pendiente')
+                            | _Q(estado='pagada', fecha_reprogramada__gte=fecha))
+                    .order_by('explorador_id', 'fecha_original')):
+            paga_hoy = (rep.fecha_reprogramada == fecha)
+            d = {
+                'fecha_original': rep.fecha_original.isoformat(),
+                'jornada_debida': rep.jornada_debida,
+                'fecha_reprogramada': rep.fecha_reprogramada.isoformat() if rep.fecha_reprogramada else None,
+                'motivo': rep.motivo or '',
+                'estado': rep.estado,
+                'paga_hoy': paga_hoy,
+            }
+            prev = deudas_por_emp.get(rep.explorador_id)
+            # Prioriza la que se paga HOY; si no, la más antigua (primera vista).
+            if prev is None or (paga_hoy and not prev['paga_hoy']):
+                deudas_por_emp[rep.explorador_id] = d
 
         # ── Clasificar cada empleado ─────────────────────────────────────────
         trabajando = []
@@ -367,6 +424,9 @@ class ReporteDiaService:
                 'apellido': emp.apellido,
                 'jornada_base': jb,
                 'permiso': permiso,
+                'restriccion': restricciones_por_emp.get(emp.id),
+                'sancion': sanciones_por_emp.get(emp.id),
+                'deuda_reprogramacion': deudas_por_emp.get(emp.id),
             }
 
             if trabaja:

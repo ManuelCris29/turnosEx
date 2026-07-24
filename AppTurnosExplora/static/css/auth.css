@@ -56,21 +56,6 @@ body.auth-body {
     padding: 3.5rem;
     color: #fff;
 }
-.auth-visual__brand {
-    position: absolute;
-    top: 2.4rem;
-    left: 3.5rem;
-    z-index: 3;
-    display: flex;
-    align-items: center;
-    gap: .7rem;
-    font-weight: 800;
-    letter-spacing: .5px;
-    font-size: 1.15rem;
-    color: #fff;
-}
-.auth-visual__brand img { height: 42px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.25)); }
-
 .auth-visual__content h2 {
     font-size: 2.6rem;
     font-weight: 800;
@@ -88,27 +73,50 @@ body.auth-body {
     line-height: 1.6;
 }
 
+/* Wordmark de marca (SWALP como nombre de la app) */
+.auth-visual__wordmark {
+    font-size: 4.6rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: 2px;
+    margin: 0 0 .6rem;
+    text-shadow: 0 3px 18px rgba(0,0,0,.35);
+}
+.auth-visual__tagline {
+    font-size: 1.05rem;
+    font-weight: 400;
+    opacity: .92;
+    letter-spacing: .3px;
+    margin: 0 0 1.8rem;
+    text-shadow: 0 1px 8px rgba(0,0,0,.3);
+}
+
 /* Feature chips en el banner */
 .auth-visual__chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    align-items: center;
+    gap: 4px 0;
 }
+/* Decorativos/informativos: sin fondo ni borde tipo botón, para no
+   invitar al clic. Solo texto con icono, separados por un punto sutil. */
 .auth-visual__chips span {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(255,255,255,.15);
-    border: 1px solid rgba(255,255,255,.25);
-    backdrop-filter: blur(6px);
-    color: #fff;
-    font-size: .82rem;
+    color: rgba(255,255,255,.9);
+    font-size: .84rem;
     font-weight: 600;
-    padding: 5px 13px;
-    border-radius: 999px;
     letter-spacing: .2px;
+    text-shadow: 0 1px 6px rgba(0,0,0,.35);
 }
-.auth-visual__chips span i { font-size: .78rem; opacity: .9; }
+.auth-visual__chips span:not(:last-child)::after {
+    content: "·";
+    margin: 0 11px;
+    opacity: .5;
+    font-weight: 400;
+}
+.auth-visual__chips span i { font-size: .78rem; opacity: .75; }
 
 /* ── Panel de formulario ───────────────────────────────────────────── */
 .auth-panel {
@@ -264,8 +272,10 @@ body.auth-body {
     .auth-wrap { flex-direction: column; min-height: 100vh; }
     .auth-visual {
         flex: none;
-        min-height: 240px;
+        min-height: 300px;
     }
+    /* En apilado SWALP queda centrado como marca del banner. */
+    .auth-visual__content { justify-content: center; padding: 1.6rem 1.6rem 1.8rem; }
     .auth-visual__overlay {
         background: linear-gradient(
             to bottom,
@@ -274,12 +284,9 @@ body.auth-body {
             rgba(30, 20, 55, .82) 100%
         );
     }
-    .auth-visual__brand { top: 1.3rem; left: 1.5rem; font-size: 1rem; }
-    .auth-visual__brand img { height: 34px; }
-    .auth-visual__content { padding: 1.6rem 1.6rem 1.8rem; }
-    .auth-visual__content h2 { font-size: 1.5rem; margin-bottom: .5rem; }
-    .auth-visual__content p { font-size: .92rem; margin-bottom: 1rem; }
-    .auth-visual__chips span { font-size: .78rem; padding: 4px 10px; }
+    .auth-visual__content h2.auth-visual__wordmark { font-size: 2.6rem; letter-spacing: 1px; margin-bottom: .35rem; }
+    .auth-visual__content p.auth-visual__tagline { font-size: .9rem; margin-bottom: 1rem; }
+    .auth-visual__chips span { font-size: .78rem; }
 
     .auth-panel { flex: none; padding: 2rem 1.2rem 2.5rem; background: #f8f9fc; }
     .auth-card { padding: 2rem 1.5rem 1.6rem; }

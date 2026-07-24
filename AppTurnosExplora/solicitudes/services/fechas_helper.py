@@ -72,7 +72,7 @@ def analizar_fecha_solicitud(
         if resultado['es_festivo']:
             resultado['razones_exclusion'].append('Festivo')
     except Exception:
-        pass
+        logger.warning("Error verificando festivo (fecha=%s)", fecha, exc_info=True)
     
     # Verificar mantenimiento EFECTIVO (la temporada manda sobre el mantenimiento)
     try:
@@ -80,7 +80,7 @@ def analizar_fecha_solicitud(
         if resultado['es_mantenimiento']:
             resultado['razones_exclusion'].append('Mantenimiento')
     except Exception:
-        pass
+        logger.warning("Error verificando mantenimiento (fecha=%s)", fecha, exc_info=True)
     
     # Verificar temporada
     try:
@@ -88,7 +88,7 @@ def analizar_fecha_solicitud(
         if resultado['es_temporada']:
             resultado['razones_exclusion'].append('Temporada')
     except Exception:
-        pass
+        logger.warning("Error verificando temporada (fecha=%s)", fecha, exc_info=True)
     
     # Verificar domingo (para CT y CT PERMANENTE)
     if resultado['es_domingo']:
@@ -113,7 +113,7 @@ def analizar_fecha_solicitud(
                     resultado['es_descanso_solicitante'] = True
                     resultado['razones_exclusion'].append('Descanso Solicitante')
         except Exception:
-            pass
+            logger.warning("Error verificando descanso del solicitante (fecha=%s)", fecha, exc_info=True)
     
     # Verificar descanso del receptor
     if receptor:
@@ -129,7 +129,7 @@ def analizar_fecha_solicitud(
                     resultado['es_descanso_receptor'] = True
                     resultado['razones_exclusion'].append('Descanso Receptor')
         except Exception:
-            pass
+            logger.warning("Error verificando descanso del receptor (fecha=%s)", fecha, exc_info=True)
     
     # Verificar dobladas activas (solo para CT)
     if tipo_solicitud == 'CT':
@@ -145,7 +145,7 @@ def analizar_fecha_solicitud(
                 if resultado['tiene_doblada_solicitante']:
                     resultado['razones_exclusion'].append('Doblada Activa (Solicitante)')
             except Exception:
-                pass
+                logger.warning("Error verificando doblada activa del solicitante (fecha=%s)", fecha, exc_info=True)
         
         if receptor:
             try:
@@ -159,7 +159,7 @@ def analizar_fecha_solicitud(
                 if resultado['tiene_doblada_receptor']:
                     resultado['razones_exclusion'].append('Doblada Activa (Receptor)')
             except Exception:
-                pass
+                logger.warning("Error verificando doblada activa del receptor (fecha=%s)", fecha, exc_info=True)
     
     # Determinar si es válida según el tipo
     if tipo_solicitud == 'CT PERMANENTE':

@@ -186,6 +186,11 @@ class SolicitudAprobacionService:
                     else:
                         return False, "La solicitud no está pendiente de aprobación"
 
+                # Idempotencia: si el supervisor ya aprobó (aunque el estado siga 'pendiente'
+                # por faltar el receptor), no re-procesar ni volver a notificar.
+                if solicitud.aprobado_supervisor:
+                    return False, "Ya habías aprobado esta solicitud como supervisor."
+
                 # Marcar como aprobada por supervisor
                 solicitud.aprobado_supervisor = True
                 solicitud.fecha_aprobacion_supervisor = timezone.now()
@@ -270,6 +275,11 @@ class SolicitudAprobacionService:
                         return False, "Esta solicitud ya fue rechazada"
                     else:
                         return False, "La solicitud no está pendiente de aprobación"
+
+                # Idempotencia: si el receptor ya aprobó (aunque el estado siga 'pendiente'
+                # por faltar el supervisor), no re-procesar ni volver a notificar.
+                if solicitud.aprobado_receptor:
+                    return False, "Ya habías aprobado esta solicitud como compañero."
 
                 # Sanción: un receptor sancionado no puede aceptar/participar (aunque otro haya
                 # enviado la solicitud en su nombre). Mensaje claro al intentar aceptar.

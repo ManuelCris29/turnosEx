@@ -65,9 +65,23 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
             
             if not puede_ver:
                 return json_error('No tiene permisos para ver esta solicitud', status=403, code='forbidden')
-            
-            # InformaciÃ³n bÃ¡sica comÃºn
-            datos = {
+
+            datos = ObtenerDetalleSolicitudView.construir_datos(solicitud)
+            return json_ok(datos)
+
+        except Exception as e:
+            logger.error(f"Error en ObtenerDetalleSolicitudView: {e}", exc_info=True)
+            return json_error('Error al obtener detalles de la solicitud', status=500, code='internal_error')
+
+    @staticmethod
+    def construir_datos(solicitud):
+        """
+        Construye el diccionario de detalle completo de una solicitud (común +
+        específico por tipo). Reutilizable por la API de detalle y por las
+        páginas de resultado de aprobación/rechazo por email.
+        """
+        # InformaciÃ³n bÃ¡sica comÃºn
+        datos = {
                 'id': solicitud.id,
                 'fecha_solicitud': DateUtils.format_datetime_display(solicitud.fecha_solicitud),
                 'tipo': solicitud.tipo_cambio.nombre,
@@ -97,36 +111,32 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                         'fecha': DateUtils.format_datetime_display(solicitud.fecha_aprobacion_supervisor),
                     },
                 },
-                'fechas': {},
-                'informacion_adicional': {}
-            }
-            
-            # InformaciÃ³n especÃ­fica segÃºn el tipo
-            tipo_nombre = solicitud.tipo_cambio.nombre.upper()
-            
-            # CT PERMANENTE
-            if tipo_nombre == 'CT PERMANENTE':
-                ObtenerDetalleSolicitudView._detalle_ct_permanente(solicitud, datos)
-            # DOBLADA
-            elif tipo_nombre == 'DOBLADA':
-                ObtenerDetalleSolicitudView._detalle_doblada(solicitud, datos)
-            # D FDS (Doblada Fin de Semana)
-            elif tipo_nombre == 'D FDS':
-                ObtenerDetalleSolicitudView._detalle_d_fds(solicitud, datos)
-            # DOBLADA PERMANENTE (acuerdo recurrente por días de la semana)
-            elif tipo_nombre == 'DOBLADA PERMANENTE':
-                ObtenerDetalleSolicitudView._detalle_doblada_permanente(solicitud, datos)
-            # CAMBIO DESCANSO (fin de semana y sub-modalidades de temporada)
-            elif tipo_nombre == 'CAMBIO DESCANSO':
-                ObtenerDetalleSolicitudView._detalle_cambio_descanso(solicitud, datos)
-            # CT (Cambio Turno normal) y otros tipos
-            else:
-                ObtenerDetalleSolicitudView._detalle_ct(solicitud, datos)
-            return json_ok(datos)
-            
-        except Exception as e:
-            logger.error(f"Error en ObtenerDetalleSolicitudView: {e}", exc_info=True)
-            return json_error('Error al obtener detalles de la solicitud', status=500, code='internal_error')
+            'fechas': {},
+            'informacion_adicional': {}
+        }
+
+        # InformaciÃ³n especÃ­fica segÃºn el tipo
+        tipo_nombre = solicitud.tipo_cambio.nombre.upper()
+
+        # CT PERMANENTE
+        if tipo_nombre == 'CT PERMANENTE':
+            ObtenerDetalleSolicitudView._detalle_ct_permanente(solicitud, datos)
+        # DOBLADA
+        elif tipo_nombre == 'DOBLADA':
+            ObtenerDetalleSolicitudView._detalle_doblada(solicitud, datos)
+        # D FDS (Doblada Fin de Semana)
+        elif tipo_nombre == 'D FDS':
+            ObtenerDetalleSolicitudView._detalle_d_fds(solicitud, datos)
+        # DOBLADA PERMANENTE (acuerdo recurrente por días de la semana)
+        elif tipo_nombre == 'DOBLADA PERMANENTE':
+            ObtenerDetalleSolicitudView._detalle_doblada_permanente(solicitud, datos)
+        # CAMBIO DESCANSO (fin de semana y sub-modalidades de temporada)
+        elif tipo_nombre == 'CAMBIO DESCANSO':
+            ObtenerDetalleSolicitudView._detalle_cambio_descanso(solicitud, datos)
+        # CT (Cambio Turno normal) y otros tipos
+        else:
+            ObtenerDetalleSolicitudView._detalle_ct(solicitud, datos)
+        return datos
 
     @staticmethod
     def _detalle_ct_permanente(solicitud, datos):

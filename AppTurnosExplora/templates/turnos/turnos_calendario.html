@@ -7,7 +7,6 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 <link rel="stylesheet" href="{% static_v 'css/turnos_calendario.css' %}">
-<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
 {% endblock %}
 
 {% block content %}
@@ -73,8 +72,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.11/locales/es.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js" integrity="sha384-5JIwZN3kuxX2zKsavvNmbZ3zhZZMUtu/eQiK3BbXukpSXp0Cd2ZP4OAYKx7mrPgI" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.11/locales/es.global.min.js" integrity="sha384-cbWTKHcCEJ2+hxgYjdtf8NabqzATKWy5P0INfIVl7OYEEQd5JvMTECWiyswNhvyF" crossorigin="anonymous"></script>
 <script src="{% static_v 'js/turnos/turnos_calendario.js' %}"></script>
 {% endblock %}
 

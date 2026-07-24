@@ -69,7 +69,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             if asg:
                 jornada_base = asg.jornada.nombre.upper()
         except Exception:
-            pass
+            logger.warning("Error obteniendo jornada base del empleado", exc_info=True)
         context = {
             'tipo_solicitud': tipo_solicitud,
             'fecha_minima': timezone.now().date(),

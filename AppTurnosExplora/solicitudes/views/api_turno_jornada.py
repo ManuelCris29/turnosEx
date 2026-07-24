@@ -285,7 +285,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                             if not descanso_info:
                                 descanso_info = {'tipo': 'descanso_semana', 'motivo': 'festivo'}
                 except Exception:
-                    pass
+                    logger.warning("Error resolviendo estado de doblada/festivo del día", exc_info=True)
 
             # Si el día quedó como DOBLADA (festivo del grupo que dobla o doblada real), la
             # jornada mostrada debe ser 'DOBLADA' (no la base), igual que estado_dia / Mis Turnos.

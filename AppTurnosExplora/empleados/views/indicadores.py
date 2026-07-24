@@ -20,7 +20,14 @@ class IndicadoresView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
         anio_raw = self.request.GET.get('anio')
         anio = int(anio_raw) if anio_raw and str(anio_raw).isdigit() else None
 
-        data = IndicadoresService.get(explorador_id=explorador, jornada=jornada, anio=anio)
+        # Al mirar a UN explorador se cuenta su participación completa (solicitante
+        # O receptor), igual que su vista personal, para que el número coincida.
+        # Sin explorador (organización), se cuenta 1 por cambio (solo solicitante)
+        # para no duplicar cada cambio entre sus dos participantes.
+        data = IndicadoresService.get(
+            explorador_id=explorador, jornada=jornada, anio=anio,
+            incluir_receptor=bool(explorador),
+        )
         ctx.update(data)
         ctx['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
         ctx['anios'] = IndicadoresService.anios_disponibles()

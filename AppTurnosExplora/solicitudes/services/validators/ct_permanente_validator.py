@@ -1,7 +1,11 @@
+import logging
+
 from django.core.exceptions import ValidationError  # type: ignore
 from django.db import models
 from empleados.models import Empleado
 from core.utils.date_utils import DateUtils
+
+logger = logging.getLogger(__name__)
 
 
 class CTPermanenteValidator:
@@ -311,7 +315,7 @@ class CTPermanenteValidator:
                     jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
                     es_descanso_solicitante = (jornada_dia == "Descanso")
             except Exception:
-                pass
+                logger.warning("Error verificando descanso del solicitante en CT permanente (fecha=%s)", fecha, exc_info=True)
 
             if es_descanso_solicitante:
                 continue  # Excluir día de descanso del solicitante
@@ -330,7 +334,7 @@ class CTPermanenteValidator:
                     jornada_dia = JornadaUtils.calcular_jornada_dia(jornada_base.nombre, fecha)
                     es_descanso_receptor = (jornada_dia == "Descanso")
             except Exception:
-                pass
+                logger.warning("Error verificando descanso del receptor en CT permanente (fecha=%s)", fecha, exc_info=True)
 
             if es_descanso_receptor:
                 continue  # Excluir día de descanso del receptor

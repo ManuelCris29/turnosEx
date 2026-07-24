@@ -91,7 +91,8 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         cache_params = f"{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
         if fecha_fin:
             import hashlib
-            dias_hash = hashlib.md5(dias_seleccionados_json.encode()).hexdigest()
+            # No es uso criptográfico: solo deriva una clave de caché estable.
+            dias_hash = hashlib.md5(dias_seleccionados_json.encode(), usedforsecurity=False).hexdigest()
             cache_params += f"_{fecha_fin}_{dias_hash}"
             
         cache_key = f"empleados_disp_v4_{cache_params}"  # Incrementado a v4 para invalidar caché anterior

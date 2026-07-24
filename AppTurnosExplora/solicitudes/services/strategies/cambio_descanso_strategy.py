@@ -725,7 +725,8 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 from ..notificacion_service import NotificacionService
                 NotificacionService.crear_notificacion_solicitud(solicitud)
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).warning("Error creando notificación de cambio de descanso", exc_info=True)
             return solicitud, "Solicitud de cambio de descanso creada correctamente"
         except Exception as e:
             return None, f"Error creando solicitud de cambio de descanso: {str(e)}"

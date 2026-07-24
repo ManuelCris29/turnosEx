@@ -4,109 +4,339 @@
 {% block title %}Solicitud {{ accion|title }}{% endblock %}
 
 {% block content %}
-<div class="content-header">
-    <div class="container-fluid">
-        <div class="row mb-2">
-            <div class="col-sm-6">
-                <h1 class="m-0">
-                    <i class="fas fa-check-circle text-success"></i> Solicitud {{ accion|title }}
-                </h1>
-            </div>
-            <div class="col-sm-6">
-                <ol class="breadcrumb float-sm-right">
-                    <li class="breadcrumb-item"><a href="{% url 'dashboard' %}">Dashboard</a></li>
-                    <li class="breadcrumb-item active">Solicitud {{ accion|title }}</li>
-                </ol>
-            </div>
-        </div>
-    </div>
-</div>
+<style>
+    .ap-wrap { background:#eef1f8; min-height:100%; padding-bottom:2rem; }
+    .ap-hero {
+        border-radius:16px;
+        padding:2.2rem 1.5rem;
+        text-align:center;
+        color:#fff;
+        box-shadow:0 10px 30px rgba(15,23,42,.15);
+        margin-bottom:1.5rem;
+    }
+    .ap-hero--ok   { background:linear-gradient(135deg,#16a34a 0%,#15803d 100%); }
+    .ap-hero--no   { background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%); }
+    .ap-hero__icon { font-size:3.4rem; margin-bottom:.6rem; filter:drop-shadow(0 3px 8px rgba(0,0,0,.25)); }
+    .ap-hero__title{ font-size:1.7rem; font-weight:800; margin:0; }
+    .ap-hero__sub  { opacity:.92; margin:.35rem 0 0; font-weight:400; }
+    .ap-card { border:0; border-radius:14px; box-shadow:0 4px 18px rgba(15,23,42,.07); overflow:hidden; }
+    .ap-card .card-header { border:0; font-weight:700; }
+    .ap-field { margin-bottom:1rem; }
+    .ap-field > strong { display:block; color:#334155; font-size:.9rem; }
+    .ap-field > p { margin:.15rem 0 0; color:#0f172a; }
+    .ap-list-scroll { max-height:220px; overflow-y:auto; background:#f8fafc; border-radius:8px; padding:.6rem .8rem; }
+</style>
 
-<section class="content">
+<div class="ap-wrap">
+<section class="content pt-4">
     <div class="container-fluid">
         <div class="row justify-content-center">
-            <div class="col-md-8">
-                <div class="card">
-                    <div class="card-header">
-                        <h3 class="card-title">
-                            {% if accion == 'aprobada' %}
-                                <i class="fas fa-check-circle text-success"></i> Solicitud Aprobada
-                            {% else %}
-                                <i class="fas fa-times-circle text-danger"></i> Solicitud Rechazada
-                            {% endif %}
-                        </h3>
-                    </div>
-                    <div class="card-body">
-                        <div class="text-center mb-4">
-                            {% if accion == 'aprobada' %}
-                                <i class="fas fa-check-circle text-success" style="font-size: 4rem;"></i>
-                                <h4 class="text-success mt-3">¡Solicitud Aprobada Exitosamente!</h4>
-                            {% else %}
-                                <i class="fas fa-times-circle text-danger" style="font-size: 4rem;"></i>
-                                <h4 class="text-danger mt-3">Solicitud Rechazada</h4>
-                            {% endif %}
-                        </div>
+            <div class="col-lg-9">
 
-                        <div class="row">
-                            <div class="col-md-6">
-                                <h5><i class="fas fa-user"></i> Detalles de la Solicitud</h5>
-                                <table class="table table-borderless">
-                                    <tr>
-                                        <td><strong>Solicitante:</strong></td>
-                                        <td>{{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Receptor:</strong></td>
-                                        <td>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Tipo:</strong></td>
-                                        <td>{{ solicitud.tipo_cambio.nombre }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Fecha:</strong></td>
-                                        <td>{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</td>
-                                    </tr>
-                                    <tr>
-                                        <td><strong>Estado:</strong></td>
-                                        <td>
+                <!-- Hero de resultado -->
+                <div class="ap-hero {% if accion == 'aprobada' %}ap-hero--ok{% else %}ap-hero--no{% endif %}">
+                    <div class="ap-hero__icon">
+                        {% if accion == 'aprobada' %}
+                            <i class="fas fa-check-circle"></i>
+                        {% else %}
+                            <i class="fas fa-times-circle"></i>
+                        {% endif %}
+                    </div>
+                    <p class="ap-hero__title">
+                        {% if accion == 'aprobada' %}¡Solicitud Aprobada Exitosamente!{% else %}Solicitud Rechazada{% endif %}
+                    </p>
+                    <p class="ap-hero__sub">
+                        Acción realizada como {{ tipo|title }}
+                        {% if datos %}· {{ datos.tipo }}{% endif %}
+                    </p>
+                </div>
+
+                {% if ya_procesada %}
+                <div class="alert alert-secondary d-flex align-items-center" role="alert">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    <span>Esta solicitud ya había sido procesada; se muestra su estado actual. <strong>No se reenvió ninguna notificación.</strong></span>
+                </div>
+                {% endif %}
+
+                {% if datos %}
+                <div class="row">
+                    <!-- Información Básica -->
+                    <div class="col-12 mb-4">
+                        <div class="card ap-card">
+                            <div class="card-header bg-primary text-white">
+                                <i class="fas fa-info-circle mr-2"></i>Información Básica
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 ap-field">
+                                        <strong><i class="fas fa-calendar-alt mr-2"></i>Fecha de Solicitud</strong>
+                                        <p>{{ datos.fecha_solicitud|default:"No especificada" }}</p>
+                                    </div>
+                                    <div class="col-md-6 ap-field">
+                                        <strong><i class="fas fa-tag mr-2"></i>Tipo de formulario</strong>
+                                        <p><span class="badge badge-info" style="font-size:.95em;">{{ datos.tipo }}</span></p>
+                                    </div>
+                                    <div class="col-md-6 ap-field">
+                                        <strong><i class="fas fa-check-circle mr-2"></i>Estado</strong>
+                                        <p>
                                             {% if accion == 'aprobada' %}
                                                 <span class="badge badge-success">Aprobada</span>
                                             {% else %}
                                                 <span class="badge badge-danger">Rechazada</span>
                                             {% endif %}
-                                        </td>
-                                    </tr>
-                                </table>
-                            </div>
-                            <div class="col-md-6">
-                                <h5><i class="fas fa-info-circle"></i> Información</h5>
-                                <div class="alert alert-info">
-                                    <p><strong>Acción realizada:</strong> {{ accion|title }} como {{ tipo|title }}</p>
-                                    <p><strong>Fecha:</strong> {{ solicitud.fecha_resolucion|date:"d/m/Y H:i" }}</p>
-                                    <p><strong>Comentario:</strong> 
-                                        {% if accion == 'aprobada' %}
-                                            Aprobado por email
-                                        {% else %}
-                                            Rechazado por email
-                                        {% endif %}
-                                    </p>
+                                        </p>
+                                    </div>
+                                    {% if datos.fecha_resolucion %}
+                                    <div class="col-md-6 ap-field">
+                                        <strong><i class="fas fa-clock mr-2"></i>Fecha de Resolución</strong>
+                                        <p>{{ datos.fecha_resolucion }}</p>
+                                    </div>
+                                    {% endif %}
+                                    <div class="col-12 ap-field">
+                                        <strong><i class="fas fa-comment mr-2"></i>Comentario</strong>
+                                        <p>{{ datos.comentario }}</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="text-center mt-4">
-                            <a href="{% url 'dashboard' %}" class="btn btn-primary">
-                                <i class="fas fa-home"></i> Ir al Dashboard
-                            </a>
-                            <a href="{% url 'solicitudes:notificaciones_solicitudes' %}" class="btn btn-info">
-                                <i class="fas fa-bell"></i> Ver Notificaciones
-                            </a>
+                    <!-- Solicitante -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card ap-card h-100">
+                            <div class="card-header bg-info text-white">
+                                <i class="fas fa-user mr-2"></i>Solicitante
+                            </div>
+                            <div class="card-body">
+                                <p class="mb-1"><strong>Nombre:</strong> {{ datos.solicitante.nombre }}</p>
+                                <p class="mb-1"><strong>Email:</strong> {{ datos.solicitante.email|default:"—" }}</p>
+                                {% if datos.solicitante.supervisor %}
+                                <p class="mb-0"><strong>Supervisor:</strong> {{ datos.solicitante.supervisor }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Receptor -->
+                    <div class="col-md-6 mb-4">
+                        <div class="card ap-card h-100">
+                            <div class="card-header bg-success text-white">
+                                <i class="fas fa-user-friends mr-2"></i>Receptor (compañero)
+                            </div>
+                            <div class="card-body">
+                                <p class="mb-1"><strong>Nombre:</strong> {{ datos.receptor.nombre }}</p>
+                                <p class="mb-1"><strong>Email:</strong> {{ datos.receptor.email|default:"—" }}</p>
+                                {% if datos.receptor.supervisor %}
+                                <p class="mb-0"><strong>Supervisor:</strong> {{ datos.receptor.supervisor }}</p>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fechas e Información Específica -->
+                    {% if datos.fechas or datos.informacion_adicional %}
+                    <div class="col-12 mb-4">
+                        <div class="card ap-card">
+                            <div class="card-header bg-warning text-dark">
+                                <i class="fas fa-calendar-week mr-2"></i>Fechas e Información Específica
+                            </div>
+                            <div class="card-body">
+                                {% if datos.fechas.fecha_cambio %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-day mr-2"></i>Fecha del Cambio de Turno</strong><p>{{ datos.fechas.fecha_cambio }}</p></div>
+                                {% endif %}
+                                {% if datos.fechas.fecha_cesion %}
+                                <div class="ap-field"><strong><i class="fas fa-hand-paper mr-2 text-success"></i>Fecha de Cesión (día que cedes/descansas)</strong><p>{{ datos.fechas.fecha_cesion }}</p></div>
+                                {% endif %}
+                                {% if datos.fechas.fecha_doblada %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-day mr-2"></i>Fecha de Cesión (día de la doblada)</strong><p>{{ datos.fechas.fecha_doblada }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.modalidad %}
+                                <div class="ap-field"><strong><i class="fas fa-exchange-alt mr-2"></i>Modalidad</strong><p>{{ datos.informacion_adicional.modalidad }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.intercambio_dia_a %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-day mr-2 text-success"></i>Día A</strong><p>{{ datos.informacion_adicional.intercambio_dia_a }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.intercambio_dia_b %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-day mr-2 text-primary"></i>Día B</strong><p>{{ datos.informacion_adicional.intercambio_dia_b }}</p></div>
+                                {% endif %}
+                                {% if datos.fechas.inicio %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-check mr-2"></i>Fecha de Inicio</strong><p>{{ datos.fechas.inicio }}</p></div>
+                                <div class="ap-field"><strong><i class="fas fa-calendar-times mr-2"></i>Fecha de Fin</strong><p>{{ datos.fechas.fin }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.dias_semana_seleccionados %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-week mr-2"></i>Días de Semana Seleccionados</strong><p>{{ datos.informacion_adicional.dias_semana_seleccionados }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.dias_cesion %}
+                                <div class="ap-field"><strong><i class="fas fa-hand-paper mr-2 text-success"></i>Días que cedes (te cubre el compañero)</strong><p>{{ datos.informacion_adicional.dias_cesion }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.dias_devolucion %}
+                                <div class="ap-field"><strong><i class="fas fa-exchange-alt mr-2 text-primary"></i>Días que devuelves (te doblas para pagar)</strong><p>{{ datos.informacion_adicional.dias_devolucion }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.tipo_cesion %}
+                                <div class="ap-field"><strong><i class="fas fa-layer-group mr-2"></i>Tipo de cesión</strong><p>{{ datos.informacion_adicional.tipo_cesion }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.jornada_cedida %}
+                                <div class="ap-field"><strong><i class="fas fa-clock mr-2"></i>Jornada que cedes</strong><p>{{ datos.informacion_adicional.jornada_cedida }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.jornada_cedida_partida %}
+                                <div class="ap-field"><strong><i class="fas fa-clock mr-2 text-success"></i>Jornada que cedes (jornada partida)</strong><p>{{ datos.informacion_adicional.jornada_cedida_partida }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.pago_sabado %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-day mr-2 text-warning"></i>Pago en sábado</strong><p>{{ datos.informacion_adicional.pago_sabado }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.fecha_pago_semana %}
+                                <div class="ap-field"><strong><i class="fas fa-calendar-week mr-2"></i>Día de pago en semana</strong><p>{{ datos.informacion_adicional.fecha_pago_semana }}</p></div>
+                                {% endif %}
+                                {% if datos.fechas.fecha_pago %}
+                                <div class="ap-field"><strong><i class="fas fa-money-bill mr-2"></i>Fecha de Pago/Devolución</strong><p>{{ datos.fechas.fecha_pago }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.te_cubren %}
+                                <div class="ap-field"><strong><i class="fas fa-user-shield mr-2"></i>Cobertura (te cubren)</strong><p>{{ datos.informacion_adicional.te_cubren }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.cubre_en_pago %}
+                                <div class="ap-field"><strong><i class="fas fa-hands-helping mr-2"></i>Cobertura en la fecha de pago</strong><p>{{ datos.informacion_adicional.cubre_en_pago }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.jornada_solicitante %}
+                                <div class="ap-field"><strong><i class="fas fa-clock mr-2"></i>Jornada Solicitante</strong><p>{{ datos.informacion_adicional.jornada_solicitante }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.jornada_receptor %}
+                                <div class="ap-field"><strong><i class="fas fa-clock mr-2"></i>Jornada Receptor</strong><p>{{ datos.informacion_adicional.jornada_receptor }}</p></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.deuda_30min %}
+                                <div class="ap-field"><strong><i class="fas fa-clock mr-2"></i>Deuda de 30 minutos</strong><p>{{ datos.informacion_adicional.deuda_30min }}</p></div>
+                                {% endif %}
+                                {% if datos.fechas.total_dias is not None %}
+                                <div class="ap-field"><strong><i class="fas fa-hashtag mr-2"></i>Total de Días Afectados</strong><p><span class="badge badge-primary">{{ datos.fechas.total_dias }} día{{ datos.fechas.total_dias|pluralize:"s" }}</span></p></div>
+                                {% endif %}
+
+                                {% if datos.fechas.cesion_aplicables %}
+                                <div class="ap-field"><strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas de Cesión Aplicables (te cubre el compañero)</strong>
+                                    <div class="ap-list-scroll mt-1"><small>{{ datos.fechas.cesion_aplicables|join:", " }}</small></div></div>
+                                {% endif %}
+                                {% if datos.fechas.cesion_excluidas %}
+                                <div class="ap-field"><strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas de Cesión Excluidas</strong>
+                                    <div class="ap-list-scroll mt-1">
+                                        {% regroup datos.fechas.cesion_excluidas|dictsort:"razon" by razon as ce_groups %}
+                                        {% for g in ce_groups %}
+                                        <div class="mb-1"><span class="badge badge-secondary">{{ g.grouper }}</span>
+                                            <small class="text-muted d-block">{% for it in g.list %}{{ it.fecha }}{% if not forloop.last %}, {% endif %}{% endfor %}</small></div>
+                                        {% endfor %}
+                                    </div></div>
+                                {% endif %}
+                                {% if datos.fechas.devolucion_aplicables %}
+                                <div class="ap-field"><strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas de Devolución Aplicables (te doblas tú)</strong>
+                                    <div class="ap-list-scroll mt-1"><small>{{ datos.fechas.devolucion_aplicables|join:", " }}</small></div></div>
+                                {% endif %}
+                                {% if datos.fechas.devolucion_excluidas %}
+                                <div class="ap-field"><strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas de Devolución Excluidas</strong>
+                                    <div class="ap-list-scroll mt-1">
+                                        {% regroup datos.fechas.devolucion_excluidas|dictsort:"razon" by razon as de_groups %}
+                                        {% for g in de_groups %}
+                                        <div class="mb-1"><span class="badge badge-secondary">{{ g.grouper }}</span>
+                                            <small class="text-muted d-block">{% for it in g.list %}{{ it.fecha }}{% if not forloop.last %}, {% endif %}{% endfor %}</small></div>
+                                        {% endfor %}
+                                    </div></div>
+                                {% endif %}
+                                {% if datos.fechas.aplicables %}
+                                <div class="ap-field"><strong><i class="fas fa-check-circle mr-2 text-success"></i>Fechas Aplicables</strong>
+                                    <div class="ap-list-scroll mt-1"><small>{{ datos.fechas.aplicables|join:", " }}</small></div></div>
+                                {% endif %}
+                                {% if datos.fechas.excluidas %}
+                                <div class="ap-field"><strong><i class="fas fa-times-circle mr-2 text-danger"></i>Fechas Excluidas</strong>
+                                    <div class="ap-list-scroll mt-1">
+                                        {% if datos.fechas.resumen %}
+                                        <div class="alert alert-light py-2 mb-2 small">
+                                            <strong>Resumen del rango:</strong>
+                                            {{ datos.fechas.resumen.total_dias_rango }} días ·
+                                            {{ datos.fechas.resumen.fines_de_semana_en_rango }} fines de semana ·
+                                            {{ datos.fechas.total_dias }} aplicables ·
+                                            {{ datos.fechas.excluidas|length }} excluidas
+                                            {% if datos.fechas.resumen.prioridad %}
+                                            <div class="mt-1"><small><strong>Prioridad de exclusión:</strong> {{ datos.fechas.resumen.prioridad }}</small></div>
+                                            {% endif %}
+                                        </div>
+                                        {% endif %}
+                                        {% regroup datos.fechas.excluidas|dictsort:"razon" by razon as exc_groups %}
+                                        {% for g in exc_groups %}
+                                        <div class="mb-1"><span class="badge badge-secondary">{{ g.grouper }}</span>
+                                            <small class="text-muted d-block">{% for it in g.list %}{{ it.fecha }}{% if not forloop.last %}, {% endif %}{% endfor %}</small></div>
+                                        {% endfor %}
+                                    </div></div>
+                                {% endif %}
+
+                                {% if datos.informacion_adicional.nota_jornadas %}
+                                <div class="alert alert-info mb-2"><i class="fas fa-info-circle mr-2"></i><small>{{ datos.informacion_adicional.nota_jornadas }}</small></div>
+                                {% endif %}
+                                {% if datos.informacion_adicional.nota %}
+                                <div class="alert alert-info mb-0"><i class="fas fa-info-circle mr-2"></i><small>{{ datos.informacion_adicional.nota }}</small></div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Aprobaciones -->
+                    <div class="col-12 mb-4">
+                        <div class="card ap-card">
+                            <div class="card-header bg-secondary text-white">
+                                <i class="fas fa-check-double mr-2"></i>Aprobaciones
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 ap-field">
+                                        <strong><i class="fas fa-user-friends mr-2"></i>Receptor</strong>
+                                        <p>
+                                            {% if datos.aprobaciones.receptor.aprobado %}
+                                                <span class="badge badge-success">Aprobado</span>
+                                            {% else %}
+                                                <span class="badge badge-warning">Pendiente</span>
+                                            {% endif %}
+                                            {% if datos.aprobaciones.receptor.fecha %}<small class="text-muted ml-1">{{ datos.aprobaciones.receptor.fecha }}</small>{% endif %}
+                                        </p>
+                                    </div>
+                                    <div class="col-md-6 ap-field">
+                                        <strong><i class="fas fa-user-tie mr-2"></i>Supervisor</strong>
+                                        <p>
+                                            {% if datos.aprobaciones.supervisor.aprobado %}
+                                                <span class="badge badge-success">Aprobado</span>
+                                            {% else %}
+                                                <span class="badge badge-warning">Pendiente</span>
+                                            {% endif %}
+                                            {% if datos.aprobaciones.supervisor.fecha %}<small class="text-muted ml-1">{{ datos.aprobaciones.supervisor.fecha }}</small>{% endif %}
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
+
+                {% else %}
+                <!-- Fallback: si no se pudo construir el detalle, mostramos lo básico -->
+                <div class="card ap-card mb-4">
+                    <div class="card-header bg-primary text-white"><i class="fas fa-user mr-2"></i>Detalles de la Solicitud</div>
+                    <div class="card-body">
+                        <p class="mb-1"><strong>Solicitante:</strong> {{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</p>
+                        <p class="mb-1"><strong>Receptor:</strong> {{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</p>
+                        <p class="mb-1"><strong>Tipo:</strong> {{ solicitud.tipo_cambio.nombre }}</p>
+                        <p class="mb-0"><strong>Fecha:</strong> {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</p>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Acciones -->
+                <div class="text-center mt-2 mb-4">
+                    <a href="{% url 'dashboard' %}" class="btn btn-primary">
+                        <i class="fas fa-home"></i> Ir al Dashboard
+                    </a>
+                    <a href="{% url 'solicitudes:notificaciones_solicitudes' %}" class="btn btn-info">
+                        <i class="fas fa-bell"></i> Ver Notificaciones
+                    </a>
+                </div>
+
             </div>
         </div>
     </div>
 </section>
-{% endblock %} 
+</div>
+{% endblock %}

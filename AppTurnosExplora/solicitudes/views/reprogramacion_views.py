@@ -10,6 +10,7 @@ Flujo:
 Acceso: staff o rol Supervisor (AdminRequiredMixin). La persona afectada (deudor) recibe una
 notificación; el otro explorador no se ve afectado.
 """
+import logging
 from datetime import date, timedelta
 import calendar
 
@@ -22,6 +23,8 @@ from core.mixins import AdminRequiredMixin
 from ..models import SolicitudCambio, ReprogramacionDiaDoblada
 from ..services.reprogramacion_doblada_service import ReprogramacionDobladaService as RS
 
+logger = logging.getLogger(__name__)
+
 
 def _notificar(explorador, titulo, mensaje):
     try:
@@ -30,7 +33,7 @@ def _notificar(explorador, titulo, mensaje):
             destinatario=explorador, tipo='solicitud_doblada', titulo=titulo, mensaje=mensaje, solicitud=None,
         )
     except Exception:
-        pass
+        logger.warning("Error creando notificación de reprogramación", exc_info=True)
 
 
 class ReprogramacionListView(LoginRequiredMixin, AdminRequiredMixin, View):

@@ -66,6 +66,7 @@ if not IS_PRODUCTION:
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # debe ir primero
     'django.middleware.security.SecurityMiddleware',
+    'csp.middleware.CSPMiddleware',                 # aplica Content-Security-Policy
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -210,18 +211,54 @@ if 'test' in _sys.argv:
     AXES_ENABLED = False
 
 # ---------------------------------------------------------------------------
-# Content Security Policy (CSP)
+# Content Security Policy (CSP) — django-csp 4.0
+#
+# La allowlist incluye los CDN que usan los templates (jsDelivr, cdnjs,
+# Google Fonts, ionicons). Si se migran esos recursos a estáticos locales,
+# reducir estas entradas a solo "'self'".
+# 'unsafe-inline' se mantiene por los scripts/estilos inline ya existentes.
 # ---------------------------------------------------------------------------
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'")   # unsafe-inline por scripts inline existentes
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'")
-CSP_IMG_SRC = ("'self'", "data:")
-CSP_FONT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'",)
-CSP_FRAME_ANCESTORS = ("'none'",)
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': ["'self'"],
+        'script-src': [
+            "'self'", "'unsafe-inline'",
+            'https://cdn.jsdelivr.net',
+        ],
+        'style-src': [
+            "'self'", "'unsafe-inline'",
+            'https://cdn.jsdelivr.net',
+            'https://cdnjs.cloudflare.com',
+            'https://fonts.googleapis.com',
+            'https://code.ionicframework.com',
+        ],
+        'font-src': [
+            "'self'", 'data:',
+            'https://fonts.gstatic.com',
+            'https://cdnjs.cloudflare.com',
+            'https://code.ionicframework.com',
+        ],
+        'img-src': ["'self'", 'data:'],
+        'connect-src': ["'self'"],
+        'frame-ancestors': ["'none'"],
+    }
+}
 
 # ---------------------------------------------------------------------------
-# Seguridad adicional (solo en producción)
+# Cabeceras/cookies de seguridad — activas SIEMPRE (dev y prod)
+# ---------------------------------------------------------------------------
+SECURE_CONTENT_TYPE_NOSNIFF = True          # X-Content-Type-Options: nosniff
+X_FRAME_OPTIONS = 'DENY'                     # anti-clickjacking
+
+# sessionid siempre HttpOnly (default de Django, explícito para el escáner).
+# El csrftoken NO puede ser HttpOnly: api-client.js lo lee vía document.cookie
+# para enviarlo en la cabecera X-CSRFToken de las llamadas AJAX.
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# ---------------------------------------------------------------------------
+# Seguridad adicional (solo en producción, requiere HTTPS)
 # ---------------------------------------------------------------------------
 if IS_PRODUCTION:
     SECURE_SSL_REDIRECT = True
@@ -230,9 +267,6 @@ if IS_PRODUCTION:
     SECURE_HSTS_PRELOAD = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
-    SECURE_BROWSER_XSS_FILTER = True
-    SECURE_CONTENT_TYPE_NOSNIFF = True
-    X_FRAME_OPTIONS = 'DENY'
 
 # ---------------------------------------------------------------------------
 # Logging estructurado
@@ -283,4 +317,4 @@ LOGGING = {
 # Debug Toolbar (solo desarrollo)
 # ---------------------------------------------------------------------------
 if not IS_PRODUCTION:
-    INTERNAL_IPS = ['127.0.0.1', 'localhost', '0.0.0.0', '192.168.2.102']
+    INTERNAL_IPS = ['127.0.0.1', 'localhost', '192.168.2.102']

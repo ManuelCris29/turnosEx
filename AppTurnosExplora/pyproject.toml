@@ -1,0 +1,13 @@
+[tool.bandit]
+# Excluye código no productivo del análisis de seguridad.
+# Los tests usan contraseñas de prueba ('test123', 'x') que Bandit marca
+# como B106 (hardcoded_password); son falsos positivos, no secretos reales.
+exclude_dirs = [
+    "tests",
+    "integration_tests",
+    "venvturnos",
+    "staticfiles",
+    "migrations",
+]
+
+# Uso: bandit -c pyproject.toml -r .

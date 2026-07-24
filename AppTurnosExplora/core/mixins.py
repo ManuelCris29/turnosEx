@@ -1,7 +1,11 @@
 """
 Mixins compartidos para el proyecto
 """
+import logging
+
 from django.core.exceptions import PermissionDenied
+
+logger = logging.getLogger(__name__)
 
 
 class AdminRequiredMixin:
@@ -41,8 +45,14 @@ class AdminRequiredMixin:
             if tiene_rol_supervisor:
                 return super().dispatch(request, *args, **kwargs)
         except Exception:
-            pass
-        
+            # Falla cerrado (deniega abajo); se registra para poder diagnosticar
+            # por qué un supervisor legítimo pudo quedar sin acceso.
+            logger.warning(
+                "Error verificando rol de supervisor para user=%s",
+                getattr(request.user, 'username', '?'),
+                exc_info=True,
+            )
+
         # Si no cumple ninguna condición, denegar acceso
         raise PermissionDenied("No tienes permisos de administrador.")
 

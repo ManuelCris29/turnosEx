@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import render
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -7,6 +9,8 @@ from .models import PDH, PermisoEspecial
 # Importar mixin común desde core
 from core.mixins import AdminRequiredMixin
 from core.utils.date_utils import DateUtils
+
+logger = logging.getLogger(__name__)
 
 # Create your views here.
 
@@ -84,7 +88,7 @@ def _invalidar_turnos_cache(permiso):
         for m, y in meses:
             CacheService.invalidar_cache_turnos_empleado(permiso.empleado.id, m, y)
     except Exception:
-        pass
+        logger.warning("Error invalidando caché de turnos por permiso (empleado=%s)", permiso.empleado_id, exc_info=True)
 
 
 class PermisoEspecialListView(LoginRequiredMixin, ListView):
@@ -167,7 +171,7 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
                 from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
                 DeudaCorporativaService.gestionar_sancion_por_deuda(empleado)
             except Exception:
-                pass
+                logger.warning("Error gestionando sanción por deuda (empleado=%s)", empleado.id, exc_info=True)
             from empleados.sancion_utils import sancion_activa, mensaje_sancion
             sancion = sancion_activa(empleado)
             if sancion:
@@ -291,7 +295,7 @@ class PermisoEspecialAprobarView(LoginRequiredMixin, View):
         try:
             PermisoNotificacionService.notificar_resolucion(permiso)
         except Exception:
-            pass
+            logger.warning("Error notificando resolución de permiso %s", permiso.id, exc_info=True)
         return redirect('permisos_especiales_list')
 
 
@@ -319,7 +323,7 @@ class PermisoEspecialResolverEmailView(View):
             try:
                 PermisoNotificacionService.notificar_resolucion(permiso)
             except Exception:
-                pass
+                logger.warning("Error notificando resolución de permiso %s (email)", permiso.id, exc_info=True)
 
         return render(request, 'permisos/permiso_email_resultado.html', {
             'permiso': permiso,
@@ -433,7 +437,7 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
             from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
             DeudaCorporativaService.gestionar_sancion_por_deuda(emp)
         except Exception:
-            pass
+            logger.warning("Error gestionando sanción por deuda (empleado=%s)", emp.id, exc_info=True)
         from empleados.sancion_utils import sancion_activa, mensaje_sancion
         _sancion = sancion_activa(emp)
         if _sancion:

@@ -164,3 +164,49 @@ class AprobacionSupervisorTest(AprobacionBaseTest):
         ok, msg = aprobar_solicitud_supervisor(sol.id, self.supervisor, 'ok supervisor')
         self.assertNotIn('permisos', msg.lower())
         self.assertNotIn('no está pendiente', msg.lower())
+
+
+class IdempotenciaEmailTest(AprobacionBaseTest):
+    """
+    Los enlaces del correo pueden clicarse varias veces (o el cliente de correo
+    los pre-carga). Re-aprobar/re-responder NO debe re-procesar ni reenviar la
+    notificación. La segunda llamada debe devolver False (sin agendar on_commit).
+    """
+
+    def test_reaprobar_receptor_no_reprocesa(self):
+        sol = self._solicitud()
+        ok, _ = aprobar_solicitud_receptor(sol.id, self.receptor, 'ok')
+        self.assertTrue(ok)
+        sol.refresh_from_db()
+        self.assertTrue(sol.aprobado_receptor)
+        self.assertEqual(sol.estado, 'pendiente')  # falta supervisor → estado sigue pendiente
+
+        # Segundo clic al mismo enlace: NO re-procesa (no reenvía notificación)
+        ok2, msg2 = aprobar_solicitud_receptor(sol.id, self.receptor, 'ok')
+        self.assertFalse(ok2)
+        self.assertIn('Ya habías aprobado', msg2)
+
+    def test_reaprobar_supervisor_no_reprocesa(self):
+        sol = self._solicitud()
+        ok, _ = aprobar_solicitud_supervisor(sol.id, self.supervisor, 'ok')
+        self.assertTrue(ok)
+        ok2, msg2 = aprobar_solicitud_supervisor(sol.id, self.supervisor, 'ok')
+        self.assertFalse(ok2)
+        self.assertIn('Ya habías aprobado', msg2)
+
+    def test_ya_resuelto_para_tras_responder(self):
+        from solicitudes.views.aprobacion_email import _ya_resuelto_para
+        sol = self._solicitud()
+        self.assertFalse(_ya_resuelto_para(sol, 'receptor'))
+        aprobar_solicitud_receptor(sol.id, self.receptor, 'ok')
+        sol.refresh_from_db()
+        # El receptor ya respondió → el enlace del correo queda inerte
+        self.assertTrue(_ya_resuelto_para(sol, 'receptor'))
+
+    def test_ya_resuelto_bloquea_rechazo_tras_aprobar(self):
+        """Tras aprobar como receptor, el enlace de rechazo del correo queda inerte."""
+        from solicitudes.views.aprobacion_email import _ya_resuelto_para
+        sol = self._solicitud()
+        aprobar_solicitud_receptor(sol.id, self.receptor, 'ok')
+        sol.refresh_from_db()
+        self.assertTrue(_ya_resuelto_para(sol, 'receptor'))

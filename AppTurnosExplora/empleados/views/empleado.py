@@ -1,3 +1,5 @@
+import logging
+
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
@@ -16,6 +18,8 @@ from core.mixins import AdminRequiredMixin
 from ..services.empleado_service import EmpleadoService
 from ..models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada
 from ..forms import EmpleadoUsuarioForm
+
+logger = logging.getLogger(__name__)
 
 
 class EmpleadoListView(LoginRequiredMixin, ListView):
@@ -181,7 +185,7 @@ class EmpleadoEditView(LoginRequiredMixin, UpdateView):
                     CacheService.invalidar_cache_turnos_empleado(empleado.id, mes, anio)
         except Exception:
             # Si algo falla al invalidar caché, no bloquear la actualización del empleado
-            pass
+            logger.warning("Error invalidando caché de turnos (empleado=%s)", empleado.id, exc_info=True)
 
         messages.success(self.request, 'Empleado actualizado correctamente.')
         return super().form_valid(form)

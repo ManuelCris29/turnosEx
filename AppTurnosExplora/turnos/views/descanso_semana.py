@@ -1,3 +1,4 @@
+import logging
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
@@ -12,6 +13,8 @@ from ..services.dia_especial_service import DiaEspecialService
 from datetime import timedelta, date
 from django.utils import timezone
 import json
+
+logger = logging.getLogger(__name__)
 
 # Create your views here.
 
@@ -185,7 +188,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
                 g = FestivosRotacionService.get_grupo_que_dobla_en_festivo(date.fromisoformat(iso))
                 auto[iso] = g
             except Exception:
-                pass
+                logger.warning("Error obteniendo grupo que dobla en festivo (fecha=%s)", iso, exc_info=True)
 
         bloqueadas = AsignacionEspecialService.fechas_bloqueadas_por_solicitud(anio)
         anio_actual = date.today().year

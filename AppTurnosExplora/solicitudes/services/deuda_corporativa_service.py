@@ -35,7 +35,7 @@ class DeudaCorporativaService:
             if _es_festivo(fecha):
                 return False
         except Exception:
-            pass
+            logger.warning("Error verificando festivo para deuda (fecha=%s)", fecha, exc_info=True)
         return True
 
     # Marca para identificar las sanciones generadas automáticamente por deuda vencida
@@ -175,7 +175,7 @@ class DeudaCorporativaService:
                 solicitud=None,
             )
         except Exception:
-            pass
+            logger.warning("Error creando notificación de sanción por deuda", exc_info=True)
 
     @staticmethod
     def _invalidar_cache_mis_turnos_sancion(sancion) -> None:
@@ -204,7 +204,7 @@ class DeudaCorporativaService:
                 CacheService.invalidar_cache_turnos_empleado(sancion.explorador_id, m, y)
         except Exception:
             # La invalidación de caché nunca debe romper el flujo principal.
-            pass
+            logger.warning("Error invalidando caché de turnos por sanción (explorador=%s)", sancion.explorador_id, exc_info=True)
 
     @staticmethod
     def crear_deuda_corporativa(

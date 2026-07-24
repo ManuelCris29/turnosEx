@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, UpdateView
 from django.views.generic.edit import DeleteView
@@ -11,6 +13,8 @@ from core.mixins import AdminRequiredMixin
 
 from ..models import Empleado
 from ..forms import PDHForm
+
+logger = logging.getLogger(__name__)
 
 
 # CRUD de PDH (Pago de Horas)
@@ -93,7 +97,7 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
             from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
             DeudaCorporativaService.gestionar_sancion_por_deuda(explorador)
         except Exception:
-            pass
+            logger.warning("Error gestionando sanción por deuda tras pago (explorador=%s)", explorador.id, exc_info=True)
         return redirect('pdh_list')
 
 class PDHUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
@@ -124,7 +128,7 @@ class PDHDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
         try:
             DeudaCorporativaService.gestionar_sancion_por_deuda(explorador)
         except Exception:
-            pass
+            logger.warning("Error gestionando sanción por deuda tras borrar pago (explorador=%s)", explorador.id, exc_info=True)
         return resp
 
 
