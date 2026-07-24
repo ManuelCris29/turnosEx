@@ -827,7 +827,17 @@
             },
             onDateChange: function(fecha) {
                 if (!fecha) return;
-                
+
+                // Cambiar la fecha de cesión (día A) invalida cualquier intercambio en curso:
+                // estaba atado al día anterior. Salir del modo SIN re-disparar el change (ya
+                // estamos dentro del handler); verificarDobladaExistente re-ofrecerá el intercambio
+                // más abajo si el nuevo día también tiene doblada. Así el panel/aviso no se ancla.
+                if (modoIntercambio) {
+                    const _cbInter = document.getElementById('intercambiar_doblada');
+                    if (_cbInter) _cbInter.checked = false;
+                    setModoIntercambio(false, false);
+                }
+
                 // Verificar si es domingo
                 if (esDomingo(fecha)) {
                     indicadorDomingoCesion.style.display = 'block';
@@ -1736,7 +1746,7 @@
      *  - Oculta TODO el aparato de cesión (evita cruces como pago-sábado o "¿qué cubres?").
      *  - Cancela peticiones en vuelo y restaura limpio al salir.
      */
-    function setModoIntercambio(activo) {
+    function setModoIntercambio(activo, reconstruirCesion = true) {
         modoIntercambio = activo;
         // Invalida cualquier carga de compañeros en vuelo del estado anterior.
         interReqToken++;
@@ -1777,7 +1787,8 @@
             const _oc = document.getElementById('opciones_cesion_parcial');
             if (_oc && tieneDobladaExistente) _oc.style.display = 'block';
             // Reconstruir el flujo de cesión desde la fecha de cesión (recandidatos, estado, vista previa).
-            if (fechaCesionInput && fechaCesionInput.value) {
+            // Se omite cuando ya estamos dentro del onChange de cesión (evita recursión).
+            if (reconstruirCesion && fechaCesionInput && fechaCesionInput.value) {
                 fechaCesionInput.dispatchEvent(new Event('change'));
             }
         }
