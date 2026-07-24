@@ -49,3 +49,18 @@ htmlcov/
 # Artefactos de scanners (SonarQube)
 .sonar/
 .scannerwork/
+
+# Entorno virtual del proyecto (además de su .gitignore interno)
+venvturnos/
+
+# ── Basura personal en la RAÍZ del repo (screenshots, notas, borradores) ──
+# Solo afecta a la raíz (por el "/"); no toca archivos en subcarpetas como
+# docs/, instructivos/ ni AppTurnosExplora/. requirements.txt se conserva.
+/*.png
+/*.jpg
+/*.jpeg
+/*.svg
+/*.txt
+!/requirements.txt
+/refactorizacionpendi/
+*check_files.sh
