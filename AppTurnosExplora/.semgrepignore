@@ -1,0 +1,16 @@
+# Rutas excluidas del análisis Semgrep.
+# Objetivo: analizar SOLO nuestro código; evitar ruido de terceros/vendored.
+# Ver docs/semgrep-triage.md para el detalle del triaje.
+
+# Entornos y artefactos
+venvturnos/
+staticfiles/
+.git/
+
+# Librerías de terceros incluidas tal cual (se actualizan reemplazando la lib,
+# no editando su fuente): codemirror, jquery-validation, datatables, select2,
+# jsgrid, flot, bootstrap-slider, fullcalendar, flatpickr, chart.js…
+static/plugins/
+
+# Código autogenerado por Django
+**/migrations/
