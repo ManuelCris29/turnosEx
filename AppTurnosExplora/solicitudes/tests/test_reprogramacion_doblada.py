@@ -212,3 +212,69 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
         r = c.get(reverse('solicitudes:reprog_list'), {'estado': 'todos'})
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, self.receptor.nombre)
+
+    # ── Cancelación ──────────────────────────────────────────────────────────
+    def _llegar_a_pagada(self):
+        """Registra inasistencia del receptor y programa el pago; devuelve (reprog, fecha_nueva)."""
+        from django.core.cache import cache
+        sol = self._crear_aplicar_doblada()
+        reprog = RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor, motivo='Enf')
+        nueva = self._dia_habil_libre()
+        RS.programar(reprog, nueva)
+        cache.clear()
+        reprog.refresh_from_db()
+        return reprog, nueva
+
+    def test_cancelar_restaura_turno_previo_y_quita_doblada(self):
+        """Al cancelar una reprogramación 'pagada': se anulan los turnos PAGO REPROGRAMADO,
+        se restaura el turno único original (base AM del receptor) y Mis Turnos ya NO muestra
+        doblada; la deuda de 30 min de ese día queda cancelada."""
+        from django.core.cache import cache
+        reprog, nueva = self._llegar_a_pagada()
+        # Se guardó la jornada previa (base del receptor = AM) y ese día dobla.
+        self.assertEqual(reprog.jornada_pago_previa, 'AM')
+        self.assertEqual(TS.estado_dia(self.receptor, nueva).get('jornada'), 'DOBLADA')
+
+        RS.cancelar(reprog)
+        cache.clear()
+        reprog.refresh_from_db()
+
+        self.assertEqual(reprog.estado, 'cancelada')
+        # Los 2 turnos de pago quedan anulados (auditables), y se recrea 1 turno normal (AM).
+        activos = Turno.objects.filter(explorador=self.receptor, fecha=nueva)
+        self.assertEqual(activos.count(), 1)
+        self.assertIsNone(activos.first().tipo_cambio)
+        self.assertEqual(activos.first().jornada.nombre, 'AM')
+        self.assertEqual(
+            Turno.all_objects.filter(explorador=self.receptor, fecha=nueva,
+                                     anulado=True, tipo_cambio='PAGO REPROGRAMADO').count(), 2)
+        # Mis Turnos: ese día vuelve a su jornada única original (AM), NO doblada.
+        self.assertEqual(TS.estado_dia(self.receptor, nueva).get('jornada'), 'AM')
+        # La deuda de 30 min de ese día queda cancelada.
+        self.assertEqual(DeudaCorporativa.objects.filter(
+            explorador=self.receptor, fecha_doblada=nueva, estado='activa').count(), 0)
+
+    def test_cancelar_es_idempotente(self):
+        """Cancelar dos veces no re-procesa ni duplica turnos (guard por estado)."""
+        from django.core.cache import cache
+        reprog, nueva = self._llegar_a_pagada()
+        RS.cancelar(reprog)
+        cache.clear(); reprog.refresh_from_db()
+        total_tras_1 = Turno.all_objects.filter(explorador=self.receptor, fecha=nueva).count()
+        RS.cancelar(reprog)  # segunda cancelación: no debe tocar nada
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'cancelada')
+        self.assertEqual(
+            Turno.all_objects.filter(explorador=self.receptor, fecha=nueva).count(), total_tras_1)
+
+    def test_cancelar_pendiente_no_toca_turnos(self):
+        """Cancelar una reprogramación aún 'pendiente' (sin día de pago) solo cambia el estado;
+        el día original no cumplido sigue anulado (fue inasistencia real)."""
+        sol = self._crear_aplicar_doblada()
+        reprog = RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor, motivo='Enf')
+        self.assertEqual(reprog.estado, 'pendiente')
+        RS.cancelar(reprog)
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'cancelada')
+        # El día original sigue anulado (no se restaura la doblada no cumplida).
+        self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count(), 0)

@@ -188,6 +188,20 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
 class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
     def post(self, request, reprog_id):
         reprog = get_object_or_404(ReprogramacionDiaDoblada, id=reprog_id)
+        if reprog.estado == 'cancelada':
+            messages.info(request, 'Esta reprogramación ya estaba cancelada.')
+            return redirect('solicitudes:reprog_list')
+
+        fecha_pago = reprog.fecha_reprogramada  # capturar antes de cancelar
         RS.cancelar(reprog)
+
+        # Avisar al empleado que su pago de doblada se canceló (si ya estaba programado).
+        if fecha_pago:
+            _notificar(
+                reprog.explorador,
+                'Pago de doblada cancelado',
+                f"Tu supervisor canceló el pago de doblada que tenías el {fecha_pago.strftime('%d/%m/%Y')}. "
+                f"Ese día vuelve a tu jornada normal en Mis Turnos.",
+            )
         messages.success(request, 'Reprogramación cancelada.')
         return redirect('solicitudes:reprog_list')

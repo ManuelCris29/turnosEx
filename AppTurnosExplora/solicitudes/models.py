@@ -653,6 +653,10 @@ class ReprogramacionDiaDoblada(models.Model):
     fecha_reprogramada = models.DateField(
         null=True, blank=True, help_text='Día nuevo en que dobla para pagar (lo organiza el supervisor).'
     )
+    jornada_pago_previa = models.CharField(
+        max_length=2, choices=JORNADA_CHOICES, null=True, blank=True,
+        help_text='Jornada única que tenía en el día de pago ANTES de doblar; se restaura al cancelar.'
+    )
     estado = models.CharField(max_length=20, choices=ESTADO_CHOICES, default='pendiente')
     motivo = models.CharField(
         max_length=200, null=True, blank=True, help_text='Motivo de la inasistencia (enfermedad, incapacidad…).'

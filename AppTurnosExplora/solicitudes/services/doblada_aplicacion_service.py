@@ -405,7 +405,8 @@ class DobladaAplicacionService:
         from core.services.cache_service import CacheService
 
         turnos = list(Turno.objects.filter(
-            explorador=explorador, fecha=fecha, tipo_cambio__in=['DOBLADA', 'D FDS', 'DOBLADA PERM']
+            explorador=explorador, fecha=fecha,
+            tipo_cambio__in=['DOBLADA', 'D FDS', 'DOBLADA PERM', 'PAGO REPROGRAMADO']
         ))
         for t in turnos:
             t.anulado = True

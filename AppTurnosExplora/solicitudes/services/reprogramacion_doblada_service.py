@@ -168,6 +168,10 @@ class ReprogramacionDobladaService:
                 'es festivo/fin de semana, o no tiene turno). Elige otro día.'
             )
 
+        # Guardar la jornada única que tenía ese día ANTES de doblar, para poder
+        # restaurar exactamente su turno original si luego se cancela.
+        reprog.jornada_pago_previa = j
+
         DFDSAplicacionService._crear_doblada_dia(
             reprog.explorador, fecha_nueva, tipo_cambio=TIPO_PAGO_REPROGRAMADO)
 
@@ -181,7 +185,7 @@ class ReprogramacionDobladaService:
 
         reprog.fecha_reprogramada = fecha_nueva
         reprog.estado = 'pagada'
-        reprog.save(update_fields=['fecha_reprogramada', 'estado', 'actualizado_en'])
+        reprog.save(update_fields=['fecha_reprogramada', 'estado', 'jornada_pago_previa', 'actualizado_en'])
 
         CacheService.invalidar_cache_turnos_empleado(reprog.explorador_id, fecha_nueva.month, fecha_nueva.year)
         logger.info("Reprogramación %s programada: %s paga doblando el %s.",
@@ -191,17 +195,49 @@ class ReprogramacionDobladaService:
     @staticmethod
     @transaction.atomic
     def cancelar(reprog: ReprogramacionDiaDoblada) -> ReprogramacionDiaDoblada:
-        """Cancela la reprogramación. Si el día nuevo ya se aplicó, lo anula (soft-delete + resta
-        esos 30 min); el día original queda como estaba (anulado)."""
+        """Cancela la reprogramación. Si el día nuevo ya se aplicó, anula esos turnos de doblada
+        (soft-delete + resta esos 30 min) y RESTAURA el turno único que la persona tenía ese día
+        antes de doblar. El día original no cumplido queda como estaba (anulado)."""
         from core.services.cache_service import CacheService
+
+        if reprog.estado == 'cancelada':
+            # Idempotencia: no re-procesar ni tocar turnos si ya estaba cancelada.
+            return reprog
+
         if reprog.estado == 'pagada' and reprog.fecha_reprogramada:
+            fecha_pago = reprog.fecha_reprogramada
             DobladaAplicacionService.anular_doblada_de_un_dia(
-                reprog.doblada_origen, reprog.explorador, reprog.fecha_reprogramada,
+                reprog.doblada_origen, reprog.explorador, fecha_pago,
                 motivo='Anulado: reprogramación cancelada',
             )
+            # Restaurar el turno único que tenía ese día antes de doblar (si se guardó).
+            ReprogramacionDobladaService._restaurar_turno_previo(reprog, fecha_pago)
             CacheService.invalidar_cache_turnos_empleado(
-                reprog.explorador_id, reprog.fecha_reprogramada.month, reprog.fecha_reprogramada.year)
+                reprog.explorador_id, fecha_pago.month, fecha_pago.year)
+
         reprog.estado = 'cancelada'
         reprog.save(update_fields=['estado', 'actualizado_en'])
         logger.info("Reprogramación %s cancelada.", reprog.id)
         return reprog
+
+    @staticmethod
+    def _restaurar_turno_previo(reprog: ReprogramacionDiaDoblada, fecha: date) -> None:
+        """Recrea el turno único (AM/PM) que el explorador tenía ese día antes de doblar, para
+        que Mis Turnos muestre exactamente su jornada original tras cancelar. No-op si no se
+        guardó la jornada previa (reprogramaciones antiguas caen al fallback de base)."""
+        jornada_previa = reprog.jornada_pago_previa
+        if not jornada_previa:
+            return
+        from turnos.models import Turno, Jornada
+        from turnos.services.doblada_turno_service import DobladaTurnoService
+        try:
+            jornada = Jornada.objects.get(nombre=jornada_previa)
+        except Jornada.DoesNotExist:
+            logger.warning("No se pudo restaurar el turno previo (jornada %s inexistente)", jornada_previa)
+            return
+        sala = DobladaTurnoService.obtener_sala_explorador_fecha(reprog.explorador, fecha)
+        Turno.objects.create(
+            explorador=reprog.explorador, fecha=fecha, jornada=jornada, sala=sala, tipo_cambio=None,
+        )
+        logger.info("Turno previo (%s) restaurado para %s el %s tras cancelar reprogramación.",
+                    jornada_previa, reprog.explorador, fecha)
