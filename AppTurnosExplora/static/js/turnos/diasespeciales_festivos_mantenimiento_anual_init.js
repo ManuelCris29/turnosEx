@@ -147,7 +147,10 @@ function regenerarMantenimientoAutomatico(anio) {
         .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
         .then(data => {
             if (data.por_mes) {
-                diasSeleccionadosPorMes = {};
+                // Vaciar en su lugar la global compartida (declarada con let en
+                // calendario_festivos_mantenimiento.js); NO reasignar para no romper
+                // el binding compartido ni crear una global implícita.
+                Object.keys(diasSeleccionadosPorMes).forEach(m => delete diasSeleccionadosPorMes[m]);
                 recargarFestivosYTemporadas(anio);
                 Object.keys(data.por_mes).forEach(mesKey => {
                     const mes = parseInt(mesKey);
