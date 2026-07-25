@@ -33,6 +33,10 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost'])
 
+# Orígenes de confianza para CSRF (Django 5 lo exige en POST/AJAX por HTTPS).
+# En producción: https://tu-dominio. Vacío en desarrollo.
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
+
 # ---------------------------------------------------------------------------
 # Aplicaciones
 # ---------------------------------------------------------------------------
@@ -261,6 +265,9 @@ CSRF_COOKIE_SAMESITE = 'Lax'
 # Seguridad adicional (solo en producción, requiere HTTPS)
 # ---------------------------------------------------------------------------
 if IS_PRODUCTION:
+    # Nginx termina el TLS y reenvía por HTTP; sin esto, SECURE_SSL_REDIRECT
+    # provoca un bucle de redirección infinito.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000          # 1 año
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
