@@ -150,16 +150,30 @@
    - Agregar registros **DKIM/SPF** de SES (ajustando SPF para no romper Workspace).
    - Crear `swalp.parqueexplora.org` → Elastic IP.
 2. **SES:** verificar dominio y **solicitar salida del sandbox**.
-3. **Código (se puede hacer ya, sin AWS):**
-   - Refactor **From/Reply-To** (enviar desde `DEFAULT_FROM_EMAIL`, usuario en `Reply-To`).
-   - **Async** de correo: `transaction.on_commit(...)` + hilo → arregla los 20 s.
-   - En prod: `EMAIL_BACKEND=django_ses.SESBackend` + IAM role.
-   - **Cachear consultas del dashboard** (read-heavy) con `LocMemCache` → menos carga a RDS.
+3. **Código:**
+   - ✅ **Hecho** — Refactor **From/Reply-To** (envío desde `DEFAULT_FROM_EMAIL`, persona en `Reply-To`).
+   - ✅ **Hecho** — **Async** de correo (`transaction.on_commit` + hilo, `EMAIL_TIMEOUT`) → arregla los 20 s; controlado por `EMAIL_SEND_ASYNC`.
+   - ⏳ Al montar AWS: `EMAIL_BACKEND=django_ses.SESBackend` + IAM role.
+   - ⏳ **Cachear consultas del dashboard** (read-heavy) con `LocMemCache` → menos carga a RDS.
 4. **Django prod:** `.env` con `ENVIRONMENT=production`, `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY`, `CSRF_TRUSTED_ORIGINS`, conexión a RDS.
 
 ---
 
-## 7. Alternativa de correo: Google Workspace SMTP relay (opción C)
+## 7. CI/CD — integración y despliegue continuos
+
+**CI (integración continua) — ✅ implementado.** Workflow `.github/workflows/ci.yml`: en cada push/PR a `main` levanta MySQL, carga las tablas de zona horaria, corre `manage.py check` y la suite `pytest`. Evita subir código roto a `main`.
+
+**CD (despliegue continuo) — ⏳ pendiente, se hace al montar AWS.** Un segundo workflow `deploy.yml` que, al mergear a `main`, entre por SSH al EC2 y ejecute la actualización:
+`git pull → pip install -r requirements.txt → migrate → collectstatic → systemctl restart appturnosex`.
+
+- **Bloqueado por infraestructura:** necesita que la EC2 exista (host, usuario, clave SSH). Por eso **no se crea todavía** — un workflow apuntando a un servidor inexistente sería código muerto.
+- **Al montar AWS, requiere estos GitHub Secrets:** `SSH_HOST` (Elastic IP), `SSH_USER` (ej. `appuser`), `SSH_KEY` (clave privada de despliegue). Se usaría una action tipo `appleboy/ssh-action`.
+- **Interino (sin CD):** la actualización manual del Anexo del [checklist](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) (`git pull` + `systemctl restart`) es suficiente para una sola instancia.
+- **Docker:** no se contempla para una sola EC2; solo tendría sentido al migrar a ECS/Fargate o multi-instancia.
+
+---
+
+## 8. Alternativa de correo: Google Workspace SMTP relay (opción C)
 
 Interino si IT no monta SES a tiempo: `smtp-relay.gmail.com`.
 - **Ventaja:** incluido en Workspace ($0), solo variables de entorno, autentica por IP/dominio (no por contraseña humana).
@@ -168,7 +182,7 @@ Interino si IT no monta SES a tiempo: `smtp-relay.gmail.com`.
 
 ---
 
-## 8. Resumen ejecutivo
+## 9. Resumen ejecutivo
 
 > **Arquitectura:** 1× EC2 `t4g.small` (Nginx+Gunicorn+Django, HTTPS Let's Encrypt) + **RDS MySQL `db.t4g.micro` Single-AZ** + **Amazon SES** con IAM role. Sin Redis, sin NAT, sin balanceador, sin bucket de media. Escala vertical (micro→small→medium) según gatillos claros.
 >
