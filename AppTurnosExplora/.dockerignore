@@ -31,6 +31,9 @@ venvturnos/
 docs/
 *.md
 
+# Compose de prueba local (no va en la imagen)
+docker-compose*.yml
+
 # Bases de datos locales / media de desarrollo
 db.sqlite3
 media/

@@ -274,11 +274,14 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
 # ---------------------------------------------------------------------------
-# Seguridad adicional (solo en producción, requiere HTTPS)
+# Seguridad adicional (requiere HTTPS)
+# Activo por defecto en producción, pero desactivable con SECURE_HTTPS=False
+# para poder probar la imagen de producción en local sobre HTTP.
 # ---------------------------------------------------------------------------
-if IS_PRODUCTION:
-    # Nginx termina el TLS y reenvía por HTTP; sin esto, SECURE_SSL_REDIRECT
-    # provoca un bucle de redirección infinito.
+SECURE_HTTPS = env.bool('SECURE_HTTPS', default=IS_PRODUCTION)
+if SECURE_HTTPS:
+    # El proxy (Nginx/ALB) termina el TLS y reenvía por HTTP; sin esto,
+    # SECURE_SSL_REDIRECT provoca un bucle de redirección infinito.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000          # 1 año
