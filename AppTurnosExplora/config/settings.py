@@ -175,6 +175,14 @@ EMAIL_HOST_USER = env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
+# Timeout para que un SMTP colgado no congele el request (segundos).
+EMAIL_TIMEOUT = env.int('EMAIL_TIMEOUT', default=10)
+
+# Enviar los correos fuera del request (tras commit, en un hilo) para no
+# bloquear la respuesta ~20 s con los handshakes SMTP. Se activa en producción;
+# en desarrollo/tests se envía síncrono para que el comportamiento sea determinista.
+EMAIL_SEND_ASYNC = env.bool('EMAIL_SEND_ASYNC', default=IS_PRODUCTION)
+
 SITE_URL = env('SITE_URL', default='http://127.0.0.1:8000')
 
 # ---------------------------------------------------------------------------
