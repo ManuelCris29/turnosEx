@@ -211,7 +211,10 @@ AXES_RESET_ON_SUCCESS = True
 AXES_VERBOSE = False
 
 import sys as _sys
-if 'test' in _sys.argv:
+# Deshabilita axes durante los tests: con `manage.py test` ('test' en argv) y
+# también bajo pytest (que NO pasa 'test' en argv). axes exige un `request` en
+# authenticate(), que client.login() no provee en los tests.
+if 'test' in _sys.argv or 'pytest' in _sys.modules:
     AXES_ENABLED = False
 
 # ---------------------------------------------------------------------------
