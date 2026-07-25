@@ -14,3 +14,10 @@
 *.yaml text eol=lf
 *.json text eol=lf
 *.md text eol=lf
+
+# Contenedores y scripts de shell SIEMPRE en LF
+# (un Dockerfile/script con CRLF rompe el shell del contenedor).
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+.dockerignore text eol=lf
+*.sh text eol=lf
