@@ -70,6 +70,7 @@ if not IS_PRODUCTION:
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # debe ir primero
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',   # sirve estáticos sin Nginx (contenedores)
     'csp.middleware.CSPMiddleware',                 # aplica Content-Security-Policy
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
