@@ -10,6 +10,40 @@ con una base efímera propia, o **contra tu MySQL local con tus datos reales**.
 
 ---
 
+## 0. Guía rápida (probar con tus datos reales)
+
+Credenciales del usuario de base de datos para el contenedor:
+**usuario `swalp` · contraseña `swalp_docker_2026` · acceso solo a `bdturnosex`**.
+
+```sql
+-- (1) UNA SOLA VEZ: crear el usuario en tu MySQL local (Workbench o cliente mysql)
+CREATE USER 'swalp'@'%' IDENTIFIED BY 'swalp_docker_2026';
+GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'%';
+FLUSH PRIVILEGES;
+```
+
+```bash
+# (2) ENCENDER el contenedor contra tu MySQL real (desde AppTurnosExplora/)
+cd AppTurnosExplora
+docker compose -f docker-compose.hostdb.yml up --build -d
+
+# (3) ABRIR en el navegador → entra con tus usuarios reales de siempre
+#     http://localhost:8000
+
+# (4) APAGAR (no borra nada de tu base real)
+docker compose -f docker-compose.hostdb.yml down
+```
+
+```sql
+-- (5) Cuando ya NO lo necesites: eliminar el usuario
+DROP USER 'swalp'@'%';
+```
+
+> Detalle de cada paso, la opción con base de datos vacía y el troubleshooting,
+> más abajo.
+
+---
+
 ## 1. Cómo se dockerizó (qué hace cada pieza)
 
 ### 1.1 `Dockerfile`
