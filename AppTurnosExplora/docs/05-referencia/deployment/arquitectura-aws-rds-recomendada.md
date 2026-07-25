@@ -173,7 +173,56 @@
 
 ---
 
-## 8. Alternativa de correo: Google Workspace SMTP relay (opción C)
+## 8. Variante sin gestión de servidores: ECS Fargate
+
+Si el objetivo es **no gestionar el SO** (parches, actualizaciones, Nginx/systemd) y concentrarse solo en la app, se sustituye la EC2 por **ECS Fargate**: AWS corre el contenedor y **no hay servidor que mantener**. Requiere **dockerizar** (ya incluido: `AppTurnosExplora/Dockerfile` + `.dockerignore`, imagen validada).
+
+### Qué cambia respecto al plan EC2
+- **EC2 + Nginx + Certbot** → **Fargate (contenedor) + ALB + ACM**. Los estáticos los sirve **WhiteNoise** dentro del contenedor (no hay Nginx). Ya está configurado (`whitenoise` en requirements + middleware).
+- **RDS y SES NO cambian.**
+- Sin NAT gateway: los tasks corren en **subred pública con IP pública** (alcanzan ECR/SES/RDS) → se evita el NAT de ~$32/mes.
+
+### Diagrama
+```
+  Internet
+     │
+   ALB (HTTPS con ACM, gratis)
+     │
+  ECS Fargate task(s)   [Gunicorn + Django + WhiteNoise]
+     ├── RDS MySQL db.t4g.micro   (sin cambios)
+     └── Amazon SES (IAM task role, sin cambios)
+
+  Imagen:  docker build → ECR → ECS despliega (rolling)
+```
+
+### Costo (us-east-1, on-demand)
+| Concepto | $/mes |
+|---|---:|
+| Fargate 0.5 vCPU / 1 GB (1 task) | ~18,00 |
+| Application Load Balancer (obligatorio) | ~16–18 |
+| RDS db.t4g.micro + 20 GB | 14,00 |
+| Amazon SES | 2,00 |
+| ECR + CloudWatch | ~1,00 |
+| ACM (SSL) | 0 |
+| **TOTAL (1 task)** | **≈ $56/mes** |
+| Alta disponibilidad (2 tasks) | **≈ $74/mes** |
+
+Con **Compute Savings Plan** (Fargate, 1 año) baja a **≈ $40/mes**. El ALB no tiene descuento por compromiso.
+
+### Trade-off vs plan EC2 (~$32/mes)
+- **+~$24/mes** (~70%). El grueso: el premium de cómputo de Fargate y el **ALB obligatorio (~$18)**.
+- A cambio: **cero gestión de SO/servidor**, deploy = build+push de imagen (**CD sin SSH**), escalado por número de tasks.
+- **Migraciones:** con 1 task se ejecutan en el arranque (CMD del Dockerfile); con ≥2 tasks conviene moverlas a un **task ECS aparte** para evitar carreras.
+
+### CD con Fargate (reemplaza al CD por SSH de §7)
+`docker build → push a ECR → aws ecs update-service --force-new-deployment` (rolling). Más robusto y sin servidor que tocar. Secrets en GitHub: credenciales AWS (o rol OIDC) en vez de SSH.
+
+### Alternativa aún más simple: AWS App Runner
+Le das la imagen y gestiona balanceo + HTTPS + autoscaling **sin ALB ni ECS**. Precio similar o algo mayor; para llegar a RDS necesita un *VPC connector* (algo más de setup). Opción válida si se quiere el mínimo de configuración.
+
+---
+
+## 9. Alternativa de correo: Google Workspace SMTP relay (opción C)
 
 Interino si IT no monta SES a tiempo: `smtp-relay.gmail.com`.
 - **Ventaja:** incluido en Workspace ($0), solo variables de entorno, autentica por IP/dominio (no por contraseña humana).
@@ -182,10 +231,14 @@ Interino si IT no monta SES a tiempo: `smtp-relay.gmail.com`.
 
 ---
 
-## 9. Resumen ejecutivo
+## 10. Resumen ejecutivo
 
-> **Arquitectura:** 1× EC2 `t4g.small` (Nginx+Gunicorn+Django, HTTPS Let's Encrypt) + **RDS MySQL `db.t4g.micro` Single-AZ** + **Amazon SES** con IAM role. Sin Redis, sin NAT, sin balanceador, sin bucket de media. Escala vertical (micro→small→medium) según gatillos claros.
+> **Dos caminos según cuánta infraestructura quieras gestionar:**
 >
-> **Costo:** **≈ $32/mes** on-demand · **≈ $22/mes** con compromiso a 1 año · **≈ $25/mes** en fase de pruebas (**≈ $5/mes** el 1.er año si aplica Free Tier). Multi-AZ opcional: **≈ $44/mes**.
+> **A) EC2 (más barato) — ≈ $32/mes** on-demand (≈ $22 con compromiso; ≈ $5 el 1.er año con Free Tier). 1× EC2 `t4g.small` (Nginx+Gunicorn+Django, HTTPS Let's Encrypt) + RDS + SES. Tú mantienes el SO (parches, Nginx). Multi-AZ opcional: ≈ $44/mes.
 >
-> **RDS te quita la carga de seguridad/administración** (tu objetivo) ya en Single-AZ. **SES** arregla de paso los 20 s del correo.
+> **B) ECS Fargate (cero gestión de SO) — ≈ $56/mes** on-demand (≈ $40 con compromiso; ≈ $74 con 2 tasks HA). Contenedor + ALB + ACM + RDS + SES. AWS gestiona todo bajo la app; deploy = push de imagen. **+~$24/mes** por no tocar servidores.
+>
+> **Común a ambos:** **RDS `db.t4g.micro`** te quita la administración de la BD, y **SES** (con el refactor From/Reply-To + async ya hecho) arregla los 20 s del correo. Sin Redis ni bucket de media.
+>
+> **Recomendación:** si el presupuesto es lo primero → **A**. Si "solo concentrarme en la app / no gestionar servidores" es lo primero → **B**.
