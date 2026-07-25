@@ -177,6 +177,8 @@
 
 Si el objetivo es **no gestionar el SO** (parches, actualizaciones, Nginx/systemd) y concentrarse solo en la app, se sustituye la EC2 por **ECS Fargate**: AWS corre el contenedor y **no hay servidor que mantener**. Requiere **dockerizar** (ya incluido: `AppTurnosExplora/Dockerfile` + `.dockerignore`, imagen validada).
 
+> 📋 **Paso a paso:** [CHECKLIST_DESPLIEGUE_FARGATE.md](./CHECKLIST_DESPLIEGUE_FARGATE.md).
+
 ### Qué cambia respecto al plan EC2
 - **EC2 + Nginx + Certbot** → **Fargate (contenedor) + ALB + ACM**. Los estáticos los sirve **WhiteNoise** dentro del contenedor (no hay Nginx). Ya está configurado (`whitenoise` en requirements + middleware).
 - **RDS y SES NO cambian.**
