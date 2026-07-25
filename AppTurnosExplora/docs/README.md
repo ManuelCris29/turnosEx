@@ -20,7 +20,7 @@ carpeta `docs/` que estaba en la raíz del repo; ya no existe una segunda copia.
 
 | Subcarpeta | Contenido |
 |---|---|
-| **[deployment](./05-referencia/deployment/)** | **Despliegue en AWS**: [arquitectura recomendada](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md) (EC2 y Fargate), checklists paso a paso [EC2+RDS+SES](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md) y [ECS Fargate](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_FARGATE.md), manual EC2, plan de correo transaccional. |
+| **[deployment](./05-referencia/deployment/)** | **Despliegue en AWS**: [arquitectura recomendada](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md) (EC2 y Fargate), checklists paso a paso [EC2+RDS+SES](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md) y [ECS Fargate](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_FARGATE.md), [manual Docker local](./05-referencia/deployment/MANUAL_DOCKER_LOCAL.md), plan de correo transaccional. |
 | **[solicitudes](./05-referencia/solicitudes/)** | Reglas de negocio de solicitudes, características CT, y **dobladas/** (flujo, integridad, casos). |
 | **[turnos](./05-referencia/turnos/)** | Fuente de verdad de turnos, decisiones sobre jornada/pago sábado. |
 | **[pruebas](./05-referencia/pruebas/)** | Inventario de tests, matriz de casos, guía de pruebas. |
