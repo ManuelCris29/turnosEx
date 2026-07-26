@@ -96,7 +96,8 @@ PY manage.py test                # suite completa (debe quedar en OK)
 
 ## Contenido de esta carpeta
 
-- **README.md** — esta guía (el "qué" y el "cómo").
+- **README.md** — esta guía técnica (Django, paquetes, seguridad).
+- **[DATOS-ANUALES.md](./DATOS-ANUALES.md)** — **datos operativos que se generan cada año**: temporada, festivos y mantenimiento (desde el admin, para el año entrante).
 - **[CHECKLIST-anual.md](./CHECKLIST-anual.md)** — plantilla para copiar cada año a `bitacora/AAAA.md`.
 - **[PAQUETES.md](./PAQUETES.md)** — inventario de dependencias y notas de riesgo por paquete.
 - **[bitacora/](./bitacora/)** — histórico de lo actualizado cada año.
