@@ -43,6 +43,12 @@ class Turno(models.Model):
     # historial/estadística), pero no cuenta como turno activo (ni como falta, ni genera deuda).
     anulado = models.BooleanField(default=False)
     motivo_anulacion = models.CharField(max_length=200, null=True, blank=True)
+    # Discriminante de unicidad: 1 si el turno está activo, NULL si está anulado. Existe para
+    # poder declarar "un solo turno ACTIVO por (explorador, fecha, jornada)" en MySQL, que no
+    # soporta índices únicos parciales (`UniqueConstraint(condition=...)`). En un índice único
+    # los NULL no colisionan entre sí, así que varios anulados conviven y solo el activo es
+    # único. Se mantiene sola en `save()`: no asignarla a mano.
+    activo_key = models.PositiveSmallIntegerField(null=True, blank=True, default=1, editable=False)
     historial= HistoricalRecords()
 
     # `objects` excluye anulados (lecturas activas); `all_objects` los incluye (auditoría/admin).
@@ -55,7 +61,27 @@ class Turno(models.Model):
         indexes = [
             models.Index(fields=['explorador', 'fecha'], name='turno_explorador_fecha_idx'),
         ]
+        constraints = [
+            # El invariante "un día = un conjunto de jornadas sin repetir" se sostenía solo por
+            # la disciplina de delete-then-create repetida en ~15 sitios (strategies, servicios
+            # de aplicación, restauración de snapshot). Cualquier ruta nueva que creara sin
+            # borrar duplicaba el turno en silencio y ninguna de las tres capas de defensa lo
+            # notaba: la persona aparecía dos veces en la misma jornada y el consolidado de
+            # horas contaba doble. Ahora lo garantiza la base de datos.
+            models.UniqueConstraint(
+                fields=['explorador', 'fecha', 'jornada', 'activo_key'],
+                name='turno_unico_activo_por_jornada',
+            ),
+        ]
         ordering = ['fecha', 'explorador']
+
+    def save(self, *args, **kwargs):
+        # `activo_key` es derivada de `anulado`: se mantiene aquí para que la restricción de
+        # unicidad no dependa de que cada llamador se acuerde de actualizarla.
+        self.activo_key = None if self.anulado else 1
+        if 'update_fields' in kwargs and kwargs['update_fields'] is not None:
+            kwargs['update_fields'] = list(set(kwargs['update_fields']) | {'activo_key'})
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.explorador.user.username} - {self.fecha}" #type:ignore

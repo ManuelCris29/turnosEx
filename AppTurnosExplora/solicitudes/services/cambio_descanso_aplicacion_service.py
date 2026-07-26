@@ -475,10 +475,9 @@ class CambioDescansoAplicacionService:
         from .deuda_corporativa_service import DeudaCorporativaService
         if len(pre_set) == 1 and post_set >= {'AM', 'PM'} \
                 and DeudaCorporativaService.aplica_deuda_doblada(fecha):
-            DeudaCorporativaService.crear_deuda_corporativa(
+            DeudaCorporativaService.crear_deuda_corporativa_idempotente(
                 explorador=explorador,
                 minutos=30,
-                fecha_generacion=date.today(),
                 fecha_doblada=fecha,
                 solicitud=solicitud,
                 comentario=comentario,
@@ -619,5 +618,25 @@ class CambioDescansoAplicacionService:
         snap = getattr(detalle, 'snapshot_turnos_previos', None)
         if snap:
             DobladaAplicacionService.restaurar_turnos_desde_snapshot(snap)
+        else:
+            # Solicitudes antiguas (sin snapshot): al menos borrar los turnos que ESTA gestión
+            # creó. Sin este else se cancelaban las deudas pero los turnos quedaban aplicados:
+            # la persona seguía con la doblada puesta y sin deber los 30 min correspondientes.
+            fechas = [f for f in (solicitud.fecha_cambio_turno, detalle.fecha_pago) if f]
+            if fechas:
+                Turno.objects.filter(
+                    explorador__in=[solicitud.explorador_solicitante, solicitud.explorador_receptor],
+                    fecha__in=fechas,
+                    tipo_cambio='CAMBIO DESCANSO',
+                ).delete()
+                logger.info(
+                    "Cambio de descanso %s sin snapshot: turnos 'CAMBIO DESCANSO' borrados en %s.",
+                    solicitud.id, fechas,
+                )
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        # Patrón #22: restaurar el snapshot arrasa el día entero. Reconstruir lo que SIGUE
+        # vigente en esas fechas (otra doblada, un CT, un CT permanente…) o se borra en silencio.
+        if snap:
+            DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+                DobladaAplicacionService._fechas_explorador_afectados(snap), solicitud.id)
         logger.info("Cambio de descanso revertido: solicitud %s", solicitud.id)

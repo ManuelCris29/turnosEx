@@ -254,10 +254,56 @@ class CTPermanenteStrategy(SolicitudStrategy):
         for emp_id, mes, anio in meses_afectados:
             CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
 
+    @staticmethod
+    def reaplicar_fechas(solicitud: SolicitudCambio, fechas) -> int:
+        """
+        Re-materializa un CT PERMANENTE APROBADO sobre `fechas` (patrón #22).
+
+        La reconciliación restaura el snapshot de otra solicitud, y ese `delete()` arrasa el
+        día entero: se llevaba por delante los turnos `CT PERMANENTE` que seguían vigentes.
+
+        Solo se re-materializan las fechas que ESTA gestión aplicó — las claves del snapshot
+        son exactamente esas (ver `aplicar_cambios`), así que no se re-deriva la elegibilidad
+        del estado en vivo (el día recién pisado ya no parecería elegible). Devuelve nº de días.
+        """
+        from datetime import date as _date
+        from turnos.models import Turno
+        from turnos.services.doblada_turno_service import DobladaTurnoService
+        from core.utils.jornada_utils import obtener_jornada_base, obtener_jornada_contraria
+
+        objetivo = set(fechas)
+        snap = getattr(solicitud, 'snapshot_turnos_previos', None) or {}
+        aplicadas = set()
+        for key in snap:
+            try:
+                _emp_str, fecha_str = key.split(':', 1)
+                aplicadas.add(_date.fromisoformat(fecha_str))
+            except (ValueError, TypeError):
+                continue
+
+        dias = 0
+        for fecha in sorted(aplicadas & objetivo):
+            for empleado in (solicitud.explorador_solicitante, solicitud.explorador_receptor):
+                jornada = obtener_jornada_contraria(obtener_jornada_base(empleado, fecha))
+                if not jornada:
+                    logger.warning(
+                        "CT permanente %s no re-materializado para %s en %s: sin jornada contraria.",
+                        solicitud.id, empleado.id, fecha,
+                    )
+                    continue
+                Turno.objects.filter(explorador=empleado, fecha=fecha).delete()
+                Turno.objects.create(
+                    explorador=empleado, fecha=fecha, jornada=jornada,
+                    sala=DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha),
+                    tipo_cambio='CT PERMANENTE',
+                )
+            dias += 1
+        return dias
+
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
         Apply permanent change when solicitud is approved.
-        
+
         Args:
             solicitud: The approved solicitud instance
             

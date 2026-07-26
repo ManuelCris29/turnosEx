@@ -177,6 +177,72 @@ class DobladaSnapshotService:
                 s.id, tipo,
             )
 
+        # DOBLADA PERMANENTE: vive en otro modelo (`doblada_permanente`, no `doblada`), así que no
+        # entra en la consulta de arriba. Sin esto, restaurar un snapshot que pisa un día
+        # `DOBLADA PERM` borraba la doblada y dejaba viva su deuda de 30 min (y no la detecta
+        # `cancelar_deudas_huerfanas`, porque sí tiene solicitud de origen).
+        permanentes = (
+            SolicitudCambio.objects
+            .filter(estado='aprobada', doblada_permanente__isnull=False,
+                    doblada_permanente__fecha_inicio__lte=max(fechas))
+            .filter(Q(doblada_permanente__fecha_fin__gte=min(fechas))
+                    | Q(doblada_permanente__fecha_fin__isnull=True))
+            .exclude(id=excluir_solicitud_id)
+            .select_related('doblada_permanente')
+            .order_by('fecha_resolucion', 'id')
+            .distinct()
+        )
+        for s in permanentes:
+            if (s.explorador_solicitante_id not in exploradores
+                    and s.explorador_receptor_id not in exploradores):
+                continue
+            from solicitudes.services.doblada_permanente_aplicacion_service import (
+                DobladaPermanenteAplicacionService,
+            )
+            n = DobladaPermanenteAplicacionService.reaplicar_fechas(s, s.doblada_permanente, fechas)
+            if n:
+                logger.info(
+                    "Reconciliación post-revert: re-materializada doblada permanente %s en %d día(s).",
+                    s.id, n,
+                )
+
+        # CAMBIO TURNO y CT PERMANENTE: no tienen `doblada` ni `doblada_permanente`, así que
+        # tampoco entran en las dos consultas anteriores. Su snapshot vive en la propia
+        # solicitud. Sin este bloque, restaurar cualquier snapshot que pisara su día los
+        # borraba en silencio y la persona volvía a su jornada base sin que nada avisara.
+        DobladaSnapshotService._reconciliar_cambios_de_turno(
+            fechas, exploradores, excluir_solicitud_id)
+
+    @staticmethod
+    def _reconciliar_cambios_de_turno(fechas: set, exploradores: set, excluir_solicitud_id: int) -> None:
+        """Re-materializa los CT sencillos y CT permanentes aprobados que tocan `fechas`."""
+        from django.db.models import Q
+        from solicitudes.models import SolicitudCambio
+        from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
+        from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
+
+        candidatas = (
+            SolicitudCambio.objects
+            .filter(estado='aprobada', tipo_cambio__nombre__in=['CAMBIO TURNO', 'CT PERMANENTE'])
+            .filter(Q(explorador_solicitante_id__in=exploradores)
+                    | Q(explorador_receptor_id__in=exploradores))
+            .exclude(id=excluir_solicitud_id)
+            .select_related('tipo_cambio', 'explorador_solicitante', 'explorador_receptor')
+            .order_by('fecha_resolucion', 'id')
+            .distinct()
+        )
+        for s in candidatas:
+            tipo = s.tipo_cambio.nombre if s.tipo_cambio else ''
+            if tipo == 'CAMBIO TURNO':
+                n = CambioTurnoStrategy.reaplicar_fechas(s, fechas)
+            else:
+                n = CTPermanenteStrategy.reaplicar_fechas(s, fechas)
+            if n:
+                logger.info(
+                    "Reconciliación post-revert: re-materializado %s %s en %d día(s).",
+                    tipo, s.id, n,
+                )
+
     @staticmethod
     def _reaplicar_cambio_descanso(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
         """Re-materializa los turnos de un CAMBIO DESCANSO aprobado (mismo dispatch que su

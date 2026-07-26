@@ -185,14 +185,42 @@ class DobladaPermanenteAplicacionService:
         # excluyen de las ocurrencias; aquí cubrimos también el sábado.
         if not DeudaCorporativaService.aplica_deuda_doblada(fecha):
             return
-        DeudaCorporativaService.crear_deuda_corporativa(
+        # IDEMPOTENTE: un día doblado = UNA deuda de 30 min. Si `aplicar()` se ejecuta
+        # dos veces sobre la misma solicitud (reintento, re-aprobación), no se duplica.
+        DeudaCorporativaService.crear_deuda_corporativa_idempotente(
             explorador=explorador,
             minutos=30,
-            fecha_generacion=date.today(),
             fecha_doblada=fecha,
             solicitud=solicitud,
             comentario=f'Doblada permanente ({etiqueta}) — {fecha}',
         )
+
+    @staticmethod
+    def _calcular_ocurrencias(detalle, solicitante=None, receptor=None, excluir_id=None, balancear=True):
+        """
+        Fechas concretas de (cesión, devolución) de esta doblada permanente.
+
+        Punto ÚNICO de cálculo: si el detalle trae FECHAS específicas se usan esas (permite
+        balancear con distinto número de ocurrencias por weekday); si no, se expanden los
+        weekdays. Con `balancear` se recorta cada lado al MÍNIMO común (solo pares completos).
+        """
+        fi = detalle.fecha_inicio
+        ff = detalle.fecha_fin or date(fi.year, 12, 31)  # mismo fallback que el detalle de la solicitud
+        fces = getattr(detalle, 'fechas_cesion', '') or ''
+        fdev = getattr(detalle, 'fechas_devolucion', '') or ''
+        if fces or fdev:
+            _f = DobladaPermanenteAplicacionService._fechas_validas
+            ces = _f(fces, fi, ff, solicitante, receptor, excluir_id)
+            dev = _f(fdev, fi, ff, solicitante, receptor, excluir_id)
+        else:
+            _occ = DobladaPermanenteAplicacionService._ocurrencias
+            _parse = DobladaPermanenteAplicacionService._parse_dias
+            ces = list(_occ(fi, ff, _parse(detalle.dias_cesion), solicitante, receptor, excluir_id))
+            dev = list(_occ(fi, ff, _parse(detalle.dias_devolucion), solicitante, receptor, excluir_id))
+        if balancear:
+            n = min(len(ces), len(dev))
+            ces, dev = ces[:n], dev[:n]
+        return ces, dev
 
     @staticmethod
     def _capturar_snapshot(solicitante, receptor, fechas):
@@ -216,25 +244,10 @@ class DobladaPermanenteAplicacionService:
         _ex = solicitud.id  # excluir ESTA solicitud (ya aprobada) de la detección L2
 
         # Ocurrencias VÁLIDAS de cada lado (ya omiten festivo/temporada/mantenimiento/descanso/
-        # día comprometido). Si el detalle trae FECHAS específicas se usan esas (permite balancear
-        # con distinto número de ocurrencias por weekday); si no, se expanden los weekdays.
-        fces = getattr(detalle, 'fechas_cesion', '') or ''
-        fdev = getattr(detalle, 'fechas_devolucion', '') or ''
-        if fces or fdev:
-            ocur_ces = DobladaPermanenteAplicacionService._fechas_validas(
-                fces, detalle.fecha_inicio, detalle.fecha_fin, solicitante, receptor, _ex)
-            ocur_dev = DobladaPermanenteAplicacionService._fechas_validas(
-                fdev, detalle.fecha_inicio, detalle.fecha_fin, solicitante, receptor, _ex)
-        else:
-            _occ = DobladaPermanenteAplicacionService._ocurrencias
-            cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
-            devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
-            ocur_ces = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, cesion, solicitante, receptor, _ex))
-            ocur_dev = list(_occ(detalle.fecha_inicio, detalle.fecha_fin, devolucion, solicitante, receptor, _ex))
-        # BALANCE: solo se aplican PARES cubrir↔devolver → se recorta cada lado al MÍNIMO común
-        # (nunca se paga un favor que no se recibió, ni al revés).
-        n = min(len(ocur_ces), len(ocur_dev))
-        ocur_ces, ocur_dev = ocur_ces[:n], ocur_dev[:n]
+        # día comprometido). BALANCE: solo se aplican PARES cubrir↔devolver → cada lado se recorta
+        # al MÍNIMO común (nunca se paga un favor que no se recibió, ni al revés).
+        ocur_ces, ocur_dev = DobladaPermanenteAplicacionService._calcular_ocurrencias(
+            detalle, solicitante, receptor, _ex)
 
         # Snapshot de las fechas afectadas ANTES de mutar (para revertir en 30 min).
         fechas_afectadas = sorted(set(ocur_ces + ocur_dev))
@@ -269,6 +282,59 @@ class DobladaPermanenteAplicacionService:
 
     @staticmethod
     @transaction.atomic
+    def reaplicar_fechas(solicitud, detalle, fechas):
+        """
+        Re-materializa SOLO los días de esta doblada permanente que caen en `fechas`.
+
+        La usa la reconciliación posterior a cancelar OTRA solicitud: al restaurar su snapshot
+        se pisan los turnos DOBLADA PERM que seguían vigentes, y hay que reconstruirlos. No toca
+        deudas (las de esta solicitud ya existen y siguen siendo válidas) ni el snapshot.
+        """
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        fechas = set(fechas or ())
+        if not fechas:
+            return 0
+
+        # Qué días se aplicaron realmente: NO se puede re-derivar de la jornada real (el día que
+        # se acaba de pisar ya no parece "elegible"), así que se usan las claves del snapshot,
+        # que son exactamente las fechas afectadas al aplicar. Los candidatos van sin filtro de
+        # estado (solicitante/receptor a None) y se intersectan con lo aplicado.
+        from .doblada_snapshot_service import DobladaSnapshotService
+        aplicadas = {
+            f for (_e, f) in DobladaSnapshotService.fechas_explorador_afectados(
+                getattr(detalle, 'snapshot_turnos_previos', None))
+        }
+        ocur_ces, ocur_dev = DobladaPermanenteAplicacionService._calcular_ocurrencias(
+            detalle, balancear=False)
+        if aplicadas:
+            ocur_ces = [f for f in ocur_ces if f in aplicadas]
+            ocur_dev = [f for f in ocur_dev if f in aplicadas]
+        else:
+            # Sin snapshot (solicitudes antiguas): caer a la eligibilidad en vivo, que como
+            # mínimo no inventa días que nunca se aplicaron.
+            ocur_ces, ocur_dev = DobladaPermanenteAplicacionService._calcular_ocurrencias(
+                detalle, solicitante, receptor, solicitud.id)
+
+        n = 0
+        for fecha in (f for f in ocur_ces if f in fechas):
+            DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio='DOBLADA PERM')
+            Turno.objects.filter(explorador=solicitante, fecha=fecha).delete()
+            n += 1
+        for fecha in (f for f in ocur_dev if f in fechas):
+            DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio='DOBLADA PERM')
+            Turno.objects.filter(explorador=receptor, fecha=fecha).delete()
+            n += 1
+
+        if n:
+            logger.info(
+                "Doblada permanente %s re-materializada en %d día(s) por reconciliación.",
+                solicitud.id, n,
+            )
+        return n
+
+    @staticmethod
+    @transaction.atomic
     def revertir(solicitud):
         """
         Revierte una doblada permanente aplicada (cancelación dentro de los 30 min):
@@ -284,24 +350,21 @@ class DobladaPermanenteAplicacionService:
         if snapshot:
             DobladaAplicacionService.restaurar_turnos_desde_snapshot(snapshot)
         else:
-            # Sin snapshot: al menos eliminar las dobladas creadas en el rango.
-            fces = getattr(detalle, 'fechas_cesion', '') or ''
-            fdev = getattr(detalle, 'fechas_devolucion', '') or ''
-            if fces or fdev:
-                lados = (
-                    (DobladaPermanenteAplicacionService._fechas_validas(fces, detalle.fecha_inicio, detalle.fecha_fin), solicitud.explorador_receptor),
-                    (DobladaPermanenteAplicacionService._fechas_validas(fdev, detalle.fecha_inicio, detalle.fecha_fin), solicitud.explorador_solicitante),
-                )
-            else:
-                cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
-                devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
-                lados = (
-                    (DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, cesion), solicitud.explorador_receptor),
-                    (DobladaPermanenteAplicacionService._ocurrencias(detalle.fecha_inicio, detalle.fecha_fin, devolucion), solicitud.explorador_solicitante),
-                )
+            # Sin snapshot: al menos eliminar las dobladas creadas en el rango. Sin balancear:
+            # aquí se BORRA, así que conviene cubrir el superconjunto.
+            ces, dev = DobladaPermanenteAplicacionService._calcular_ocurrencias(detalle, balancear=False)
+            lados = (
+                (ces, solicitud.explorador_receptor),
+                (dev, solicitud.explorador_solicitante),
+            )
             for fechas, quien in lados:
                 for fecha in fechas:
                     Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio='DOBLADA PERM').delete()
 
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        # Patrón #22: restaurar el snapshot arrasa cada día del rango. Reconstruir lo que SIGUE
+        # vigente en esas fechas (otra doblada, un CT, un CT permanente…) o se borra en silencio.
+        if snapshot:
+            DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+                DobladaAplicacionService._fechas_explorador_afectados(snapshot), solicitud.id)
         logger.info("Doblada permanente revertida: solicitud %s", solicitud.id)

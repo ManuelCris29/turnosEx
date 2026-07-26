@@ -206,7 +206,10 @@ class Command(BaseCommand):
                 else:
                     self.stdout.write(f'    - Aplicar doblada de pago: {solicitante.nombre} dobla en {fecha_pago}, {receptor.nombre} descansa')
                 if not skip_deudas:
-                    self.stdout.write(f'    - Regenerar deudas (DeudaExplorador y DeudaCorporativa)')
+                    self.stdout.write(
+                        f'    - Crear las deudas que falten (DeudaExplorador y DeudaCorporativa). '
+                        f'Las que ya existan NO se duplican.'
+                    )
                 else:
                     self.stdout.write(f'    - ⏭️  Omitir regeneración de deudas (--skip-deudas)')
                 self.stdout.write('')
@@ -240,9 +243,12 @@ class Command(BaseCommand):
 
                 # 3. Generar deudas (opcional)
                 if not skip_deudas:
-                    self.stdout.write(f'  📝 Regenerando deudas...')
+                    # Idempotente: crea solo las deudas que falten. Antes esto duplicaba la deuda
+                    # (y los 30 min corporativos) de una solicitud ya aplicada. Ver
+                    # PROTECTION_PATTERNS.md #21.
+                    self.stdout.write(f'  📝 Creando las deudas que falten...')
                     DobladaAplicacionService.generar_deudas_doblada(solicitud, detalle)
-                    self.stdout.write(self.style.SUCCESS(f'     ✅ Deudas regeneradas'))
+                    self.stdout.write(self.style.SUCCESS(f'     ✅ Deudas al día (las existentes no se duplicaron)'))
                 else:
                     self.stdout.write(f'  ⏭️  Omitiendo regeneración de deudas (--skip-deudas)')
 

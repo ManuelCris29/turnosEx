@@ -71,17 +71,29 @@ class Command(BaseCommand):
         
         # Verificar cada solicitud
         inconsistencias = []
-        
+        explicadas = []
+
         for solicitud in solicitudes_aprobadas:
-            problema = self.verificar_solicitud(solicitud)
-            if problema:
-                inconsistencias.append((solicitud, problema))
-        
+            clase, texto = self.verificar_solicitud(solicitud)
+            if clase == 'problema':
+                inconsistencias.append((solicitud, texto))
+            elif clase == 'explicado':
+                explicadas.append((solicitud, texto))
+
         # Reporte
         self.stdout.write("\n" + "=" * 80)
         self.stdout.write("RESULTADOS")
         self.stdout.write("=" * 80)
-        
+
+        # Casos SIN turnos pero con explicación legítima: no son errores, se informan aparte
+        # para que no se confundan con problemas reales (antes se reportaban como fallos).
+        if explicadas:
+            self.stdout.write(self.style.WARNING(
+                f"\nℹ️  {len(explicadas)} doblada(s) sin turnos por razones esperadas (NO son errores):\n"
+            ))
+            for solicitud, texto in explicadas:
+                self.stdout.write(f"   • Solicitud {solicitud.id} ({solicitud.fecha_cambio_turno}): {texto}")
+
         if not inconsistencias:
             self.stdout.write(self.style.SUCCESS("\n✅ No se encontraron inconsistencias"))
         else:
@@ -112,26 +124,93 @@ class Command(BaseCommand):
     def verificar_solicitud(self, solicitud):
         """
         Verifica si una solicitud tiene los turnos correctamente generados.
-        
+
         Returns:
-            str con descripción del problema, o None si está OK
+            (None, None) si está OK,
+            ('problema', texto) si es una inconsistencia real,
+            ('explicado', texto) si el receptor no tiene turnos por una razón LEGÍTIMA.
         """
         fecha_cesion = solicitud.fecha_cambio_turno
         receptor = solicitud.explorador_receptor
-        
+
         if not receptor:
-            return "No tiene receptor asignado"
-        
+            return 'problema', "No tiene receptor asignado"
+
         # Verificar turnos del receptor
         turnos_receptor = Turno.objects.filter(
             explorador=receptor,
             fecha=fecha_cesion
         ).count()
-        
-        if turnos_receptor == 0:
-            return f"Receptor {receptor.nombre} no tiene turnos para {fecha_cesion} (debería tener doblada)"
-        
-        return None
+
+        if turnos_receptor > 0:
+            return None, None
+
+        # Sin turnos NO siempre es un error. Hay dos razones legítimas por las que la doblada
+        # de ese día deja de estar reflejada, y antes ambas se reportaban como inconsistencia.
+        explicacion = (
+            self._explicado_por_reprogramacion(solicitud, receptor, fecha_cesion)
+            or self._explicado_por_solicitud_posterior(solicitud, receptor, fecha_cesion)
+        )
+        if explicacion:
+            return 'explicado', explicacion
+
+        return 'problema', (
+            f"Receptor {receptor.nombre} no tiene turnos para {fecha_cesion} (debería tener doblada)"
+        )
+
+    @staticmethod
+    def _explicado_por_reprogramacion(solicitud, receptor, fecha):
+        """
+        El receptor NO CUMPLIÓ ese día: se registró una reprogramación por inasistencia, que
+        anula su doblada y cancela sus 30 min (los reactiva en la fecha de pago acordada).
+        Que no tenga turnos ese día es justamente el resultado esperado.
+        """
+        from solicitudes.models import ReprogramacionDiaDoblada
+        reprog = (
+            ReprogramacionDiaDoblada.objects
+            .filter(doblada_origen=solicitud, explorador=receptor, fecha_original=fecha)
+            .exclude(estado='cancelada')
+            .order_by('-id')
+            .first()
+        )
+        if not reprog:
+            return None
+        if reprog.estado == 'pagada' and reprog.fecha_reprogramada:
+            return (
+                f"{receptor.nombre} no cumplió el {fecha}; reprogramado y ya pagado "
+                f"doblando el {reprog.fecha_reprogramada}."
+            )
+        return (
+            f"{receptor.nombre} no cumplió el {fecha}; reprogramación PENDIENTE de "
+            f"programar por el supervisor."
+        )
+
+    @staticmethod
+    def _explicado_por_solicitud_posterior(solicitud, receptor, fecha):
+        """
+        Otra solicitud aprobada MÁS RECIENTE modificó ese mismo día. Por la regla "la última
+        aprobada gana por día", el estado vigente es el de esa otra, no el de esta.
+        """
+        from django.db.models import Q
+        if not solicitud.fecha_resolucion:
+            return None
+        posterior = (
+            SolicitudCambio.objects
+            .filter(estado='aprobada', fecha_resolucion__gt=solicitud.fecha_resolucion)
+            .filter(Q(explorador_solicitante=receptor) | Q(explorador_receptor=receptor))
+            .filter(Q(fecha_cambio_turno=fecha) | Q(doblada__fecha_pago=fecha))
+            .exclude(id=solicitud.id)
+            .select_related('tipo_cambio')
+            .order_by('-fecha_resolucion')
+            .first()
+        )
+        if not posterior:
+            return None
+        tipo = posterior.tipo_cambio.nombre if posterior.tipo_cambio else 'otra solicitud'
+        return (
+            f"Sustituida en el {fecha} por la solicitud {posterior.id} ({tipo}), aprobada después. "
+            f"La última aprobada del día es la que manda."
+        )
     
     def reparar_solicitud(self, solicitud):
         """

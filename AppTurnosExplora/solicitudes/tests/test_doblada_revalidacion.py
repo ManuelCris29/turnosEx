@@ -222,6 +222,102 @@ class DobladaPermRevalidacionTest(TestCase):
         self.assertEqual(n_ces, n_dev, "Cesiones y devoluciones aplicadas deben quedar balanceadas")
         self.assertGreaterEqual(n_ces, 1)
 
+    def _crear_y_aplicar(self, comentario='Prueba deuda'):
+        """Crea una doblada permanente martes(cesión)/jueves(devolución) y la aplica."""
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
+        strat = DobladaPermanenteStrategy()
+        sol, msg = strat.crear_solicitud({
+            'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
+            'tipo_cambio': self.tipo, 'comentario': comentario,
+            'fecha_inicio': self.fi.strftime('%Y-%m-%d'),
+            'fecha_fin': self.ff.strftime('%Y-%m-%d'),
+            'dias_cesion': '1', 'dias_devolucion': '3',
+        })
+        self.assertIsNotNone(sol, msg)
+        # Aplicar solo ocurre tras aprobar (la reconciliación busca solicitudes aprobadas).
+        SolicitudCambio.objects.filter(id=sol.id).update(estado='aprobada')
+        sol = SolicitudCambio.objects.select_related('doblada_permanente').get(id=sol.id)
+        n_ces, n_dev = DPAS.aplicar(sol, sol.doblada_permanente)
+        return sol, n_ces, n_dev
+
+    def test_genera_30_min_a_quien_dobla_en_cada_lado(self):
+        """Cada día efectivo de doblada permanente acumula 30 min a QUIEN se dobla:
+        el receptor en los días de cesión, el solicitante en los de devolución."""
+        from solicitudes.models import DeudaCorporativa
+        sol, n_ces, n_dev = self._crear_y_aplicar()
+        self.assertGreaterEqual(n_ces, 1)
+
+        deudas = DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa')
+        self.assertEqual(deudas.count(), n_ces + n_dev,
+                         'debe haber exactamente una deuda por día doblado')
+        self.assertTrue(all(d.minutos == 30 for d in deudas), 'cada doblada son 30 min')
+
+        # El receptor cobra los días de cesión (martes); el solicitante los de devolución (jueves).
+        d_rec = deudas.filter(explorador=self.rec)
+        d_sol = deudas.filter(explorador=self.sol)
+        self.assertEqual(d_rec.count(), n_ces)
+        self.assertEqual(d_sol.count(), n_dev)
+        self.assertTrue(all(d.fecha_doblada.weekday() == 1 for d in d_rec))
+        self.assertTrue(all(d.fecha_doblada.weekday() == 3 for d in d_sol))
+
+    def test_reaplicar_no_duplica_la_deuda(self):
+        """Idempotencia: aplicar dos veces la misma solicitud (reintento/re-aprobación) no
+        puede cobrar dos veces los 30 min del mismo día."""
+        from solicitudes.models import DeudaCorporativa
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
+        sol, n_ces, n_dev = self._crear_y_aplicar()
+        total = DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').count()
+        self.assertEqual(total, n_ces + n_dev)
+
+        sol = SolicitudCambio.objects.select_related('doblada_permanente').get(id=sol.id)
+        DPAS.aplicar(sol, sol.doblada_permanente)
+        self.assertEqual(
+            DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').count(), total,
+            'una segunda aplicación no debe duplicar las deudas de 30 min')
+
+    def test_revertir_cancela_las_deudas(self):
+        from solicitudes.models import DeudaCorporativa
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
+        sol, _, _ = self._crear_y_aplicar()
+        self.assertTrue(DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').exists())
+        DPAS.revertir(sol)
+        self.assertFalse(
+            DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').exists(),
+            'al revertir no puede quedar deuda activa')
+
+    def test_reconciliacion_rematerializa_la_doblada_permanente(self):
+        """Si el snapshot de OTRA solicitud cancelada pisa un día `DOBLADA PERM`, la
+        reconciliación debe reconstruirlo: si no, la deuda de 30 min quedaría viva sin doblada."""
+        from turnos.models import Turno
+        from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+        sol, n_ces, _ = self._crear_y_aplicar()
+        detalle = sol.doblada_permanente
+        fecha = min(f for (_e, f) in
+                    DobladaSnapshotService.fechas_explorador_afectados(detalle.snapshot_turnos_previos)
+                    if f.weekday() == 1)  # un martes = día de cesión (dobla el receptor)
+
+        # Simular el pisado: el receptor pierde su doblada y queda con un turno único.
+        Turno.objects.filter(explorador=self.rec, fecha=fecha).delete()
+        Turno.objects.create(explorador=self.rec, fecha=fecha, jornada=self.am, sala=self.sala)
+
+        DobladaSnapshotService.reconciliar_dobladas_aprobadas(
+            {(self.rec.id, fecha), (self.sol.id, fecha)}, excluir_solicitud_id=0)
+
+        jornadas = set(
+            Turno.objects.filter(explorador=self.rec, fecha=fecha)
+            .values_list('jornada__nombre', flat=True)
+        )
+        self.assertEqual(jornadas, {'AM', 'PM'}, 'la doblada permanente debe re-materializarse')
+        self.assertFalse(
+            Turno.objects.filter(explorador=self.sol, fecha=fecha).exists(),
+            'el solicitante sigue descansando ese día de cesión')
+
     def test_sabado_rechazado(self):
         # La doblada permanente ya no admite sábados (solo lun-vie).
         strat = DobladaPermanenteStrategy()

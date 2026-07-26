@@ -87,6 +87,36 @@ class JornadaUtils:
         return jornada_base
 
 
+def obtener_jornada_base(empleado, fecha):
+    """
+    Jornada BASE (predeterminada) de un explorador en una fecha: la asignación vigente en
+    `AsignarJornadaExplorador`. Devuelve el objeto Jornada o None.
+
+    Es el estado "virtual" del día, independiente de lo que haya materializado en `Turno`.
+    La usan las re-materializaciones de la reconciliación (patrón #22), que corren
+    justamente cuando los turnos del día acaban de ser borrados y no se pueden consultar.
+    """
+    from turnos.models import AsignarJornadaExplorador
+
+    asignacion = (
+        AsignarJornadaExplorador.objects
+        .filter(explorador=empleado, fecha_inicio__lte=fecha)
+        .select_related('jornada')
+        .order_by('-fecha_inicio')
+        .first()
+    )
+    return asignacion.jornada if asignacion else None
+
+
+def obtener_jornada_contraria(jornada):
+    """La otra jornada del par AM/PM. Devuelve None si no se puede determinar."""
+    if not jornada:
+        return None
+    jornadas = obtener_jornadas_am_pm()
+    nombre = (jornada.nombre or '').upper()
+    return jornadas.get('PM' if nombre == 'AM' else 'AM')
+
+
 def obtener_jornadas_am_pm() -> Dict[str, object]:
     """
     Retorna {'AM': Jornada, 'PM': Jornada} con caché de proceso (1 hora).

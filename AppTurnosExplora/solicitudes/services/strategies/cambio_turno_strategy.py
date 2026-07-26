@@ -293,6 +293,9 @@ class CambioTurnoStrategy(SolicitudStrategy):
         snap = getattr(solicitud, 'snapshot_turnos_previos', None)
         if snap:
             DobladaAplicacionService.restaurar_turnos_desde_snapshot(snap)
+            # Patrón #22: el restore arrasa el día entero; reconstruir lo que siga vigente ahí.
+            DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+                DobladaAplicacionService._fechas_explorador_afectados(snap), solicitud.id)
         else:
             # CT antiguos (sin snapshot): elimina los turnos CT de esa fecha.
             Turno.objects.filter(
@@ -300,11 +303,52 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 fecha=solicitud.fecha_cambio_turno, tipo_cambio='CT',
             ).delete()
 
+    @staticmethod
+    def reaplicar_fechas(solicitud: SolicitudCambio, fechas) -> int:
+        """
+        Re-materializa el efecto de un CT (sencillo) APROBADO sobre `fechas` (patrón #22).
+
+        Se llama desde la reconciliación: cuando se restaura el snapshot de otra solicitud,
+        ese `delete()` arrasa el día entero y se lleva por delante el CT que seguía vigente.
+        Sin esto el CT desaparecía en silencio y la persona volvía a su jornada base.
+
+        El efecto de un CT es un intercambio de jornadas base en `fecha_cambio_turno`, así que
+        se puede reconstruir sin snapshot (el estado previo era virtual). Devuelve nº de días.
+        """
+        from turnos.models import Turno
+        from turnos.services.doblada_turno_service import DobladaTurnoService
+        from core.utils.jornada_utils import obtener_jornada_base
+
+        fecha = solicitud.fecha_cambio_turno
+        if not fecha or fecha not in set(fechas):
+            return 0
+
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        j_sol = obtener_jornada_base(solicitante, fecha)
+        j_rec = obtener_jornada_base(receptor, fecha)
+        if not j_sol or not j_rec:
+            logger.warning(
+                "CT %s no re-materializado en %s: falta la jornada base de alguno de los dos.",
+                solicitud.id, fecha,
+            )
+            return 0
+
+        # El intercambio: cada uno queda con la jornada del otro.
+        for empleado, jornada in ((solicitante, j_rec), (receptor, j_sol)):
+            Turno.objects.filter(explorador=empleado, fecha=fecha).delete()
+            Turno.objects.create(
+                explorador=empleado, fecha=fecha, jornada=jornada,
+                sala=DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha),
+                tipo_cambio='CT',
+            )
+        return 1
+
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
         Apply turn change when solicitud is approved.
         Creates records in Turno table for both employees.
-        
+
         FASE 1.6: Protegido con transacción atómica para garantizar integridad de datos.
         Todas las operaciones se ejecutan o ninguna (rollback automático en caso de error).
         

@@ -1428,6 +1428,65 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
             'no está libre',
         )
 
+    def test_intercambio_rechaza_sabado_por_sabado(self):
+        """Sábado por sábado se gestiona en D FDS, también cuando es un INTERCAMBIO. Regresión:
+        el intercambio retorna antes de la regla del flujo de cesión/pago y se colaba."""
+        sab_a = FECHA_CESION
+        while sab_a.weekday() != 5:
+            sab_a += timedelta(days=1)
+        sab_b = sab_a + timedelta(days=7)
+        # Ambos con DOBLADA en su sábado y libres el del otro (el resto de guards en verde).
+        self._crear_doblada_turnos(self.emisor, sab_a)
+        self._crear_doblada_turnos(self.receptor, sab_b)
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(sab_a), fecha_pago=str(sab_b)),
+            'D FDS',
+        )
+
+    def test_intercambio_hereda_regla_mismo_mes(self):
+        """Las reglas comunes de doblada corren ANTES del corte del intercambio: el día B debe
+        estar en el mismo mes que el día A."""
+        dia_a = FECHA_CESION
+        dia_b = dia_a + timedelta(days=30)     # mes siguiente
+        while dia_b.weekday() == 6:            # domingo no es día de doblada
+            dia_b += timedelta(days=1)
+        self.assertNotEqual(dia_a.month, dia_b.month)
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b)),
+            'mes',
+        )
+
+    def test_intercambio_hereda_regla_dia_mantenimiento(self):
+        """No hay doblada en día de mantenimiento, tampoco por intercambio."""
+        from turnos.models import DiaEspecial
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+        DiaEspecial.objects.create(fecha=dia_b, tipo='mantenimiento')
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b)),
+            'mantenimiento',
+        )
+
+    def test_intercambio_hereda_regla_solicitud_pendiente(self):
+        """Si el día A ya tiene una solicitud PENDIENTE del solicitante, no se puede enviar un
+        intercambio sobre ese mismo día (antes solo se miraban las aprobadas)."""
+        from solicitudes.models import SolicitudCambio
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+        SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='pendiente', fecha_cambio_turno=dia_a,
+            comentario='otra solicitud pendiente sobre el mismo día',
+        )
+        self.assertRechazado(
+            self._datos(es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b)),
+            'pendiente',
+        )
+
     def test_intercambio_rechaza_si_solicitante_no_libre_dia_b(self):
         """El solicitante debe estar LIBRE el día B para asumir la doblada del receptor."""
         dia_a, dia_b = FECHA_CESION, FECHA_PAGO
@@ -2114,3 +2173,87 @@ class TestPagoEnDiaLibrePorCesionPermitido(MatrizDobladasTestCase):
         self._emisor_cede_el_dia_del_pago()
         datos = self._datos()  # emisor (AM) cede FECHA_CESION a receptor; paga en FECHA_PAGO (libre)
         self.assertValido(datos, 'pagar en un día libre por cesión debe permitirse')
+
+
+# ===========================================================================
+# Las deudas no se duplican al re-aplicar, ni sobreviven a una cancelación
+# ===========================================================================
+class TestDeudasIdempotentesYCancelacion(MatrizDobladasTestCase):
+    """
+    Dos reglas del ledger que no dependen del formulario:
+
+    1. Re-aplicar una solicitud YA aplicada no vuelve a cobrar. Pasa de verdad:
+       `reaplicar_doblada` y `corregir_doblada_cesion_total` llaman a
+       `generar_deudas_doblada()` sobre solicitudes ya aprobadas y aplicadas.
+    2. Una solicitud cancelada no deja deudas vivas, aunque se cancele por fuera del
+       use case (admin de Django, comando, script).
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Jornadas base contrarias: el emisor cede su PM, el receptor (AM) se dobla.
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        from empleados.models import CompetenciaEmpleado
+        for e in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+
+    def _solicitud_aplicada(self):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION,
+            comentario='Test idempotencia de deudas',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol,
+            fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_completa',
+            empleado_receptor=self.receptor,
+        )
+        ok, msg = self.strategy.aplicar_cambios(sol)
+        self.assertTrue(ok, msg)
+        return SolicitudCambio.objects.select_related('doblada').get(id=sol.id)
+
+    def test_regenerar_deudas_no_duplica(self):
+        """Simula lo que hacen `reaplicar_doblada` y `corregir_doblada_cesion_total`."""
+        from solicitudes.models import DeudaCorporativa, DeudaExplorador
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        sol = self._solicitud_aplicada()
+        corp = DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').count()
+        entre = DeudaExplorador.objects.filter(solicitud_origen=sol).exclude(estado='cancelada').count()
+        self.assertGreater(corp + entre, 0, 'sanity: la aplicación debe haber generado deudas')
+
+        # Re-aplicar sobre la solicitud YA aplicada (lo que hace el comando de reparación).
+        DobladaAplicacionService.generar_deudas_doblada(sol, sol.doblada)
+
+        self.assertEqual(
+            DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').count(), corp,
+            'regenerar deudas no puede duplicar los 30 min corporativos')
+        self.assertEqual(
+            DeudaExplorador.objects.filter(solicitud_origen=sol).exclude(estado='cancelada').count(), entre,
+            'regenerar deudas no puede duplicar la deuda entre exploradores')
+
+    def test_cancelar_por_fuera_del_use_case_cancela_las_deudas(self):
+        """Poner estado='cancelada' a mano (admin/comando) no puede dejar deudas activas."""
+        from solicitudes.models import DeudaCorporativa, DeudaExplorador
+
+        sol = self._solicitud_aplicada()
+        self.assertTrue(
+            DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').exists()
+            or DeudaExplorador.objects.filter(solicitud_origen=sol).exclude(estado='cancelada').exists(),
+            'sanity: debe haber alguna deuda viva antes de cancelar')
+
+        sol.estado = 'cancelada'
+        sol.save()
+
+        self.assertFalse(
+            DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').exists(),
+            'una solicitud cancelada no puede dejar deuda corporativa activa')
+        self.assertFalse(
+            DeudaExplorador.objects.filter(solicitud_origen=sol).exclude(estado='cancelada').exists(),
+            'una solicitud cancelada no puede dejar deuda entre exploradores viva')

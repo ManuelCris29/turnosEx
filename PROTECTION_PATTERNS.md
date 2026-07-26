@@ -494,6 +494,266 @@ DeudaCorporativaService.crear_deuda_corporativa(
 
 ---
 
+### 21. **Deuda Idempotente por (explorador, fecha, solicitud)** (Backend)
+**Qué es:** Antes de crear una `DeudaCorporativa`, verificar que no exista ya una ACTIVA para esa
+misma combinación de explorador + fecha de doblada + solicitud de origen.
+
+**Por qué:** Un día doblado = 30 min, siempre. Los turnos toleran una re-aplicación (se borran y se
+recrean, ver `_crear_doblada_dia`), pero la deuda NO: se sumaba encima. Si `aplicar()` corría dos
+veces (reintento, re-aprobación manual, comando de mantenimiento), el explorador terminaba debiendo
+60 min por un solo día doblado. **Sin error, sin log de alarma, sin nada visible** hasta que alguien
+mira el Consolidado de Horas y no le cuadra.
+
+⚠️ **NO BORRAR este guard.** Parece redundante ("si solo se aplica una vez, ¿para qué comprobar?"),
+pero es la capa 3 del orden de defensa: las capas 1 y 2 previenen el doble clic, esta previene el
+doble COBRO cuando las otras fallan. Quitarlo reintroduce el cobro doble en silencio.
+
+**Dónde:** Al crear deuda corporativa dentro de un flujo que puede re-ejecutarse.
+
+**Gatillo REAL (no hipotético):** `reaplicar_doblada` y `corregir_doblada_cesion_total` llaman a
+`generar_deudas_doblada()` sobre solicitudes ya aplicadas. Se corren justo cuando algo salió mal,
+y antes de este guard sumaban una segunda deuda encima de la existente.
+
+**Implementación:** usa SIEMPRE las variantes idempotentes, no las crudas:
+```python
+DeudaCorporativaService.crear_deuda_corporativa_idempotente(...)  # clave: explorador+fecha_doblada+solicitud
+DeudaService.crear_deuda_idempotente(...)                          # clave: solicitud+deudor+acreedor+fecha_pago_pactada
+# Ambas devuelven None si ya existía (útil para no loguear "creada" cuando no se creó).
+```
+
+⚠️ **La clave NO puede usar `fecha_generacion`:** en ambos modelos de deuda ese campo es
+`auto_now_add`, así que guarda la fecha de HOY. Un filtro por él nunca coincide y el guard queda
+muerto sin dar señal (pasó en la primera versión de este patrón).
+
+**Lección aplicada:** un parámetro que se acepta y se descarta es una trampa. `crear_deuda()` y
+`crear_deuda_corporativa()` recibían `fecha_generacion` y lo tiraban en silencio; tres llamadores
+le pasaban la fecha de cesión creyendo que se guardaba. **Se eliminó el parámetro de ambas firmas**
+en vez de documentarlo: si no existe, nadie puede volver a confiar en él. La fecha del negocio vive
+en `fecha_doblada` (corporativa) y `fecha_pago_pactada` / `solicitud_origen` (entre exploradores).
+
+**Estado:** ✅ **APLICADO**
+- `deuda_corporativa_service.py` - `crear_deuda_corporativa_idempotente()` ← guard compartido
+- `deuda_service.py` - `crear_deuda_idempotente()` ← guard compartido
+- `doblada_deuda_service.py` - DOBLADA (corporativa + entre exploradores)
+- `d_fds_aplicacion_service.py` - D FDS (entre exploradores; la corporativa no aplica en finde)
+- `doblada_permanente_aplicacion_service.py` - `_deuda()`
+- `cambio_descanso_aplicacion_service.py` - `_deuda_30_si_doblo()`
+- `reprogramacion_doblada_service.py` - `programar()` ← **era el último llamador que usaba la
+  variante cruda** (auditoría 2026-07-26). Una excepción sin motivo a una regla declarada
+  universal es exactamente donde vuelve a colarse el cobro doble: si el supervisor reprograma
+  dos veces el mismo día de pago, se cobraban 60 min por un solo día doblado.
+- Tests: `test_matriz_dobladas.py` - `test_regenerar_deudas_no_duplica`;
+  `test_doblada_revalidacion.py` - `test_reaplicar_no_duplica_la_deuda`;
+  `test_auditoria_huecos.py` - `TestReprogramacionUsaDeudaIdempotente` (incluye un guard de
+  regresión que lee el propio fuente para que nadie reintroduzca la variante cruda)
+
+---
+
+### 22. **Reconciliación Completa: cubrir TODOS los modelos de detalle** (Backend)
+**Qué es:** Cuando se cancela una solicitud y se restaura su snapshot, la reconciliación
+(`reconciliar_dobladas_aprobadas`) re-materializa lo que seguía vigente en esas fechas. Debe
+consultar TODOS los modelos de detalle, no solo uno.
+
+**Por qué:** DOBLADA, D FDS y CAMBIO DESCANSO comparten `DobladaDetalle` (`solicitud.doblada`),
+pero DOBLADA PERMANENTE vive en `DobladaPermanenteDetalle` (`solicitud.doblada_permanente`). La
+consulta filtraba `doblada__isnull=False`, así que las permanentes quedaban fuera: restaurar un
+snapshot pisaba su día `DOBLADA PERM` y **la deuda de 30 min quedaba viva sin doblada real**. Peor:
+`cancelar_deudas_huerfanas` tampoco la detecta, porque busca deudas SIN solicitud de origen y esta
+sí la tiene.
+
+⚠️ **Al agregar un nuevo tipo de solicitud con su propio modelo de detalle**, hay que engancharlo
+aquí. Si no, sus efectos se borran silenciosamente al cancelar cualquier solicitud vecina.
+
+**Implementación:**
+```python
+# Los que comparten DobladaDetalle
+candidatas = SolicitudCambio.objects.filter(estado='aprobada', doblada__isnull=False, ...)
+# + los que NO lo comparten (cada modelo de detalle propio, su propia consulta)
+permanentes = SolicitudCambio.objects.filter(estado='aprobada', doblada_permanente__isnull=False, ...)
+for s in permanentes:
+    DobladaPermanenteAplicacionService.reaplicar_fechas(s, s.doblada_permanente, fechas)
+```
+
+**Nota:** la re-materialización NO re-deriva la elegibilidad del estado en vivo (el día recién
+pisado ya no parece "elegible"); usa las fechas del `snapshot_turnos_previos`, que son el registro
+de lo que realmente se aplicó.
+
+⚠️ **Y engancharlo en los DOS sentidos** (auditoría 2026-07-26). El patrón tiene dos mitades y
+faltaban trozos de ambas:
+
+1. **Qué se re-materializa.** CAMBIO TURNO y CT PERMANENTE no viven en `DobladaDetalle` ni en
+   `DobladaPermanenteDetalle` (su snapshot está en la propia solicitud), así que no entraban en
+   ninguna de las dos consultas. Restaurar cualquier snapshot que pisara su día los borraba y la
+   persona volvía a su jornada base sin que nada avisara.
+2. **Desde dónde se dispara.** La reconciliación solo se llamaba desde
+   `revertir_doblada_aplicada` (DOBLADA). Los revert de D FDS, CAMBIO DESCANSO, DOBLADA
+   PERMANENTE y CT restauraban su snapshot —que arrasa el día entero con un `delete()`— sin
+   reconciliar nada después. **Todo `revertir()` que restaure un snapshot debe reconciliar.**
+
+**Estado:** ✅ **APLICADO**
+- `doblada_snapshot_service.py` - `reconciliar_dobladas_aprobadas()` y
+  `_reconciliar_cambios_de_turno()` (CAMBIO TURNO + CT PERMANENTE)
+- `doblada_permanente_aplicacion_service.py` - `reaplicar_fechas()`
+- `cambio_turno_strategy.py` - `reaplicar_fechas()` (reconstruye el intercambio de jornadas base)
+- `ct_permanente_strategy.py` - `reaplicar_fechas()` (usa las fechas del snapshot, que son
+  exactamente las que esa gestión aplicó)
+- Llamada a la reconciliación tras restaurar snapshot en: `doblada_aplicacion_service.py`,
+  `d_fds_aplicacion_service.py`, `cambio_descanso_aplicacion_service.py`,
+  `doblada_permanente_aplicacion_service.py`, `cambio_turno_strategy.py`
+- Helpers compartidos: `core/utils/jornada_utils.py` - `obtener_jornada_base()`,
+  `obtener_jornada_contraria()` (la re-materialización corre cuando los turnos del día acaban de
+  borrarse, así que no puede consultarlos: necesita el estado virtual)
+- Tests: `test_doblada_revalidacion.py` - `test_reconciliacion_rematerializa_la_doblada_permanente`;
+  `test_auditoria_huecos.py` - `TestReconciliacionCubreTodosLosTipos`,
+  `TestTodoRevertQueRestauraSnapshotReconcilia`
+
+---
+
+### 23. **Invariante de Estado por Señal (no solo en el flujo felíz)** (Backend)
+**Qué es:** Las reglas que deben cumplirse SIEMPRE ("una solicitud cancelada no deja deudas vivas")
+se refuerzan con una señal sobre el modelo, no solo dentro del use case que hace la operación bien.
+
+**Por qué:** `CancelarSolicitudUseCase` cancela las deudas al revertir, pero el campo `estado` se
+puede poner en `'cancelada'` por vías que NO pasan por ahí:
+- el **admin de Django** (el campo es editable; solo las fechas son readonly),
+- un **management command** (`corregir_doblada_cesion_total` lo hacía al unificar una cesión total),
+- un **script** de mantenimiento.
+
+Por esas vías la solicitud quedaba cancelada y el explorador seguía debiendo los 30 min. La lógica
+que vive solo en el use case protege un camino; la señal protege el dato.
+
+**Dónde:** `solicitudes/signals.py`
+
+**Implementación:**
+```python
+@receiver(post_save, sender=SolicitudCambio)
+def cancelar_deudas_al_cancelar_solicitud(sender, instance, **kwargs):
+    if instance.estado != 'cancelada':
+        return
+    DeudaCorporativa.objects.filter(solicitud_origen=instance, estado='activa').update(estado='cancelada')
+    DeudaExplorador.objects.filter(solicitud_origen=instance).exclude(estado='cancelada').update(estado='cancelada')
+```
+Idempotente: si el use case ya las canceló, el filtro no encuentra filas.
+
+⚠️ **El predicado de la invariante debe cubrir TODOS los estados sin efecto vigente**, no solo el
+que motivó el patrón (auditoría 2026-07-26). La señal filtraba `estado != 'cancelada'`, pero
+`'reemplazada'` significa lo mismo en lo económico: una solicitud posterior pisó sus turnos
+("lo último aprobado gana por día"), así que ya no hay doblada real detrás de esos 30 min.
+`_marcar_reemplazadas()` la produce al aplicar un cambio de descanso. La constante
+`ESTADOS_SIN_EFECTO_VIGENTE` existe para que al añadir un nuevo estado terminal se decida
+explícitamente si entra.
+
+**Estado:** ✅ **APLICADO**
+- `signals.py` - `ESTADOS_SIN_EFECTO_VIGENTE = ('cancelada', 'reemplazada')`
+- `signals.py` - `cancelar_deudas_al_cancelar_solicitud()` (post_save)
+- `signals.py` - `cancelar_deudas_al_borrar_solicitud()` (pre_delete, ya existía)
+- Tests: `test_matriz_dobladas.py` - `test_cancelar_por_fuera_del_use_case_cancela_las_deudas`;
+  `test_auditoria_huecos.py` - `TestReemplazadaCancelaSusDeudas`
+
+---
+
+### 24. **Revert con Fallback sin Snapshot** (Backend)
+**Qué es:** Todo `revertir()` necesita una rama `else` para cuando NO hay snapshot (solicitudes
+anteriores a que se implementara el patrón #13): al menos borrar los turnos que esa gestión creó,
+identificados por su `tipo_cambio`.
+
+**Por qué:** Sin el `else`, cancelar una solicitud vieja cancelaba las deudas pero dejaba los turnos
+aplicados. Es el peor cruce posible: la persona se queda **con la doblada puesta y sin deber los
+30 min**. Estaba así en cambio de descanso; doblada, D FDS y la permanente ya lo tenían.
+
+**Implementación:**
+```python
+if snap:
+    DobladaAplicacionService.restaurar_turnos_desde_snapshot(snap)
+else:
+    Turno.objects.filter(explorador__in=[...], fecha__in=fechas, tipo_cambio='CAMBIO DESCANSO').delete()
+```
+
+**Estado:** ✅ **APLICADO**
+- `doblada_aplicacion_service.py`, `d_fds_aplicacion_service.py`,
+  `doblada_permanente_aplicacion_service.py`, `cambio_descanso_aplicacion_service.py`
+- `cambio_turno_strategy.py` / `ct_permanente_strategy.py` - revert dirigido por `tipo_cambio`
+
+---
+
+### 25. **Guardias que Fallan CERRADO** (Backend)
+**Qué es:** Cuando a una guardia de seguridad le falta el dato con el que decide, debe BLOQUEAR,
+no dejar pasar. Si el dato preciso no está, se usa una aproximación conservadora que puede
+sobre-estimar el riesgo (bloquea de más) pero nunca sub-estimarlo.
+
+**Por qué:** La guardia LIFO decidía leyendo el snapshot:
+```python
+mios = self._pares_afectados(solicitud)
+if mios:            # ← sin snapshot, conjunto vacío: la guardia entera se saltaba
+    ...comprobar cambios posteriores...
+```
+Una solicitud sin snapshot —las anteriores al patrón #13, o cualquiera cuyo detalle quedara sin
+capturar— se podía cancelar **por debajo de un cambio más reciente, pisándolo**. Es el peor tipo
+de fallo: la protección parece estar puesta, no da error, y justamente en el caso raro (datos
+viejos, el que nadie prueba) no protege nada.
+
+Es el mismo razonamiento que el patrón #24 (`revertir()` necesita su rama `else` sin snapshot),
+aplicado a la decisión en vez de a la ejecución. Si escribes uno, mira si te falta el otro.
+
+**Dónde:** Toda guardia cuya condición dependa de un dato que puede faltar.
+
+**Implementación:** derivar el dato de las fuentes que SÍ existen, y solo entonces decidir.
+```python
+if snap:
+    return set(snap.keys())
+return self._pares_derivados_de_fechas(solicitud)  # fechas propias de la solicitud
+```
+
+**Estado:** ✅ **APLICADO**
+- `cancelar_solicitud.py` - `_pares_afectados()` + `_pares_derivados_de_fechas()`; la guardia LIFO
+  ya no está envuelta en `if mios:`
+- Test: `test_auditoria_huecos.py` - `TestLIFOFallaCerradoSinSnapshot` (incluye los dos controles:
+  sin conflicto real SÍ se puede cancelar, y un cambio posterior en OTRO día no bloquea —
+  "fallar cerrado" no puede degenerar en "bloquear siempre")
+
+---
+
+### 26. **Invariantes Estructurales en la BASE DE DATOS** (Backend)
+**Qué es:** Cuando una regla del modelo de datos se sostiene solo por la disciplina de N sitios
+del código, declararla como restricción en la base de datos.
+
+**Por qué:** "Un día = un conjunto de jornadas sin repetir" dependía de que ~15 sitios
+(strategies, servicios de aplicación, restauración de snapshot) recordaran hacer *delete* antes
+de *create*. Cualquier ruta nueva que creara sin borrar duplicaba el turno **en silencio**:
+ninguna de las tres capas de defensa lo nota, la persona aparece dos veces en la misma jornada y
+el Consolidado de Horas cuenta doble. La migración que introdujo la restricción encontró un
+duplicado real ya existente en la base de datos — la disciplina ya había fallado al menos una vez.
+
+⚠️ **MySQL no soporta índices únicos parciales**, así que `UniqueConstraint(condition=...)` no
+sirve para expresar "único entre los NO anulados". La vía portable es una columna discriminante
+nullable: en un índice único los NULL no colisionan entre sí, de modo que muchos anulados
+conviven y solo el activo queda restringido. La columna se mantiene sola en `save()` para que la
+restricción no dependa de que cada llamador se acuerde de actualizarla.
+
+**Implementación:**
+```python
+activo_key = models.PositiveSmallIntegerField(null=True, blank=True, default=1, editable=False)
+
+constraints = [models.UniqueConstraint(
+    fields=['explorador', 'fecha', 'jornada', 'activo_key'],
+    name='turno_unico_activo_por_jornada')]
+
+def save(self, *args, **kwargs):
+    self.activo_key = None if self.anulado else 1   # derivada de `anulado`
+    ...
+```
+La migración prepara los datos antes de crear el índice: pone `activo_key = NULL` en los anulados
+y resuelve duplicados activos históricos **anulándolos** (no borrándolos: el soft-delete es el
+mecanismo de auditoría del proyecto y estos casos hay que poder revisarlos).
+
+**Estado:** ✅ **APLICADO**
+- `turnos/models.py` - `Turno.activo_key`, `Meta.constraints`, `Turno.save()`
+- `turnos/migrations/0011_turno_unico_activo_por_jornada.py` - `preparar_datos()` + `AddConstraint`
+- Test: `test_auditoria_huecos.py` - `TestTurnoUnicoPorJornada` (incluye que doblar AM+PM sigue
+  siendo legítimo y que un anulado no bloquea al turno activo que lo sustituye)
+
+---
+
 ---
 
 ## 📊 Matriz Completa de Patrones por Flujo
@@ -542,6 +802,16 @@ Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
 - [ ] **¿Es un nuevo tipo de solicitud?** → **Strategy Pattern** (#16) - nueva clase Strategy
 - [ ] **¿Hay límite de tiempo?** → **Ventana Temporal** (#17) - solo cierto tiempo
 - [ ] **¿Hay deudas/pagos?** → **Deuda Corporativa** (#20) - registrar deuda en consolidado
+- [ ] **¿Se crea una deuda que podría re-crearse?** → **Deuda Idempotente** (#21) - verificar antes de crear
+- [ ] **¿El tipo nuevo tiene su propio modelo de detalle?** → **Reconciliación Completa** (#22) - engancharlo
+- [ ] **¿Hay una regla que debe cumplirse SIEMPRE, no solo en el flujo feliz?** → **Invariante por Señal** (#23)
+- [ ] **¿Escribiste un `revertir()`?** → **Fallback sin Snapshot** (#24) - la rama `else` para datos antiguos
+- [ ] **¿Tu `revertir()` restaura un snapshot?** → **Reconciliación** (#22) - el restore arrasa el
+      día entero: hay que reconstruir lo que siga vigente en esas fechas
+- [ ] **¿Escribiste una guardia que decide con un dato que puede faltar?** → **Fallar Cerrado**
+      (#25) - sin el dato, bloquear; nunca dejar pasar en silencio
+- [ ] **¿La regla es estructural (unicidad, exclusión) y depende de la disciplina del código?** →
+      **Invariante en la BD** (#26) - declararla como restricción
 - [ ] **¿Puede haber errores?** → **Error Handling** (#19) - try/except + logging
 
 ---
@@ -637,10 +907,21 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | **2026-06-26** | Reescrito formulario "Cambio de Día de Descanso" | #1, #4, #5 | Lógica correcta: intercambio real sin dobladas |
 | | Implementados patrones #4 (SweetAlert) + #5 (Form Disable) completo | #4, #5 | Confirmación modal + deshabilitar todos los inputs durante envío |
 | | Aplicados patrones #2, #3, #6, #7, #10, #11 en strategies | #2, #3, #6, #7, #10, #11 | Transacciones, snapshot guard, invalidación caché, logging, notificaciones |
+| **2026-07-25** | Agregado patrón #21 (Deuda Idempotente) | #21 | Auditoría de doblada permanente: re-aplicar duplicaba los 30 min en silencio |
+| | Agregado patrón #22 (Reconciliación Completa) | #22 | Las permanentes quedaban fuera de la reconciliación: deuda viva sin doblada real |
+| | Auditoría de los otros 5 formularios: guards idempotentes compartidos | #21 | `reaplicar_doblada` y `corregir_doblada_cesion_total` duplicaban deuda de dobladas ya aplicadas |
+| | Agregado patrón #23 (Invariante por Señal) | #23 | Cancelar desde el admin o un comando dejaba las deudas activas |
+| | Agregado patrón #24 (Revert con Fallback) | #24 | Cambio de descanso sin snapshot cancelaba deudas pero dejaba los turnos puestos |
+| **2026-07-26** | Auditoría completa del proyecto contra este documento: 5 huecos, todos con test que falla primero (`test_auditoria_huecos.py`) | #21, #22, #23, #25, #26 | Ver detalle abajo |
+| | Reconciliación extendida a los SEIS tipos y disparada desde TODO revert que restaura snapshot | #22 | CAMBIO TURNO y CT PERMANENTE se borraban en silencio; solo DOBLADA reconciliaba |
+| | Guardia LIFO ya no se salta sin snapshot | #25 (nuevo) | Se podía cancelar por debajo de un cambio más reciente y pisarlo |
+| | `reprogramacion_doblada_service` pasa a la variante idempotente | #21 | Último llamador con la variante cruda: reprogramar dos veces cobraba 60 min |
+| | La señal cubre también el estado 'reemplazada' | #23 | El predicado solo miraba 'cancelada': deuda viva sin doblada real |
+| | Restricción de unicidad de turno activo en la BD | #26 (nuevo) | La migración encontró un duplicado real: la disciplina ya había fallado |
 
 ---
 
-**Última actualización:** 2026-06-25  
+**Última actualización:** 2026-07-26  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 

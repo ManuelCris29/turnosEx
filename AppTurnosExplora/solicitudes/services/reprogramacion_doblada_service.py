@@ -177,8 +177,11 @@ class ReprogramacionDobladaService:
 
         # Regenerar los 30 min en la fecha real (misma regla que una doblada: solo lun-vie no festivo).
         if DeudaCorporativaService.aplica_deuda_doblada(fecha_nueva):
-            DeudaCorporativaService.crear_deuda_corporativa(
-                explorador=reprog.explorador, minutos=30, fecha_generacion=date.today(),
+            # Variante IDEMPOTENTE (patrón #21): clave explorador+fecha_doblada+solicitud. Si el
+            # supervisor vuelve a programar el mismo día de pago —o el flujo se re-ejecuta— no se
+            # cobran 60 min por un solo día doblado. Es el guard compartido: no usar la cruda.
+            DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+                explorador=reprog.explorador, minutos=30,
                 fecha_doblada=fecha_nueva, solicitud=reprog.doblada_origen,
                 comentario=f'Pago reprogramado por inasistencia del {reprog.fecha_original.strftime("%d/%m/%Y")}',
             )

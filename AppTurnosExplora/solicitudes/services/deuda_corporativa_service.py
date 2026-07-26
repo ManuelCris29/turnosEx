@@ -210,22 +210,25 @@ class DeudaCorporativaService:
     def crear_deuda_corporativa(
         explorador: Empleado,
         minutos: int,
-        fecha_generacion: date,
         fecha_doblada: date,
         solicitud: Optional[SolicitudCambio] = None,
         comentario: Optional[str] = None
     ) -> DeudaCorporativa:
         """
         Crear un registro de deuda corporativa.
-        
+
+        NO recibe `fecha_generacion`: ese campo es `auto_now_add`, o sea que Django graba la
+        fecha de HOY al insertar y descarta lo que se le pase. Aceptarlo como parámetro solo
+        invita a creer que se puede fijar. La fecha que importa para el negocio es
+        `fecha_doblada` (el día que la persona realmente dobló), y esa sí se guarda.
+
         Args:
             explorador: Explorador que acumula la deuda
             minutos: Minutos de deuda (típicamente 30 por doblada)
-            fecha_generacion: Fecha en que se generó la deuda
             fecha_doblada: Fecha en que se realizó la doblada
             solicitud: Solicitud que generó la deuda (opcional)
             comentario: Comentario opcional
-        
+
         Returns:
             Instancia de DeudaCorporativa creada
         """
@@ -233,7 +236,6 @@ class DeudaCorporativaService:
             explorador=explorador,
             solicitud_origen=solicitud,
             minutos=minutos,
-            fecha_generacion=fecha_generacion,
             fecha_doblada=fecha_doblada,
             estado='activa',
             comentario=comentario
@@ -246,6 +248,46 @@ class DeudaCorporativaService:
         # (descuentos autorizados por un supervisor), que son un ledger aparte.
         return deuda
     
+    @staticmethod
+    def crear_deuda_corporativa_idempotente(
+        explorador: Empleado,
+        minutos: int,
+        fecha_doblada: date,
+        solicitud: Optional[SolicitudCambio] = None,
+        comentario: Optional[str] = None
+    ) -> Optional[DeudaCorporativa]:
+        """
+        Igual que `crear_deuda_corporativa`, pero NO crea nada si ya existe una deuda ACTIVA
+        para la misma combinación (explorador, fecha_doblada, solicitud_origen).
+
+        Un día doblado = 30 min, SIEMPRE. Los turnos toleran una re-aplicación (se borran y se
+        recrean), pero la deuda no: se sumaba encima. Esto pasa de verdad al re-aplicar una
+        solicitud ya aplicada (`reaplicar_doblada`, `corregir_doblada_cesion_total`, un reintento
+        o una re-aprobación), y el cobro doble no produce ningún error visible: aparece en el
+        Consolidado de Horas semanas después.
+
+        Úsala SIEMPRE que la deuda nazca de aplicar una solicitud. Devuelve None si ya existía.
+        Ver PROTECTION_PATTERNS.md #21.
+        """
+        if DeudaCorporativa.objects.filter(
+            explorador=explorador,
+            fecha_doblada=fecha_doblada,
+            solicitud_origen=solicitud,
+            estado='activa',
+        ).exists():
+            logger.info(
+                "Deuda corporativa ya existente para %s en %s (solicitud %s): no se duplica.",
+                explorador.nombre, fecha_doblada, getattr(solicitud, 'id', None),
+            )
+            return None
+        return DeudaCorporativaService.crear_deuda_corporativa(
+            explorador=explorador,
+            minutos=minutos,
+            fecha_doblada=fecha_doblada,
+            solicitud=solicitud,
+            comentario=comentario,
+        )
+
     @staticmethod
     def obtener_deuda_total(explorador: Empleado) -> int:
         """

@@ -126,6 +126,12 @@ class DFDSAplicacionService:
             ).delete()
         DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        # Patrón #22: restaurar el snapshot arrasa el día entero. Hay que reconstruir lo que
+        # SIGUE vigente en esas fechas (otra doblada, un CT, un CT permanente…), o se borra en
+        # silencio. Se cancelan las deudas ANTES para que la reconciliación no cuente las propias.
+        if snapshot:
+            DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+                DobladaAplicacionService._fechas_explorador_afectados(snapshot), solicitud.id)
         logger.info("D FDS revertida: Solicitud %s", solicitud.id)
 
     @staticmethod
@@ -148,11 +154,10 @@ class DFDSAplicacionService:
 
         # Deuda entre exploradores: el solicitante le debe el finde al receptor,
         # saldada con la fecha de pago (finde de devolución).
-        DeudaService.crear_deuda(
+        DeudaService.crear_deuda_idempotente(
             deudor=solicitante,
             acreedor=receptor,
             solicitud=solicitud,
-            fecha_generacion=fecha_cesion,
             fecha_pago_pactada=fecha_pago,
             fecha_pago_real=fecha_pago,
             jornada_cedida=jornada_cedida_nombre,
@@ -172,17 +177,17 @@ class DFDSAplicacionService:
                 return
             display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
             if display == 'DOBLADA':
-                DeudaCorporativaService.crear_deuda_corporativa(
+                creada = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
                     explorador=explorador,
                     minutos=30,
-                    fecha_generacion=date.today(),
                     fecha_doblada=fecha_doblada,
                     solicitud=solicitud,
                     comentario=comentario,
                 )
-                logger.info(
-                    "D FDS: deuda corporativa 30 min para %s en %s", explorador.nombre, fecha_doblada
-                )
+                if creada:
+                    logger.info(
+                        "D FDS: deuda corporativa 30 min para %s en %s", explorador.nombre, fecha_doblada
+                    )
 
         # Receptor dobla el día cedido; solicitante dobla el día de pago.
         _deuda_corp_si_doblada(

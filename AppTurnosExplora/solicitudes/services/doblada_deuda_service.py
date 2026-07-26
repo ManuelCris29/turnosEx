@@ -45,11 +45,10 @@ class DobladaDeudaService:
             jornada_cedida_nombre = jornada_solicitante.nombre.upper()
 
         # Deuda entre exploradores
-        DeudaService.crear_deuda(
+        DeudaService.crear_deuda_idempotente(
             deudor=solicitante,
             acreedor=receptor,
             solicitud=solicitud,
-            fecha_generacion=fecha_cesion,
             fecha_pago_pactada=fecha_pago,
             fecha_pago_real=fecha_pago,
             jornada_cedida=jornada_cedida_nombre,
@@ -68,11 +67,10 @@ class DobladaDeudaService:
                 jornada_sol_semana.nombre.upper()
                 if jornada_sol_semana else jornada_cedida_nombre
             )
-            DeudaService.crear_deuda(
+            DeudaService.crear_deuda_idempotente(
                 deudor=receptor,
                 acreedor=solicitante,
                 solicitud=solicitud,
-                fecha_generacion=fecha_pago,
                 fecha_pago_pactada=fecha_semana,
                 fecha_pago_real=fecha_semana,
                 jornada_cedida=jornada_residual,
@@ -93,18 +91,18 @@ class DobladaDeudaService:
                 return
             jornada_display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
             if jornada_display == 'DOBLADA':
-                DeudaCorporativaService.crear_deuda_corporativa(
+                creada = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
                     explorador=explorador,
                     minutos=30,
-                    fecha_generacion=date.today(),
                     fecha_doblada=fecha_doblada,
                     solicitud=solicitud,
                     comentario=comentario,
                 )
-                logger.info(
-                    "Deuda corporativa generada (30 min) para %s en %s por jornada DOBLADA.",
-                    explorador.nombre, fecha_doblada,
-                )
+                if creada:
+                    logger.info(
+                        "Deuda corporativa generada (30 min) para %s en %s por jornada DOBLADA.",
+                        explorador.nombre, fecha_doblada,
+                    )
             else:
                 logger.info(
                     "No se genera deuda corporativa para %s en %s: jornada_display=%r",

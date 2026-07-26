@@ -86,24 +86,23 @@ class CancelarSolicitudUseCase:
 
         # Guardia LIFO
         mios = self._pares_afectados(solicitud)
-        if mios:
-            personas = [solicitud.explorador_solicitante_id, solicitud.explorador_receptor_id]
-            posteriores = (
-                SolicitudCambio.objects
-                .filter(estado='aprobada', fecha_resolucion__gt=solicitud.fecha_resolucion)
-                .filter(Q(explorador_solicitante_id__in=personas) | Q(explorador_receptor_id__in=personas))
-                .exclude(id=solicitud.id)
-                .select_related('doblada', 'doblada_permanente')
-            )
-            for otra in posteriores:
-                comunes = mios & self._pares_afectados(otra)
-                if comunes:
-                    fechas = sorted({k.split(':', 1)[1] for k in comunes})
-                    fmt = ', '.join(_date.fromisoformat(f).strftime('%d/%m') for f in fechas)
-                    return False, (
-                        f'No puedes cancelar este cambio: hay otro más reciente sobre el mismo '
-                        f'día ({fmt}). Cancela primero el cambio más reciente.'
-                    )
+        personas = [solicitud.explorador_solicitante_id, solicitud.explorador_receptor_id]
+        posteriores = (
+            SolicitudCambio.objects
+            .filter(estado='aprobada', fecha_resolucion__gt=solicitud.fecha_resolucion)
+            .filter(Q(explorador_solicitante_id__in=personas) | Q(explorador_receptor_id__in=personas))
+            .exclude(id=solicitud.id)
+            .select_related('doblada', 'doblada_permanente', 'cambio_permanente')
+        )
+        for otra in posteriores:
+            comunes = mios & self._pares_afectados(otra)
+            if comunes:
+                fechas = sorted({k.split(':', 1)[1] for k in comunes})
+                fmt = ', '.join(_date.fromisoformat(f).strftime('%d/%m') for f in fechas)
+                return False, (
+                    f'No puedes cancelar este cambio: hay otro más reciente sobre el mismo '
+                    f'día ({fmt}). Cancela primero el cambio más reciente.'
+                )
 
         self._revertir_por_tipo(solicitud)
 
@@ -127,13 +126,57 @@ class CancelarSolicitudUseCase:
 
     @staticmethod
     def _pares_afectados(solicitud) -> set:
+        """
+        Claves 'empleado_id:YYYY-MM-DD' que esta solicitud toca. Es la base de la guardia LIFO.
+
+        La fuente preferida es el snapshot (dice exactamente qué se pisó). Pero NO puede ser la
+        única: una solicitud sin snapshot —las anteriores al patrón #13, o cualquiera cuyo detalle
+        quedara sin capturar— devolvía conjunto vacío, la guardia se saltaba entera y se podía
+        cancelar por debajo de un cambio más reciente, pisándolo.
+
+        Por eso, sin snapshot se DERIVAN los pares de las fechas propias de la solicitud. La
+        guardia falla cerrado: puede sobre-estimar el solape (bloquea de más, el usuario cancela
+        primero el reciente), nunca sub-estimarlo.
+        """
         snap = (
             getattr(solicitud, 'snapshot_turnos_previos', None)
             or getattr(getattr(solicitud, 'doblada', None), 'snapshot_turnos_previos', None)
             or getattr(getattr(solicitud, 'doblada_permanente', None), 'snapshot_turnos_previos', None)
             or {}
         )
-        return set(snap.keys())
+        if snap:
+            return set(snap.keys())
+        return CancelarSolicitudUseCase._pares_derivados_de_fechas(solicitud)
+
+    @staticmethod
+    def _pares_derivados_de_fechas(solicitud) -> set:
+        """Fallback sin snapshot: pares (persona, fecha) a partir de los campos de la solicitud."""
+        from datetime import timedelta
+
+        personas = [pid for pid in (solicitud.explorador_solicitante_id,
+                                    solicitud.explorador_receptor_id) if pid]
+        fechas = set()
+        if solicitud.fecha_cambio_turno:
+            fechas.add(solicitud.fecha_cambio_turno)
+
+        detalle = (getattr(solicitud, 'doblada', None)
+                   or getattr(solicitud, 'doblada_permanente', None)
+                   or getattr(solicitud, 'cambio_permanente', None))
+        if detalle is not None:
+            if getattr(detalle, 'fecha_pago', None):
+                fechas.add(detalle.fecha_pago)
+            if getattr(detalle, 'fecha_pago_semana', None):
+                fechas.add(detalle.fecha_pago_semana)
+            # Rangos (CT permanente, doblada permanente): todo el intervalo cuenta como tocado.
+            inicio = getattr(detalle, 'fecha_inicio', None)
+            fin = getattr(detalle, 'fecha_fin', None) or inicio
+            if inicio and fin:
+                d = inicio
+                while d <= fin:
+                    fechas.add(d)
+                    d += timedelta(days=1)
+
+        return {f"{pid}:{f.isoformat()}" for pid in personas for f in fechas}
 
     @staticmethod
     def _revertir_por_tipo(solicitud) -> None:
