@@ -1675,6 +1675,22 @@
             _mostrarAvisoIntercambio('');
             return;
         }
+        // Espejo del guard del backend (_validar_intercambio): sábado por sábado se gestiona en
+        // D FDS, no aquí. Se avisa ANTES de pedir candidatos para no dejar armar una solicitud
+        // que el backend va a rechazar al enviar.
+        const fcSab = fechaCesionInput ? fechaCesionInput.value : '';
+        if (fcSab && esSabado(fcSab) && esSabado(fp)) {
+            ++interReqToken;   // invalida cualquier carga de candidatos en vuelo
+            empleadoReceptorSelect.innerHTML = '<option value="">No disponible para sábado ↔ sábado</option>';
+            empleadoReceptorSelect.disabled = true;
+            _mostrarAvisoIntercambio(
+                'No puedes intercambiar una doblada de sábado por otra de sábado. Para intercambiar ' +
+                'sábados usa una Doblada de Fin de Semana (D FDS). En este formulario el sábado solo ' +
+                'se cruza con un día de semana del mismo mes.'
+            );
+            actualizarResumenIntercambio();
+            return;
+        }
         const myToken = ++interReqToken;
         empleadoReceptorSelect.innerHTML = '<option value="">Cargando compañeros con doblada…</option>';
         empleadoReceptorSelect.disabled = true;

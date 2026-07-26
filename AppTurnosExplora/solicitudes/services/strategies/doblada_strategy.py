@@ -208,13 +208,14 @@ class DobladaStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
 
             # ===========================
-            # INTERCAMBIO DE DOBLADAS (swap de días doblados; sin cesión/pago normales ni deuda)
+            # REGLAS COMUNES A TODA DOBLADA (cesión/pago E intercambio)
             # ===========================
-            # Requiere que AMBOS tengan DOBLADA (AM+PM) en su día: solicitante en el día A
-            # (fecha de cesión) y receptor en el día B (fecha de pago), con A != B.
-            if datos.get('es_intercambio'):
-                return DobladaStrategy._validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago, fecha_actual)
-            # Validar acuerdo previo obligatorio
+            # Van ANTES del corte del intercambio: son reglas del TIPO de solicitud (cuándo se
+            # puede doblar), no del mecanismo de pago, así que deben regir también el swap. Estaban
+            # más abajo y el `return` del intercambio las evadía (así se coló un sábado↔sábado).
+
+            # Validar acuerdo previo obligatorio (la fecha de pago / día B debe ser posterior a la
+            # creación de la solicitud).
             SolicitudValidator.validar_acuerdo_previo_obligatorio(
                 fecha_cesion,
                 fecha_pago,
@@ -223,6 +224,11 @@ class DobladaStrategy(SolicitudStrategy):
 
             # Caso A: fecha_pago debe estar en el mismo mes que fecha_cesion
             SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
+
+            # No hay doblada en domingo ni en día de mantenimiento (festivos de semana y temporada
+            # sí se permiten), en ninguna de las dos fechas.
+            SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
+            SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
 
             # Casos C/D: sin solicitud pendiente en fecha_cesion (reglas de CREACIÓN; se OMITEN
             # al re-validar para aprobar, donde la solicitud ya existe).
@@ -233,6 +239,14 @@ class DobladaStrategy(SolicitudStrategy):
                 SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(
                     explorador_solicitante, fecha_cesion
                 )
+
+            # ===========================
+            # INTERCAMBIO DE DOBLADAS (swap de días doblados; sin cesión/pago normales ni deuda)
+            # ===========================
+            # Requiere que AMBOS tengan DOBLADA (AM+PM) en su día: solicitante en el día A
+            # (fecha de cesión) y receptor en el día B (fecha de pago), con A != B.
+            if datos.get('es_intercambio'):
+                return DobladaStrategy._validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago, fecha_actual)
 
             # Caso 1.2: ambos descansando en fecha de pago → rechazar
             SolicitudValidator.validar_ambos_descansando_fecha_pago(
@@ -309,12 +323,8 @@ class DobladaStrategy(SolicitudStrategy):
                         f"de pago en la que él trabaje."
                     )
 
-            # Validar días especiales para fecha de cesión
-            SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
-            
-            # Validar días especiales para fecha de pago
-            SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
-            
+            # (Días especiales de ambas fechas: ya validados arriba, en las reglas comunes.)
+
             # Validar reglas de festivos: si ambas fechas son festivos de semana, deben ser del mismo mes
             fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
             fecha_pago_obj = DateUtils.parse_date(fecha_pago)
@@ -561,6 +571,12 @@ class DobladaStrategy(SolicitudStrategy):
             return False, f"El día B ({fp_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
         if fecha_cesion_obj == fp_obj:
             return False, "Para intercambiar dobladas, el día A y el día B deben ser distintos."
+        # Sábado por sábado se gestiona en D FDS, también cuando es un INTERCAMBIO: el formulario de
+        # doblada solo cruza un día de semana con el sábado de esa semana. (Misma regla que valida el
+        # flujo de cesión/pago más arriba; aquí hay que repetirla porque el intercambio retorna antes.)
+        if fecha_cesion_obj.weekday() == 5 and fp_obj.weekday() == 5:
+            return False, ("No puedes intercambiar una doblada de sábado por otra de sábado. "
+                           "Para intercambiar sábados usa una Doblada de Fin de Semana (D FDS).")
         if _TSint.estado_dia(explorador_solicitante, fecha_cesion_obj).get('jornada') != 'DOBLADA':
             return False, (f"Para intercambiar, debes tener una DOBLADA (AM+PM) el "
                            f"{fecha_cesion_obj.strftime('%d/%m/%Y')}.")
