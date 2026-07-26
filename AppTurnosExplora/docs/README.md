@@ -3,6 +3,17 @@
 Documentación única del proyecto, organizada por temas. (Se unificó aquí la
 carpeta `docs/` que estaba en la raíz del repo; ya no existe una segunda copia.)
 
+## Empezar por aquí
+
+| Documento | Para quién |
+|---|---|
+| **[manual_usuario.md](./manual_usuario.md)** | Exploradores y supervisores: qué hace la app y cómo usar cada formulario. |
+| **[manual_tecnico.md](./manual_tecnico.md)** | Desarrolladores: arquitectura, patrones aplicados, reglas de negocio con su cita en código, zonas frágiles. |
+| **[INVENTARIO_DOCUMENTAL.md](./INVENTARIO_DOCUMENTAL.md)** | Qué está documentado, qué falta y qué está sin verificar. |
+
+Versiones en Word de los dos manuales: [04-guias/manuales/](./04-guias/manuales/)
+(artefactos generados — se editan en el Markdown, nunca en el `.docx`).
+
 ## Estructura
 
 | Carpeta | Contenido |
