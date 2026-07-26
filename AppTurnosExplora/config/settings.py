@@ -33,6 +33,10 @@ SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['127.0.0.1', 'localhost'])
 
+# Orígenes de confianza para CSRF (Django 5 lo exige en POST/AJAX por HTTPS).
+# En producción: https://tu-dominio. Vacío en desarrollo.
+CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
+
 # ---------------------------------------------------------------------------
 # Aplicaciones
 # ---------------------------------------------------------------------------
@@ -66,6 +70,7 @@ if not IS_PRODUCTION:
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # debe ir primero
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',   # sirve estáticos sin Nginx (contenedores)
     'csp.middleware.CSPMiddleware',                 # aplica Content-Security-Policy
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -171,6 +176,14 @@ EMAIL_HOST_USER = env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
+# Timeout para que un SMTP colgado no congele el request (segundos).
+EMAIL_TIMEOUT = env.int('EMAIL_TIMEOUT', default=10)
+
+# Enviar los correos fuera del request (tras commit, en un hilo) para no
+# bloquear la respuesta ~20 s con los handshakes SMTP. Se activa en producción;
+# en desarrollo/tests se envía síncrono para que el comportamiento sea determinista.
+EMAIL_SEND_ASYNC = env.bool('EMAIL_SEND_ASYNC', default=IS_PRODUCTION)
+
 SITE_URL = env('SITE_URL', default='http://127.0.0.1:8000')
 
 # ---------------------------------------------------------------------------
@@ -207,7 +220,10 @@ AXES_RESET_ON_SUCCESS = True
 AXES_VERBOSE = False
 
 import sys as _sys
-if 'test' in _sys.argv:
+# Deshabilita axes durante los tests: con `manage.py test` ('test' en argv) y
+# también bajo pytest (que NO pasa 'test' en argv). axes exige un `request` en
+# authenticate(), que client.login() no provee en los tests.
+if 'test' in _sys.argv or 'pytest' in _sys.modules:
     AXES_ENABLED = False
 
 # ---------------------------------------------------------------------------
@@ -258,9 +274,15 @@ SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
 # ---------------------------------------------------------------------------
-# Seguridad adicional (solo en producción, requiere HTTPS)
+# Seguridad adicional (requiere HTTPS)
+# Activo por defecto en producción, pero desactivable con SECURE_HTTPS=False
+# para poder probar la imagen de producción en local sobre HTTP.
 # ---------------------------------------------------------------------------
-if IS_PRODUCTION:
+SECURE_HTTPS = env.bool('SECURE_HTTPS', default=IS_PRODUCTION)
+if SECURE_HTTPS:
+    # El proxy (Nginx/ALB) termina el TLS y reenvía por HTTP; sin esto,
+    # SECURE_SSL_REDIRECT provoca un bucle de redirección infinito.
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
     SECURE_HSTS_SECONDS = 31536000          # 1 año
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True

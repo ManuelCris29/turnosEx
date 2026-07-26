@@ -156,6 +156,11 @@ class ReflejoMisTurnosTest(TestCase):
     def test_doblada_permanente_refleja(self):
         import calendar
         fi = self._dia_semana(0)             # lunes (cesión)
+        # Si el lunes calculado cae justo el último día del mes, el martes de devolución
+        # cruzaría al mes siguiente y quedaría fuera del rango (que se acota al mismo mes
+        # de fi más abajo). Se avanza una semana para dejar margen.
+        while fi.day == calendar.monthrange(fi.year, fi.month)[1]:
+            fi += timedelta(days=7)
         martes = self._dia_semana(1, desde=fi)  # martes (devolución)
         # La doblada permanente exige que el rango esté dentro del mismo mes: acotar ff al
         # último día del mes de fi (sigue incluyendo el lunes y el martes de esa semana).

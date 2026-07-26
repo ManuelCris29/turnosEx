@@ -1,0 +1,43 @@
+# Secretos y entorno — NUNCA hornear en la imagen
+.env
+.env.*
+!.env.example
+
+# Estáticos recolectados (se regeneran en el build con collectstatic)
+staticfiles/
+
+# Artefactos de Python
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# Entornos virtuales
+venv/
+venvturnos/
+.venv/
+
+# Control de versiones y herramientas de dev
+.git/
+.gitignore
+.vscode/
+.cursor/
+.agents/
+.github/
+
+# Documentación y notas (no van en la imagen de runtime)
+docs/
+*.md
+
+# Compose de prueba local (no va en la imagen)
+docker-compose*.yml
+
+# Bases de datos locales / media de desarrollo
+db.sqlite3
+media/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

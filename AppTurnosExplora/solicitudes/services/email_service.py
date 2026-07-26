@@ -7,8 +7,9 @@ Dependencia en un solo sentido: NotificacionService -> EmailService.
 Nota: _configurar_email_backend y _verificar_token se conservan tal cual (sin callers
 actuales) para no cambiar comportamiento; candidatos a limpieza posterior.
 """
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives, get_connection
 from django.conf import settings
+from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.core.mail.backends.smtp import EmailBackend
@@ -16,6 +17,7 @@ from solicitudes.models import SolicitudCambio
 import hashlib
 import hmac
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -70,57 +72,77 @@ class EmailService:
             return None
     
     @staticmethod
+    def _enviar_seguro(func):
+        """Ejecuta el envío capturando cualquier error (para el hilo en segundo plano)."""
+        try:
+            func()
+        except Exception:
+            logger.exception("❌ Error enviando email en segundo plano")
+
+    @staticmethod
     def _enviar_email_desde_usuario(subject, message, from_email, recipient_list, html_message=None):
-        """Envía email usando la configuración por defecto del sistema"""
+        """Envía un correo desde el remitente fijo (DEFAULT_FROM_EMAIL), con la
+        persona en Reply-To.
+
+        En producción (EMAIL_SEND_ASYNC) el envío se hace fuera del request:
+        tras el commit y en un hilo, para no bloquear la respuesta ~20 s con los
+        handshakes SMTP. En desarrollo/tests el envío es síncrono.
+        """
         try:
             # Validaciones antes de enviar
             if not subject or not subject.strip():
                 logger.error("No se puede enviar email: subject vacío")
                 return False
-            
+
             if not recipient_list or not isinstance(recipient_list, list) or len(recipient_list) == 0:
                 logger.error(f"No se puede enviar email: recipient_list inválido: {recipient_list}")
                 return False
-            
+
             # Filtrar emails None o vacíos
             recipient_list_validos = [email for email in recipient_list if email and email.strip()]
             if not recipient_list_validos:
                 logger.error(f"No se puede enviar email: todos los destinatarios son inválidos: {recipient_list}")
                 return False
-            
-            # Validar from_email
-            from_email_final = from_email if from_email and from_email.strip() else settings.DEFAULT_FROM_EMAIL
-            if not from_email_final:
-                logger.error("No se puede enviar email: from_email y DEFAULT_FROM_EMAIL están vacíos")
+
+            # Enviar SIEMPRE desde el remitente fijo; la persona (from_email
+            # recibido) va en Reply-To para que las respuestas le lleguen.
+            remitente = settings.DEFAULT_FROM_EMAIL
+            if not remitente:
+                logger.error("No se puede enviar email: DEFAULT_FROM_EMAIL está vacío")
                 return False
-            
-            logger.info(f"Intentando enviar email: subject='{subject}', from='{from_email_final}', to={recipient_list_validos}")
-            
-            # Para desarrollo: usar backend de consola
-            if settings.EMAIL_BACKEND == 'django.core.mail.backends.console.EmailBackend':
-                send_mail(
+            reply_to = [from_email] if from_email and from_email.strip() else None
+
+            logger.info(f"Encolando email: subject='{subject}', from='{remitente}', reply_to={reply_to}, to={recipient_list_validos}")
+
+            def _construir_y_enviar():
+                # get_connection() respeta EMAIL_BACKEND y EMAIL_TIMEOUT.
+                email = EmailMultiAlternatives(
                     subject=subject,
-                    message=message,
-                    from_email=from_email_final,
-                    recipient_list=recipient_list_validos,
-                    html_message=html_message,
-                    fail_silently=False,
+                    body=message,
+                    from_email=remitente,
+                    to=recipient_list_validos,
+                    reply_to=reply_to,
+                    connection=get_connection(),
                 )
-                logger.info(f"✅ Email enviado a consola (desarrollo) desde {from_email_final} a {recipient_list_validos}")
-                return True
+                if html_message:
+                    email.attach_alternative(html_message, "text/html")
+                email.send()
+                logger.info(f"✅ Email enviado desde {remitente} a {recipient_list_validos}")
+
+            if getattr(settings, 'EMAIL_SEND_ASYNC', False):
+                # Fuera del request: tras el commit, en un hilo (no bloquea la respuesta).
+                # Las notificaciones in-app siguen siendo síncronas (instantáneas).
+                transaction.on_commit(
+                    lambda: threading.Thread(
+                        target=EmailService._enviar_seguro,
+                        args=(_construir_y_enviar,),
+                        daemon=True,
+                    ).start()
+                )
             else:
-                # Para producción: usar credenciales configuradas
-                send_mail(
-                    subject=subject,
-                    message=message,
-                    from_email=from_email_final,
-                    recipient_list=recipient_list_validos,
-                    html_message=html_message,
-                    fail_silently=False,
-                )
-                logger.info(f"✅ Email enviado exitosamente desde {from_email_final} a {recipient_list_validos}")
-                return True
-                
+                _construir_y_enviar()
+            return True
+
         except Exception as e:
             logger.exception(f"❌ Error enviando email: {e}")
             logger.error(f"Detalles: subject='{subject}', from='{from_email}', to={recipient_list}")
@@ -352,14 +374,13 @@ class EmailService:
         
         html_message = render_to_string('solicitudes/emails/solicitud_aprobada.html', context)
         plain_message = strip_tags(html_message)
-        
-        send_mail(
+
+        EmailService._enviar_email_desde_usuario(
             subject=subject,
             message=plain_message,
             from_email=solicitud.explorador_solicitante.email,
             recipient_list=[solicitud.explorador_solicitante.email],
             html_message=html_message,
-            fail_silently=False,
         )
 
     @staticmethod
@@ -377,15 +398,14 @@ class EmailService:
         
         html_message = render_to_string('solicitudes/emails/solicitud_rechazada.html', context)
         plain_message = strip_tags(html_message)
-        
-        send_mail(
+
+        EmailService._enviar_email_desde_usuario(
             subject=subject,
             message=plain_message,
             from_email=solicitud.explorador_solicitante.email,
             recipient_list=[solicitud.explorador_solicitante.email],
             html_message=html_message,
-            fail_silently=False,
-        ) 
+        )
 
     @staticmethod
     def _enviar_email_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta=None):

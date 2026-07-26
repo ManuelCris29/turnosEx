@@ -1,0 +1,80 @@
+name: CI
+
+# Integración continua de SWALP/AppTurnos.
+# Corre en cada push y PR a main: valida configuración de Django y ejecuta
+# la suite de tests (pytest) contra un MySQL real, igual que en local.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Tests + Django check
+    runs-on: ubuntu-latest
+
+    # El proyecto Django vive en AppTurnosExplora/ (el repo tiene esa subcarpeta).
+    defaults:
+      run:
+        working-directory: AppTurnosExplora
+
+    # Base de datos MySQL efímera para los tests (Django crea test_<DB_NAME>).
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: bdturnosex
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    # Variables que settings.py lee del entorno (sin .env en CI).
+    # Solo valores de prueba: NO son secretos de producción.
+    env:
+      ENVIRONMENT: development          # sin HTTPS/HSTS en el runner
+      DEBUG: "False"
+      SECRET_KEY: ci-secret-key-solo-para-tests-no-produccion-0123456789
+      ALLOWED_HOSTS: 127.0.0.1,localhost
+      DB_NAME: bdturnosex
+      DB_USER: root
+      DB_PASSWORD: root
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      EMAIL_HOST_USER: ci@example.com
+      EMAIL_HOST_PASSWORD: ci
+      DEFAULT_FROM_EMAIL: SWALP <no-reply@example.com>
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configurar Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"       # debe coincidir con el Python de producción
+          cache: pip
+          cache-dependency-path: AppTurnosExplora/requirements-dev.txt
+
+      # MySQL no trae las tablas de zona horaria pobladas; con USE_TZ=True y
+      # America/Bogota, las consultas con fechas usan CONVERT_TZ y fallarían.
+      # Se cargan en el contenedor de MySQL desde el runner.
+      - name: Cargar zonas horarias en MySQL
+        run: mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -h 127.0.0.1 -P 3306 -u root -proot mysql
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt   # incluye prod (-r requirements.txt) + pytest
+
+      - name: Django system check
+        run: python manage.py check
+
+      - name: Ejecutar tests (pytest)
+        run: pytest
