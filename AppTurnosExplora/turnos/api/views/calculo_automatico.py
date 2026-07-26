@@ -88,8 +88,8 @@ class CalcularFestivosAutomaticoView(LoginRequiredMixin, View):
 
             from turnos.services.dia_especial_service import DiaEspecialService
 
-            # Generar (si faltan) y obtener festivos automáticos
-            dias_por_mes = DiaEspecialService.generar_festivos_automaticos(anio)
+            # Calcular festivos automáticos (solo previsualización, no persiste)
+            dias_por_mes = DiaEspecialService.calcular_festivos_automaticos(anio)
 
             # Convertir a formato de lista para compatibilidad
             dias_list = []

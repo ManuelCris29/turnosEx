@@ -286,9 +286,10 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
         if tipo_seleccionado == 'mantenimiento' and not tiene_dias:
             dias_por_mes = DiaEspecialService.calcular_dias_mantenimiento_automatico(anio_seleccionado)
 
-        # Si es festivo y no hay días guardados, generar festivos automáticos
+        # Si es festivo y no hay días guardados, calcular festivos para previsualizar
+        # (NO se persisten hasta que el admin guarde, igual que temporada/mantenimiento).
         if tipo_seleccionado == 'festivo' and not tiene_dias:
-            dias_por_mes = DiaEspecialService.generar_festivos_automaticos(anio_seleccionado)
+            dias_por_mes = DiaEspecialService.calcular_festivos_automaticos(anio_seleccionado)
         
         # Obtener festivos y temporadas para mostrar en el calendario (para todos los tipos)
         festivos_por_mes = DiaEspecialService.obtener_dias_por_tipo_por_mes('festivo', anio_seleccionado)
@@ -297,10 +298,11 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
         # Obtener años con días del tipo configurados
         anios_con_tipo = DiaEspecialService.obtener_anios_con_tipo(tipo_seleccionado)
         
-        # Generar lista de años disponibles para el selector
-        # Incluir desde el año actual hasta 50 años en el futuro (rango amplio para planificación a largo plazo)
+        # Generar lista de años disponibles para el selector.
+        # Ventana corta (año actual + 3): los festivos/mantenimiento se generan por año
+        # cuando se necesitan, no con décadas de anticipación.
         anio_actual = date.today().year
-        anios_disponibles = list(range(anio_actual, anio_actual + 51))  # Año actual + 50 años más
+        anios_disponibles = list(range(anio_actual, anio_actual + 4))  # Año actual + 3 años más
         
         # Agregar años que ya tienen días del tipo pero que no están en el rango
         # Solo agregar años válidos (>= 2000)
