@@ -67,14 +67,21 @@ class SolicitudOrchestrator:
 
     @classmethod
     def verificar_cierre(cls, fechas) -> JsonResponse | None:
-        """Cierre semanal: bloquea si alguna fecha objetivo cae en una ventana cerrada habilitada."""
+        """Cierre semanal: bloquea si alguna fecha objetivo cae en una ventana cerrada habilitada.
+
+        Fail-open deliberado: si la verificación se rompe, se deja pasar la solicitud (romper el
+        formulario a todos los exploradores es peor que colar una solicitud fuera de plazo, que el
+        supervisor todavía puede rechazar). Se registra en CRITICAL para que el fallo sea visible en
+        alertas y no desactive el cierre en silencio.
+        """
         try:
             from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService
             _f, msg = CierreSolicitudesService.validar_fechas([f for f in fechas if f])
             if msg:
                 return json_error(msg, status=400, code='cierre_semanal')
         except Exception:
-            logger.exception('Error verificando cierre semanal de solicitudes')
+            logger.critical('CIERRE SEMANAL INOPERATIVO: falló la verificación para las fechas %s; '
+                            'la solicitud se permite sin validar el cierre.', fechas, exc_info=True)
         return None
 
     @classmethod

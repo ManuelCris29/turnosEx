@@ -62,7 +62,9 @@
                 </select>
                 <input type="time" name="hora_cierre" value="{{ s.hora|time:'H:i' }}" class="form-control form-control-sm">
                 <span class="text-muted" style="font-size:.85rem;">
-                  {% if s.dia_cierre_fecha %}{{ s.dia_cierre_fecha|date:'d/m' }} → {{ s.primer_habil|date:'d/m' }}{% else %}sin cierre{% endif %}
+                  {% if s.dia_cierre_fecha %}{{ s.dia_cierre_fecha|date:'d/m' }} → {{ s.primer_habil|date:'d/m' }}
+                    <br><em>bloquea desde {{ s.cutoff_fecha|date:'d/m' }} {{ s.hora|time:'H:i' }}</em>
+                  {% else %}sin cierre{% endif %}
                 </span>
                 <button type="submit" class="btn btn-outline-primary btn-sm" title="Guardar ajuste"><i class="fas fa-save"></i></button>
               </form>
@@ -81,7 +83,10 @@
           {% endfor %}
         </tbody>
       </table>
-      <small class="text-muted">"Ventana cerrada" muestra el rango bloqueado (día de cierre → primer día hábil) según festivos/mantenimientos.</small>
+      <small class="text-muted">"Ventana cerrada" muestra el rango bloqueado (día de cierre → primer día hábil,
+        ambos inclusive y contando los días intermedios) según festivos/mantenimientos, y el momento exacto en que
+        empieza a aplicarse. Con "primer día hábil" la ventana cubre el fin de semana completo desde el jueves,
+        pero el bloqueo solo se activa ese primer día hábil.</small>
     </div>
   </div>
 </div>

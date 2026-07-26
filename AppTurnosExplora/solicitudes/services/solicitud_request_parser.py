@@ -165,13 +165,22 @@ class SolicitudRequestParser:
 
     @staticmethod
     def get_fechas_del_post(post) -> list:
-        """Extrae todas las fechas del POST para verificación de restricciones médicas."""
+        """Extrae todas las fechas del POST (restricciones médicas y cierre semanal).
+
+        Usa `getlist` cuando está disponible: si un formulario envía varios valores con el mismo
+        nombre, hay que validarlos TODOS, no solo el primero.
+        """
         fechas = []
+        getlist = getattr(post, 'getlist', None)
         for campo in _CAMPOS_FECHA:
-            v = post.get(campo)
-            if v:
+            valores = getlist(campo) if getlist else [post.get(campo)]
+            for v in valores:
+                if not v:
+                    continue
                 try:
-                    fechas.append(DateUtils.parse_date(v))
+                    f = DateUtils.parse_date(v)
                 except (ValueError, TypeError):
-                    pass
+                    continue
+                if f not in fechas:
+                    fechas.append(f)
         return fechas

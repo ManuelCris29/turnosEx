@@ -58,30 +58,46 @@ class CierreSolicitudesService:
     @classmethod
     def _ventana_semana(cls, lunes_finde: date):
         """
-        Para la semana cuyo lunes es `lunes_finde`, devuelve (dia_cierre_fecha, primer_dia_habil,
-        hora) si el cierre está habilitado esa semana, o None. La ventana cerrada es
-        [dia_cierre_fecha … primer_dia_habil] (ambos inclusive).
+        Para la semana cuyo lunes es `lunes_finde`, devuelve
+        (inicio_ventana, fin_ventana, cutoff_fecha, hora, dia_cierre) si el cierre está habilitado
+        esa semana, o None.
+
+        - La ventana cerrada es [inicio_ventana … fin_ventana] (ambos inclusive), donde
+          `fin_ventana` es siempre el primer día hábil de la semana siguiente.
+        - `cutoff_fecha` es el día a cuya `hora` empieza a aplicarse el bloqueo. Normalmente
+          coincide con `inicio_ventana` (jueves/viernes/sábado/domingo). Con `primer_habil` la
+          ventana sigue cubriendo el fin de semana completo (desde el jueves) pero el bloqueo
+          solo se activa el primer día hábil a la hora configurada.
         """
         habilitado, dia_cierre, hora = cls._config_efectiva(lunes_finde)
         if not habilitado:
             return None
-        primer_habil = cls._primer_dia_habil(lunes_finde + timedelta(days=7))
+        fin_ventana = cls._primer_dia_habil(lunes_finde + timedelta(days=7))
         if dia_cierre == 'primer_habil':
-            dia_cierre_fecha = primer_habil
+            inicio_ventana = lunes_finde + timedelta(days=_DIA_A_WEEKDAY['jueves'])
+            cutoff_fecha = fin_ventana
         else:
-            dia_cierre_fecha = lunes_finde + timedelta(days=_DIA_A_WEEKDAY[dia_cierre])
-        return dia_cierre_fecha, primer_habil, hora, dia_cierre
+            inicio_ventana = lunes_finde + timedelta(days=_DIA_A_WEEKDAY[dia_cierre])
+            cutoff_fecha = inicio_ventana
+        return inicio_ventana, fin_ventana, cutoff_fecha, hora, dia_cierre
 
     @classmethod
     def _semana_finde_de(cls, t: date):
         """Lunes de la semana del FIN DE SEMANA al que pertenece `t` (o None si `t` no es candidata):
-        jueves–domingo → su propia semana; el primer día hábil → la semana anterior."""
+        jueves–domingo → su propia semana; el lunes … primer día hábil (inclusive) de una semana
+        → el finde de la semana ANTERIOR.
+
+        Los días entre el lunes y el primer día hábil (festivos/mantenimientos que corren el primer
+        hábil al martes o más allá) también pertenecen a la ventana del finde anterior: la ventana es
+        un rango continuo, no solo sus extremos.
+        """
         dow = t.weekday()
         if dow >= 3:  # jueves(3), viernes(4), sábado(5), domingo(6)
             return cls._lunes_de(t)
-        # ¿`t` es el primer día hábil de su semana? Entonces cierra el finde de la semana ANTERIOR.
+        # lunes(0), martes(1), miércoles(2): pertenecen al finde anterior mientras no se haya
+        # pasado el primer día hábil de su propia semana.
         lunes_t = cls._lunes_de(t)
-        if t == cls._primer_dia_habil(lunes_t):
+        if t <= cls._primer_dia_habil(lunes_t):
             return lunes_t - timedelta(days=7)
         return None
 
@@ -95,10 +111,10 @@ class CierreSolicitudesService:
         v = cls._ventana_semana(lunes_finde)
         if v is None:
             return None
-        dia_cierre_fecha, primer_habil, hora, _dia = v
-        if not (dia_cierre_fecha <= t <= primer_habil):
+        inicio_ventana, fin_ventana, cutoff_fecha, hora, _dia = v
+        if not (inicio_ventana <= t <= fin_ventana):
             return None
-        naive = datetime.combine(dia_cierre_fecha, hora)
+        naive = datetime.combine(cutoff_fecha, hora)
         return timezone.make_aware(naive) if timezone.is_aware(timezone.now()) else naive
 
     # ------------------------------------------------------------- API de validación
@@ -120,12 +136,13 @@ class CierreSolicitudesService:
             cutoff = cls.cutoff_para_fecha(t)
             if cutoff is not None and ahora >= cutoff:
                 lunes = cls._semana_finde_de(t)
-                _, _, _, dia = cls._ventana_semana(lunes)
+                _ini, _fin, _cutoff_fecha, _hora, dia = cls._ventana_semana(lunes)
                 hora = cutoff.strftime('%H:%M')
                 msg = (
-                    f"Cierre de solicitudes activo: desde el {_NOMBRE_DIA.get(dia, dia)} a las {hora} "
-                    f"la programación del fin de semana ya está cerrada; no se pueden enviar solicitudes "
-                    f"para el {t.strftime('%d/%m/%Y')}."
+                    f"Cierre de solicitudes activo: desde el {_NOMBRE_DIA.get(dia, dia)} "
+                    f"{_cutoff_fecha.strftime('%d/%m/%Y')} a las {hora} la programación del fin de "
+                    f"semana ya está cerrada; no se pueden enviar solicitudes para el "
+                    f"{t.strftime('%d/%m/%Y')}."
                 )
                 return t, msg
         return None, None

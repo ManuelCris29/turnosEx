@@ -42,8 +42,9 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
             filas.append({
                 'lunes': lunes, 'domingo': lunes + timedelta(days=6),
                 'override': ov, 'habilitado': hab, 'dia': dia, 'hora': hora,
-                'dia_cierre_fecha': v[0] if v else None,
-                'primer_habil': v[1] if v else None,
+                'dia_cierre_fecha': v[0] if v else None,   # inicio de la ventana
+                'primer_habil': v[1] if v else None,       # fin de la ventana
+                'cutoff_fecha': v[2] if v else None,       # día en que se activa el bloqueo
             })
         return filas
 
@@ -68,6 +69,9 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
             except (ValueError, TypeError):
                 messages.error(request, 'Semana inválida.')
                 return redirect('solicitudes:cierre_config')
+            # El override se busca siempre por el LUNES de la semana: normalizar para no crear
+            # ajustes huérfanos que `_config_efectiva` nunca encontraría.
+            lunes -= timedelta(days=lunes.weekday())
             ov, _ = CierreSemanaOverride.objects.get_or_create(semana_lunes=lunes)
             ov.habilitado = request.POST.get('habilitado') == 'on'
             ov.dia_cierre = request.POST.get('dia_cierre') or ov.dia_cierre
@@ -77,6 +81,7 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
         elif accion == 'quitar_override':
             try:
                 lunes = DateUtils.parse_date(request.POST.get('semana_lunes'))
+                lunes -= timedelta(days=lunes.weekday())
                 CierreSemanaOverride.objects.filter(semana_lunes=lunes).delete()
                 messages.success(request, 'Ajuste de semana eliminado (vuelve al valor por defecto).')
             except (ValueError, TypeError):

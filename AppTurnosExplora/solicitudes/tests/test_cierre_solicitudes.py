@@ -67,6 +67,39 @@ class CierreSolicitudesServiceTest(TestCase):
         self.assertTrue(CS.fecha_bloqueada(self.mar_sig, ahora))
         self.assertFalse(CS.fecha_bloqueada(self.mie_sig, ahora))
 
+    def test_dias_intermedios_no_habiles_tambien_se_bloquean(self):
+        """La ventana es un rango CONTINUO: si el primer hábil se corre al martes, el lunes
+        (festivo) sigue dentro de la ventana y también debe bloquearse."""
+        self._habilitar('jueves', time(14, 0))
+        DiaEspecial.objects.create(fecha=self.lun_sig, tipo='festivo', activo=True)
+        ahora = _aware(self.jue, 15)
+        for t in (self.jue, self.vie, self.sab, self.dom, self.lun_sig, self.mar_sig):
+            self.assertTrue(CS.fecha_bloqueada(t, ahora), t)
+        self.assertFalse(CS.fecha_bloqueada(self.mie_sig, ahora))
+
+    def test_ventana_con_lunes_y_martes_no_habiles(self):
+        """Lunes y martes no hábiles → primer hábil miércoles; lunes y martes quedan dentro."""
+        self._habilitar('jueves', time(14, 0))
+        DiaEspecial.objects.create(fecha=self.lun_sig, tipo='festivo', activo=True)
+        DiaEspecial.objects.create(fecha=self.mar_sig, tipo='mantenimiento', activo=True)
+        ahora = _aware(self.jue, 15)
+        for t in (self.lun_sig, self.mar_sig, self.mie_sig):
+            self.assertTrue(CS.fecha_bloqueada(t, ahora), t)
+        self.assertFalse(CS.fecha_bloqueada(self.mie_sig + timedelta(days=1), ahora))
+
+    def test_cierre_primer_habil_cubre_el_finde_completo(self):
+        """Con `primer_habil` la ventana va del jueves al primer día hábil, pero el bloqueo solo
+        se activa el primer día hábil a la hora configurada."""
+        self._habilitar('primer_habil', time(14, 0))
+        # Antes del lunes 14:00 no bloquea nada del finde.
+        for t in (self.jue, self.vie, self.sab, self.dom, self.lun_sig):
+            self.assertFalse(CS.fecha_bloqueada(t, _aware(self.dom, 23)), t)
+        # Tras el lunes 14:00 la ventana completa queda cerrada.
+        ahora = _aware(self.lun_sig, 14, 1)
+        for t in (self.jue, self.vie, self.sab, self.dom, self.lun_sig):
+            self.assertTrue(CS.fecha_bloqueada(t, ahora), t)
+        self.assertFalse(CS.fecha_bloqueada(self.mar_sig, ahora))
+
     def test_cierre_domingo_solo_bloquea_dom_y_primer_habil(self):
         self._habilitar('domingo', time(14, 0))
         ahora = _aware(self.dom, 15)  # domingo 15:00
@@ -166,3 +199,19 @@ class CierreIntegracionTest(TestCase):
                    {'accion': 'override', 'semana_lunes': '2026-08-03', 'dia_cierre': 'sabado', 'hora_cierre': '10:00'})
         self.assertEqual(r.status_code, 302)
         self.assertTrue(CierreSemanaOverride.objects.filter(semana_lunes=date(2026, 8, 3)).exists())
+        # Una fecha que NO es lunes se normaliza al lunes de su semana (no crea huérfanos).
+        r = c.post(reverse('solicitudes:cierre_config'),
+                   {'accion': 'override', 'semana_lunes': '2026-09-10', 'dia_cierre': 'viernes',
+                    'hora_cierre': '11:00'})
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(CierreSemanaOverride.objects.filter(semana_lunes=date(2026, 9, 7)).exists())
+        self.assertFalse(CierreSemanaOverride.objects.filter(semana_lunes=date(2026, 9, 10)).exists())
+
+    def test_fechas_del_post_recoge_valores_repetidos(self):
+        from django.http import QueryDict
+        from solicitudes.services.solicitud_request_parser import SolicitudRequestParser
+        qd = QueryDict(mutable=True)
+        qd.setlist('fecha_solicitud', ['2026-08-08', '2026-08-09'])
+        fechas = SolicitudRequestParser.get_fechas_del_post(qd)
+        self.assertIn(date(2026, 8, 8), fechas)
+        self.assertIn(date(2026, 8, 9), fechas)
