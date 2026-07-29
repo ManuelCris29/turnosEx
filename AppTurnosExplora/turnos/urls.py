@@ -28,6 +28,8 @@ urlpatterns = [
     path('descanso-semana/anual/', DescansoSemanaAnualView.as_view(), name='descanso_semana_anual'),
     path('asignacion-especial/anual/', AsignacionEspecialAnualView.as_view(), name='asignacion_especial_anual'),
     path('asignacion-especial/anual/siembra/', AsignacionEspecialSiembraView.as_view(), name='asignacion_especial_siembra'),
+    # Sin año: el siguiente al actual. Es la que usa el menú, que no conoce el año.
+    path('apertura-anio/', AperturaAnioView.as_view(), name='apertura_anio_actual'),
     path('apertura-anio/<int:anio>/', AperturaAnioView.as_view(), name='apertura_anio'),
     path('descanso-semana/create/', DescansoSemanaCreateView.as_view(), name='descanso_semana_create'),
     path('descanso-semana/edit/<int:pk>/', DescansoSemanaUpdateView.as_view(), name='descanso_semana_edit'),

@@ -197,6 +197,14 @@ class AperturaAnioVistaTest(TestCase):
         Empleado.objects.create(user=self.user, nombre='Sup', apellido='V',
                                 cedula='7003', activo=True)
 
+    def test_la_ruta_sin_anio_usa_el_siguiente(self):
+        """Es la que enlaza el menú, que no conoce el año."""
+        c = Client()
+        c.force_login(self.user)
+        r = c.get('/turnos/apertura-anio/')
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.context['anio'], AperturaAnioService.anio_objetivo())
+
     def test_la_pantalla_lista_los_cinco_items(self):
         c = Client()
         c.force_login(self.user)
