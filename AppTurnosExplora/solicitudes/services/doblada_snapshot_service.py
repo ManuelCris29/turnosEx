@@ -25,16 +25,26 @@ class DobladaSnapshotService:
         Copia el estado real de Turno en BD para solicitante y receptor en fecha de cesión y de pago,
         antes de aplicar la doblada. Así la cancelación en 30 min puede restaurar cambios de turno
         sencillos u otras asignaciones que no son solo jornada predeterminada.
+
+        IMPORTANTE: incluye también `fecha_pago_semana` (devolución en semana del pago en sábado
+        AMBAS). Ese día lo MUTA `aplicar_pago_residual_semana`, así que si no entra en el snapshot
+        la cancelación no lo revierte: el receptor quedaba doblado sin solicitud que lo respaldara
+        y con su deuda ya cancelada (turnos y deudas desalineados). Las claves del snapshot son
+        además la fuente de `_pares_afectados` en la cancelación, así que sin este día tampoco se
+        reconciliaba ni se invalidaba su caché.
         """
         solicitante = solicitud.explorador_solicitante
         receptor = solicitud.explorador_receptor
         fecha_cesion = solicitud.fecha_cambio_turno
         fecha_pago = detalle.fecha_pago
+        fechas = [fecha_cesion, fecha_pago]
+        fecha_semana = getattr(detalle, 'fecha_pago_semana', None)
+        if fecha_semana:
+            fechas.append(fecha_semana)
         pairs = [
-            (solicitante.id, fecha_cesion),
-            (receptor.id, fecha_cesion),
-            (solicitante.id, fecha_pago),
-            (receptor.id, fecha_pago),
+            (emp_id, fecha)
+            for fecha in dict.fromkeys(f for f in fechas if f)
+            for emp_id in (solicitante.id, receptor.id)
         ]
         snapshot: dict = {}
         for emp_id, fecha in pairs:
@@ -146,7 +156,9 @@ class DobladaSnapshotService:
             SolicitudCambio.objects
             .filter(estado='aprobada', doblada__isnull=False)
             .exclude(id=excluir_solicitud_id)
-            .filter(Q(fecha_cambio_turno__in=fechas) | Q(doblada__fecha_pago__in=fechas))
+            .filter(Q(fecha_cambio_turno__in=fechas)
+                    | Q(doblada__fecha_pago__in=fechas)
+                    | Q(doblada__fecha_pago_semana__in=fechas))
             .select_related('doblada', 'tipo_cambio')
             .order_by('fecha_resolucion', 'id')
             .distinct()
@@ -172,6 +184,11 @@ class DobladaSnapshotService:
                     DobladaAplicacionService.aplicar_doblada_cesion(s, det)
                 if det.fecha_pago in fechas:
                     DobladaAplicacionService.aplicar_doblada_pago(s, det)
+                # Pago en sábado AMBAS: la devolución en semana es un TERCER día mutado por esta
+                # doblada. Si cae en las fechas afectadas hay que re-materializarlo igual que los
+                # otros dos lados, o la reconciliación lo deja borrado.
+                if getattr(det, 'fecha_pago_semana', None) in fechas:
+                    DobladaAplicacionService.aplicar_pago_residual_semana(s, det)
             logger.info(
                 "Reconciliación post-revert: re-aplicada solicitud aprobada %s (%s) sobre fechas afectadas.",
                 s.id, tipo,

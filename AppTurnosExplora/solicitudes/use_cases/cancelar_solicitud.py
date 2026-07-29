@@ -49,6 +49,14 @@ class CancelarSolicitudUseCase:
                 if solicitud.explorador_solicitante != solicitante:
                     return False, 'Solo puedes cancelar tus propias solicitudes'
 
+                # Mismo lock que en la aprobación, y por el mismo motivo: cancelar LEE el estado
+                # (guardia LIFO: ¿hay un cambio más reciente sobre estos días?) y después ESCRIBE
+                # (revierte turnos y reconcilia). Sin bloquear a los exploradores, una aprobación
+                # simultánea sobre uno de esos días no sería visible para la guardia y la
+                # reversión la pisaría.
+                from solicitudes.domain.bloqueo_partes import bloquear_partes
+                bloquear_partes(solicitud)
+
                 if solicitud.estado == 'pendiente':
                     transicionar(solicitud, 'cancelada', save=False)
                     solicitud.fecha_resolucion = timezone.now()
@@ -67,6 +75,122 @@ class CancelarSolicitudUseCase:
         except SolicitudCambio.DoesNotExist:
             return False, 'Solicitud no encontrada'
 
+    def execute_supervisor(self, solicitud_id: int, supervisor: "Empleado",
+                           permitir_cierre_administrativo: bool = True) -> Tuple[bool, str]:
+        """
+        Cancelación desde GESTIÓN. El supervisor no tiene la ventana de 30 minutos —esa limita al
+        explorador—, pero sí las guardas que protegen los datos.
+
+        Antes esta acción solo cambiaba el estado: la solicitud quedaba "cancelada" y los turnos
+        seguían aplicados, así que el horario mostraba un intercambio que ya no existía.
+
+        Las cuatro situaciones posibles:
+
+        1. PENDIENTE — nunca se aplicó: basta con cancelarla.
+        2. APROBADA y ningún día ha pasado — se revierte todo (turnos, deudas y reconciliación) y
+           se cancela. Es lo mismo que hace el explorador en su ventana.
+        3. APROBADA y TODOS los días ya pasaron — se cancela SIN revertir: la gente ya trabajó esos
+           días y borrar sus turnos sería reescribir el historial. Queda como cierre administrativo.
+        4. APROBADA con días pasados Y futuros — se bloquea. Revertir borraría lo ya trabajado y no
+           revertir dejaría el horario descuadrado hacia adelante. Para las dobladas la salida es
+           reprogramar el día que falta; el mensaje lo dice.
+
+        `permitir_cierre_administrativo=False` rechaza el caso 3. Lo usa ELIMINAR: cancelar una
+        solicitud ya cumplida conserva los turnos y deja el registro explicando de dónde salen,
+        pero BORRARLA los dejaría puestos y sin explicación — turnos huérfanos, imposibles de
+        rastrear. Cerrar sí, borrar no.
+        """
+        from django.db import transaction
+        from django.utils import timezone
+
+        from solicitudes.models import SolicitudCambio
+        from solicitudes.domain.estado_machine import transicionar
+        from solicitudes.domain.bloqueo_partes import bloquear_partes
+
+        try:
+            with transaction.atomic():
+                solicitud = (
+                    SolicitudCambio.objects
+                    .select_for_update()
+                    .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio',
+                                    'doblada', 'doblada_permanente', 'cambio_permanente')
+                    .get(id=solicitud_id)
+                )
+
+                if solicitud.estado not in ('pendiente', 'aprobada'):
+                    return False, (f'La solicitud ya está '
+                                   f'{solicitud.get_estado_display().lower()}.')
+
+                # Mismo lock que la cancelación del explorador: se LEE el estado (guardias) y
+                # después se ESCRIBE (reversión), así que las partes deben quedar bloqueadas.
+                bloquear_partes(solicitud)
+
+                nota = (f"\n\nCancelada desde gestión por "
+                        f"{supervisor.nombre} {supervisor.apellido}.")
+
+                if solicitud.estado == 'pendiente':
+                    transicionar(solicitud, 'cancelada', save=False)
+                    solicitud.fecha_resolucion = timezone.now()
+                    solicitud.comentario = f"{solicitud.comentario or ''}{nota}"
+                    solicitud.save()
+                    return True, 'Solicitud cancelada.'
+
+                afectadas = self.fechas_afectadas(solicitud)
+                pasadas = self.fechas_ya_cumplidas(solicitud)
+
+                if pasadas and len(pasadas) < len(afectadas):
+                    faltan = ', '.join(f.strftime('%d/%m/%Y')
+                                       for f in afectadas if f not in pasadas)
+                    hechas = ', '.join(f.strftime('%d/%m/%Y') for f in pasadas)
+                    tipo = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
+                    alternativa = (
+                        ' Usa "Reprogramar" para reasignar el día que falta.'
+                        if tipo in ('DOBLADA', 'D FDS', 'DOBLADA PERMANENTE') else ''
+                    )
+                    return False, (
+                        f'No se puede cancelar: esta solicitud ya se cumplió en parte '
+                        f'({hechas}) y todavía tiene días por delante ({faltan}). Cancelarla '
+                        f'borraría días ya trabajados.{alternativa}'
+                    )
+
+                if pasadas:
+                    if not permitir_cierre_administrativo:
+                        hechas = ', '.join(f.strftime('%d/%m/%Y') for f in pasadas)
+                        return False, (
+                            f'No se puede eliminar: estos días ya se trabajaron ({hechas}). '
+                            f'Borrar la solicitud dejaría esos turnos puestos y sin nada que '
+                            f'explique de dónde salen. Usa "Cancelar": conserva el historial y '
+                            f'cierra el registro.'
+                        )
+                    # Todo ocurrió ya: se cierra el registro sin tocar el historial de turnos.
+                    transicionar(solicitud, 'cancelada', save=False)
+                    solicitud.comentario = (
+                        f"{solicitud.comentario or ''}{nota} Los días ya transcurridos "
+                        f"se conservan tal cual (no se reescribe el historial)."
+                    )
+                    solicitud.save()
+                    return True, ('Solicitud cancelada. Los días ya trabajados se conservan '
+                                  'en el historial.')
+
+                bloqueo = self.bloqueo_lifo(solicitud)
+                if bloqueo:
+                    return False, bloqueo
+
+                self._revertir_por_tipo(solicitud)
+                try:
+                    solicitud.refresh_from_db(fields=['turno_origen', 'turno_destino'])
+                except Exception:
+                    solicitud.turno_origen = None
+                    solicitud.turno_destino = None
+
+                transicionar(solicitud, 'cancelada', save=False)
+                solicitud.comentario = f"{solicitud.comentario or ''}{nota}"
+                solicitud.save()
+                return True, 'Solicitud cancelada y turnos restaurados.'
+
+        except SolicitudCambio.DoesNotExist:
+            return False, 'Solicitud no encontrada.'
+
     def _cancelar_aprobada(self, solicitud, solicitante, timezone) -> Tuple[bool, str]:
         from django.db.models import Q
         from datetime import date as _date
@@ -84,25 +208,9 @@ class CancelarSolicitudUseCase:
                 f'(han pasado {int(minutos)} minutos).'
             )
 
-        # Guardia LIFO
-        mios = self._pares_afectados(solicitud)
-        personas = [solicitud.explorador_solicitante_id, solicitud.explorador_receptor_id]
-        posteriores = (
-            SolicitudCambio.objects
-            .filter(estado='aprobada', fecha_resolucion__gt=solicitud.fecha_resolucion)
-            .filter(Q(explorador_solicitante_id__in=personas) | Q(explorador_receptor_id__in=personas))
-            .exclude(id=solicitud.id)
-            .select_related('doblada', 'doblada_permanente', 'cambio_permanente')
-        )
-        for otra in posteriores:
-            comunes = mios & self._pares_afectados(otra)
-            if comunes:
-                fechas = sorted({k.split(':', 1)[1] for k in comunes})
-                fmt = ', '.join(_date.fromisoformat(f).strftime('%d/%m') for f in fechas)
-                return False, (
-                    f'No puedes cancelar este cambio: hay otro más reciente sobre el mismo '
-                    f'día ({fmt}). Cancela primero el cambio más reciente.'
-                )
+        bloqueo = self.bloqueo_lifo(solicitud)
+        if bloqueo:
+            return False, bloqueo
 
         self._revertir_por_tipo(solicitud)
 
@@ -123,6 +231,66 @@ class CancelarSolicitudUseCase:
         )
         solicitud.save()
         return True, 'ok'
+
+    def bloqueo_lifo(self, solicitud) -> str | None:
+        """
+        Guardia LIFO: motivo por el que NO se puede revertir esta solicitud, o None si se puede.
+
+        Si hay otra solicitud aprobada MÁS RECIENTE sobre alguno de los mismos (persona, día),
+        revertir esta pisaría aquella. Se deshace en orden inverso. Vale para quien cancela:
+        el explorador dentro de su ventana y el supervisor desde gestión.
+        """
+        from django.db.models import Q
+        from datetime import date as _date
+        from solicitudes.models import SolicitudCambio
+
+        if not solicitud.fecha_resolucion:
+            return None
+
+        mios = self._pares_afectados(solicitud)
+        personas = [solicitud.explorador_solicitante_id, solicitud.explorador_receptor_id]
+        posteriores = (
+            SolicitudCambio.objects
+            .filter(estado='aprobada', fecha_resolucion__gt=solicitud.fecha_resolucion)
+            .filter(Q(explorador_solicitante_id__in=personas) | Q(explorador_receptor_id__in=personas))
+            .exclude(id=solicitud.id)
+            .select_related('doblada', 'doblada_permanente', 'cambio_permanente')
+        )
+        for otra in posteriores:
+            comunes = mios & self._pares_afectados(otra)
+            if comunes:
+                fechas = sorted({k.split(':', 1)[1] for k in comunes})
+                fmt = ', '.join(_date.fromisoformat(f).strftime('%d/%m') for f in fechas)
+                return (
+                    f'No puedes cancelar este cambio: hay otro más reciente sobre el mismo '
+                    f'día ({fmt}). Cancela primero el cambio más reciente.'
+                )
+        return None
+
+    @classmethod
+    def fechas_afectadas(cls, solicitud) -> list:
+        """Fechas concretas que la solicitud tocó (ordenadas), derivadas de los pares afectados."""
+        from datetime import date as _date
+
+        fechas = set()
+        for clave in cls._pares_afectados(solicitud):
+            try:
+                fechas.add(_date.fromisoformat(clave.split(':', 1)[1]))
+            except (ValueError, IndexError):
+                continue
+        return sorted(fechas)
+
+    @classmethod
+    def fechas_ya_cumplidas(cls, solicitud) -> list:
+        """
+        Fechas de la solicitud que YA PASARON: revertirlas reescribiría días efectivamente
+        trabajados (borraría turnos que la gente hizo). Hoy es cancelable — el turno aún corre—,
+        mismo criterio que `ReprogramacionDobladaService.puede_cancelar`.
+        """
+        from django.utils import timezone
+
+        hoy = timezone.localdate()
+        return [f for f in cls.fechas_afectadas(solicitud) if f < hoy]
 
     @staticmethod
     def _pares_afectados(solicitud) -> set:
@@ -228,11 +396,10 @@ class CancelarSolicitudUseCase:
         elif tipo == 'CAMBIO DESCANSO' and getattr(solicitud, 'doblada', None):
             from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
             CambioDescansoAplicacionService.revertir(solicitud)
-            detalle = solicitud.doblada
-            for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
-                if fecha:
-                    CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
-                    CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+            # Incluye los días OPUESTOS del finde: pueden caer en otro mes (ver fechas_afectadas).
+            for fecha in CambioDescansoAplicacionService.fechas_afectadas(solicitud):
+                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
+                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
 
         elif tipo == 'DOBLADA PERMANENTE' and getattr(solicitud, 'doblada_permanente', None):
             from solicitudes.services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService

@@ -19,16 +19,30 @@ logger = logging.getLogger(__name__)
 
 @receiver(pre_delete, sender=SolicitudCambio)
 def cancelar_deudas_al_borrar_solicitud(sender, instance, **kwargs):
-    """Cancela las deudas corporativas activas de una solicitud antes de borrarla."""
-    actualizadas = (
+    """
+    Cancela las deudas de una solicitud antes de borrarla.
+
+    Cubre los DOS modelos de deuda, igual que `cancelar_deudas_al_cancelar_solicitud`. Antes solo
+    tocaba las corporativas: al borrar una solicitud que no pasaba por la cancelación —una
+    rechazada, por ejemplo— las deudas entre exploradores quedaban vivas apuntando
+    a `solicitud_origen=NULL`, imposibles de relacionar con nada.
+    """
+    corp = (
         DeudaCorporativa.objects
         .filter(solicitud_origen=instance, estado='activa')
         .update(estado='cancelada')
     )
-    if actualizadas:
+    entre = (
+        DeudaExplorador.objects
+        .filter(solicitud_origen=instance)
+        .exclude(estado='cancelada')
+        .update(estado='cancelada')
+    )
+    if corp or entre:
         logger.info(
-            "Solicitud %s borrada: %s deuda(s) corporativa(s) cancelada(s) para no dejarlas huérfanas.",
-            instance.id, actualizadas,
+            "Solicitud %s borrada: %s deuda(s) corporativa(s) y %s entre exploradores "
+            "canceladas para no dejarlas huérfanas.",
+            instance.id, corp, entre,
         )
 
 

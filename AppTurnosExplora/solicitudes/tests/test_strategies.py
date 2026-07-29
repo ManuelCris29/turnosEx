@@ -6,6 +6,7 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from solicitudes.models import TipoSolicitudCambio
 from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
+from django.utils import timezone
 
 
 class CambioTurnoStrategyTest(TestCase):
@@ -55,7 +56,7 @@ class CambioTurnoDescansoSemanaTest(TestCase):
 
     @staticmethod
     def _martes_futuro():
-        d = date.today() + timedelta(days=7)
+        d = timezone.localdate() + timedelta(days=7)
         while d.weekday() != 1:  # martes: día de semana, no sábado/domingo
             d += timedelta(days=1)
         return d

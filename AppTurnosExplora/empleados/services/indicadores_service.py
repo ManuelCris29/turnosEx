@@ -13,6 +13,7 @@ Categorías (alineadas con el tablero del área):
 """
 import calendar
 from datetime import date, timedelta
+from django.utils import timezone
 
 CATEGORIAS = ['cambios_turno', 'dobladas', 'cambio_descanso', 'doblada_finde', 'permisos']
 LABELS = {
@@ -60,12 +61,12 @@ class IndicadoresService:
             anios.add(y.year)
         for y in PermisoEspecial.objects.dates('fecha_inicio', 'year'):
             anios.add(y.year)
-        anios.add(date.today().year)
+        anios.add(timezone.localdate().year)
         return sorted(anios, reverse=True)
 
     @staticmethod
     def _dias_transcurridos(anio):
-        hoy = date.today()
+        hoy = timezone.localdate()
         if anio == hoy.year:
             return hoy.timetuple().tm_yday  # día del año actual
         dias = 366 if calendar.isleap(anio) else 365
@@ -126,7 +127,7 @@ class IndicadoresService:
         from solicitudes.models import SolicitudCambio
         from permisos.models import PermisoEspecial
 
-        anio = anio or date.today().year
+        anio = anio or timezone.localdate().year
         jbase = IndicadoresService._jornadas_base()
         jornada = (jornada or '').upper() or None
 
@@ -148,7 +149,7 @@ class IndicadoresService:
             return (_Q(empleado_id=eid) | _Q(cubre_id=eid)) if incluir_receptor \
                 else _Q(empleado_id=eid)
 
-        hoy = date.today()
+        hoy = timezone.localdate()
         hasta = hoy if anio == hoy.year else date(anio, 12, 31)
         ene1, dic31 = date(anio, 1, 1), date(anio, 12, 31)
 

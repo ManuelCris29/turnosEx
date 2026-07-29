@@ -61,7 +61,7 @@
     <!-- Gráfica -->
     <div class="pg-card" style="margin-bottom:18px;">
       <div class="pg-card-head" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);">
-        <h3><i class="fas fa-chart-column"></i> Cambios y permisos por mes</h3>
+        <h3><i class="fas fa-chart-bar"></i> Cambios y permisos por mes</h3>
       </div>
       <div class="pg-card-body">
         {% if total_general %}
@@ -171,7 +171,9 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<!-- Chart.js v4 autohospedado. OJO: debe ser `chart.umd.min.js` (v4.5.1), NO el `Chart.min.js`
+     del mismo directorio, que es la v2.9.4 heredada de AdminLTE y tiene una API incompatible. -->
+<script src="{% static_v 'plugins/chart.js/chart.umd.min.js' %}"></script>
 {{ meses_json|json_script:"indicadores-meses" }}
 {{ chart_series_json|json_script:"indicadores-series" }}
 <script src="{% static_v 'js/empleados/indicadores.js' %}"></script>

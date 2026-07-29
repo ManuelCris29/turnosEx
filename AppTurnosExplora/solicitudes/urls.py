@@ -18,6 +18,7 @@ from .views import (
     ReprogramacionListView, RegistrarInasistenciaView,
     ProgramarReprogramacionView, CancelarReprogramacionView,
     CierreConfigView,
+    MisFavoresView,
     AlternanciaFindeView, AlternanciaMesView, DFDSCompanerosView,
     DescansosSemanaUsuarioView, CambioDescansoFindesView,
     DobladasSemanaView,
@@ -38,6 +39,7 @@ urlpatterns = [
     
     # MIS SOLICITUDES
     path('mis-solicitudes/', MisSolicitudesListView.as_view(), name='mis_solicitudes_list'),
+    path('mis-favores/', MisFavoresView.as_view(), name='mis_favores'),
     
     # SOLICITUDES PENDIENTES (con funcionalidad completa)
     path('solicitudes-pendientes/', SolicitudesPendientesListView.as_view(), name='solicitudes_pendientes_list'),

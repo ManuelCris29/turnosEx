@@ -27,7 +27,7 @@
     <div class="gs-filtros">
       {% with e=estado_sel %}
       <a class="gs-chip {% if e == 'pendiente' and not solo_atascadas %}active{% endif %}" href="?estado=pendiente">Pendientes <span class="n">{{ conteos.pendiente }}</span></a>
-      <a class="gs-chip alerta {% if solo_atascadas %}active{% endif %}" href="?estado=pendiente&atascadas=1"><i class="fas fa-triangle-exclamation"></i> Atascadas (&gt;{{ umbral }}d) <span class="n">{{ conteos.atascadas }}</span></a>
+      <a class="gs-chip alerta {% if solo_atascadas %}active{% endif %}" href="?estado=pendiente&atascadas=1"><i class="fas fa-exclamation-triangle"></i> Atascadas (&gt;{{ umbral }}d) <span class="n">{{ conteos.atascadas }}</span></a>
       <a class="gs-chip {% if e == 'aprobada' %}active{% endif %}" href="?estado=aprobada">Aprobadas <span class="n">{{ conteos.aprobada }}</span></a>
       <a class="gs-chip {% if e == 'rechazada' %}active{% endif %}" href="?estado=rechazada">Rechazadas <span class="n">{{ conteos.rechazada }}</span></a>
       <a class="gs-chip {% if e == 'cancelada' %}active{% endif %}" href="?estado=cancelada">Canceladas <span class="n">{{ conteos.cancelada }}</span></a>
@@ -56,8 +56,10 @@
           <td>{{ s.id }}</td>
           <td><span class="badge badge-light">{{ s.tipo_cambio.nombre }}</span></td>
           <td>{{ s.explorador_solicitante.nombre }} {{ s.explorador_solicitante.apellido }}
+              {% if s.explorador_receptor %}
               <i class="fas fa-arrow-right text-muted mx-1"></i>
-              {{ s.explorador_receptor.nombre }} {{ s.explorador_receptor.apellido }}</td>
+              {{ s.explorador_receptor.nombre }} {{ s.explorador_receptor.apellido }}
+              {% endif %}</td>
           <td>{{ s.fecha_solicitud|date:"d/m/Y H:i" }}</td>
           <td>
             {% if s.dias_pendiente is not None %}
@@ -80,7 +82,7 @@
                 <button type="submit" class="btn-cancelar" title="Cancelar"><i class="fas fa-ban"></i> Cancelar</button>
               </form>
               {% endif %}
-              {% if s.estado == 'aprobada' and s.tipo_cambio.nombre == 'DOBLADA' or s.estado == 'aprobada' and s.tipo_cambio.nombre == 'DOBLADA PERMANENTE' %}
+              {% if s.reprogramable %}
               <a href="{% url 'solicitudes:reprog_registrar' s.id %}" class="btn-reenviar" title="Reprogramar por inasistencia"><i class="fas fa-calendar-times"></i> Reprogramar</a>
               {% endif %}
               <form method="post" action="{% url 'solicitudes:gestion_eliminar_solicitud' s.id %}" onsubmit="return confirm('Eliminar definitivamente la solicitud #{{ s.id }}? Esto la borra para que pueda volver a montarse.');">{% csrf_token %}

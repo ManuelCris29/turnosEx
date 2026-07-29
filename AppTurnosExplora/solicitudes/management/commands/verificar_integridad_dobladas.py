@@ -50,7 +50,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS('=' * 80))
         
         # Calcular fecha límite
-        fecha_limite = timezone.now().date() - timedelta(days=dias)
+        fecha_limite = timezone.localdate() - timedelta(days=dias)
         
         self.stdout.write(f"\n📅 Verificando solicitudes desde: {fecha_limite}")
         self.stdout.write(f"🔧 Modo reparación: {'SÍ' if reparar else 'NO'}")

@@ -5,9 +5,9 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitudes.css' %}">
-<!-- Flatpickr CSS -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<!-- Flatpickr CSS (autohospedado en static/plugins: sin CDN externo) -->
+<link rel="stylesheet" href="{% static_v 'plugins/flatpickr/flatpickr.min.css' %}">
+<link rel="stylesheet" href="{% static_v 'plugins/flatpickr/themes/material_blue.css' %}">
 <link rel="stylesheet" href="{% static_v 'css/cambio-turno/dias_especiales_datepicker.css' %}">
 <link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitar_doblada.css' %}">
 {% endblock %}
@@ -224,9 +224,12 @@
                     <label for="fecha_pago">
                         <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago <span class="text-danger">*</span>
                     </label>
-                    <input type="text" class="form-control" id="fecha_pago" name="fecha_pago" 
+                    <!-- La fecha de pago debe ser POSTERIOR a la creación de la solicitud (regla de
+                         `validar_acuerdo_previo_obligatorio`), a diferencia de la cesión, que sí admite hoy.
+                         Por eso su mínimo es `fecha_minima_pago` (mañana) y no `fecha_minima`. -->
+                    <input type="text" class="form-control" id="fecha_pago" name="fecha_pago"
                            placeholder="Selecciona la fecha en que devolverás la doblada" readonly
-                           data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
+                           data-min-date="{{ fecha_minima_pago|date:'Y-m-d' }}">
                     <small class="form-text text-muted">
                         <strong>Obligatorio:</strong> Fecha en que devolverás la doblada. Debe ser posterior a la fecha de creación. No se permiten domingos ni mantenimiento. <strong>Festivos permitidos solo si la cesión es también en festivo del mismo mes.</strong>
                     </small>
@@ -326,69 +329,6 @@
                         </div>
                     </div>
                 </div>
-                
-                <!-- Fechas de Pago (Cesión Total) -->
-                <div id="fechas_pago_total" class="form-group" style="display: none;">
-                    <div class="alert alert-info">
-                        <strong>Cesión Total:</strong> Debes especificar una fecha de pago para cada jornada cedida.
-                    </div>
-                    <div class="row">
-                        <div class="col-md-6">
-                            <label for="fecha_pago_am">
-                                <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago para AM <span class="text-danger">*</span>
-                            </label>
-                            <input type="text" class="form-control" id="fecha_pago_am" name="fecha_pago_am"
-                                   placeholder="Fecha de pago para jornada AM" readonly
-                                   data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
-                            <small class="form-text text-muted">
-                                Fecha en que devolverás la doblada de AM
-                            </small>
-                            <div id="jornada_sabado_am_wrap" class="mt-2 p-2" style="display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px;">
-                                <label class="d-block mb-1" style="font-size:.85rem;">
-                                    <i class="fas fa-sun mr-1"></i>Pago en sábado — elige la jornada que pagarás <span class="text-danger">*</span>
-                                </label>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_am" id="jps_am_am" value="AM">
-                                    <label class="form-check-label" for="jps_am_am">AM</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_am" id="jps_am_pm" value="PM">
-                                    <label class="form-check-label" for="jps_am_pm">PM</label>
-                                </div>
-                                <small class="form-text text-muted">
-                                    Solo debes 1 jornada: elige AM o PM. Para pagar el día completo (ambas), usa una <strong>Doblada</strong> normal.
-                                </small>
-                            </div>
-                        </div>
-                        <div class="col-md-6">
-                            <label for="fecha_pago_pm">
-                                <i class="fas fa-calendar-check mr-1"></i>Fecha de Pago para PM <span class="text-danger">*</span>
-                            </label>
-                            <input type="text" class="form-control" id="fecha_pago_pm" name="fecha_pago_pm"
-                                   placeholder="Fecha de pago para jornada PM" readonly
-                                   data-min-date="{{ fecha_minima|date:'Y-m-d' }}">
-                            <small class="form-text text-muted">
-                                Fecha en que devolverás la doblada de PM
-                            </small>
-                            <div id="jornada_sabado_pm_wrap" class="mt-2 p-2" style="display:none; background:#fff7ed; border:1px solid #fed7aa; border-radius:6px;">
-                                <label class="d-block mb-1" style="font-size:.85rem;">
-                                    <i class="fas fa-sun mr-1"></i>Pago en sábado — elige la jornada que pagarás <span class="text-danger">*</span>
-                                </label>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_pm" id="jps_pm_am" value="AM">
-                                    <label class="form-check-label" for="jps_pm_am">AM</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="jornada_pago_sabado_pm" id="jps_pm_pm" value="PM">
-                                    <label class="form-check-label" for="jps_pm_pm">PM</label>
-                                </div>
-                                <small class="form-text text-muted">
-                                    Solo debes 1 jornada: elige AM o PM. Para pagar el día completo (ambas), usa una <strong>Doblada</strong> normal.
-                                </small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 <!-- Información del turno del solicitante (deudor) en fecha de pago -->
                 <div id="turno_solicitante_pago_info" class="form-group" style="display: none;">
@@ -442,80 +382,6 @@
                     </div>
                 </div>
 
-                <!-- Información de turnos para Cesión Total (AM) -->
-                <div id="turno_solicitante_pago_am_info" class="form-group" style="display: none;">
-                    <div class="card">
-                        <div class="card-header bg-info text-white">
-                            <h6 class="mb-0">
-                                <i class="fas fa-sun mr-1"></i>Tu Jornada para Fecha de Pago AM
-                            </h6>
-                        </div>
-                        <div class="card-body">
-                            <div id="turno_solicitante_pago_am_detalles">
-                                <!-- Información del turno del solicitante para pago AM -->
-                            </div>
-                            <div id="salas_solicitante_pago_am_detalles" class="mt-2">
-                                <!-- Información de salas del solicitante para pago AM -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="turno_receptor_pago_am_info" class="form-group" style="display: none;">
-                    <div class="card">
-                        <div class="card-header bg-info text-white">
-                            <h6 class="mb-0">
-                                <i class="fas fa-user-friends mr-1"></i>Jornada del Receptor AM en Fecha de Pago
-                            </h6>
-                        </div>
-                        <div class="card-body">
-                            <div id="turno_receptor_pago_am_detalles">
-                                <!-- Información del turno del receptor para pago AM -->
-                            </div>
-                            <div id="salas_receptor_pago_am_detalles" class="mt-2">
-                                <!-- Información de salas del receptor para pago AM -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Información de turnos para Cesión Total (PM) -->
-                <div id="turno_solicitante_pago_pm_info" class="form-group" style="display: none;">
-                    <div class="card">
-                        <div class="card-header bg-warning text-dark">
-                            <h6 class="mb-0">
-                                <i class="fas fa-moon mr-1"></i>Tu Jornada para Fecha de Pago PM
-                            </h6>
-                        </div>
-                        <div class="card-body">
-                            <div id="turno_solicitante_pago_pm_detalles">
-                                <!-- Información del turno del solicitante para pago PM -->
-                            </div>
-                            <div id="salas_solicitante_pago_pm_detalles" class="mt-2">
-                                <!-- Información de salas del solicitante para pago PM -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="turno_receptor_pago_pm_info" class="form-group" style="display: none;">
-                    <div class="card">
-                        <div class="card-header bg-warning text-dark">
-                            <h6 class="mb-0">
-                                <i class="fas fa-user-friends mr-1"></i>Jornada del Receptor PM en Fecha de Pago
-                            </h6>
-                        </div>
-                        <div class="card-body">
-                            <div id="turno_receptor_pago_pm_detalles">
-                                <!-- Información del turno del receptor para pago PM -->
-                            </div>
-                            <div id="salas_receptor_pago_pm_detalles" class="mt-2">
-                                <!-- Información de salas del receptor para pago PM -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Vista Previa del Acuerdo -->
                 <div id="vista_previa_acuerdo" class="form-group" style="display: none;">
                     <h6><i class="fas fa-eye mr-2"></i>Vista Previa del Acuerdo</h6>
@@ -554,24 +420,24 @@
 {% block extra_js %}
 {{ block.super }}
 <!-- Módulos modernos (cargar primero) -->
-<script src="{% static 'js/utils/api-client.js' %}"></script>
-<script src="{% static 'js/utils/date-utils.js' %}"></script>
-<script src="{% static 'js/utils/dom-utils.js' %}"></script>
-<script src="{% static 'js/utils/validators.js' %}"></script>
-<script src="{% static 'js/services/datepicker-service.js' %}"></script>
-<script src="{% static 'js/core/app.js' %}"></script>
+<script src="{% static_v 'js/utils/api-client.js' %}"></script>
+<script src="{% static_v 'js/utils/date-utils.js' %}"></script>
+<script src="{% static_v 'js/utils/dom-utils.js' %}"></script>
+<script src="{% static_v 'js/utils/validators.js' %}"></script>
+<script src="{% static_v 'js/services/datepicker-service.js' %}"></script>
+<script src="{% static_v 'js/core/app.js' %}"></script>
 
-<!-- Flatpickr JS -->
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+<!-- Flatpickr JS (autohospedado en static/plugins: sin CDN externo) -->
+<script src="{% static_v 'plugins/flatpickr/flatpickr.min.js' %}"></script>
+<script src="{% static_v 'plugins/flatpickr/l10n/es.js' %}"></script>
 <script>
 window.solicitanteId = {{ request.user.empleado.id }};
 window.tipoSolicitud = '{{ tipo_solicitud.nombre }}';
 </script>
-<script src="{% static 'js/festivos_colombia.js' %}"></script>
-<script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
-<script src="{% static 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
-<script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
+<script src="{% static_v 'js/festivos_colombia.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/datepicker_festivos.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/validadores_solicitudes.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_doblada.js' %}"></script>
 {% endblock %}
 

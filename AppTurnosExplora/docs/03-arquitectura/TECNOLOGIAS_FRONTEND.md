@@ -46,10 +46,11 @@ El proyecto utiliza un stack de frontend basado en **AdminLTE 3** (template admi
 
 ## 📅 Calendarios y Datepickers
 
-### **Flatpickr** (CDN)
-- **Versión**: Latest
-- **CDN**: `https://cdn.jsdelivr.net/npm/flatpickr`
+### **Flatpickr** (local)
+- **Versión**: 4.6.13 (congelada en el repo)
+- **Ubicación**: `static/plugins/flatpickr/` — servido con `{% static_v %}`
 - **Ubicación en código**: Templates de solicitudes
+- *Migrado desde `cdn.jsdelivr.net` el 2026-07-28; ver `docs/04-guias/manual-cdn-a-estaticos-locales.md`*
 - **Uso**: 
   - Selección de fechas en formularios
   - Bloqueo de domingos, festivos, mantenimiento
@@ -60,9 +61,10 @@ El proyecto utiliza un stack de frontend basado en **AdminLTE 3** (template admi
   - `static/js/cambio-turno/solicitar_cambio_turno.js`
   - `static/js/cambio-turno/solicitar_ct_permanente.js`
 
-### **FullCalendar** (CDN)
+### **FullCalendar** (local)
 - **Versión**: 6.1.11
-- **CDN**: `https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11`
+- **Ubicación**: `static/plugins/fullcalendar/` — servido con `{% static_v %}`
+- *Migrado desde CDN el 2026-07-28; la copia local se verificó idéntica por sha256*
 - **Uso**: Calendario mensual en "Mis Turnos"
 - **Archivo relacionado**: `templates/turnos/mis_turnos.html`
 
@@ -248,18 +250,17 @@ AppTurnosExplora/
 ### Templates de Solicitudes
 
 ```html
-<!-- Flatpickr desde CDN -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+<!-- Flatpickr autohospedado -->
+<link rel="stylesheet" href="{% static_v 'plugins/flatpickr/flatpickr.min.css' %}">
+<script src="{% static_v 'plugins/flatpickr/flatpickr.min.js' %}"></script>
+<script src="{% static_v 'plugins/flatpickr/l10n/es.js' %}"></script>
 ```
 
 ### Template Mis Turnos
 
 ```html
-<!-- FullCalendar desde CDN -->
-<link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.css" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+<!-- FullCalendar autohospedado -->
+<script src="{% static_v 'plugins/fullcalendar/index.global.min.js' %}"></script>
 ```
 
 ---
@@ -267,21 +268,26 @@ AppTurnosExplora/
 ## 📦 Dependencias Principales
 
 ### Desde CDN (Externas)
-- **Flatpickr**: Datepicker
-- **FullCalendar**: Calendario interactivo
-- **Google Fonts**: Tipografía
+- **Google Fonts**: Tipografía (`base.html` y login; con `display=fallback`)
+- **Font Awesome 6.4.0**: solo en `templates/turnos/mis_turnos.html`, vía `cdnjs` con SRI.
+  Sigue en CDN porque la copia local es la 5.15.4 (major distinto).
 
 ### Desde Static (Locales)
 - **AdminLTE 3**: Framework base
 - **Bootstrap 4**: CSS framework
 - **jQuery**: JavaScript base
-- **Font Awesome**: Iconos
-- **SweetAlert2**: Alertas
+- **Font Awesome 5.15.4**: Iconos (global, desde `base.html`)
+- **SweetAlert2** (v11.4.0): Alertas — cargado una sola vez en `base.html`
+- **Flatpickr** (4.6.13): Datepicker de los formularios
+- **FullCalendar** (6.1.11): Calendario interactivo
 - **Select2**: Selects mejorados
 - **DataTables**: Tablas
-- **Chart.js/uPlot**: Gráficos
+- **Chart.js** (4.5.1, `chart.umd.min.js`) **/uPlot**: Gráficos
 - **Summernote**: Editor WYSIWYG
 - **Toastr**: Notificaciones
+
+> ⚠️ En `static/plugins/chart.js/` conviven dos versiones: usa **`chart.umd.min.js`** (v4).
+> El `Chart.min.js` es la v2.9.4 de AdminLTE y su API es incompatible.
 
 ---
 

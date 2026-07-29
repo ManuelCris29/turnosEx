@@ -9,6 +9,7 @@ from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import Turno
 from datetime import date, timedelta
 import logging
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class Command(BaseCommand):
                 return
             
             # Fecha de prueba
-            fecha_prueba = date.today() + timedelta(days=7)
+            fecha_prueba = timezone.localdate() + timedelta(days=7)
             self.stdout.write(f'\n2. Fecha de prueba: {fecha_prueba}')
             
             # Limpiar datos de prueba anteriores

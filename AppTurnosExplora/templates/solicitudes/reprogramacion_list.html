@@ -39,7 +39,11 @@
               <a class="btn btn-sm btn-success" href="{% url 'solicitudes:reprog_programar' r.id %}"><i class="fas fa-calendar-check"></i> Programar</a>
             {% endif %}
             {% if r.estado != 'cancelada' %}
-              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('¿Cancelar esta reprogramación?');">{% csrf_token %}
+              {% if r.estado == 'pendiente' %}
+              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('ATENCIÓN: aún no hay día de pago programado. Al cancelar, el día no cumplido queda ANULADO y esta persona no lo repondrá. ¿Continuar?');">{% csrf_token %}
+              {% else %}
+              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('Se anulará el día de pago y esa fecha volverá a su jornada normal. ¿Cancelar la reprogramación?');">{% csrf_token %}
+              {% endif %}
                 <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fas fa-ban"></i></button>
               </form>
             {% endif %}
@@ -51,5 +55,17 @@
       </tbody>
     </table>
   </div>
+
+  {% if pagina.has_other_pages %}
+  <nav style="display:flex; gap:.5rem; align-items:center; justify-content:center; margin-top:.8rem;">
+    {% if pagina.has_previous %}
+      <a class="btn btn-sm btn-outline-secondary" href="?estado={{ estado_sel }}&page={{ pagina.previous_page_number }}">« Anteriores</a>
+    {% endif %}
+    <small class="text-muted">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</small>
+    {% if pagina.has_next %}
+      <a class="btn btn-sm btn-outline-secondary" href="?estado={{ estado_sel }}&page={{ pagina.next_page_number }}">Siguientes »</a>
+    {% endif %}
+  </nav>
+  {% endif %}
 </div>
 {% endblock %}

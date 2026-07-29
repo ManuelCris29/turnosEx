@@ -105,7 +105,7 @@ class DobladaPermRevalidacionTest(TestCase):
         CompetenciaEmpleado.objects.create(empleado=self.rec, sala=self.sala)
 
         # Rango futuro (mes siguiente), días: cesión martes (1), devolución jueves (3).
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         self.fi = date(anio, mes, 1)
         self.ff = self.fi + timedelta(days=27)
@@ -380,7 +380,7 @@ class DobladaPermJornadaRealTest(TestCase):
         AsignarJornadaExplorador.objects.create(explorador=self.rec, jornada=self.am, fecha_inicio=date(2025, 1, 1))
         CompetenciaEmpleado.objects.create(empleado=self.sol, sala=self.sala)
         CompetenciaEmpleado.objects.create(empleado=self.rec, sala=self.sala)
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         self.fi = date(anio, mes, 1)
         self.ff = self.fi + timedelta(days=27)
@@ -515,7 +515,7 @@ class DobladaPermRevertRestauraEstadoPrevioTest(TestCase):
         AsignarJornadaExplorador.objects.create(explorador=self.rec, jornada=self.am, fecha_inicio=date(2025, 1, 1))
         CompetenciaEmpleado.objects.create(empleado=self.sol, sala=self.sala)
         CompetenciaEmpleado.objects.create(empleado=self.rec, sala=self.sala)
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         self.fi = date(anio, mes, 1)
         self.ff = self.fi + timedelta(days=27)
@@ -605,7 +605,7 @@ class DobladaPermAtribucionCompaneroTest(TestCase):
         AsignarJornadaExplorador.objects.create(explorador=self.comp2, jornada=self.am, fecha_inicio=date(2025, 1, 1))
         for e in (self.sol, self.comp1, self.comp2):
             CompetenciaEmpleado.objects.create(empleado=e, sala=self.sala)
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         self.fi = date(anio, mes, 1)
         self.ff = self.fi + timedelta(days=27)

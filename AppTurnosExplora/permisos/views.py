@@ -222,7 +222,13 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
                 _d += _td(days=1)
         else:
             _fechas_obj = [permiso.fecha_inicio]
-        _fbloq, _msg = CierreSolicitudesService.validar_fechas(_fechas_obj)
+        try:
+            _fbloq, _msg = CierreSolicitudesService.validar_fechas(_fechas_obj)
+        except Exception:
+            # Fail-open igual que el orquestador, pero visible en alertas.
+            logger.critical('CIERRE SEMANAL INOPERATIVO en permisos para las fechas %s; '
+                            'la solicitud se permite sin validar el cierre.', _fechas_obj, exc_info=True)
+            _msg = None
         if _msg:
             form.add_error('fecha_inicio' if self.es_permanente else 'fecha', _msg)
             return self.form_invalid(form)
@@ -461,6 +467,26 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
         if (f_trabajo - _td(days=f_trabajo.weekday())) != (f_comp - _td(days=f_comp.weekday())):
             return json_error('La compensación debe ser en la MISMA semana de temporada.',
                               status=400, code='invalid')
+
+        # No se pueden pedir días pasados (el resto del formulario de Cambio de Descanso ya lo
+        # valida; esta vista es otro endpoint y hay que repetirlo aquí).
+        from django.utils import timezone as _tz
+        _hoy = _tz.localdate()
+        if f_trabajo < _hoy or f_comp < _hoy:
+            return json_error('No se pueden usar días pasados.', status=400, code='invalid')
+
+        # Cierre semanal: este sub-tipo del formulario de Cambio de Descanso llega por su propio
+        # endpoint, así que el gate del orquestador no lo cubre. Sin esto sería un bypass del cierre.
+        from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService
+        try:
+            _fbloq, _msg_cierre = CierreSolicitudesService.validar_fechas([f_trabajo, f_comp])
+        except Exception:
+            # Fail-open igual que el orquestador, pero visible en alertas.
+            logger.critical('CIERRE SEMANAL INOPERATIVO en media jornada temporada (%s, %s)',
+                            f_trabajo, f_comp, exc_info=True)
+            _msg_cierre = None
+        if _msg_cierre:
+            return json_error(_msg_cierre, status=400, code='cierre_semanal')
         # Fuente de verdad: fecha_trabajo debe ser mi día completo de temporada;
         # fecha_compensacion debe ser mi día libre.
         e_trab = TurnoService.estado_dia(emp, f_trabajo)

@@ -186,7 +186,9 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<!-- sweetalert2 NO se carga aquí: base.html ya sirve la copia local (v11.4.0) para todas las
+     páginas. La línea del CDN que había aquí cargaba una SEGUNDA copia encima, dejando esta
+     página con una versión distinta a la del resto del sitio. -->
 <script>window.CSRF_TOKEN = "{{ csrf_token }}";</script>
 <script src="{% static_v 'js/solicitudes/mis_solicitudes_list.js' %}"></script>
 {% endblock %} 

@@ -166,7 +166,7 @@ class EmpleadoEditView(LoginRequiredMixin, UpdateView):
         AsignarJornadaExplorador.objects.create(
             explorador=empleado,
             jornada=jornada,
-            fecha_inicio=timezone.now().date()
+            fecha_inicio=timezone.localdate()
         )
 
         # Invalidar caché de MisTurnosPorMesView para este empleado
@@ -242,7 +242,7 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
                     AsignarJornadaExplorador.objects.create(
                         explorador=empleado,
                         jornada=jornada,
-                        fecha_inicio=date.today()
+                        fecha_inicio=timezone.localdate()
                     )
             messages.success(request, 'Usuario y empleado creados correctamente.')
             return redirect('empleados')

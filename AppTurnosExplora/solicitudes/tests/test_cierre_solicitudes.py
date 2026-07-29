@@ -151,7 +151,7 @@ class CierreIntegracionTest(TestCase):
     """Gate en el orquestador y página de configuración (superficie real)."""
 
     def _sabado_pasado(self):
-        hoy = date.today()
+        hoy = timezone.localdate()
         lunes_esta = hoy - timedelta(days=hoy.weekday())
         return lunes_esta - timedelta(days=2)  # sábado de la semana pasada (cutoff ya pasó)
 
@@ -176,6 +176,34 @@ class CierreIntegracionTest(TestCase):
         self.assertIn(date(2026, 8, 3), fechas)   # lunes
         self.assertIn(date(2026, 8, 10), fechas)  # lunes
         self.assertNotIn(date(2026, 8, 5), fechas)  # miércoles no
+
+    def test_fechas_objetivo_ct_permanente_respeta_fechas_especificas(self):
+        """Con compatibilidad parcial el formulario envía `dias_semana: []` + `fechas_especificas`.
+
+        Regresión: esa rama solo leía `dias_semana`, veía el conjunto vacío y expandía el RANGO
+        ENTERO (fines de semana incluidos). Como la ventana de cierre es justamente
+        jueves→primer día hábil, cualquier CT permanente cuyo rango cruzara un finde se bloqueaba
+        aunque el cambio nunca se aplique en sábado ni domingo.
+        """
+        from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator as SO
+        post = {'fecha_inicio': '2026-08-03', 'fecha_fin': '2026-08-12',
+                'dias_seleccionados':
+                    '{"dias_semana": [], "fechas_especificas": ["2026-08-03", "2026-08-11"]}'}
+        fechas = SO._fechas_objetivo(post, 'CT PERMANENTE')
+        self.assertEqual(fechas, [date(2026, 8, 3), date(2026, 8, 11)])
+        # Ningún fin de semana del rango entra: son los días que activaban el falso bloqueo.
+        self.assertNotIn(date(2026, 8, 8), fechas)   # sábado
+        self.assertNotIn(date(2026, 8, 9), fechas)   # domingo
+
+    def test_fechas_objetivo_ct_permanente_nunca_incluye_findes(self):
+        """Sin días seleccionados se expande el rango, pero SOLO lunes-viernes: un CT permanente
+        no se aplica nunca en fin de semana, así que tampoco debe medirse el cierre contra ellos."""
+        from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator as SO
+        post = {'fecha_inicio': '2026-08-03', 'fecha_fin': '2026-08-12',
+                'dias_seleccionados': '{}'}
+        fechas = SO._fechas_objetivo(post, 'CT PERMANENTE')
+        self.assertTrue(fechas)
+        self.assertTrue(all(f.weekday() < 5 for f in fechas), fechas)
 
     def test_pagina_config_supervisor(self):
         from django.test import Client
@@ -206,6 +234,46 @@ class CierreIntegracionTest(TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertTrue(CierreSemanaOverride.objects.filter(semana_lunes=date(2026, 9, 7)).exists())
         self.assertFalse(CierreSemanaOverride.objects.filter(semana_lunes=date(2026, 9, 10)).exists())
+
+    def test_config_rechaza_dia_invalido(self):
+        """Un `dia_cierre` fuera de las choices reventaría `_ventana_semana` (KeyError) y con él la
+        propia página desde la que se corrige, además de desactivar el cierre en silencio por el
+        fail-open del orquestador. El POST se rechaza sin guardar nada."""
+        from django.test import Client
+        from django.urls import reverse
+        from django.contrib.auth.models import User
+        from empleados.models import Empleado
+        u = User.objects.create_user('sup.cierre2', password='x', is_staff=True)
+        Empleado.objects.create(user=u, nombre='Sup', apellido='D', cedula='9002', activo=True)
+        c = Client(); c.force_login(u)
+        cfg = CierreSolicitudesConfig.obtener()
+        cfg.habilitado = True; cfg.dia_cierre = 'jueves'; cfg.save()
+
+        r = c.post(reverse('solicitudes:cierre_config'),
+                   {'accion': 'default', 'habilitado': 'on', 'dia_cierre': 'lunes', 'hora_cierre': '12:00'})
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(CierreSolicitudesConfig.obtener().dia_cierre, 'jueves')
+
+        # Hora inválida: tampoco se guarda a medias (el día sí era válido).
+        r = c.post(reverse('solicitudes:cierre_config'),
+                   {'accion': 'default', 'habilitado': 'on', 'dia_cierre': 'sabado', 'hora_cierre': 'xx'})
+        self.assertEqual(CierreSolicitudesConfig.obtener().dia_cierre, 'jueves')
+
+        # Un override inválido no debe quedar creado con valores que nadie pidió.
+        r = c.post(reverse('solicitudes:cierre_config'),
+                   {'accion': 'override', 'semana_lunes': '2026-08-03',
+                    'dia_cierre': 'lunes', 'hora_cierre': '10:00'})
+        self.assertEqual(r.status_code, 302)
+        self.assertFalse(CierreSemanaOverride.objects.filter(semana_lunes=date(2026, 8, 3)).exists())
+
+    def test_dia_invalido_en_bd_no_rompe_la_pagina(self):
+        """Si el valor inválido ya está guardado (admin/shell), se degrada al jueves en vez de
+        propagar el KeyError: la página tiene que seguir abriéndose para poder arreglarlo."""
+        cfg = CierreSolicitudesConfig.obtener()
+        cfg.habilitado = True
+        CierreSolicitudesConfig.objects.filter(pk=cfg.pk).update(dia_cierre='lunes', habilitado=True)
+        v = CS._ventana_semana(date(2026, 8, 3))
+        self.assertEqual(v[0], date(2026, 8, 6))  # jueves
 
     def test_fechas_del_post_recoge_valores_repetidos(self):
         from django.http import QueryDict

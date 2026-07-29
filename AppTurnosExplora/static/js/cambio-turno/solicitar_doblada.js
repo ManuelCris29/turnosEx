@@ -1746,10 +1746,8 @@
     /** Bloques que son EXCLUSIVOS del flujo de cesión: se ocultan por completo en intercambio. */
     function _bloquesSoloCesion() {
         return [
-            'opciones_cesion_parcial', 'turno_receptor_info', 'fechas_pago_total',
+            'opciones_cesion_parcial', 'turno_receptor_info',
             'turno_solicitante_pago_info', 'turno_receptor_pago_info', 'aviso_coincidencia_pago',
-            'turno_solicitante_pago_am_info', 'turno_receptor_pago_am_info',
-            'turno_solicitante_pago_pm_info', 'turno_receptor_pago_pm_info',
             'vista_previa_acuerdo', 'opciones_pago_sabado', 'mensaje_no_necesario_pago_sabado',
             'opciones_cubre_pago_receptor_doblada', 'aviso_sabado_comprometido',
             'aviso_deudor_doblada_pago'
@@ -2146,21 +2144,13 @@
         // Paneles "Tu Jornada / Jornada del receptor para la Fecha de Pago"
         [
             turnoSolicitantePagoInfo, turnoReceptorPagoInfo,
-            document.getElementById('turno_solicitante_pago_am_info'),
-            document.getElementById('turno_solicitante_pago_pm_info'),
-            document.getElementById('turno_receptor_pago_am_info'),
-            document.getElementById('turno_receptor_pago_pm_info'),
             document.getElementById('aviso_coincidencia_pago'),
         ].forEach(el => { if (el) el.style.display = 'none'; });
-        // Selectores de pago en sábado (cesión parcial y cesión total)
+        // Selectores de pago en sábado
         [
             opcionesPagoSabado, mensajeNoNecesarioPagoSabado,
-            document.getElementById('jornada_sabado_am_wrap'),
-            document.getElementById('jornada_sabado_pm_wrap'),
         ].forEach(el => { if (el) el.style.display = 'none'; });
-        document.querySelectorAll(
-            'input[name="jornada_pago_sabado"], input[name="jornada_pago_sabado_am"], input[name="jornada_pago_sabado_pm"]'
-        ).forEach(r => { r.checked = false; });
+        document.querySelectorAll('input[name="jornada_pago_sabado"]').forEach(r => { r.checked = false; });
         // Bloque "¿Qué cubrirás ese día?" (receptor con doblada en el pago): ocultar y desmarcar.
         const cubreBlock = document.getElementById('opciones_cubre_pago_receptor_doblada');
         if (cubreBlock) {

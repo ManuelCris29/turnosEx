@@ -7,6 +7,8 @@ una doblada es aprobada. No toca turnos.
 from datetime import date
 import logging
 
+from django.core.exceptions import ValidationError
+
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .deuda_service import DeudaService
@@ -42,6 +44,13 @@ class DobladaDeudaService:
             jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
                 solicitante.id, fecha_cesion.strftime('%Y-%m-%d')
             )
+            # Sin jornada base no se puede etiquetar la deuda: fallar explícito (dentro de la
+            # transacción de aprobación) en vez de reventar con AttributeError sobre None.
+            if not jornada_solicitante:
+                raise ValidationError(
+                    f"{solicitante.nombre} no tiene jornada asignada el "
+                    f"{fecha_cesion.strftime('%d/%m/%Y')}: no se puede registrar la deuda de la doblada."
+                )
             jornada_cedida_nombre = jornada_solicitante.nombre.upper()
 
         # Deuda entre exploradores

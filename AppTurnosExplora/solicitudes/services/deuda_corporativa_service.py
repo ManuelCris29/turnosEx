@@ -10,6 +10,7 @@ from solicitudes.models import DeudaCorporativa, SolicitudCambio
 from empleados.models import Empleado
 from datetime import date, timedelta
 import logging
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class DeudaCorporativaService:
         )
         if not d:
             return None
-        hoy = date.today()
+        hoy = timezone.localdate()
         # Vencida si la más antigua pendiente es de un MES anterior al actual.
         if (d.fecha_doblada.year, d.fecha_doblada.month) < (hoy.year, hoy.month):
             return {'fecha_doblada': d.fecha_doblada}
@@ -80,7 +81,7 @@ class DeudaCorporativaService:
         from django.db.models import Q as _Q
         if not explorador:
             return
-        hoy = date.today()
+        hoy = timezone.localdate()
         info = DeudaCorporativaService._deuda_vencida_info(explorador)
 
         # Sanción AUTO activa en este momento
@@ -187,7 +188,7 @@ class DeudaCorporativaService:
         """
         try:
             from core.services.cache_service import CacheService
-            hoy = date.today()
+            hoy = timezone.localdate()
             desde = sancion.fecha_inicio
             # Cubrir hasta el mayor entre su fecha_fin y un año adelante (para indefinidas/levantadas).
             hasta = max(sancion.fecha_fin or hoy, hoy + timedelta(days=365))

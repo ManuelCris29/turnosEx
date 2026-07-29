@@ -8,6 +8,7 @@ from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import AsignarJornadaExplorador
 from datetime import date, timedelta
+from django.utils import timezone
 
 
 class SolicitudServiceTest(TestCase):
@@ -49,12 +50,12 @@ class SolicitudServiceTest(TestCase):
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado1,
             jornada=self.jornada_am,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado2,
             jornada=self.jornada_pm,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         
         # Crear tipo de solicitud
@@ -77,7 +78,7 @@ class SolicitudServiceTest(TestCase):
             explorador_solicitante=self.empleado1,
             explorador_receptor=self.empleado2,
             tipo_cambio=self.tipo,
-            fecha_cambio_turno=date.today() + timedelta(days=7)
+            fecha_cambio_turno=timezone.localdate() + timedelta(days=7)
         )
         
         # Obtener solicitudes del usuario
@@ -94,7 +95,7 @@ class SolicitudServiceTest(TestCase):
             explorador_solicitante=self.empleado1,
             explorador_receptor=self.empleado2,
             tipo_cambio=self.tipo,
-            fecha_cambio_turno=date.today() + timedelta(days=7),
+            fecha_cambio_turno=timezone.localdate() + timedelta(days=7),
             estado='pendiente'
         )
         
@@ -103,7 +104,7 @@ class SolicitudServiceTest(TestCase):
             explorador_solicitante=self.empleado1,
             explorador_receptor=self.empleado2,
             tipo_cambio=self.tipo,
-            fecha_cambio_turno=date.today() + timedelta(days=8),
+            fecha_cambio_turno=timezone.localdate() + timedelta(days=8),
             estado='aprobada'
         )
         

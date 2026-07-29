@@ -7,6 +7,7 @@ from empleados.models import Empleado, Jornada
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from turnos.services.turno_service import TurnoService
 from datetime import date, timedelta
+from django.utils import timezone
 
 
 class TurnoServiceTest(TestCase):
@@ -54,17 +55,17 @@ class TurnoServiceTest(TestCase):
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado1,
             jornada=self.jornada_am,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado2,
             jornada=self.jornada_pm,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
     
     def test_get_exploradores_por_jornada(self):
         """Test que se pueden obtener exploradores por jornada"""
-        fecha = str(date.today())
+        fecha = str(timezone.localdate())
         resultado = TurnoService.get_exploradores_por_jornada(fecha)
         
         self.assertIn('am', resultado)
@@ -74,8 +75,8 @@ class TurnoServiceTest(TestCase):
     
     def test_get_exploradores_por_jornada_rango(self):
         """Test que se pueden obtener exploradores por jornada en un rango"""
-        fecha_inicio = str(date.today())
-        fecha_fin = str(date.today() + timedelta(days=7))
+        fecha_inicio = str(timezone.localdate())
+        fecha_fin = str(timezone.localdate() + timedelta(days=7))
         
         resultado = TurnoService.get_exploradores_por_jornada_rango(
             fecha_inicio,

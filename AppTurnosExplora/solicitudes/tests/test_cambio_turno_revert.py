@@ -39,7 +39,7 @@ class CTRevertTest(TestCase):
         CompetenciaEmpleado.objects.create(empleado=self.rec, sala=self.sala)
 
         # Un miércoles futuro (día de semana, no festivo/mantenimiento)
-        d = timezone.now().date() + timedelta(days=3)
+        d = timezone.localdate() + timedelta(days=3)
         while d.weekday() != 2:
             d += timedelta(days=1)
         self.fecha = d
@@ -83,6 +83,81 @@ class CTRevertTest(TestCase):
         CambioTurnoStrategy.revertir(sol)
         self.assertEqual(self._jornadas(self.sol), [('AM', None)])
         self.assertEqual(self._jornadas(self.rec), [('PM', None)])
+
+    def test_cada_uno_conserva_su_sala(self):
+        """La sala es informativa (dice en qué es experto el explorador): el CT intercambia la
+        JORNADA, no la sala. Antes se le ponía a cada uno la primera sala de competencia del OTRO.
+        """
+        otra = Sala.objects.create(nombre='Sala Rec', activo=True)
+        CompetenciaEmpleado.objects.filter(empleado=self.rec).delete()
+        CompetenciaEmpleado.objects.create(empleado=self.rec, sala=otra)
+        Turno.objects.create(explorador=self.sol, fecha=self.fecha, jornada=self.am, sala=self.sala)
+        Turno.objects.create(explorador=self.rec, fecha=self.fecha, jornada=self.pm, sala=otra)
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.sol, explorador_receptor=self.rec,
+            tipo_cambio=self.tipo, fecha_cambio_turno=self.fecha,
+            estado='aprobada', comentario='Prueba')
+        ok, msg = CambioTurnoStrategy().aplicar_cambios(sol)
+        self.assertTrue(ok, msg)
+
+        t_sol = Turno.objects.get(explorador=self.sol, fecha=self.fecha)
+        t_rec = Turno.objects.get(explorador=self.rec, fecha=self.fecha)
+        # Jornadas intercambiadas…
+        self.assertEqual((t_sol.jornada.nombre.upper(), t_rec.jornada.nombre.upper()), ('PM', 'AM'))
+        # …pero cada uno con SU sala.
+        self.assertEqual(t_sol.sala_id, self.sala.id)
+        self.assertEqual(t_rec.sala_id, otra.id)
+
+    def test_sin_tope_de_cambios_por_fecha(self):
+        """No hay límite de cambios por explorador/fecha: con varios ya aprobados, uno nuevo
+        sigue siendo válido y aplicable. El tope anterior (3) además se contaba a sí mismo al
+        aprobar, así que el tercero nunca llegaba a aplicarse."""
+        u3 = User.objects.create_user(username='ter.ct', password='x')
+        tercero = Empleado.objects.create(user=u3, nombre='Ter', apellido='C', cedula='3', activo=True)
+        AsignarJornadaExplorador.objects.create(explorador=tercero, jornada=self.pm, fecha_inicio=date(2025, 1, 1))
+        CompetenciaEmpleado.objects.create(empleado=tercero, sala=self.sala)
+
+        # Tres cambios ya aprobados del solicitante en esa misma fecha.
+        for _ in range(3):
+            SolicitudCambio.objects.create(
+                explorador_solicitante=self.sol, explorador_receptor=tercero,
+                tipo_cambio=self.tipo, fecha_cambio_turno=self.fecha,
+                estado='aprobada', comentario='Previo')
+
+        Turno.objects.create(explorador=self.sol, fecha=self.fecha, jornada=self.am, sala=self.sala)
+        Turno.objects.create(explorador=self.rec, fecha=self.fecha, jornada=self.pm, sala=self.sala)
+        nueva = SolicitudCambio.objects.create(
+            explorador_solicitante=self.sol, explorador_receptor=self.rec,
+            tipo_cambio=self.tipo, fecha_cambio_turno=self.fecha,
+            estado='aprobada', comentario='Prueba')
+
+        strat = CambioTurnoStrategy()
+        ok, msg = strat.revalidar_para_aprobar(nueva)
+        self.assertTrue(ok, msg)
+        ok, msg = strat.aplicar_cambios(nueva)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self._jornadas(self.sol), [('PM', 'CT')])
+
+    def test_hoy_se_rechaza_al_crear_pero_no_al_aprobar(self):
+        """El día en curso ya se está trabajando: no se puede PEDIR un CT para hoy. Pero una
+        solicitud enviada ayer para hoy sigue siendo aprobable — decide el supervisor."""
+        strat = CambioTurnoStrategy()
+        datos = {
+            'explorador_solicitante': self.sol,
+            'explorador_receptor': self.rec,
+            'tipo_cambio': self.tipo,
+            'comentario': 'Prueba',
+            'fecha_cambio_turno': timezone.localdate().strftime('%Y-%m-%d'),
+        }
+        ok, msg = strat.validar_solicitud(dict(datos))
+        self.assertFalse(ok)
+        self.assertIn('hoy', msg.lower())
+
+        # Al re-validar para aprobar, la regla de "hoy" no aplica: debe pasar de ella
+        # (puede fallar más adelante por otras reglas del día, que este test no configura).
+        ok, msg = strat.validar_solicitud({**datos, 'es_revalidacion': True})
+        self.assertNotIn('el día ya está en curso', msg)
 
     def test_cancelar_por_flujo_completo_no_falla_por_fk_colgante(self):
         """

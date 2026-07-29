@@ -3,13 +3,14 @@
  *
  * Flujo:
  *  1. Elegir mes.
- *  2. Ver tarjetas de cada fin de semana con el día que TRABAJAS resaltado.
- *  3. Tocar el finde que cedes (solo los que trabajas un día).
- *  4. Elegir compañero (grupo contrario).
- *  5. Tocar el finde de devolución (mismo día de la semana; donde cubres a tu compañero).
+ *  2. Ver tarjetas de cada fin de semana con el estado real de SUS DOS días.
+ *  3. Tocar el DÍA que cedes (cada día es independiente: se puede trabajar sábado y domingo
+ *     —el día propio más uno que se cubre por un favor— y ceder cualquiera de los dos).
+ *  4. Elegir compañero (cualquiera que DESCANSE ese día).
+ *  5. Tocar el finde de devolución (mismo día de la semana; tú libre y el compañero trabajando).
  *  6. Enviar.
  *
- * La lógica de negocio (alternancia, grupos, mismo mes, deudas) la valida el backend.
+ * La lógica de negocio (estado real del día, mismo mes, cierre, deudas) la valida el backend.
  */
 (function () {
     'use strict';
@@ -92,6 +93,24 @@
 
     // ===================== TARJETAS =====================
 
+    // Una línea de la tarjeta de cesión: un día concreto del finde con su estado.
+    // `cedible` lo decide el backend (trabajado a día completo, futuro, del mes y no cerrado).
+    function lineaDiaCesion(dia, clave) {
+        const nombre = NOMBRE_DIA[clave].toUpperCase();
+        if (dia.cedible) {
+            return `<div class="fds-dia-linea mio fds-dia-cedible" data-dia="${clave}" data-fecha="${dia.fecha}">` +
+                   `<i class="fas fa-user mr-1"></i>Trabajas <strong>${nombre} ${dia.dia}</strong> ` +
+                   `<span class="jor jor-${dia.jornada}">${dia.jornada || '?'}</span>` +
+                   `<span class="fds-ceder-hint"> — tocar para ceder</span></div>`;
+        }
+        if (dia.mio) {
+            return `<div class="fds-dia-linea mio">` +
+                   `<i class="fas fa-user mr-1"></i>Trabajas <strong>${nombre} ${dia.dia}</strong>` +
+                   `<div class="fds-nota">No disponible: ${dia.motivo_no_cedible || 'no se puede ceder'}</div></div>`;
+        }
+        return `<div class="fds-dia-linea descanso">Descansas ${NOMBRE_DIA[clave]} ${dia.dia}</div>`;
+    }
+
     // Construye una tarjeta de finde. `modo` = 'cesion' | 'pago'.
     function crearCard(f, modo) {
         const card = document.createElement('div');
@@ -102,21 +121,13 @@
         let cuerpo, seleccionable, fechaSel;
 
         if (modo === 'cesion') {
-            seleccionable = f.seleccionable;
-            fechaSel = f.mi_dia === 'sabado' ? f.sabado.fecha : (f.mi_dia === 'domingo' ? f.domingo.fecha : null);
-            if (f.trabaja_ambos) {
-                cuerpo = '<div class="fds-nota">Trabajas los dos días — no se puede ceder</div>';
-            } else if (f.mi_dia) {
-                const mi = f.mi_dia === 'sabado' ? f.sabado : f.domingo;
-                const otro = f.mi_dia === 'sabado' ? f.domingo : f.sabado;
-                const otroDia = f.mi_dia === 'sabado' ? 'domingo' : 'sabado';
-                cuerpo =
-                    `<div class="fds-dia-linea mio"><i class="fas fa-user mr-1"></i>` +
-                    `Trabajas <strong>${NOMBRE_DIA[f.mi_dia].toUpperCase()} ${mi.dia}</strong> ` +
-                    `<span class="jor jor-${mi.jornada}">${mi.jornada || '?'}</span></div>` +
-                    `<div class="fds-dia-linea descanso">Descansas ${NOMBRE_DIA[otroDia]} ${otro.dia}</div>`;
-            } else {
-                cuerpo = '<div class="fds-nota">Descansas todo el finde — nada que ceder</div>';
+            // Los DOS días se ofrecen por separado: se puede trabajar sábado Y domingo (el día
+            // propio más uno que se cubre por un favor) y cederse cualquiera de ellos. Antes la
+            // tarjeta resaltaba un único "tu día" y en ese caso no dejaba ceder ninguno.
+            seleccionable = f.sabado.cedible || f.domingo.cedible;
+            cuerpo = ['sabado', 'domingo'].map((k) => lineaDiaCesion(f[k], k)).join('');
+            if (!f.sabado.mio && !f.domingo.mio) {
+                cuerpo += '<div class="fds-nota">Descansas todo el finde — nada que ceder</div>';
             }
         } else { // pago
             // Cubres el día de tu compañero (el mismo día que cediste) en este finde.
@@ -130,6 +141,10 @@
                     `Cubres <strong>${NOMBRE_DIA[diaCesion].toUpperCase()} ${diaObj.dia}</strong> ` +
                     `<span class="jor jor-${diaObj.jornada}">${diaObj.jornada || '?'}</span> a tu compañero</div>` +
                     `<div class="fds-dia-linea descanso">+ tu día normal — te doblas el finde</div>`;
+                if (f._pago_nota) {
+                    cuerpo += `<div class="fds-nota">Ese día tu compañero cubría a ${f._pago_nota}; ` +
+                              `al cubrirlo tú, pasa a descansar igual</div>`;
+                }
             } else {
                 cuerpo = `<div class="fds-nota">${f._pago_motivo}</div>`;
             }
@@ -140,11 +155,15 @@
 
         if (!seleccionable) {
             card.classList.add('disabled');
-        } else {
-            card.addEventListener('click', () => {
-                if (modo === 'cesion') seleccionarCesion(f, card, fechaSel);
-                else seleccionarPago(f, card, fechaSel);
+        } else if (modo === 'cesion') {
+            // El click va en cada DÍA, no en la tarjeta: un finde puede tener los dos cedibles.
+            card.querySelectorAll('.fds-dia-cedible').forEach((linea) => {
+                linea.addEventListener('click', () => {
+                    seleccionarCesion(f, card, linea.dataset.fecha, linea.dataset.dia, linea);
+                });
             });
+        } else {
+            card.addEventListener('click', () => seleccionarPago(f, card, fechaSel));
         }
         return card;
     }
@@ -155,21 +174,23 @@
             cardsCesion.innerHTML = '<div class="alert-warning-info">Este mes no tiene fines de semana.</div>';
             return;
         }
-        const hayElegibles = findes.some((f) => f.seleccionable);
+        const hayElegibles = findes.some((f) => f.sabado.cedible || f.domingo.cedible);
         findes.forEach((f) => cardsCesion.appendChild(crearCard(f, 'cesion')));
         if (!hayElegibles) {
             const aviso = document.createElement('div');
             aviso.className = 'alert-warning-info';
-            aviso.innerHTML = 'En este mes no hay un finde donde trabajes un solo día para ceder. Prueba otro mes.';
+            aviso.innerHTML = 'En este mes no hay ningún día de fin de semana que puedas ceder. Prueba otro mes.';
             cardsCesion.appendChild(aviso);
         }
     }
 
-    function seleccionarCesion(f, card, fechaSel) {
+    function seleccionarCesion(f, card, fechaSel, dia, linea) {
         document.querySelectorAll('#fds-cards-cesion .fds-card').forEach((c) => c.classList.remove('selected'));
+        document.querySelectorAll('#fds-cards-cesion .fds-dia-linea').forEach((l) => l.classList.remove('selected'));
         card.classList.add('selected');
+        if (linea) linea.classList.add('selected');
         cesionSel = f;
-        diaCesion = f.mi_dia;
+        diaCesion = dia;
         inputCesion.value = fechaSel;
         // reset pago/compañero
         inputPago.value = ''; empleadoReceptor = null; selectReceptor.value = '';
@@ -182,17 +203,25 @@
     function renderPago() {
         cardsPago.innerHTML = '';
         const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-        const diaKey = diaCesion === 'sabado' ? 'sabado_mio' : 'domingo_mio';
+        const diaKey = `${diaCesion}_mio`;
+        const diaKeyCompleto = `${diaCesion}_completo`;
+        const diaKeyPropio = `${diaCesion}_propio`;
+        const diaKeyCobertura = `${diaCesion}_cobertura`;
 
         // Candidatos: mismo día de la semana que la cesión, otro finde del mes, no pasado.
         // Cada uno se marca disponible o NO (con motivo) mirando AMBOS lados:
         //   - Tú: debes estar LIBRE ese día (para poder cubrirlo).
         //   - Compañero: debe TRABAJAR ese día (para que tú lo cubras) y no doblar los dos.
+        // El pago debe caer en el MISMO MES que la cesión (regla de negocio) y ser posterior a
+        // hoy: se descartan los días de un finde a caballo que pertenecen a otro mes, y los ya
+        // cerrados por el cierre semanal, que el servidor rechazaría igualmente.
+        const mesCesion = inputCesion.value.slice(0, 7);
         const candidatos = findes.filter((f) => {
             if (f.sabado.fecha === cesionSel.sabado.fecha) return false;
             const diaObj = diaCesion === 'sabado' ? f.sabado : f.domingo;
+            if (diaObj.fecha.slice(0, 7) !== mesCesion) return false;
             const [y, m, d] = diaObj.fecha.split('-').map(Number);
-            return new Date(y, m - 1, d) >= hoy;
+            return new Date(y, m - 1, d) > hoy;
         });
 
         candidatos.forEach((f) => {
@@ -200,15 +229,23 @@
             const yoLibre = !diaObj.mio;
             const rec = f.receptor || {};
             const recTrabaja = !!rec[diaKey];
-            const recAmbos = !!rec.trabaja_ambos;
-            if (!yoLibre) {
+            // Solo se puede cubrir un día COMPLETO: si el compañero tiene media jornada suelta
+            // ese día (por un cambio previo), no hay un día entero que devolverle.
+            const recCompleto = !!rec[diaKeyCompleto];
+            if (diaObj.cerrado) {
+                f._pago_ok = false; f._pago_motivo = 'La programación de ese fin de semana ya está cerrada';
+            } else if (!yoLibre) {
                 f._pago_ok = false; f._pago_motivo = `Ya trabajas ese ${NOMBRE_DIA[diaCesion]} — no puedes doblarte de nuevo`;
-            } else if (recAmbos) {
-                f._pago_ok = false; f._pago_motivo = 'Tu compañero ya trabaja los dos días — no puede descansar';
             } else if (!recTrabaja) {
                 f._pago_ok = false; f._pago_motivo = `Tu compañero no trabaja ese ${NOMBRE_DIA[diaCesion]} — no hay día que cubrir`;
+            } else if (!recCompleto) {
+                f._pago_ok = false; f._pago_motivo = 'Tu compañero solo tiene media jornada ese día — no hay día completo que cubrir';
             } else {
                 f._pago_ok = true; f._pago_motivo = null;
+                // Si ese día lo trabaja cubriendo a un tercero, la fecha SIRVE igual (trabaja un
+                // día menos, que es la devolución que se le debe), pero conviene decírselo: el
+                // día cambia de manos y hay un tercero implicado.
+                f._pago_nota = rec[diaKeyPropio] ? null : (rec[diaKeyCobertura] || {}).companero;
             }
         });
 
@@ -255,7 +292,10 @@
                     o.value = c.id;
                     o.dataset.nombre = c.nombre;
                     if (c.disponible) {
-                        o.textContent = `${c.nombre} — trabaja ${c.dia} ${c.dia_fecha}`;
+                        // `etiqueta` la manda el backend y describe a la PERSONA (por qué sirve).
+                        // El texto viejo describía el calendario y mentía cuando el compañero no
+                        // trabajaba el otro día del finde.
+                        o.textContent = `${c.nombre} — ${c.etiqueta || `trabaja ${c.dia} ${c.dia_fecha}`}`;
                     } else {
                         // Compañero que NO puede cubrir ese finde: visible pero deshabilitado, con motivo.
                         o.textContent = `${c.nombre} — ✕ ${c.motivo}`;
@@ -297,10 +337,20 @@
         if (inputCesion.value && inputPago.value && empleadoReceptor) {
             const fc = fmtLargo(inputCesion.value);
             const fp = fmtLargo(inputPago.value);
-            resumen.innerHTML =
+            let texto =
                 `<i class="fas fa-check-circle mr-1"></i> <strong>${empleadoReceptor.nombre}</strong> se doblará el ` +
                 `<strong>${fc}</strong> (tu ${NOMBRE_DIA[diaCesion]}). Tú te doblarás el <strong>${fp}</strong> ` +
                 `para devolverle el favor.`;
+            // Traspaso de cobertura: el día que cedes lo trabajas por un favor de un tercero.
+            // Se puede ceder —tu sustituto lo cubrirá completo— pero conviene decir a quién afecta.
+            const cob = cesionSel && cesionSel[diaCesion] && cesionSel[diaCesion].cobertura;
+            if (cob) {
+                texto += `<div class="fds-nota mt-2"><i class="fas fa-info-circle mr-1"></i>` +
+                    `Ese ${NOMBRE_DIA[diaCesion]} lo trabajas por el acuerdo con <strong>${cob.companero}</strong> ` +
+                    `(solicitud #${cob.solicitud_id}). Pasará a cubrirlo ${empleadoReceptor.nombre}; ` +
+                    `${cob.companero} mantiene su descanso y el acuerdo sigue vigente.</div>`;
+            }
+            resumen.innerHTML = texto;
             resumen.style.display = 'block';
         } else {
             resumen.style.display = 'none';

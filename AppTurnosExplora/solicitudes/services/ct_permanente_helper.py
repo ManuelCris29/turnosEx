@@ -7,12 +7,15 @@ from typing import List, Dict, Tuple
 from empleados.models import Empleado
 from turnos.models import DiaEspecial
 from solicitudes.models import CambioPermanenteDetalle
+from core.utils.date_utils import DateUtils
 import logging
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
 _PRIORIDAD_RAZONES_CT_PERMANENTE = [
     # Más importante primero (opción 2: una sola razón por fecha)
+    'Fecha pasada',
     'Mantenimiento',
     'Festivo',
     'Temporada',
@@ -25,6 +28,9 @@ _PRIORIDAD_RAZONES_CT_PERMANENTE = [
     'Día libre Receptor',
     'Descanso Solicitante',
     'Descanso Receptor',
+    # Ambos trabajan, pero en la MISMA jornada: no hay nada que intercambiar. Va después de
+    # los descansos porque, cuando alguien descansa, ese motivo explica mejor el día.
+    'Sin jornada contraria',
     'Fines de semana',
 ]
 
@@ -42,104 +48,216 @@ def _razon_principal_ct_permanente(razones: List[str]) -> str:
     return razones[0]
 
 
+def dias_seleccionados_desde_detalle(detalle: CambioPermanenteDetalle) -> Dict[str, list]:
+    """Reconstruye el dict `dias_seleccionados` a partir de los `CambioPermanenteDia`."""
+    dias_semana, fechas_especificas = [], []
+    for dia in detalle.dias.all():
+        if dia.tipo == 'dia_semana' and dia.dia_semana is not None:
+            dias_semana.append(dia.dia_semana)
+        elif dia.tipo == 'fecha_especifica' and dia.fecha_especifica:
+            fechas_especificas.append(dia.fecha_especifica)
+    return {'dias_semana': dias_semana, 'fechas_especificas': fechas_especificas}
+
+
+def generar_fechas_candidatas_ct_permanente(
+    fecha_inicio: date,
+    fecha_fin: date,
+    dias_seleccionados: Dict[str, list] = None,
+) -> List[date]:
+    """
+    IMPLEMENTACIÓN ÚNICA de la expansión de un CT permanente a fechas concretas.
+
+    Antes esto estaba copiado en cinco sitios (strategy, este helper ×2, validador y vista de
+    previsualización) y las copias ya habían divergido. Ahora todos llaman aquí.
+
+    Reglas:
+      - `fechas_especificas` tiene PRIORIDAD sobre `dias_semana` (compatibilidad parcial).
+      - Solo lunes-viernes (weekday 0-4); las fechas fuera del rango se descartan.
+      - Sin días seleccionados, se expande el rango completo (retrocompatibilidad).
+    """
+    dias_seleccionados = dias_seleccionados or {}
+    fechas_especificas = dias_seleccionados.get('fechas_especificas') or []
+    dias_semana = dias_seleccionados.get('dias_semana') or []
+
+    fechas: set = set()
+
+    if fechas_especificas:
+        for valor in fechas_especificas:
+            try:
+                fecha_obj = DateUtils.parse_date(valor) if isinstance(valor, str) else valor
+            except (ValueError, TypeError):
+                continue
+            if fecha_obj and fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
+                fechas.add(fecha_obj)
+        return sorted(fechas)
+
+    if dias_semana:
+        try:
+            objetivo = {int(d) for d in dias_semana}
+        except (ValueError, TypeError):
+            objetivo = set()
+        fecha_actual = fecha_inicio
+        while fecha_actual <= fecha_fin:
+            if fecha_actual.weekday() < 5 and fecha_actual.weekday() in objetivo:
+                fechas.add(fecha_actual)
+            fecha_actual += timedelta(days=1)
+        return sorted(fechas)
+
+    fecha_actual = fecha_inicio
+    while fecha_actual <= fecha_fin:
+        if fecha_actual.weekday() < 5:
+            fechas.add(fecha_actual)
+        fecha_actual += timedelta(days=1)
+    return sorted(fechas)
+
+
+def jornadas_intercambiables_ct(solicitante: Empleado, receptor: Empleado, fecha: date):
+    """
+    ¿Ese día solicitante y receptor pueden INTERCAMBIAR jornada? Devuelve `(js, jr)` con las
+    jornadas REALES ('AM'/'PM') si ambos trabajan una jornada única y son CONTRARIAS; si no, None.
+
+    Es el corazón del caso de uso: un CT permanente es un intercambio. Si ese día ambos están
+    en la misma jornada no hay nada que intercambiar y aplicarlo dejaría a los dos en la jornada
+    contraria (la franja original se queda sin cobertura).
+
+    Usa `TurnoService.estado_dia` (fuente única de "Mis Turnos"), igual que el resto del módulo.
+    """
+    js = _jornada_efectiva_ct(solicitante, fecha)
+    jr = _jornada_efectiva_ct(receptor, fecha)
+    if js and jr and js != jr:
+        return js, jr
+    return None
+
+
+def _jornada_efectiva_ct(explorador: Empleado, fecha: date):
+    """Jornada REAL única ('AM'/'PM') del explorador ese día, o None (descansa o ya dobla)."""
+    try:
+        from turnos.services.turno_service import TurnoService
+        jornada = TurnoService.estado_dia(explorador, fecha).get('jornada')
+        return jornada if jornada in ('AM', 'PM') else None
+    except Exception:
+        return None
+
+
+def _razones_exclusion_ct_permanente(
+    fecha: date,
+    solicitante: Empleado,
+    receptor: Empleado = None,
+    excluir_pasadas: bool = False,
+) -> List[str]:
+    """
+    Todas las razones por las que `fecha` NO puede incluirse en el CT permanente.
+    Lista vacía = fecha aplicable. `receptor` es opcional (previsualización sin compañero).
+
+    `excluir_pasadas` descarta los días ya transcurridos: lo usan la validación y la aplicación
+    (no tiene sentido cambiarle el turno a alguien en un día que ya pasó), pero NO la consulta
+    del detalle de una solicitud histórica, que debe seguir mostrando lo que se aplicó.
+    """
+    from datetime import date as _date
+
+    razones = []
+
+    if excluir_pasadas and fecha < timezone.localdate():
+        razones.append('Fecha pasada')
+
+    if fecha.weekday() in (5, 6):
+        razones.append('Fines de semana')
+    if _es_festivo(fecha):
+        razones.append('Festivo')
+    if _es_mantenimiento(fecha):
+        razones.append('Mantenimiento')
+    if _es_temporada(fecha):
+        razones.append('Temporada')
+
+    if _es_dia_descanso(solicitante, fecha):
+        razones.append('Descanso Solicitante')
+    if receptor and _es_dia_descanso(receptor, fecha):
+        razones.append('Descanso Receptor')
+
+    # Día LIBRE por otra solicitud aprobada (sin Turno: doblada cedida, cambio de descanso…)
+    if _dia_libre_por_solicitud(solicitante, fecha):
+        razones.append('Día libre Solicitante')
+    if receptor and _dia_libre_por_solicitud(receptor, fecha):
+        razones.append('Día libre Receptor')
+
+    # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
+    tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha)
+    if tipo_previo_sol:
+        razones.append(_razon_cambio_previo(tipo_previo_sol, True))
+    if receptor:
+        tipo_previo_rec = _tipo_cambio_previo(receptor, fecha)
+        if tipo_previo_rec:
+            razones.append(_razon_cambio_previo(tipo_previo_rec, False))
+
+    # Sin intercambio posible: ambos trabajan la MISMA jornada ese día.
+    if receptor and not razones and not jornadas_intercambiables_ct(solicitante, receptor, fecha):
+        razones.append('Sin jornada contraria')
+
+    return razones
+
+
+def evaluar_fechas_ct_permanente(
+    fecha_inicio: date,
+    fecha_fin: date,
+    solicitante: Empleado,
+    receptor: Empleado = None,
+    dias_seleccionados: Dict[str, list] = None,
+    incluir_fines_semana: bool = False,
+    excluir_pasadas: bool = False,
+) -> Tuple[List[date], List[Dict[str, any]]]:
+    """
+    EVALUACIÓN ÚNICA de un CT permanente: devuelve `(aplicables, excluidas)`.
+
+    `excluidas` es una lista de `{'fecha': date, 'razon': str}` con UNA sola razón por fecha
+    (la de mayor prioridad). `incluir_fines_semana` añade sábados y domingos al conjunto
+    evaluado para poder reportarlos como excluidos (transparencia en la vista previa); nunca
+    cambia el conjunto de aplicables, que es siempre lunes-viernes.
+
+    La usan la validación, la previsualización y la aplicación, de modo que las tres responden
+    exactamente lo mismo.
+    """
+    candidatas = set(generar_fechas_candidatas_ct_permanente(fecha_inicio, fecha_fin, dias_seleccionados))
+
+    if incluir_fines_semana:
+        fecha_actual = fecha_inicio
+        while fecha_actual <= fecha_fin:
+            if fecha_actual.weekday() in (5, 6):
+                candidatas.add(fecha_actual)
+            fecha_actual += timedelta(days=1)
+
+    aplicables, excluidas = [], []
+    for fecha_dia in sorted(candidatas):
+        razones = _razones_exclusion_ct_permanente(fecha_dia, solicitante, receptor, excluir_pasadas)
+        if razones:
+            excluidas.append({'fecha': fecha_dia, 'razon': _razon_principal_ct_permanente(razones)})
+        else:
+            aplicables.append(fecha_dia)
+    return aplicables, excluidas
+
+
+def _rango_detalle(detalle: CambioPermanenteDetalle) -> Tuple[date, date]:
+    """Rango (inicio, fin) del detalle; si no hay fecha_fin, hasta fin de año."""
+    fecha_fin = detalle.fecha_fin or date(detalle.fecha_inicio.year, 12, 31)
+    return detalle.fecha_inicio, fecha_fin
+
+
 def calcular_fechas_aplicables_ct_permanente(
     detalle: CambioPermanenteDetalle,
     solicitante: Empleado,
     receptor: Empleado
 ) -> List[date]:
     """
-    Calcula las fechas aplicables para un cambio permanente, excluyendo
-    domingos, festivos, mantenimiento, temporadas y días de descanso.
-    
-    Args:
-        detalle: Instancia de CambioPermanenteDetalle
-        solicitante: Empleado solicitante
-        receptor: Empleado receptor
-        
-    Returns:
-        Lista de fechas ordenadas donde se aplicará el cambio
+    Fechas donde se aplicará el cambio permanente (excluye fines de semana, festivos,
+    mantenimiento, temporada, descansos, días ya cambiados y días sin jornada contraria).
+
+    Envoltorio sobre `evaluar_fechas_ct_permanente`.
     """
-    fecha_inicio = detalle.fecha_inicio
-    fecha_fin = detalle.fecha_fin
-    
-    if not fecha_fin:
-        # Si no hay fecha fin, usar fin de año
-        fecha_fin = date(fecha_inicio.year, 12, 31)
-    
-    fechas_candidatas = set()
-    
-    # Obtener días seleccionados
-    dias_seleccionados = detalle.dias.all()
-    
-    # Separar días de semana y fechas específicas
-    dias_semana_list = []
-    fechas_especificas_list = []
-    
-    for dia_seleccionado in dias_seleccionados:
-        if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
-            dias_semana_list.append(dia_seleccionado.dia_semana)
-        elif dia_seleccionado.tipo == 'fecha_especifica' and dia_seleccionado.fecha_especifica:
-            fechas_especificas_list.append(dia_seleccionado.fecha_especifica)
-    
-    # Procesar fechas específicas primero (tienen prioridad)
-    if fechas_especificas_list:
-        for fecha_obj in fechas_especificas_list:
-            # Solo agregar si está dentro del rango y es lunes-viernes
-            if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
-                fechas_candidatas.add(fecha_obj)
-    
-    # Procesar días de semana (solo si no hay fechas específicas)
-    if dias_semana_list and not fechas_especificas_list:
-        for dia_semana_buscado in dias_semana_list:
-            # Día de semana: generar todas las ocurrencias dentro del rango
-            fecha_actual = fecha_inicio
-            
-            # Avanzar hasta el primer día de la semana buscado
-            dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
-            if dias_hasta_proximo > 0:
-                fecha_actual += timedelta(days=dias_hasta_proximo)
-            
-            # Agregar todas las ocurrencias del día de semana dentro del rango
-            # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
-            while fecha_actual <= fecha_fin:
-                if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
-                    fechas_candidatas.add(fecha_actual)
-                fecha_actual += timedelta(days=7)  # Siguiente semana
-    
-    # Si no hay días seleccionados, usar rango completo (retrocompatibilidad)
-    if not dias_semana_list and not fechas_especificas_list:
-        # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
-        fecha_actual = fecha_inicio
-        while fecha_actual <= fecha_fin:
-            if fecha_actual.weekday() < 5:  # Solo lunes-viernes
-                fechas_candidatas.add(fecha_actual)
-            fecha_actual += timedelta(days=1)
-    
-    # Filtrar fechas inválidas (festivos, mantenimiento, descansos)
-    fechas_finales = []
-    for fecha_dia in sorted(list(fechas_candidatas)):
-        es_domingo = fecha_dia.weekday() == 6
-        es_festivo = _es_festivo(fecha_dia)
-        es_mantenimiento = _es_mantenimiento(fecha_dia)
-        es_temporada = _es_temporada(fecha_dia)
-        es_descanso_solicitante = _es_dia_descanso(solicitante, fecha_dia)
-        es_descanso_receptor = _es_dia_descanso(receptor, fecha_dia)
-        tipo_previo_solicitante = _tipo_cambio_previo(solicitante, fecha_dia)
-        tipo_previo_receptor = _tipo_cambio_previo(receptor, fecha_dia)
-
-        if (not es_domingo and
-            not es_festivo and
-            not es_mantenimiento and
-            not es_temporada and
-            not es_descanso_solicitante and
-            not es_descanso_receptor and
-            not tipo_previo_solicitante and
-            not tipo_previo_receptor and
-            not _dia_libre_por_solicitud(solicitante, fecha_dia) and
-            not _dia_libre_por_solicitud(receptor, fecha_dia)):
-            fechas_finales.append(fecha_dia)
-
-    return fechas_finales
+    fecha_inicio, fecha_fin = _rango_detalle(detalle)
+    aplicables, _ = evaluar_fechas_ct_permanente(
+        fecha_inicio, fecha_fin, solicitante, receptor,
+        dias_seleccionados_desde_detalle(detalle),
+    )
+    return aplicables
 
 
 def _es_festivo(fecha: date) -> bool:
@@ -351,137 +469,17 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
     receptor: Empleado
 ) -> Tuple[List[date], List[Dict[str, any]]]:
     """
-    Calcula las fechas aplicables y excluidas para un cambio permanente.
-    
-    Args:
-        detalle: Instancia de CambioPermanenteDetalle
-        solicitante: Empleado solicitante
-        receptor: Empleado receptor
-        
+    Fechas aplicables y excluidas de un cambio permanente (para el detalle y la vista previa).
+
+    Envoltorio sobre `evaluar_fechas_ct_permanente`; incluye los fines de semana del rango
+    entre las excluidas para que el usuario vea por qué no entran.
+
     Returns:
-        Tupla con:
-        - Lista de fechas aplicables (válidas)
-        - Lista de dicts con fechas excluidas: [{'fecha': date, 'razon': str}]
+        (fechas_aplicables, [{'fecha': date, 'razon': str}, ...])
     """
-    fecha_inicio = detalle.fecha_inicio
-    fecha_fin = detalle.fecha_fin
-    
-    if not fecha_fin:
-        # Si no hay fecha fin, usar fin de año
-        fecha_fin = date(fecha_inicio.year, 12, 31)
-    
-    fechas_candidatas = set()
-    
-    # Obtener días seleccionados
-    dias_seleccionados = detalle.dias.all()
-    
-    # Separar días de semana y fechas específicas
-    dias_semana_list = []
-    fechas_especificas_list = []
-    
-    for dia_seleccionado in dias_seleccionados:
-        if dia_seleccionado.tipo == 'dia_semana' and dia_seleccionado.dia_semana is not None:
-            dias_semana_list.append(dia_seleccionado.dia_semana)
-        elif dia_seleccionado.tipo == 'fecha_especifica' and dia_seleccionado.fecha_especifica:
-            fechas_especificas_list.append(dia_seleccionado.fecha_especifica)
-    
-    # Procesar fechas específicas primero (tienen prioridad)
-    if fechas_especificas_list:
-        for fecha_obj in fechas_especificas_list:
-            # Solo agregar si está dentro del rango y es lunes-viernes
-            if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
-                fechas_candidatas.add(fecha_obj)
-    
-    # Procesar días de semana (solo si no hay fechas específicas)
-    if dias_semana_list and not fechas_especificas_list:
-        for dia_semana_buscado in dias_semana_list:
-            # Día de semana: generar todas las ocurrencias dentro del rango
-            fecha_actual = fecha_inicio
-            
-            # Avanzar hasta el primer día de la semana buscado
-            dias_hasta_proximo = (dia_semana_buscado - fecha_actual.weekday()) % 7
-            if dias_hasta_proximo > 0:
-                fecha_actual += timedelta(days=dias_hasta_proximo)
-            
-            # Agregar todas las ocurrencias del día de semana dentro del rango
-            # IMPORTANTE: Solo agregar si es lunes-viernes (weekday 0-4)
-            while fecha_actual <= fecha_fin:
-                if fecha_actual.weekday() < 5:  # 0-4 = lunes-viernes
-                    fechas_candidatas.add(fecha_actual)
-                fecha_actual += timedelta(days=7)  # Siguiente semana
-    
-    # Si no hay días seleccionados, usar rango completo (retrocompatibilidad)
-    if not dias_semana_list and not fechas_especificas_list:
-        # IMPORTANTE: Solo lunes-viernes (excluir sábados y domingos)
-        fecha_actual = fecha_inicio
-        while fecha_actual <= fecha_fin:
-            if fecha_actual.weekday() < 5:  # Solo lunes-viernes
-                fechas_candidatas.add(fecha_actual)
-            fecha_actual += timedelta(days=1)
-
-    # Incluir fines de semana como "excluidos" (para transparencia en vista previa / detalle),
-    # sin alterar los aplicables (CT Permanente aplica solo lunes-viernes).
-    fecha_actual = fecha_inicio
-    while fecha_actual <= fecha_fin:
-        if fecha_actual.weekday() in (5, 6):  # 5=sábado, 6=domingo
-            fechas_candidatas.add(fecha_actual)
-        fecha_actual += timedelta(days=1)
-    
-    # Filtrar fechas y registrar exclusiones
-    fechas_aplicables = []
-    fechas_excluidas = []
-    
-    for fecha_dia in sorted(list(fechas_candidatas)):
-        razones_exclusion = []
-
-        # Verificar fin de semana (regla estructural de CT Permanente)
-        if fecha_dia.weekday() in (5, 6):
-            razones_exclusion.append('Fines de semana')
-        
-        # Verificar festivo
-        if _es_festivo(fecha_dia):
-            razones_exclusion.append('Festivo')
-        
-        # Verificar mantenimiento
-        if _es_mantenimiento(fecha_dia):
-            razones_exclusion.append('Mantenimiento')
-        
-        # Verificar temporada
-        if _es_temporada(fecha_dia):
-            razones_exclusion.append('Temporada')
-        
-        # Verificar día de descanso del solicitante
-        if _es_dia_descanso(solicitante, fecha_dia):
-            razones_exclusion.append('Descanso Solicitante')
-        
-        # Verificar día de descanso del receptor
-        if _es_dia_descanso(receptor, fecha_dia):
-            razones_exclusion.append('Descanso Receptor')
-
-        # Día LIBRE por otra solicitud aprobada (sin Turno) — refleja "Mis Turnos".
-        if _dia_libre_por_solicitud(solicitante, fecha_dia):
-            razones_exclusion.append('Día libre Solicitante')
-        if _dia_libre_por_solicitud(receptor, fecha_dia):
-            razones_exclusion.append('Día libre Receptor')
-
-        # Verificar día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
-        tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha_dia)
-        if tipo_previo_sol:
-            razones_exclusion.append(_razon_cambio_previo(tipo_previo_sol, True))
-        tipo_previo_rec = _tipo_cambio_previo(receptor, fecha_dia)
-        if tipo_previo_rec:
-            razones_exclusion.append(_razon_cambio_previo(tipo_previo_rec, False))
-
-        # Si hay razones de exclusión, agregar a excluidas
-        if razones_exclusion:
-            # Opción 2: una sola razón principal por fecha (sin razones compuestas)
-            razon = _razon_principal_ct_permanente(razones_exclusion)
-            fechas_excluidas.append({
-                'fecha': fecha_dia,
-                'razon': razon
-            })
-        else:
-            # Si no hay razones, es una fecha aplicable
-            fechas_aplicables.append(fecha_dia)
-    
-    return fechas_aplicables, fechas_excluidas
+    fecha_inicio, fecha_fin = _rango_detalle(detalle)
+    return evaluar_fechas_ct_permanente(
+        fecha_inicio, fecha_fin, solicitante, receptor,
+        dias_seleccionados_desde_detalle(detalle),
+        incluir_fines_semana=True,
+    )

@@ -5,8 +5,8 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitudes.css' %}">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/themes/material_blue.css">
+<link rel="stylesheet" href="{% static_v 'plugins/flatpickr/flatpickr.min.css' %}">
+<link rel="stylesheet" href="{% static_v 'plugins/flatpickr/themes/material_blue.css' %}">
 <link rel="stylesheet" href="{% static_v 'css/cambio-turno/dias_especiales_datepicker.css' %}">
 <link rel="stylesheet" href="{% static_v 'css/cambio-turno/solicitar_doblada_permanente.css' %}">
 {% endblock %}
@@ -105,8 +105,8 @@
 {% endblock %}
 
 {% block extra_js %}
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
-<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+<script src="{% static_v 'plugins/flatpickr/flatpickr.min.js' %}"></script>
+<script src="{% static_v 'plugins/flatpickr/l10n/es.js' %}"></script>
 <script src="{% static 'js/festivos_colombia.js' %}"></script>
 <script src="{% static 'js/cambio-turno/datepicker_festivos.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_doblada_permanente.js' %}"></script>

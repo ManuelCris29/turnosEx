@@ -15,6 +15,7 @@ from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from empleados.services.indicadores_service import IndicadoresService
 from core.dashboard.views import DashboardView
+from django.utils import timezone
 
 
 class IndicadoresConsistenciaTest(TestCase):
@@ -22,7 +23,7 @@ class IndicadoresConsistenciaTest(TestCase):
     def setUp(self):
         from django.core.cache import cache
         cache.clear()
-        self.anio = date.today().year
+        self.anio = timezone.localdate().year
         self.tipo = TipoSolicitudCambio.objects.create(
             nombre='CAMBIO TURNO', codigo_estrategia='CT', activo=True
         )

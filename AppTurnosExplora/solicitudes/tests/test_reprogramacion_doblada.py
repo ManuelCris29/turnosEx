@@ -15,6 +15,7 @@ from empleados.models import CompetenciaEmpleado
 from solicitudes.models import SolicitudCambio, DeudaCorporativa, ReprogramacionDiaDoblada
 from solicitudes.services.reprogramacion_doblada_service import ReprogramacionDobladaService as RS
 from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO
+from solicitudes.tests.test_d_fds import DFDSBaseTest, _findes_de_mes
 from turnos.models import Turno
 from turnos.services.turno_service import TurnoService as TS
 
@@ -131,7 +132,7 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
         self._asignar_jornada_base(self.receptor, am)
         CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
         CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
-        hoy = date.today()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         fi = date(anio, mes, 1)
         ff = date(anio, mes, calendar.monthrange(anio, mes)[1])
@@ -278,3 +279,178 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
         self.assertEqual(reprog.estado, 'cancelada')
         # El día original sigue anulado (no se restaura la doblada no cumplida).
         self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count(), 0)
+
+
+class ReprogramacionDFDSTest(DFDSBaseTest):
+    """
+    D FDS también se puede reprogramar. Lo que cambia respecto a una doblada entre semana es el
+    DÍA con el que se compensa: en finde la unidad es el día completo, así que la persona no
+    "agrega la jornada contraria" a un día que ya trabaja — trabaja un día de finde que tenía
+    libre. El compañero no entra: su descanso ya lo tuvo el día original.
+    """
+
+    def _aplicada(self):
+        sol, msg = self.strat.crear_solicitud(self._datos())
+        self.assertIsNotNone(sol, msg)
+        sol.estado = 'aprobada'
+        sol.fecha_resolucion = timezone.now()
+        sol.save()
+        sol = SolicitudCambio.objects.select_related(
+            'doblada', 'tipo_cambio', 'explorador_solicitante', 'explorador_receptor').get(id=sol.id)
+        ok, m = self.strat.aplicar_cambios(sol)
+        self.assertTrue(ok, m)
+        return sol
+
+    def _otro_dia_libre_mismo_tipo(self, referencia):
+        """Otro día del mes, mismo día de la semana, en el que el solicitante descansa."""
+        for f, _g in _findes_de_mes(referencia.year, referencia.month):
+            if (f.weekday() == referencia.weekday() and f != referencia
+                    and not TS.estado_dia(self.solicitante, f)['trabaja']
+                    and not TS.dia_comprometido_por_solicitud(self.solicitante, f)):
+                return f
+        return None
+
+    def test_una_d_fds_ofrece_dias_reprogramables(self):
+        """Antes devolvía lista vacía: D FDS no estaba contemplada y no se podía ni empezar."""
+        sol = self._aplicada()
+        partes = RS.participantes_y_dias(sol)
+        self.assertEqual(len(partes), 2, 'deben salir receptor y solicitante')
+        por_rol = {rol: (emp, fechas) for rol, emp, fechas in partes}
+        self.assertEqual(por_rol['receptor'][1], [self.ces], 'el receptor dobla en la cesión')
+        self.assertEqual(por_rol['solicitante'][1], [self.pago], 'el solicitante dobla en el pago')
+
+    def test_compensa_trabajando_otro_dia_de_finde(self):
+        sol = self._aplicada()
+        nueva = self._otro_dia_libre_mismo_tipo(self.pago)
+        if not nueva:
+            self.skipTest('El mes de prueba no ofrece otro día libre del mismo tipo')
+
+        reprog = RS.registrar_inasistencia(sol, self.solicitante, motivo='Incapacidad')
+        self.assertEqual(reprog.fecha_original, self.pago)
+        # El día no cumplido queda anulado (soft-delete), no borrado.
+        self.assertEqual(Turno.objects.filter(explorador=self.solicitante, fecha=self.pago).count(), 0)
+        self.assertTrue(Turno.all_objects.filter(
+            explorador=self.solicitante, fecha=self.pago, anulado=True).exists())
+
+        RS.programar(reprog, nueva)
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'pagada')
+        # Compensa con el DÍA COMPLETO del finde.
+        jornadas = sorted(t.jornada.nombre.upper() for t in
+                          Turno.objects.filter(explorador=self.solicitante, fecha=nueva)
+                          .select_related('jornada'))
+        self.assertEqual(jornadas, ['AM', 'PM'])
+        # En finde no se cobran los 30 min.
+        self.assertFalse(DeudaCorporativa.objects.filter(
+            explorador=self.solicitante, fecha_doblada=nueva).exists())
+        # Y el compañero no se ve afectado en ningún momento.
+        self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=nueva).count(), 0)
+
+    def test_el_dia_de_compensacion_debe_ser_de_finde(self):
+        sol = self._aplicada()
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+        lunes = self.pago
+        while lunes.weekday() != 0:
+            lunes += timedelta(days=1)
+        with self.assertRaises(ValueError) as cm:
+            RS.programar(reprog, lunes)
+        self.assertIn('sábado o un domingo', str(cm.exception))
+
+    def test_el_dia_de_compensacion_debe_ser_el_mismo_dia_de_la_semana(self):
+        """Es lo que mantiene intacta su cantidad de sábados y domingos del mes."""
+        sol = self._aplicada()
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+        opuesto = self.pago + timedelta(days=1 if self.pago.weekday() == 5 else -1)
+        with self.assertRaises(ValueError) as cm:
+            RS.programar(reprog, opuesto)
+        self.assertIn('también debe ser un', str(cm.exception))
+
+    def test_no_se_compensa_en_un_dia_que_la_persona_cedio(self):
+        """
+        Estar libre no basta. El día de cesión lo está cubriendo el compañero COMO EXTRA: si el
+        solicitante lo trabajara, quedarían dos personas en el turno y el favor se desperdiciaría.
+        """
+        sol = self._aplicada()
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+        self.assertFalse(TS.estado_dia(self.solicitante, self.ces)['trabaja'],
+                         'sanity: ese día lo tiene libre porque lo cedió')
+        with self.assertRaises(ValueError) as cm:
+            RS.programar(reprog, self.ces)
+        self.assertIn('ya se lo cedió', str(cm.exception))
+
+    def test_el_calendario_del_supervisor_ofrece_dias_de_finde(self):
+        """
+        Regresión: el calendario marcaba elegibles solo los días con jornada única (entre semana),
+        justo los que `programar` rechaza en una D FDS. Resultado: ningún día seleccionable y la
+        reprogramación quedaba atascada en 'pendiente' para siempre. Ahora calendario y servicio
+        comparten `validar_dia_pago`, así que lo que se pinta es exactamente lo que se acepta.
+        """
+        from django.test import Client
+        from django.urls import reverse
+        sol = self._aplicada()
+        nueva = self._otro_dia_libre_mismo_tipo(self.pago)
+        if not nueva:
+            self.skipTest('El mes de prueba no ofrece otro día libre del mismo tipo')
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+
+        self.u_rec.is_staff = True
+        self.u_rec.save(update_fields=['is_staff'])
+        c = Client()
+        c.force_login(self.u_rec)
+        r = c.get(reverse('solicitudes:reprog_programar', args=[reprog.id]),
+                  {'anio': nueva.year, 'mes': nueva.month})
+        self.assertEqual(r.status_code, 200)
+
+        elegibles = [d['fecha'] for d in r.context['dias'] if d['valido']]
+        self.assertTrue(elegibles, 'una D FDS debe ofrecer al menos un día de compensación')
+        self.assertIn(nueva, elegibles)
+        # Y solo días de fin de semana del mismo tipo que el no cumplido.
+        for f in elegibles:
+            self.assertEqual(f.weekday(), self.pago.weekday())
+
+        # El día ofrecido es aceptado por el POST real (calendario y servicio no divergen).
+        r = c.post(reverse('solicitudes:reprog_programar', args=[reprog.id]),
+                   {'fecha_nueva': nueva.isoformat()})
+        self.assertEqual(r.status_code, 302)
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'pagada')
+
+    def test_no_se_programa_un_dia_en_el_pasado(self):
+        """El calendario ya excluía el pasado, pero el POST lo aceptaba: turno y deuda retroactivos."""
+        sol = self._aplicada()
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+        ayer = timezone.localdate() - timedelta(days=1)
+        with self.assertRaises(ValueError) as cm:
+            RS.programar(reprog, ayer)
+        self.assertIn('pasado', str(cm.exception))
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'pendiente')
+
+    def test_mes_invalido_en_la_url_no_revienta(self):
+        """?mes=abc / ?mes=13 caían en 500; ahora vuelven al mes del día no cumplido."""
+        from django.test import Client
+        from django.urls import reverse
+        sol = self._aplicada()
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+        self.u_rec.is_staff = True
+        self.u_rec.save(update_fields=['is_staff'])
+        c = Client()
+        c.force_login(self.u_rec)
+        for params in ({'mes': 'abc'}, {'mes': '13'}, {'anio': '99999'}, {'mes': '0', 'anio': 'x'}):
+            r = c.get(reverse('solicitudes:reprog_programar', args=[reprog.id]), params)
+            self.assertEqual(r.status_code, 200, params)
+            self.assertEqual(r.context['mes'], reprog.fecha_original.month, params)
+
+    def test_cancelar_devuelve_el_dia_a_descanso(self):
+        """Sin jornada previa que restaurar: la persona simplemente vuelve a descansar."""
+        sol = self._aplicada()
+        nueva = self._otro_dia_libre_mismo_tipo(self.pago)
+        if not nueva:
+            self.skipTest('El mes de prueba no ofrece otro día libre del mismo tipo')
+        reprog = RS.registrar_inasistencia(sol, self.solicitante)
+        RS.programar(reprog, nueva)
+        RS.cancelar(reprog)
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'cancelada')
+        self.assertEqual(Turno.objects.filter(explorador=self.solicitante, fecha=nueva).count(), 0,
+                         'al cancelar no debe quedar ningún turno activo ese día')

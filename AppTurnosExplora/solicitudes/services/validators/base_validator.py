@@ -302,6 +302,95 @@ class BaseValidator:
             )
 
     @staticmethod
+    def validar_sin_pendiente_en_fechas(empleado: Empleado, fechas, es_receptor: bool = False):
+        """
+        Ninguna solicitud PENDIENTE del empleado puede tocar `fechas`, mirando las DOS fechas de
+        esa solicitud: su cesión (`fecha_cambio_turno`) y su pago (`doblada__fecha_pago`).
+
+        Los validadores por fecha única solo cruzaban `fecha_cambio_turno`, así que dos
+        pendientes con el mismo día de pago —o una que paga el día que otra cede— pasaban el
+        filtro y podían aprobarse en paralelo sobre el mismo día.
+
+        `es_receptor`: solo cambia la redacción del mensaje (compañero vs. tú).
+
+        Raises:
+            ValidationError: si alguna pendiente del empleado toca una de esas fechas.
+        """
+        from django.db import models as db_models
+        from solicitudes.models import SolicitudCambio
+
+        fechas = [DateUtils.parse_date(f) if isinstance(f, str) else f for f in (fechas or []) if f]
+        if not fechas:
+            return
+
+        conflicto = (SolicitudCambio.objects
+                     .filter(db_models.Q(explorador_solicitante=empleado)
+                             | db_models.Q(explorador_receptor=empleado))
+                     .filter(estado='pendiente')
+                     .filter(db_models.Q(fecha_cambio_turno__in=fechas)
+                             | db_models.Q(doblada__fecha_pago__in=fechas))
+                     .order_by('fecha_cambio_turno')
+                     .first())
+        if not conflicto:
+            return
+
+        det = getattr(conflicto, 'doblada', None)
+        fecha_choque = next(
+            (f for f in fechas
+             if f == conflicto.fecha_cambio_turno or (det and f == det.fecha_pago)),
+            conflicto.fecha_cambio_turno,
+        )
+        dia = fecha_choque.strftime('%d/%m/%Y')
+        if es_receptor:
+            raise ValidationError(
+                f'El compañero ya tiene una solicitud pendiente que afecta el {dia}. '
+                'Debe esperar a que sea aprobada o cancelada antes de enviar una nueva '
+                'que use ese día.'
+            )
+        raise ValidationError(
+            f'Ya tienes una solicitud pendiente que afecta el {dia} (como cesión o como pago). '
+            'Debes esperar a que sea aprobada o cancelada antes de enviar otra que use ese día.'
+        )
+
+    @staticmethod
+    def validar_solicitante_sin_solicitud_pendiente_en_fechas(solicitante: Empleado, fechas):
+        """
+        Variante de `validar_solicitante_sin_solicitud_pendiente_en_fecha` para solicitudes que
+        abarcan VARIOS días (CT permanente, doblada permanente): ninguna solicitud pendiente del
+        solicitante puede caer en uno de los días que el cambio va a tocar.
+
+        Antes estas solicitudes solo comprobaban `fecha_inicio`, así que una pendiente sobre
+        cualquier otro día afectado pasaba desapercibida y podía aprobarse en paralelo,
+        chocando con el permanente sobre el mismo día.
+
+        Se comprueban SOLO los días candidatos (no todo el rango): una pendiente en un día que
+        el cambio ni siquiera toca no debe bloquear nada.
+
+        Raises:
+            ValidationError: Si el solicitante ya tiene una solicitud pendiente en alguno de esos días
+        """
+        from django.db import models as db_models
+        from solicitudes.models import SolicitudCambio
+
+        fechas = [f for f in (fechas or []) if f]
+        if not fechas:
+            return
+
+        conflicto = SolicitudCambio.objects.filter(
+            db_models.Q(explorador_solicitante=solicitante) | db_models.Q(explorador_receptor=solicitante),
+            estado='pendiente',
+            fecha_cambio_turno__in=fechas,
+        ).order_by('fecha_cambio_turno').first()
+
+        if conflicto:
+            raise ValidationError(
+                f'Ya tienes una solicitud pendiente para el '
+                f'{conflicto.fecha_cambio_turno.strftime("%d/%m/%Y")}, uno de los días que este '
+                'cambio permanente afectaría. Debes esperar a que sea aprobada o cancelada '
+                'antes de enviar esta solicitud.'
+            )
+
+    @staticmethod
     def es_dia_temporada(fecha) -> bool:
         """
         Helper: verifica si una fecha es día de temporada activo.

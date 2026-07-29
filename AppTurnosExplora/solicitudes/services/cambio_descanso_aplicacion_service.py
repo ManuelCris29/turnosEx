@@ -54,6 +54,25 @@ def _otro_dia(fecha: date) -> date:
 class CambioDescansoAplicacionService:
 
     @staticmethod
+    def fechas_afectadas(solicitud):
+        """
+        Todas las fechas que esta solicitud modifica — la base para invalidar caché.
+
+        En finde no basta con cesión y pago: el intercambio también reescribe el día OPUESTO de
+        cada finde (sáb↔dom). Ese día puede caer en OTRO MES (cesión el sábado 31 de enero →
+        opuesto el 1 de febrero), y la caché de ese mes quedaba sin invalidar.
+        """
+        detalle = getattr(solicitud, 'doblada', None)
+        fechas = [f for f in (_as_date(solicitud.fecha_cambio_turno),
+                              _as_date(detalle.fecha_pago) if detalle else None) if f]
+        opuestas = [_otro_dia(f) for f in fechas if f.weekday() in (5, 6)]
+        out = []
+        for f in fechas + opuestas:
+            if f not in out:
+                out.append(f)
+        return out
+
+    @staticmethod
     def _jornadas():
         from turnos.models import Jornada
         return {'AM': Jornada.objects.get(nombre='AM'), 'PM': Jornada.objects.get(nombre='PM')}
@@ -257,6 +276,13 @@ class CambioDescansoAplicacionService:
 
         Se llama antes de _trabaja_dia() para registrar el reemplazo en el historial antes
         de que el turno sea borrado.
+
+        SOLO FIN DE SEMANA, a propósito: la búsqueda de la solicitud dueña del turno se apoya en
+        `_otro_dia()` (sáb↔dom), que no tiene equivalente entre semana. Las rutas de temporada
+        resuelven el mismo principio ("última aprobada gana por día") por el otro lado: en vez de
+        reemplazar la solicitud previa, la VALIDACIÓN impide crear la nueva mientras el día siga
+        comprometido (`dia_comprometido_por_solicitud` / `estado_dia(...)['trabaja']`). Por eso
+        aplicar_entre_semana y las sub-modalidades no llaman aquí: no es un olvido.
         """
         if not Turno.objects.filter(
             explorador=explorador, fecha=fecha, tipo_cambio='CAMBIO DESCANSO'
@@ -414,7 +440,7 @@ class CambioDescansoAplicacionService:
         if not base:
             return set()
         if fecha.weekday() >= 5:
-            g = AsignacionEspecialService.grupo_trabaja_efectivo(fecha)
+            g = AsignacionEspecialService.grupo_trabaja(fecha)
             return {'AM', 'PM'} if (g and base == g.upper()) else set()
         if DescansoSemanaService.es_descanso_semana_manual(base, fecha):
             return set()

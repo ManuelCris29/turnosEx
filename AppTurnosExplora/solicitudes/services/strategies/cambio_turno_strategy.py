@@ -7,12 +7,14 @@ migrating the current SolicitudService functionality to the new architecture.
 
 import logging
 from typing import Dict, Any, Tuple, Optional
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 from solicitudes.models import SolicitudCambio
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service, get_turno_service
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +56,8 @@ class CambioTurnoStrategy(SolicitudStrategy):
         """
         try:
             # Import here to avoid circular imports
-            from django.core.exceptions import ValidationError
             from ..solicitud_validator import SolicitudValidator
-            
+
             explorador_solicitante = datos.get('explorador_solicitante')
             explorador_receptor = datos.get('explorador_receptor')
             fecha = datos.get('fecha_cambio_turno')
@@ -65,11 +66,20 @@ class CambioTurnoStrategy(SolicitudStrategy):
             if not all([explorador_solicitante, explorador_receptor, fecha]):
                 return False, "Faltan datos requeridos para la validación"
 
-            # Caso A: Validar que la fecha no sea pasada
-            from datetime import date as _date, datetime as _datetime
+            # Caso A: el cambio se pide a partir de MAÑANA. El día en curso ya se está
+            # trabajando (la jornada AM puede haber empezado), así que no hay nada que
+            # intercambiar sin reescribir un turno que la persona ya está cubriendo.
+            # Al RE-VALIDAR para aprobar solo se exige que no sea pasada: una solicitud
+            # enviada ayer para hoy sigue siendo aprobable — el supervisor decide.
             _fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
-            if _fecha_obj < _date.today():
+            _hoy = timezone.localdate()
+            if _fecha_obj < _hoy:
                 return False, "No se puede solicitar un cambio de turno para una fecha pasada."
+            if _fecha_obj == _hoy and not datos.get('es_revalidacion'):
+                return False, (
+                    "No se puede solicitar un cambio de turno para hoy: el día ya está en curso. "
+                    "Elige a partir de mañana."
+                )
 
             # Validaciones básicas
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
@@ -217,36 +227,15 @@ class CambioTurnoStrategy(SolicitudStrategy):
             # para mostrar solo exploradores que tienen jornada en esa fecha (incluyendo festivos).
             # La validación de existencia de jornada se realiza centralizadamente en las líneas 64-67.
 
-            # Caso B: Verificar límite de cambios aprobados al CREAR (no solo al aprobar).
-            # Evita que se creen solicitudes que el supervisor no podrá aprobar por límite alcanzado.
-            LIMITE_CAMBIOS_POR_FECHA = 3
-            from ..solicitud_consulta_service import SolicitudConsultaService
-            from datetime import datetime as _dt_b
-            _fecha_b = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
-
-            cambios_solicitante = SolicitudConsultaService.contar_cambios_explorador_fecha(
-                explorador_solicitante.id, _fecha_b
-            )
-            if cambios_solicitante >= LIMITE_CAMBIOS_POR_FECHA:
-                return False, (
-                    f'No puedes crear esta solicitud. Ya tienes {cambios_solicitante} cambio(s) de turno '
-                    f'aprobado(s) para el {_fecha_b.strftime("%d/%m/%Y")}. '
-                    f'El límite máximo es {LIMITE_CAMBIOS_POR_FECHA} cambio(s) por fecha.'
-                )
-
-            cambios_receptor = SolicitudConsultaService.contar_cambios_explorador_fecha(
-                explorador_receptor.id, _fecha_b
-            )
-            if cambios_receptor >= LIMITE_CAMBIOS_POR_FECHA:
-                return False, (
-                    f'No se puede crear esta solicitud. El compañero seleccionado ya tiene '
-                    f'{cambios_receptor} cambio(s) de turno aprobado(s) para el {_fecha_b.strftime("%d/%m/%Y")}. '
-                    f'El límite máximo es {LIMITE_CAMBIOS_POR_FECHA} cambio(s) por fecha.'
-                )
+            # NOTA: no hay tope de cambios de turno por fecha. Lo que un explorador puede o no
+            # hacer ese día ya lo gobiernan las reglas de estado real (trabaja, no está doblado,
+            # el día no está comprometido por otra solicitud aprobada) y la última aprobada gana.
+            # Un contador adicional solo bloqueaba cambios legítimos.
 
             return True, "Solicitud válida"
-            
-        except Exception as e:
+
+        except ValidationError as e:
+            # Rechazo de negocio: el mensaje es para el explorador.
             return False, str(e)
     
     def crear_solicitud(self, datos: Dict[str, Any]) -> Tuple[Optional[SolicitudCambio], str]:
@@ -411,60 +400,6 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     solicitud.snapshot_turnos_previos = _snap
                     solicitud.save(update_fields=['snapshot_turnos_previos'])
 
-                # FASE 2.3: VALIDACIÓN DE LÍMITE DE CAMBIOS - Verificar límite antes de aplicar cambios
-                # Límite máximo de cambios por explorador/fecha (configurable, por defecto 2)
-                LIMITE_CAMBIOS_POR_FECHA = 3
-                
-                # Verificar límite para el solicitante
-                from ..solicitud_consulta_service import SolicitudConsultaService
-                cambios_solicitante = SolicitudConsultaService.contar_cambios_explorador_fecha(
-                    solicitud.explorador_solicitante.id,
-                    fecha_cambio
-                )
-                
-                if cambios_solicitante >= LIMITE_CAMBIOS_POR_FECHA:
-                    error_msg = (
-                        f"Se ha alcanzado el límite de cambios para esta fecha. "
-                        f"El explorador {solicitud.explorador_solicitante.nombre} ya tiene "
-                        f"{cambios_solicitante} cambio(s) aprobado(s) para el {fecha_cambio.strftime('%d/%m/%Y')}. "
-                        f"Límite máximo: {LIMITE_CAMBIOS_POR_FECHA} cambio(s) por fecha."
-                    )
-                    logger.warning(
-                        "FASE 2.3: Límite de cambios excedido - Solicitante ID: %d, Fecha: %s, Cambios: %d",
-                        solicitud.explorador_solicitante.id,
-                        fecha_cambio,
-                        cambios_solicitante
-                    )
-                    return False, error_msg
-                
-                # Verificar límite para el receptor
-                cambios_receptor = SolicitudConsultaService.contar_cambios_explorador_fecha(
-                    solicitud.explorador_receptor.id,
-                    fecha_cambio
-                )
-                
-                if cambios_receptor >= LIMITE_CAMBIOS_POR_FECHA:
-                    error_msg = (
-                        f"Se ha alcanzado el límite de cambios para esta fecha. "
-                        f"El explorador {solicitud.explorador_receptor.nombre} ya tiene "
-                        f"{cambios_receptor} cambio(s) aprobado(s) para el {fecha_cambio.strftime('%d/%m/%Y')}. "
-                        f"Límite máximo: {LIMITE_CAMBIOS_POR_FECHA} cambio(s) por fecha."
-                    )
-                    logger.warning(
-                        "FASE 2.3: Límite de cambios excedido - Receptor ID: %d, Fecha: %s, Cambios: %d",
-                        solicitud.explorador_receptor.id,
-                        fecha_cambio,
-                        cambios_receptor
-                    )
-                    return False, error_msg
-                
-                logger.info(
-                    "FASE 2.3: Validación de límite exitosa - Solicitante: %d cambios, Receptor: %d cambios, Fecha: %s",
-                    cambios_solicitante,
-                    cambios_receptor,
-                    fecha_cambio
-                )
-                
                 # 1. Obtener jornadas actuales de ambos empleados para esa fecha
                 from turnos.services.jornada_service import JornadaService
                 jornada_solicitante = JornadaService.get_jornada_explorador_fecha(
@@ -479,14 +414,17 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 if not jornada_solicitante or not jornada_receptor:
                     return False, "No se pudieron obtener las jornadas de los empleados"
                 
-                # 2. Obtener salas de ambos empleados
-                turno_service = get_turno_service()
-                salas_solicitante = turno_service.get_salas_explorador(solicitud.explorador_solicitante.id)
-                salas_receptor = turno_service.get_salas_explorador(solicitud.explorador_receptor.id)
-                
-                if not salas_solicitante.exists() or not salas_receptor.exists():
-                    return False, "No se pudieron obtener las salas de los empleados"
-                
+                # 2. Sala de cada uno. El CT intercambia la JORNADA, no la sala: la sala es
+                # informativa (dice en qué es experto el explorador) y no cambia porque se
+                # intercambie un turno. Cada uno conserva la suya, igual que en las dobladas.
+                # Se calcula ANTES de borrar los turnos, porque `obtener_sala_explorador_fecha`
+                # prioriza la sala del turno que ya existe ese día.
+                from turnos.services.doblada_turno_service import DobladaTurnoService
+                sala_solicitante = DobladaTurnoService.obtener_sala_explorador_fecha(
+                    solicitud.explorador_solicitante, fecha_cambio)
+                sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(
+                    solicitud.explorador_receptor, fecha_cambio)
+
                 # FASE 2.1: CAMBIO SOBRE CAMBIO
                 # 3. Capturar trazabilidad ANTES de borrar, luego delete+create limpio
                 turno_solicitante_existente = Turno.objects.filter(
@@ -530,7 +468,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     explorador=solicitud.explorador_solicitante,
                     fecha=fecha_cambio,
                     jornada=jornada_receptor,
-                    sala=salas_receptor.first().sala,
+                    sala=sala_solicitante,
                     tipo_cambio='CT'
                 )
                 logger.info(
@@ -575,7 +513,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     explorador=solicitud.explorador_receptor,
                     fecha=fecha_cambio,
                     jornada=jornada_solicitante,
-                    sala=salas_solicitante.first().sala,
+                    sala=sala_receptor,
                     tipo_cambio='CT'
                 )
                 logger.info(

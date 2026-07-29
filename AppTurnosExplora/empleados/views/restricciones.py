@@ -46,7 +46,7 @@ class RestriccionListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         queryset = self._base_queryset()
         user = self.request.user
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
 
         # Calcular totales usando el queryset base
         # Activa: fecha_fin es NULL o fecha_fin >= hoy
@@ -167,7 +167,7 @@ class RestriccionVisualizarListView(LoginRequiredMixin, ListView):
         from django.utils import timezone
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
 
         qs = self.get_queryset()
         total_activos = qs.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()

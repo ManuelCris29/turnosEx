@@ -5,8 +5,10 @@
 > **Estado actual:** todas las librerías ya están descargadas localmente y con versión
 > verificada (ver §1). Este manual solo cubre **editar las plantillas** y los pasos finales.
 >
-> ⚠️ **Cuándo hacerlo:** en la preparación para **producción**, no ahora. Cambia
-> comportamiento (fuente de los scripts) y hay que probar cada página.
+> ## ✅ EJECUTADO EL 2026-07-28
+> Todas las ediciones de §2 están aplicadas, **salvo Font Awesome** (§2.1), que se
+> mantuvo en CDN a propósito. Dos pasos salieron distintos a lo escrito aquí: §2.1 y
+> §2.4 — se corrigieron abajo con el motivo. Este manual queda como registro.
 
 ---
 
@@ -35,7 +37,14 @@ Todas las plantillas afectadas ya tienen `{% load static static_version %}`, as�
 
 ### 2.1 `templates/turnos/mis_turnos.html` — Font Awesome (ELIMINAR) y FullCalendar
 
-**Font Awesome (línea ~9): eliminar la línea completa.**
+**Font Awesome (línea ~9): ⛔ NO SE ELIMINÓ — el análisis de abajo era incorrecto.**
+La copia local es Font Awesome **5.15.4** y el CDN sirve la **6.4.0**: son majors
+distintos, así que la línea del CDN **no es redundante**, es una actualización
+deliberada para esa página. Eliminarla degradaría los iconos a FA5 y algunos podrían
+quedar en blanco. Para cerrarlo hay que **actualizar la copia local a 6.x** y entonces
+sí quitar la línea. Texto original conservado abajo como referencia del razonamiento:
+
+~~eliminar la línea completa.~~
 `base.html` (línea 16) ya carga Font Awesome local en **todas** las páginas
 (`/static/plugins/fontawesome-free/css/all.min.css`). Esta línea del CDN es **redundante**
 (carga FA dos veces). Se elimina:
@@ -90,14 +99,21 @@ Aplica esto en:
 <script src="{% static_v 'plugins/flatpickr/l10n/es.js' %}"></script>
 ```
 
-### 2.4 `templates/solicitudes/mis_solicitudes_list.html` — SweetAlert2
+### 2.4 `templates/solicitudes/mis_solicitudes_list.html` — SweetAlert2 (ELIMINAR)
+
+⚠️ **Corregido respecto al plan original.** No hay que apuntar a un archivo local: hay
+que **borrar la línea**. `base.html` (línea 292) ya carga la copia local de SweetAlert2
+en **todas** las páginas, y `{% block extra_js %}` va después (línea 297) — así que esta
+línea cargaba una **segunda** copia (v11.26.25) que pisaba a la local (v11.4.0). Era una
+doble carga, no un tema de CDN.
 
 ```html
-<!-- ANTES -->
+<!-- ELIMINAR esta línea; base.html ya provee Swal -->
 <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-<!-- DESPUÉS -->
-<script src="{% static_v 'plugins/sweetalert2/sweetalert2.all.min.js' %}"></script>
 ```
+
+Comprobado antes de borrarla: los usos del proyecto son `Swal.fire` con `icon`,
+`showCancelButton` y `toast`, todos disponibles desde v9 → la v11.4.0 los cubre.
 
 ### 2.5 `templates/empleados/indicadores.html` — Chart.js
 
@@ -117,10 +133,18 @@ Aplica esto en:
 python manage.py collectstatic --noinput
 ```
 
-### 3.2 Limpiar la CSP (`config/settings.py`)
-Cuando **ninguna** plantilla cargue desde CDN, quita de la allowlist CSP los hosts que ya
-no se usan: `cdn.jsdelivr.net` y `cdnjs.cloudflare.com`.
-(No quites `fonts.googleapis.com` todavía si no migraste Google Fonts — ver §6 del otro manual.)
+### 3.2 Limpiar la CSP (`config/settings.py`) — HECHO en modo report-only
+`cdn.jsdelivr.net` ya no lo usa nadie, así que se eliminó de la política estricta, junto
+con `code.ionicframework.com` (que no se usaba en ninguna plantilla).
+
+`cdnjs.cloudflare.com` **también se quitó**: tras unificar Font Awesome en la copia local
+5.15.4 (ver §2.1) ya no lo usa ninguna plantilla. Solo se conservan `fonts.googleapis.com`
+y `fonts.gstatic.com`.
+
+La política estricta se publicó como `CONTENT_SECURITY_POLICY_REPORT_ONLY`: **reporta sin
+bloquear**. Una CSP demasiado estricta rompe en silencio (200 OK, logs limpios, la página
+carga a medias y solo la consola lo delata), así que se observa primero y se promueve
+después. Ver §5 de `docs/04-guias/manual-cdn-a-estaticos-locales.md`.
 
 ### 3.3 Probar cada página (consola F12, sin 404 ni bloqueos CSP)
 - **mis_turnos.html** → el calendario carga; iconos FA visibles

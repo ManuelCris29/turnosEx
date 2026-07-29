@@ -1,13 +1,18 @@
 """
 D FDS Strategy - Doblada de Fin de Semana
 
-Implementa la lógica de "D FDS": un explorador cede SU día de fin de semana
-(sábado o domingo, según alternancia) a un compañero del grupo contrario, que se
-dobla ese finde (trabaja su día + el día cedido). El solicitante devuelve el favor
-doblándose un finde futuro del mismo mes (fecha de pago).
+Implementa la lógica de "D FDS": un explorador cede un día de fin de semana que trabaja
+(sábado o domingo) a un compañero que ESE día descansa, y que pasa a trabajarlo completo
+(AM+PM). El solicitante devuelve el favor cubriendo al compañero en otro fin de semana del
+mismo mes y del mismo día de la semana (fecha de pago).
+
+La elegibilidad se decide por el ESTADO REAL de cada día (`TurnoService.estado_dia`, las
+mismas capas que Mis Turnos), no por el grupo AM/PM ni por la alternancia teórica: en la
+operación conviven quienes trabajan los dos días del finde, quienes descansan los dos y
+quienes tienen media jornada por un cambio previo.
 
 Reutiliza:
-- AlternanciaFinesSemanaService: qué grupo trabaja cada día del finde.
+- TurnoService.estado_dia: fuente de verdad del estado de cada día.
 - SolicitudValidator.validar_fecha_pago_mismo_mes_cesion: pago en el mismo mes.
 - DobladaDetalle: modelo de detalle (fecha_pago, minutos_deuda).
 - DFDSAplicacionService: aplicación de turnos y deudas al aprobar.
@@ -15,6 +20,7 @@ Reutiliza:
 
 from typing import Dict, Any, Tuple, Optional
 from datetime import datetime
+import logging
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -22,9 +28,8 @@ from django.db import transaction
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-from turnos.services.jornada_service import JornadaService
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 
 class DFDSStrategy(SolicitudStrategy):
@@ -45,21 +50,18 @@ class DFDSStrategy(SolicitudStrategy):
                 return None
         return fecha
 
-    @staticmethod
-    def _grupo_base(explorador: Empleado, fecha) -> Optional[str]:
-        """
-        Jornada BASE (grupo AM/PM) del explorador según su ASIGNACIÓN, no según el Turno del
-        día. En fin de semana quien trabaja lo hace AM+PM, así que mirar el Turno del día da
-        un grupo equivocado: hay que usar la asignación base (AsignarJornadaExplorador).
-        """
-        from turnos.models import AsignarJornadaExplorador
-        asg = (AsignarJornadaExplorador.objects
-               .filter(explorador=explorador, fecha_inicio__lte=fecha)
-               .select_related('jornada').order_by('-fecha_inicio').first())
-        return asg.jornada.nombre.upper() if asg else None
+    # NOTA: aquí vivían `_grupo_base` y `_grupo_efectivo` (grupo AM/PM del explorador). La
+    # elegibilidad ya no se decide por grupo sino por el ESTADO REAL de cada día (`estado_dia`),
+    # así que dejaron de usarse. La jornada base solo se sigue consultando para etiquetar la
+    # deuda, y eso lo hace `JornadaService` desde el servicio de aplicación.
 
     def _datos_desde_solicitud(self, solicitud):
-        """Reconstruye los datos para re-validar al aprobar (ver base)."""
+        """
+        Reconstruye los datos para re-validar al aprobar (ver base).
+
+        `solicitud_actual_id` —para que los chequeos de compromiso previo no se detecten a SÍ
+        MISMOS al re-validar— lo añade `revalidar_para_aprobar` en la clase base.
+        """
         det = getattr(solicitud, 'doblada', None)
         return {
             'explorador_solicitante': solicitud.explorador_solicitante,
@@ -103,9 +105,15 @@ class DFDSStrategy(SolicitudStrategy):
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de D FDS')
 
             # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
+            # Se comprueban las DOS fechas (cesión y pago) y contra las dos fechas de las otras
+            # solicitudes (su cesión y su pago): antes solo se cruzaba `fecha_cambio_turno`, así que
+            # dos pendientes que apuntaban al mismo día de pago —o una D FDS que pagaba el día que
+            # otra pendiente cede— convivían y se aprobaban en paralelo.
             if not datos.get('es_revalidacion'):
-                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
-                SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
+                SolicitudValidator.validar_sin_pendiente_en_fechas(
+                    solicitante, [fecha_cesion, fecha_pago])
+                SolicitudValidator.validar_sin_pendiente_en_fechas(
+                    receptor, [fecha_cesion, fecha_pago], es_receptor=True)
 
             # 3. Ambas fechas deben ser fin de semana (sáb/dom)
             if fecha_cesion.weekday() not in (5, 6):
@@ -115,9 +123,15 @@ class DFDSStrategy(SolicitudStrategy):
 
             # 4. Fechas no pasadas / coherencia
             from django.utils import timezone
-            hoy = timezone.now().date()
-            if fecha_cesion < hoy:
-                return False, "No se puede solicitar D FDS para un fin de semana pasado"
+            hoy = timezone.localdate()
+            # Al CREAR, la cesión tampoco puede ser HOY: el día ya está en curso (mismo criterio
+            # que la fecha de pago). Al re-validar para APROBAR solo se exige que no sea pasada,
+            # para no bloquear al supervisor que aprueba el mismo día del finde.
+            if fecha_cesion < hoy or (fecha_cesion == hoy and not datos.get('es_revalidacion')):
+                return False, (
+                    "La fecha de cesión debe ser posterior a hoy: no se puede ceder un fin de "
+                    "semana pasado ni el día en curso."
+                )
             if fecha_pago <= hoy:
                 return False, "La fecha de pago debe ser posterior a hoy"
             if fecha_pago == fecha_cesion:
@@ -140,112 +154,112 @@ class DFDSStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_dia_mantenimiento(fecha_cesion.strftime('%Y-%m-%d'))
             SolicitudValidator.validar_no_dia_mantenimiento(fecha_pago.strftime('%Y-%m-%d'))
 
-            # 7. Grupos: solicitante y receptor deben ser de grupos contrarios
-            grupo_sol = self._grupo_base(solicitante, fecha_cesion)
-            grupo_rec = self._grupo_base(receptor, fecha_cesion)
-            if not grupo_sol or not grupo_rec:
-                return False, "No se pudo determinar la jornada base de los exploradores"
-            if grupo_sol == grupo_rec:
-                return False, (
-                    "El compañero debe ser del grupo contrario (el que trabaja el otro día del "
-                    "fin de semana). No puedes doblarte con alguien de tu mismo grupo."
-                )
-
-            # 8. Al solicitante le corresponde trabajar SU día en la fecha de cesión.
-            # Si ya tiene un Turno real (fuente='turno') por un cambio de descanso previo,
-            # ese Turno es la fuente de verdad y omitimos la comparación de alternancia.
+            # 7-9. ELEGIBILIDAD POR ESTADO REAL DEL DÍA (fuente única `estado_dia`, las mismas
+            #      capas que Mis Turnos), NO por grupo AM/PM ni por alternancia teórica.
+            #
+            #      La operación real no encaja en el molde "un grupo trabaja el sábado y el otro
+            #      el domingo": hay quien trabaja los DOS días (el suyo más uno que cubre por un
+            #      favor), quien descansa los dos, y quien tiene media jornada por un cambio
+            #      previo. Con el criterio de grupos, quien trabajaba ambos días no podía ceder
+            #      ninguno, y un compañero libre del MISMO grupo —justo a quien se le puede
+            #      ceder— se rechazaba.
+            #
+            #      Reglas: se cede un día que se trabaja COMPLETO y que el compañero tiene libre;
+            #      se paga un día que el compañero trabaja COMPLETO y que uno tiene libre.
             from turnos.services.turno_service import TurnoService
-            est_sol_ces_pre = TurnoService.estado_dia(solicitante, fecha_cesion)
-            sol_trabaja_ces_por_turno = (
-                est_sol_ces_pre.get('trabaja') and est_sol_ces_pre.get('fuente') == 'turno'
-            )
-            # Si el Turno real es de MEDIA jornada (solo AM o solo PM, por un cambio previo),
-            # no tiene el día completo del finde para ceder: un finde normal es DOBLADA (AM+PM).
-            if sol_trabaja_ces_por_turno and est_sol_ces_pre.get('jornada') != 'DOBLADA':
-                return False, (
-                    f"El {fecha_cesion.strftime('%d/%m/%Y')} solo tienes media jornada "
-                    f"({est_sol_ces_pre.get('jornada') or 'parcial'}) por un cambio previo; "
-                    "no tienes el día completo del fin de semana para ceder en D FDS."
-                )
-            from turnos.services.asignacion_especial_service import AsignacionEspecialService
-            if not sol_trabaja_ces_por_turno:
-                # Alternancia EFECTIVA: respeta el override manual del finde si existe.
-                trabaja_cesion = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_cesion)
-                if not trabaja_cesion:
-                    return False, "No se pudo determinar la alternancia del fin de semana de cesión"
-                if grupo_sol != trabaja_cesion:
-                    return False, (
-                        f"Ese día ({fecha_cesion.strftime('%d/%m/%Y')}) no te corresponde trabajar por "
-                        f"alternancia (trabaja el grupo {trabaja_cesion}); no tienes un día que ceder. "
-                        "Elige el fin de semana en el que sí trabajas."
-                    )
 
-            # 9. En la fecha de pago, el día a cubrir debe ser el del RECEPTOR.
-            # Si el receptor ya tiene un Turno real (fuente='turno') ese día (por cambio de descanso),
-            # ese Turno es la fuente de verdad y omitimos la comparación de alternancia.
-            est_rec_pago_pre = TurnoService.estado_dia(receptor, fecha_pago)
-            rec_trabaja_pago_por_turno = (
-                est_rec_pago_pre.get('trabaja') and est_rec_pago_pre.get('fuente') == 'turno'
-            )
-            # Mismo criterio: si el receptor solo tiene media jornada real ese día de pago,
-            # no puede recibir la doblada (no hay día completo que "devolver").
-            if rec_trabaja_pago_por_turno and est_rec_pago_pre.get('jornada') != 'DOBLADA':
+            est_sol_ces = TurnoService.estado_dia(solicitante, fecha_cesion)
+            est_rec_ces = TurnoService.estado_dia(receptor, fecha_cesion)
+            f_ces = fecha_cesion.strftime('%d/%m/%Y')
+            f_pago = fecha_pago.strftime('%d/%m/%Y')
+
+            # 7. Cesión: hay que trabajar ese día, y a jornada completa.
+            if not est_sol_ces['trabaja']:
+                motivo = est_sol_ces.get('motivo') or 'descansas ese día'
+                return False, f"No tienes un turno que ceder el {f_ces} ({motivo})."
+            if est_sol_ces.get('jornada') != 'DOBLADA':
                 return False, (
-                    f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) tu compañero solo tiene "
-                    f"media jornada ({est_rec_pago_pre.get('jornada') or 'parcial'}) por un cambio previo; "
+                    f"El {f_ces} solo tienes media jornada ({est_sol_ces.get('jornada') or 'parcial'}) "
+                    "por un cambio previo; no tienes el día completo del fin de semana para ceder."
+                )
+
+            # 8. Cesión: el compañero debe tener ese día LIBRE para poder tomarlo.
+            if est_rec_ces['trabaja']:
+                return False, (
+                    f"Tu compañero ya trabaja el {f_ces}; no tiene ese día libre para cubrirte. "
+                    "Elige a alguien que descanse ese día."
+                )
+
+            # 9. Pago: el compañero trabaja ese día COMPLETO (es el día que se le cubre) y el
+            #    solicitante lo tiene LIBRE (si ya trabajara, no podría doblarse encima).
+            est_rec_pago = TurnoService.estado_dia(receptor, fecha_pago)
+            est_sol_pago = TurnoService.estado_dia(solicitante, fecha_pago)
+
+            if not est_rec_pago['trabaja']:
+                motivo = est_rec_pago.get('motivo') or 'descansa ese día'
+                return False, (
+                    f"Tu compañero no trabaja el {f_pago} ({motivo}); no hay día que cubrir."
+                )
+            if est_rec_pago.get('jornada') != 'DOBLADA':
+                return False, (
+                    f"En la fecha de pago ({f_pago}) tu compañero solo tiene media jornada "
+                    f"({est_rec_pago.get('jornada') or 'parcial'}) por un cambio previo; "
                     "no hay día completo del fin de semana para cubrir."
                 )
-            if not rec_trabaja_pago_por_turno:
-                trabaja_pago = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_pago)
-                if not trabaja_pago:
-                    return False, "No se pudo determinar la alternancia del fin de semana de pago"
-                if grupo_rec != trabaja_pago:
-                    return False, (
-                        f"En la fecha de pago ({fecha_pago.strftime('%d/%m/%Y')}) debes cubrir el día "
-                        f"que trabaja tu compañero (grupo {grupo_rec}). Ese día por alternancia trabaja "
-                        f"el grupo {trabaja_pago}; elige el día del fin de semana que le corresponde a tu compañero."
-                    )
-
-            # 9b. FUENTE DE VERDAD ÚNICA (estado_dia): valida con TODAS las capas
-            #     (Turno real → día ya comprometido por otra solicitud → especiales → virtual).
-            #     Cierra el hueco L2: un día ya cedido/comprometido no se puede volver a usar.
-            #     Reutilizamos est_sol_ces_pre y est_rec_pago_pre ya calculados arriba.
-            if not est_sol_ces_pre['trabaja']:
-                motivo = est_sol_ces_pre.get('motivo') or 'descansas ese día'
+            if est_sol_pago['trabaja']:
                 return False, (
-                    f"No tienes un turno que ceder el {fecha_cesion.strftime('%d/%m/%Y')} ({motivo})."
+                    f"No puedes pagar el {f_pago}: ese día ya trabajas y no puedes doblarte de "
+                    "nuevo. Elige un fin de semana en el que ese mismo día descanses."
                 )
 
-            if not est_rec_pago_pre['trabaja']:
-                motivo = est_rec_pago_pre.get('motivo') or 'descansa ese día'
-                return False, (
-                    f"Tu compañero no trabaja el {fecha_pago.strftime('%d/%m/%Y')} ({motivo}); "
-                    f"no hay día que cubrir."
-                )
-
-            # 9c. El solicitante no puede pagar en un día ya comprometido por OTRA solicitud
-            #     aprobada (cedido, pagando otra doblada, etc.). Ojo: descansar por alternancia
-            #     en la fecha de pago es lo esperado (es el día del receptor y por eso se dobla);
-            #     solo invalida un compromiso previo por solicitud.
+            # 9c. No se puede pagar con un día que YA SE CEDIÓ POR UN FAVOR: ese día lo está
+            #     cubriendo un compañero COMO EXTRA, y si además se trabaja quedarían dos personas
+            #     en el mismo turno y el favor de quien cubre se desperdiciaría.
+            #
+            #     Tres formas de descansar la fecha de pago, y solo una estorba:
+            #       · por ALTERNANCIA — es lo normal: es el día del compañero y por eso se dobla.
+            #       · porque alguien te está PAGANDO a ti — ese descanso es tuyo, te lo ganaste, y
+            #         puedes renunciar a él para cubrir a un tercero.
+            #       · por un CAMBIO DE DESCANSO — tampoco estorba: es un INTERCAMBIO ya saldado,
+            #         diste tu día y tomaste otro, y quien trabaja ese día lo hace en tu lugar, no
+            #         como extra. Si cubres a un compañero ese día, sustituyes a ESE compañero: el
+            #         turno sigue teniendo la misma gente. (Es el mismo criterio que ya se aplica
+            #         en `dia_cubriendo_por_solicitud`, que también deja fuera los intercambios.)
+            #       · por haber CEDIDO el día en una doblada/D FDS — aquí sí: hay una deuda viva.
             comp_sol_pago = TurnoService.dia_comprometido_por_solicitud(solicitante, fecha_pago)
-            if comp_sol_pago:
-                motivo = comp_sol_pago.get('motivo') or 'compromiso previo'
+            if (comp_sol_pago and comp_sol_pago.get('tipo') == 'cedio'
+                    and comp_sol_pago.get('origen') != 'cambio_descanso'):
+                motivo = comp_sol_pago.get('motivo') or 'ya lo cediste'
                 return False, (
-                    f"No puedes pagar el {fecha_pago.strftime('%d/%m/%Y')}: ese día ya está "
-                    f"comprometido por otra solicitud aprobada ({motivo}). Elige otro fin de semana."
+                    f"No puedes pagar el {f_pago}: ese día ya se lo cediste a un compañero "
+                    f"({motivo}) y él lo está cubriendo. Elige otro fin de semana."
                 )
 
-            # 10. Evitar triple turno: receptor sin doblada ya en cesión; solicitante sin doblada ya en pago
-            from turnos.models import Turno
+            # 9d. NO IMPORTA POR QUÉ trabaja cada uno su día, solo que el día quede cubierto.
+            #
+            #     Un día se puede trabajar porque es el propio o porque se está CUBRIENDO a un
+            #     tercero por un favor. Los dos casos valen, en los dos sentidos:
+            #       · ceder un día de cobertura (traspaso): el sustituto lo trabaja completo
+            #         (`_crear_doblada_dia`), así que el acreedor original conserva su descanso y
+            #         su deuda sigue saldada; solo cambia QUIÉN cubre. Se avisa al acreedor
+            #         (ver `_avisar_traspaso_cobertura` y `aplicar_cambios`).
+            #       · pagar cubriendo un día que el compañero trabaja por un favor ajeno: también
+            #         vale. Un favor se mide en DÍAS TRABAJADOS, no en de quién es el día: si el
+            #         compañero estaba comprometido a trabajarlo y se lo cubren, trabaja un día
+            #         menos, que es exactamente la compensación que se le debe. Las cuentas de los
+            #         tres implicados quedan en cero y el día sigue teniendo una sola persona.
+            #
+            #     Hubo aquí un bloqueo para el segundo caso. Era incoherente: en turnos es la MISMA
+            #     operación que el traspaso, solo que expresada desde el otro lado, así que se
+            #     prohibía por un camino lo que se permitía por el otro.
+            #
+            #     Lo que sí sigue bloqueado es distinto y está en el paso 9c: pagar con un día que
+            #     TÚ ya cediste. Eso dejaría DOS personas en el mismo turno.
 
-            def _ya_doblada(emp, fecha):
-                js = {t.jornada.nombre.upper() for t in Turno.objects.filter(explorador=emp, fecha=fecha).select_related('jornada')}
-                return 'AM' in js and 'PM' in js
-
-            if _ya_doblada(receptor, fecha_cesion):
-                return False, "El compañero ya tiene una doblada (AM+PM) en la fecha de cesión y no puede cubrirte."
-            if _ya_doblada(solicitante, fecha_pago):
-                return False, "Ya tienes una doblada (AM+PM) en la fecha de pago; no puedes doblarte de nuevo ese día."
+            # (El antiguo paso 10 —"ni el receptor ni el solicitante pueden tener ya una doblada
+            #  AM+PM en su día"— desapareció porque los pasos 8 y 9 ya lo cubren: `estado_dia`
+            #  incluye los turnos reales, así que quien ya está doblado figura como que TRABAJA
+            #  ese día y se rechaza ahí, con un mensaje más concreto.)
 
             return True, "Solicitud de D FDS válida"
 
@@ -299,6 +313,13 @@ class DFDSStrategy(SolicitudStrategy):
             with transaction.atomic():
                 detalle = solicitud.doblada
 
+                # ¿Es un TRASPASO DE COBERTURA? Hay que mirarlo ANTES de aplicar, mientras el día
+                # todavía figura a nombre del cedente. Ver `_avisar_traspaso_cobertura`.
+                from turnos.services.turno_service import TurnoService
+                info_cobertura = TurnoService.dia_cubriendo_por_solicitud(
+                    solicitud.explorador_solicitante, solicitud.fecha_cambio_turno,
+                    excluir_id=solicitud.id)
+
                 # Snapshot para poder revertir (cancelación de 30 min, igual que doblada).
                 # Solo la PRIMERA vez: si ya existe, no sobrescribir (una doble aplicación
                 # grabaría el estado ya aplicado como "previo" y rompería la reversión).
@@ -309,6 +330,9 @@ class DFDSStrategy(SolicitudStrategy):
 
                 DFDSAplicacionService.aplicar(solicitud, detalle)
                 DFDSAplicacionService.generar_deudas(solicitud, detalle)
+
+                if info_cobertura:
+                    self._avisar_traspaso_cobertura(solicitud, info_cobertura)
 
             # Invalidar caché de ambos en ambos meses (cesión y pago)
             solicitante = solicitud.explorador_solicitante
@@ -325,71 +349,109 @@ class DFDSStrategy(SolicitudStrategy):
             logging.getLogger(__name__).exception("Error aplicando D FDS")
             return False, f"Error aplicando D FDS: {str(e)}"
 
+    @staticmethod
+    def _avisar_traspaso_cobertura(solicitud: SolicitudCambio, info_cobertura: dict) -> None:
+        """
+        Deja constancia y avisa cuando el día cedido se trabajaba por un favor de un tercero.
+
+        La solicitud original NO se toca —sigue aprobada y vigente: el acreedor conserva su
+        descanso y su deuda sigue saldada, porque el día lo trabaja el sustituto—. Lo único que
+        cambia es QUIÉN cubre, así que basta con anotarlo en la solicitud nueva y avisar.
+
+        (Se descartó marcarla como `reemplazada`: ese estado la sacaría de 'aprobada' y con ella
+        desaparecería el descanso del acreedor en Mis Turnos y su deuda de las consultas, que es
+        justo lo que aquí NO cambia.)
+        """
+        from ..notificacion_service import NotificacionService
+
+        acreedor = (info_cobertura.get('companero') or {}).get('nombre') or 'otro compañero'
+        nota = (
+            f"\n\n[Traspaso de cobertura] El {solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')} "
+            f"lo trabajaba por el acuerdo de la solicitud #{info_cobertura.get('solicitud_id')} "
+            f"con {acreedor}; ese día pasa a cubrirlo "
+            f"{solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido}. "
+            f"El acuerdo original sigue vigente."
+        )
+        SolicitudCambio.objects.filter(pk=solicitud.pk).update(
+            comentario=(solicitud.comentario or '') + nota)
+        try:
+            NotificacionService.crear_notificacion_traspaso_cobertura(
+                solicitud, info_cobertura, solicitud.explorador_receptor)
+        except Exception:
+            # Un fallo notificando no puede tumbar la aplicación de la solicitud (los turnos ya
+            # están escritos); queda en el log y en el comentario de la solicitud.
+            logging.getLogger(__name__).exception(
+                "No se pudo notificar el traspaso de cobertura de la solicitud %s", solicitud.pk)
+
     # --------------------------------------------------- empleados disponibles
+    def disponibilidad_companero(self, candidato: Empleado, fecha_cesion) -> Tuple[bool, Optional[str]]:
+        """
+        Regla de D FDS: puede recibir el día quien lo tenga LIBRE.
+
+        No se mira el grupo AM/PM, se mira el ESTADO REAL de los dos días del finde
+        (`estado_dia`, la misma fuente que Mis Turnos):
+          - debe DESCANSAR el día que se le cede (si no, no podría trabajarlo);
+          - no puede trabajar ya los DOS días del finde;
+          - no puede tener MEDIA jornada en ninguno de los dos días: el finde se trabaja a día
+            completo (AM+PM) y una media jornada suelta viene de un cambio previo, así que ni
+            cede ni recibe un día entero.
+
+        El criterio anterior (grupo contrario + trabajar el otro día del finde) dejaba fuera a
+        quien descansa los dos días y a los compañeros del mismo grupo, que en la operación real
+        son justamente a quienes se les puede ceder.
+        """
+        from datetime import timedelta
+        from turnos.services.turno_service import TurnoService
+
+        otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5
+                else fecha_cesion - timedelta(days=1))
+        dia_ced = 'sábado' if fecha_cesion.weekday() == 5 else 'domingo'
+        dia_otro = 'sábado' if otro.weekday() == 5 else 'domingo'
+
+        # El día que se cede se mira primero y se corta ahí si ya lo trabaja: se ahorra la mitad
+        # de las consultas, porque quien trabaja ese día ya está descartado pase lo que pase.
+        est_ced = TurnoService.estado_dia(candidato, fecha_cesion)
+        if est_ced['trabaja']:
+            est_otro = TurnoService.estado_dia(candidato, otro)
+            if est_otro['trabaja']:
+                return False, 'ya trabaja los dos días de ese finde'
+            return False, f'ya trabaja ese {dia_ced}'
+
+        est_otro = TurnoService.estado_dia(candidato, otro)
+        if est_otro['trabaja'] and est_otro.get('jornada') in ('AM', 'PM'):
+            return False, f'solo tiene media jornada ({est_otro.get("jornada")}) el {dia_otro} de ese finde'
+        return True, None
+
+    def etiqueta_companero(self, candidato: Empleado, fecha_cesion) -> str:
+        """
+        En D FDS lo que habilita a un compañero es tener LIBRE el día que se le cede, así que eso
+        es lo que se dice. La etiqueta por defecto ("trabaja el otro día del finde") describía el
+        calendario, no a la persona, y afirmaba cosas falsas de quien descansa los dos días.
+        """
+        dia_ced = 'sábado' if fecha_cesion.weekday() == 5 else 'domingo'
+        return f'descansa {dia_ced} {fecha_cesion.strftime("%d/%m")}'
+
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
-        Compañeros válidos para D FDS: del grupo CONTRARIO al del solicitante en el
-        fin de semana de cesión (el grupo que trabaja el otro día del finde).
+        Pool de compañeros para D FDS: todos los exploradores activos salvo uno mismo.
+
+        El filtro fino (quién descansa ese día, medias jornadas, dobles) lo aplica
+        `disponibilidad_companero`, para que el formulario pueda mostrar también a los NO
+        disponibles con su motivo en vez de esconderlos.
         """
         try:
             fecha_obj = self._parse(fecha)
             if not fecha_obj or fecha_obj.weekday() not in (5, 6):
                 return []
 
-            from turnos.services.turno_service import TurnoService
-
-            grupo_sol = self._grupo_base(usuario_actual, fecha_obj)
-            if not grupo_sol:
-                return []
-            # Si el solicitante ya tiene un Turno real ese día (fuente='turno', p.ej. por un
-            # cambio previo que lo dejó con media jornada), ese es su grupo efectivo real.
-            est_sol = TurnoService.estado_dia(usuario_actual, fecha_obj)
-            if est_sol.get('trabaja') and est_sol.get('fuente') == 'turno' and est_sol.get('jornada') in ('AM', 'PM'):
-                grupo_sol = est_sol['jornada']
-            grupo_contrario = 'PM' if grupo_sol == 'AM' else 'AM'
-
-            from turnos.models import AsignarJornadaExplorador
-
-            empleados = (
+            return list(
                 Empleado.objects.filter(activo=True)
                 .exclude(id=usuario_actual.id)
                 .select_related('supervisor')
+                .order_by('nombre', 'apellido')
             )
-            # Jornada base de cada empleado (1 query)
-            bases = {}
-            for asg in (
-                AsignarJornadaExplorador.objects
-                .filter(explorador__in=empleados, fecha_inicio__lte=fecha_obj)
-                .select_related('jornada', 'explorador')
-                .order_by('explorador_id', '-fecha_inicio')
-            ):
-                bases.setdefault(asg.explorador_id, asg.jornada.nombre.upper())
-
-            # Grupo EFECTIVO de cada candidato: si tiene un Turno real ese día (fuente='turno',
-            # p.ej. media jornada por un cambio previo), ese Turno manda sobre la jornada base
-            # (igual que en validar_solicitud). Se calcula en 1 sola query batch, no N+1.
-            from turnos.models import Turno
-
-            jornadas_reales = {}
-            for t in (
-                Turno.objects
-                .filter(explorador__in=empleados, fecha=fecha_obj)
-                .select_related('jornada')
-                .only('explorador_id', 'jornada__nombre')
-            ):
-                if t.jornada:
-                    jornadas_reales.setdefault(t.explorador_id, set()).add(t.jornada.nombre.upper())
-
-            grupos_efectivos = dict(bases)
-            for emp_id, js in jornadas_reales.items():
-                if 'AM' in js and 'PM' not in js:
-                    grupos_efectivos[emp_id] = 'AM'
-                elif 'PM' in js and 'AM' not in js:
-                    grupos_efectivos[emp_id] = 'PM'
-                # AM+PM (ya doblado ese día): se mantiene la base, no aplica override.
-
-            return [e for e in empleados if grupos_efectivos.get(e.id) == grupo_contrario]
         except Exception:
+            logging.getLogger(__name__).exception("Error listando compañeros de D FDS")
             return []
 
     def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:

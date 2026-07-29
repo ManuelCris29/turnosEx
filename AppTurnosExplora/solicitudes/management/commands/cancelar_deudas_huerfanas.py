@@ -52,7 +52,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('\n[DRY-RUN] No se modificó nada. Ejecuta sin --dry-run para aplicar.'))
             return
 
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         actualizadas = 0
         for d in huerfanas:
             nota = f"{_MARCA} Cancelada el {hoy}: deuda huérfana (su solicitud de origen fue borrada)."

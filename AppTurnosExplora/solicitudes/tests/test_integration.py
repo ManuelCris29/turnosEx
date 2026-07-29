@@ -8,6 +8,7 @@ from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import AsignarJornadaExplorador, Turno
 from datetime import date, timedelta
+from django.utils import timezone
 
 
 class SolicitudFlowIntegrationTest(TestCase):
@@ -61,12 +62,12 @@ class SolicitudFlowIntegrationTest(TestCase):
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado1,
             jornada=self.jornada_am,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado2,
             jornada=self.jornada_pm,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         
         # Crear tipo de solicitud
@@ -76,7 +77,7 @@ class SolicitudFlowIntegrationTest(TestCase):
             activo=True
         )
         
-        self.fecha_cambio = date.today() + timedelta(days=7)
+        self.fecha_cambio = timezone.localdate() + timedelta(days=7)
     
     def test_flujo_completo_creacion_solicitud(self):
         """Test del flujo completo de creación de solicitud"""

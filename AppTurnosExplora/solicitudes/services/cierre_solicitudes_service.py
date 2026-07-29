@@ -10,9 +10,14 @@ en la ventana cerrada = [día de cierre (incluido) … primer día hábil de la 
 - Si el cierre no está habilitado para la semana del fin de semana, no hay restricción.
 - Solo aplica a la CREACIÓN de solicitudes; lo ya aprobado y las acciones del supervisor no pasan aquí.
 """
+import logging
 from datetime import date, datetime, timedelta
 
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+_SIN_PRECARGA = object()  # centinela: distingue "no me lo pasaron" de "me pasaron None"
 
 _DIA_A_WEEKDAY = {'jueves': 3, 'viernes': 4, 'sabado': 5, 'domingo': 6}
 _NOMBRE_DIA = {'jueves': 'jueves', 'viernes': 'viernes', 'sabado': 'sábado',
@@ -45,18 +50,24 @@ class CierreSolicitudesService:
         return lunes_siguiente
 
     @classmethod
-    def _config_efectiva(cls, lunes: date):
-        """(habilitado, dia_cierre, hora) para la semana `lunes`: override si existe, si no el default."""
+    def _config_efectiva(cls, lunes: date, override=_SIN_PRECARGA, cfg=None):
+        """(habilitado, dia_cierre, hora) para la semana `lunes`: override si existe, si no el default.
+
+        `override`/`cfg` permiten a quien ya los tenga cargados (p. ej. el panel, que pinta varias
+        semanas) evitar una consulta por semana. `override=None` significa "ya miré y no hay";
+        omitirlo significa "búscalo tú".
+        """
         from solicitudes.models import CierreSolicitudesConfig, CierreSemanaOverride
-        ov = CierreSemanaOverride.objects.filter(semana_lunes=lunes).first()
+        ov = (CierreSemanaOverride.objects.filter(semana_lunes=lunes).first()
+              if override is _SIN_PRECARGA else override)
         if ov is not None:
             return ov.habilitado, ov.dia_cierre, ov.hora_cierre
-        cfg = CierreSolicitudesConfig.obtener()
+        cfg = cfg or CierreSolicitudesConfig.obtener()
         return cfg.habilitado, cfg.dia_cierre, cfg.hora_cierre
 
     # ------------------------------------------------------ ventana / cutoff por fecha
     @classmethod
-    def _ventana_semana(cls, lunes_finde: date):
+    def _ventana_semana(cls, lunes_finde: date, override=_SIN_PRECARGA, cfg=None):
         """
         Para la semana cuyo lunes es `lunes_finde`, devuelve
         (inicio_ventana, fin_ventana, cutoff_fecha, hora, dia_cierre) si el cierre está habilitado
@@ -69,9 +80,16 @@ class CierreSolicitudesService:
           ventana sigue cubriendo el fin de semana completo (desde el jueves) pero el bloqueo
           solo se activa el primer día hábil a la hora configurada.
         """
-        habilitado, dia_cierre, hora = cls._config_efectiva(lunes_finde)
+        habilitado, dia_cierre, hora = cls._config_efectiva(lunes_finde, override, cfg)
         if not habilitado:
             return None
+        if dia_cierre != 'primer_habil' and dia_cierre not in _DIA_A_WEEKDAY:
+            # Un valor fuera de las choices (guardado por admin/shell) haría KeyError, y este método
+            # se llama tanto al crear solicitudes como al pintar el panel: reventaría el panel justo
+            # donde se corrige el dato. Se degrada al jueves —el cierre más amplio— y se avisa.
+            logger.critical("Día de cierre inválido %r para la semana %s; se usa 'jueves'.",
+                            dia_cierre, lunes_finde)
+            dia_cierre = 'jueves'
         fin_ventana = cls._primer_dia_habil(lunes_finde + timedelta(days=7))
         if dia_cierre == 'primer_habil':
             inicio_ventana = lunes_finde + timedelta(days=_DIA_A_WEEKDAY['jueves'])

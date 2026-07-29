@@ -9,6 +9,7 @@ from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import Turno
 from datetime import date, timedelta
 import logging
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class Command(BaseCommand):
             
             # 2. Verificar solicitudes pendientes
             self.stdout.write('\n2. Verificando solicitudes pendientes...')
-            fecha_prueba = date.today() + timedelta(days=7)  # 7 días en el futuro
+            fecha_prueba = timezone.localdate() + timedelta(days=7)  # 7 días en el futuro
             
             solicitudes_pendientes = SolicitudCambio.objects.filter(
                 explorador_receptor=empleado_jhon,

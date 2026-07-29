@@ -280,10 +280,18 @@ class DobladaPagoService:
         if jornadas_acreedor:
             jornadas_a_cubrir = [t.jornada for t in jornadas_acreedor]
         else:
-            # Sin turno explícito: usar la jornada base (predeterminada) del acreedor.
+            # Sin turno explícito: usar la jornada base (predeterminada) del acreedor. Si no hay
+            # jornada base no se puede adivinar cuál cubre — antes se asumía 'AM' en silencio, lo
+            # que materializaba un turno arbitrario. Ahora falla explícito.
             jb = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_pago_str)
+            if not jb:
+                raise ValidationError(
+                    f"El compañero {receptor.nombre} no tiene jornada asignada el "
+                    f"{fecha_pago.strftime('%d/%m/%Y')}: no se puede determinar qué jornada cubrir "
+                    f"al pagar la doblada."
+                )
             jornadas_cache = _obtener_jornadas_cache()
-            jornadas_a_cubrir = [jornadas_cache.get((jb.nombre.upper() if jb else 'AM'))]
+            jornadas_a_cubrir = [jornadas_cache.get(jb.nombre.upper())]
 
         # IMPORTANTE: materializar la jornada BASE (virtual) del deudor como Turno explícito.
         # En un día de semana la jornada propia del deudor no tiene fila en BD (es virtual,
@@ -451,6 +459,14 @@ class DobladaPagoService:
             receptor.id, fecha_pago_str
         )
         
+        # Sin jornada del acreedor no hay nada que devolverle: fallar con un mensaje de negocio
+        # en vez de reventar con AttributeError sobre None y abortar la aprobación con un traceback.
+        if not jornada_acreedor:
+            raise ValidationError(
+                f"El compañero {receptor.nombre} no tiene jornada asignada el "
+                f"{fecha_pago.strftime('%d/%m/%Y')}: no hay jornada que cubrir para pagar la doblada."
+            )
+
         jornadas_cache = _obtener_jornadas_cache()
         jornada_acreedor_obj = jornadas_cache[jornada_acreedor.nombre.upper()]
 
@@ -460,6 +476,14 @@ class DobladaPagoService:
         # base coincide con la del acreedor terminaba con la jornada DUPLICADA (dos filas AM/PM).
         from turnos.services.turno_service import TurnoService as _TS_fb
         deudor_trabaja_fb = bool(_TS_fb.estado_dia(solicitante, fecha_pago).get('trabaja'))
+        # Sin jornada base propia no hay nada que sumar a la del acreedor: se trata igual que un
+        # deudor libre (cubre solo la del acreedor) en vez de propagar None a crear_doblada_completa.
+        if deudor_trabaja_fb and not jornada_deudor:
+            logger.warning(
+                "Doblada pago (legacy): %s figura como que trabaja el %s pero no tiene jornada base; "
+                "cubrirá solo la jornada del acreedor.", solicitante.nombre, fecha_pago,
+            )
+            deudor_trabaja_fb = False
 
         if not deudor_trabaja_fb:
             if not DobladaTurnoService.tiene_jornada_en_fecha(solicitante, fecha_pago, jornada_acreedor_obj):

@@ -132,7 +132,7 @@ class DobladaAplicacionService:
 
             if fecha.weekday() in (5, 6):
                 from turnos.services.asignacion_especial_service import AsignacionEspecialService
-                trabaja = AsignacionEspecialService.grupo_trabaja_efectivo(fecha)
+                trabaja = AsignacionEspecialService.grupo_trabaja(fecha)
                 return bool(base_nombre) and trabaja is not None and base_nombre != trabaja
 
             from turnos.services.descanso_semana_service import DescansoSemanaService

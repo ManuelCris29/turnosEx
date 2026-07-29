@@ -3,6 +3,26 @@
 > Guía para entender el hallazgo `missing-integrity` de Semgrep y migrar los recursos
 > servidos por CDN a archivos locales servidos por Django, **antes de pasar a producción**.
 
+> ## ✅ MIGRACIÓN COMPLETADA (2026-07-28)
+>
+> Las plantillas ya no cargan **ningún** script ni hoja de estilo desde `cdn.jsdelivr.net`.
+> Flatpickr, Chart.js, SweetAlert2 y FullCalendar se sirven desde `static/plugins/`.
+> Este documento se conserva como registro de la decisión y del método de verificación.
+>
+> **Lo único que sigue en CDN: Google Fonts** (`base.html` y login) — inofensivo
+> (`display=fallback`).
+>
+> **Font Awesome — resuelto SIN actualizar (2026-07-28).** Se evaluó subir la copia local a
+> 6.x y se DESCARTÓ: no aportaba nada que no diera la vía simple, y obligaba a revisar 84
+> plantillas y 8 iconos de estilo `regular` (conjunto limitado en la versión gratuita).
+> En su lugar se eliminó la línea de FA6 de `mis_turnos.html`. Auditoría que lo respalda:
+> los **130 iconos distintos** del proyecto existen en la 5.15.4 local, incluidos los 10 de
+> esa página y su JS. Antes convivían dos vocabularios de iconos y eso ya causaba un fallo
+> real (ver abajo). Ahora hay **una sola versión en todo el sitio**.
+>
+> **CSP:** la política estricta (sin jsDelivr ni ionicons) está desplegada en modo
+> **report-only** en `config/settings.py`. Ver §5, Paso 5.
+
 ---
 
 ## 1. ¿Por qué Semgrep muestra `missing-integrity`?
@@ -80,13 +100,13 @@ Tag de plantilla para cache-busting: `{% static_v 'ruta' %}`
 **Buena noticia: 4 de las 5 librerías CDN ya están descargadas en `static/plugins/`.**
 La migración es, en su mayoría, apuntar las plantillas a lo que ya existe.
 
-| Librería | Versión que usa el código | CDN actual | ¿Local? | Acción |
-|---|---|---|---|---|
-| FullCalendar | `6.1.11` | `cdn.jsdelivr.net` | ✅ `static/plugins/fullcalendar` | Verificar versión local y apuntar `{% static %}` |
-| SweetAlert2 | `@11` | `cdn.jsdelivr.net` | ✅ `static/plugins/sweetalert2/sweetalert2.all.min.js` | Apuntar `{% static %}` |
-| Chart.js | `@4` (=4.5.1) | `cdn.jsdelivr.net` | ✅ **v4.5.1** en `static/plugins/chart.js/chart.umd.min.js` | Apuntar `{% static %}` |
-| Font Awesome | `6.4.0` | `cdnjs.cloudflare.com` | ✅ `static/plugins/fontawesome-free` (5.15.4, ya lo carga `base.html`) | **Eliminar** la línea CDN (redundante) |
-| Flatpickr | `latest` (=4.6.13) | `cdn.jsdelivr.net` | ✅ **4.6.13** en `static/plugins/flatpickr/` | Apuntar `{% static %}` |
+| Librería | Versión que usa el código | Origen anterior | Estado final (2026-07-28) |
+|---|---|---|---|
+| FullCalendar | `6.1.11` | `cdn.jsdelivr.net` | ✅ **Migrado.** Local verificado **idéntico** al CDN (mismo sha256 en `index.global.min.js` y en `locales/es.global.min.js`) |
+| SweetAlert2 | `@11` | `cdn.jsdelivr.net` | ✅ **Línea eliminada.** `base.html` ya servía la copia local (v11.4.0); el CDN cargaba una **segunda** copia encima |
+| Chart.js | `@4` (=4.5.1) | `cdn.jsdelivr.net` | ✅ **Migrado** a `chart.umd.min.js`, byte por byte idéntico al CDN |
+| Font Awesome | 5.15.4 (unificado) | `cdnjs.cloudflare.com` en 1 página | ✅ **Línea eliminada.** Se descartó actualizar a 6.x; los 130 iconos del proyecto existen en la 5.15.4 local |
+| Flatpickr | `latest` (=4.6.13) | `cdn.jsdelivr.net` | ✅ **Migrado** en las 4 plantillas de formularios |
 
 > **Prerrequisitos ya resueltos (2026-07-23):** se descargaron **flatpickr 4.6.13** (css, tema
 > material_blue, js, locale es) y **Chart.js 4.5.1** (`chart.umd.min.js`, versión exacta que
@@ -125,8 +145,21 @@ static/plugins/chart.js/
 - **Chart.js**: la carpeta local tenía **v2.9.4** (incompatible con la API v4 de
   `indicadores.js`). Resuelto descargando **v4.5.1** (`chart.umd.min.js`), la misma versión
   que hoy sirve `chart.js@4`. Al migrar, apunta a `chart.umd.min.js`, no al `Chart.min.js` v2.
-- **FullCalendar**: verificar que la carpeta local sea compatible con `6.1.11` antes de migrar.
-- **SweetAlert2 / Font Awesome**: usar los archivos que ya existen.
+- **FullCalendar**: verificado idéntico. Método (reutilizable para cualquier librería):
+
+  ```bash
+  curl -sSL "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js" -o /tmp/cdn.js
+  sha256sum /tmp/cdn.js static/plugins/fullcalendar/index.global.min.js   # deben coincidir
+  # Prueba adicional: el sha384 del archivo LOCAL debe ser igual al integrity= del template
+  openssl dgst -sha384 -binary static/plugins/fullcalendar/index.global.min.js | openssl base64 -A
+  ```
+
+  Los dos archivos (librería y locale `es`) resultaron idénticos, y su sha384 coincidió con
+  el `integrity` que ya estaba escrito en las plantillas — prueba de que el navegador estaba
+  cargando exactamente ese binario.
+- **SweetAlert2**: local v11.4.0, mismo major que el `@11` del CDN. Los usos del proyecto son
+  `Swal.fire` con `icon` / `showCancelButton` / `toast`, disponibles desde v9. Sin riesgo.
+- **Font Awesome**: local 5.15.4 vs CDN 6.4.0 → **no migrable sin actualizar el local**.
 
 ### Paso 3 — Reemplazar las URLs de CDN por `{% static %}`
 Al inicio de cada plantilla afectada asegúrate de tener `{% load static %}` y cambia:
@@ -151,10 +184,25 @@ Esto copia todo `static/` a `STATIC_ROOT` (`staticfiles/`) para que lo sirva el 
 web (Nginx/Apache) o WhiteNoise. *(Nota: WhiteNoise no está instalado hoy; si no usas un
 servidor web que sirva `staticfiles/`, considera agregarlo.)*
 
-### Paso 5 — Limpiar la CSP
-Una vez que **ninguna** plantilla cargue desde CDN, quita esos hosts de la allowlist CSP
-en `config/settings.py` (`cdn.jsdelivr.net`, `cdnjs.cloudflare.com`, y `fonts.googleapis.com`
-/ `fonts.gstatic.com` si también autohospedas las fuentes). Menos superficie, CSP más estricta.
+### Paso 5 — Limpiar la CSP ✅ EN OBSERVACIÓN (report-only)
+La CSP la impone el **navegador**: si bloquea un recurso, el servidor devuelve 200, los logs
+quedan limpios y la página carga a medias. El fallo solo se ve en la consola (F12). Por eso
+la política estricta **no se activó de golpe**: se publicó como
+`CONTENT_SECURITY_POLICY_REPORT_ONLY` en `config/settings.py`, que **reporta sin bloquear**.
+
+Se envían dos cabeceras a la vez:
+
+| Cabecera | Contenido | Efecto |
+|---|---|---|
+| `Content-Security-Policy` | la permisiva de siempre | la que manda: nada se rompe |
+| `Content-Security-Policy-Report-Only` | sin jsDelivr ni ionicons | solo avisa en consola |
+
+**Para cerrar el paso:** usar la app unos días y revisar la consola. Si no aparece ninguna
+violación, mover el diccionario de `CONTENT_SECURITY_POLICY_REPORT_ONLY` a
+`CONTENT_SECURITY_POLICY` y borrar el permisivo.
+
+Solo Google Fonts sigue siendo necesario. `cdn.jsdelivr.net`, `cdnjs.cloudflare.com` y
+`code.ionicframework.com` se eliminaron de la política estricta: ninguna plantilla los usa.
 
 ### Paso 6 — Probar
 Abre cada página afectada y verifica en la consola del navegador (F12) que **no haya
@@ -174,14 +222,20 @@ declararla con `@font-face` en tu CSS. Si lo haces, recuerda quitar el host de l
 
 - [x] Flatpickr descargado (4.6.13) en `static/plugins/flatpickr/`
 - [x] Chart.js v4.5.1 descargado (`chart.umd.min.js`) — resuelto el conflicto con la v2.9.4
-- [ ] Verificada la versión local de FullCalendar vs. `6.1.11`
-- [ ] Todas las plantillas del §4 apuntan a `{% static %}` / `{% static_v %}`
-- [ ] Eliminados los `integrity`/`crossorigin` de los tags que pasaron a locales
+- [x] Verificada la versión local de FullCalendar vs. `6.1.11` — **idéntica** (sha256 y sha384)
+- [x] Todas las plantillas apuntan a `{% static_v %}` (salvo Font Awesome, ver nota de cabecera)
+- [x] Eliminados los `integrity`/`crossorigin` de los tags que pasaron a locales
+- [x] Verificado que **nada** en el proyecto referencia ya `cdn.jsdelivr.net`
+      (templates, `static/`, `staticfiles/`, login; `django.contrib.gis` no está instalado)
+- [x] CSP estricta desplegada en **report-only** en `config/settings.py`
+- [ ] **Pendiente:** confirmar en consola que report-only no reporta violaciones, y entonces
+      promoverla a política activa
 - [ ] `collectstatic` ejecutado en el servidor
 - [ ] Servidor web (o WhiteNoise) sirviendo `staticfiles/`
-- [ ] Hosts de CDN quitados de la allowlist CSP en `config/settings.py`
 - [ ] Probadas todas las páginas sin 404 ni recursos bloqueados (F12)
 - [ ] `semgrep scan` sin hallazgos `missing-integrity` en nuestras plantillas
+- [x] Font Awesome unificado en 5.15.4 local; eliminada la última línea de `cdnjs`
+- [x] Corregidos 2 iconos que se renderizaban en blanco (nombres FA6 en páginas con FA5)
 
 ---
 

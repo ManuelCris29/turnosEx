@@ -105,6 +105,14 @@ class SolicitudAprobacionService:
             Tupla (success: bool, message: str)
         """
         from django.db import transaction
+        from solicitudes.domain.bloqueo_partes import bloquear_partes
+
+        # Lock de los EXPLORADORES implicados, antes de re-validar. El `select_for_update()` de
+        # los llamadores bloquea la fila de ESTA solicitud (doble clic), pero no impide que otra
+        # solicitud distinta que comparta explorador se apruebe a la vez: cada una bloquearía su
+        # propia fila y, bajo REPEATABLE READ, ninguna vería los turnos aún sin confirmar de la
+        # otra, así que ambas re-validarían contra un mundo desactualizado y escribirían encima.
+        bloquear_partes(solicitud)
 
         # Re-validación con el estado ACTUAL (#7): atrapa solicitudes que quedaron inválidas
         # entre el envío y la aprobación (festivo nuevo, día ya comprometido, fecha pasada…).

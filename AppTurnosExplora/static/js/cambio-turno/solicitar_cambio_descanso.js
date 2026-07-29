@@ -322,7 +322,9 @@
                     o.value = c.id;
                     o.dataset.emp = JSON.stringify({ id: c.id, nombre: c.nombre, apellido: '' });
                     if (c.disponible) {
-                        o.textContent = `${c.nombre} — trabaja ${c.dia} ${c.dia_fecha}`;
+                        // `etiqueta` la manda el backend según el tipo de cambio; para el
+                        // intercambio sigue siendo "trabaja <el otro día del finde>".
+                        o.textContent = `${c.nombre} — ${c.etiqueta || `trabaja ${c.dia} ${c.dia_fecha}`}`;
                     } else {
                         o.textContent = `${c.nombre} — ✕ ${c.motivo}`;
                         o.disabled = true;
@@ -1200,7 +1202,8 @@
             if (subtipoSemana === 'permiso_media_jornada') {
                 html += `<p class="mt-2"><strong>Nota:</strong> se envía a tu supervisor como PERMISO.</p>`;
             } else if (subtipoSemana === 'cobertura_misma_semana' && cobOpcion === 'DOS') {
-                html += `<p class="mt-2"><strong>Nota:</strong> se crearán 2 solicitudes (AM y PM).</p>`;
+                html += `<p class="mt-2"><strong>Nota:</strong> se crearán 2 solicitudes (AM y PM) ` +
+                    `en un solo envío: o se crean las dos o no se crea ninguna.</p>`;
             }
         }
         html += '</div>';
@@ -1267,10 +1270,13 @@
             return;
         }
 
-        // COBERTURA con 2 compañeros: DOS solicitudes (AM al 1º, PM al 2º).
+        // COBERTURA con 2 compañeros: son DOS solicitudes (AM al 1º, PM al 2º), pero se envían
+        // en UN solo POST. El servidor las valida y las crea en una transacción: o quedan las
+        // dos o ninguna (media cobertura dejaría media jornada sin resolver).
         if (modo === 'semana' && subtipoSemana === 'cobertura_misma_semana' && cobOpcion === 'DOS') {
             deshabilitarForm();
-            const comun = {
+            const fd = new FormData();
+            Object.entries({
                 csrfmiddlewaretoken: csrf,
                 tipo_solicitud_id: TIPO_ID,
                 modo_descanso: 'semana',
@@ -1278,37 +1284,23 @@
                 fecha_pago: cobDiaPago,
                 submodalidad_semana: 'cobertura_misma_semana',
                 comentarios: document.getElementById('comentarios').value.trim(),
-            };
-            const mkFd = (extra) => {
-                const fd = new FormData();
-                Object.entries({ ...comun, ...extra }).forEach(([k, v]) => fd.append(k, v));
-                return fd;
-            };
-            const fdAM = mkFd({ empleado_receptor: empleadoReceptor.id, tipo_cesion: 'cesion_parcial_am', jornada_cedida: 'AM' });
-            const fdPM = mkFd({ empleado_receptor: empleadoReceptor2.id, tipo_cesion: 'cesion_parcial_pm', jornada_cedida: 'PM' });
+                empleado_receptor: empleadoReceptor.id,      // cubre la AM
+                empleado_receptor_2: empleadoReceptor2.id,   // cubre la PM
+            }).forEach(([k, v]) => fd.append(k, v));
 
-            postForm(URLs.PROCESAR, fdAM, csrf)
-                .then(({ ok, data }) => {
-                    if (!(ok && data.success !== false)) {
-                        throw new Error(data.error || data.message || 'Falló la solicitud de la jornada AM.');
-                    }
-                    return postForm(URLs.PROCESAR, fdPM, csrf);
-                })
+            postForm(URLs.PROCESAR, fd, csrf)
                 .then(({ ok, data }) => {
                     if (ok && data.success !== false) {
-                        irAMisSolicitudes('Se crearon las 2 solicitudes de cobertura (AM y PM).');
+                        const msg = (data.data && data.data.message) || data.message ||
+                            'Se crearon las 2 solicitudes de cobertura (AM y PM).';
+                        irAMisSolicitudes(msg);
                     } else {
-                        notificar('warning', 'Atención: solo se creó la de AM',
-                            'La solicitud de la jornada AM se creó, pero la de PM falló: ' +
-                            (data.error || data.message || 'error desconocido') +
-                            '<br>Revisa Mis Solicitudes y crea la de PM de nuevo.');
+                        notificar('error', 'No se pudo enviar',
+                            (data.error || data.message || 'Intenta de nuevo.'));
                         rehabilitar();
                     }
                 })
-                .catch(err => {
-                    notificar('error', 'No se pudo enviar', err.message || 'Intenta de nuevo.');
-                    rehabilitar();
-                });
+                .catch(() => { notificar('error', 'Error de red', 'Intenta de nuevo.'); rehabilitar(); });
             return;
         }
 

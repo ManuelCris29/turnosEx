@@ -58,6 +58,38 @@ pytest
 pytest --cov=AppTurnosExplora --cov-report=html
 ```
 
+### La base de datos de tests
+
+Django no usa la base real: crea `test_<DB_NAME>` (por ejemplo `test_bdturnosex`), corre las
+migraciones ahí, ejecuta los tests y al terminar la borra. La base real **nunca se toca**.
+
+Si una corrida muere a medias (se cancela, se cierra la terminal, se mata el proceso), esa base
+queda huérfana. Django, por defecto, pregunta por consola si puede borrarla:
+
+```
+Type 'yes' if you would like to try deleting the test database, or 'no' to cancel:
+```
+
+En una terminal basta con escribir `yes`. Pero si nadie puede responder —CI, un script, una
+herramienta— el proceso se queda esperando o revienta con `EOFError: EOF when reading a line`, y
+como la base huérfana sigue ahí, el intento siguiente se atasca igual.
+
+**Este proyecto ya no pregunta**: `TEST_RUNNER` apunta a `core.test_runner.NoInputDiscoverRunner`
+(ver `config/settings.py`), que fuerza `interactive=False`. Equivale a pasar `--noinput` siempre,
+sin depender de acordarse. `pytest` tampoco pregunta (pytest-django ya corre en modo no
+interactivo).
+
+Banderas útiles:
+
+| Bandera | Para qué |
+|---|---|
+| `--keepdb` | Reutiliza la base de test en vez de recrearla: ahorra el minuto de migraciones al iterar. **Evítala si hay migraciones nuevas**: puede quedarse con un esquema viejo y dar fallos falsos. |
+| `--parallel` | Reparte los tests en varios procesos. Ojo con los tests que dependen de datos compartidos. |
+| `-v2` | Muestra el nombre de cada test según va corriendo. |
+
+Si la suite falla en bloque y los archivos aislados pasan, casi siempre es **otro proceso usando
+la base de test**. Comprobar que no quede un `manage.py test` colgado antes de tocar código.
+
 ---
 
 ## Cómo Agregar Nuevos Tests

@@ -64,3 +64,6 @@ venvturnos/
 !/requirements.txt
 /refactorizacionpendi/
 *check_files.sh
+
+# Respaldos locales previos a cambios grandes (no versionar)
+_backups/

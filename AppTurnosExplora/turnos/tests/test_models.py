@@ -6,6 +6,7 @@ from django.contrib.auth.models import User
 from empleados.models import Empleado, Jornada
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from datetime import date, timedelta
+from django.utils import timezone
 
 
 class TurnoModelTest(TestCase):
@@ -40,7 +41,7 @@ class TurnoModelTest(TestCase):
             explorador=self.empleado,
             jornada=self.jornada,
             sala=self.sala,
-            fecha=date.today()
+            fecha=timezone.localdate()
         )
     
     def test_turno_creacion(self):
@@ -52,7 +53,7 @@ class TurnoModelTest(TestCase):
     
     def test_turno_str(self):
         """Test del método __str__"""
-        expected = f"{self.empleado.user.username} - {date.today()}"
+        expected = f"{self.empleado.user.username} - {timezone.localdate()}"
         self.assertEqual(str(self.turno), expected)
 
 
@@ -81,7 +82,7 @@ class AsignarJornadaExploradorModelTest(TestCase):
         self.asignacion = AsignarJornadaExplorador.objects.create(
             explorador=self.empleado,
             jornada=self.jornada,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
     
     def test_asignacion_creacion(self):

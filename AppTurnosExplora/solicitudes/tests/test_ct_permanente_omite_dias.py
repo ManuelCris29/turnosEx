@@ -46,7 +46,7 @@ class CTPermanenteOmiteDiasTest(TestCase):
         CompetenciaEmpleado.objects.create(empleado=self.sol, sala=self.sala)
         CompetenciaEmpleado.objects.create(empleado=self.rec, sala=self.sala)
 
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         self.fi = date(anio, mes, 1)
         self.ff = self.fi + timedelta(days=27)

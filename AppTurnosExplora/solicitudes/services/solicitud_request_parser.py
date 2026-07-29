@@ -129,7 +129,7 @@ class SolicitudRequestParser:
                     # Intercambio de dobladas: swap de días doblados (sin deuda). Día A = cesión,
                     # día B = pago. Ambos deben tener DOBLADA en su día.
                     'es_intercambio': str(post.get('intercambio_doblada', '')).strip() in ('1', 'true', 'True', 'on'),
-                    'fecha_creacion_solicitud': timezone.now().date()}
+                    'fecha_creacion_solicitud': timezone.localdate()}
 
         elif tipo_nombre in ("D FDS", "CAMBIO DESCANSO"):
             return {**base,
@@ -143,7 +143,7 @@ class SolicitudRequestParser:
                     # Cobertura: jornada que YO cubro el día de pago (si estoy libre y el
                     # compañero trabaja ambas, puedo elegir AM o PM; si no, va la cedida).
                     'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
-                    'fecha_creacion_solicitud': timezone.now().date()}
+                    'fecha_creacion_solicitud': timezone.localdate()}
 
         elif tipo_nombre == "DOBLADA PERMANENTE":
             dias_cesion = (post.getlist('dias_cesion')
@@ -156,7 +156,7 @@ class SolicitudRequestParser:
                     'fecha_fin': post.get('fecha_fin'),
                     'dias_cesion': [d for d in dias_cesion if str(d).strip()],
                     'dias_devolucion': [d for d in dias_devolucion if str(d).strip()],
-                    'fecha_creacion_solicitud': timezone.now().date()}
+                    'fecha_creacion_solicitud': timezone.localdate()}
 
         else:  # CT y otros
             return {**base,

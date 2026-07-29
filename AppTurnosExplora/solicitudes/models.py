@@ -716,9 +716,11 @@ class CierreSolicitudesConfig(models.Model):
 
     @classmethod
     def obtener(cls):
+        # `get_or_create(pk=1)` en vez de `first()` + `create()`: dos peticiones concurrentes
+        # sobre una base vacía crearían dos filas y `first()` elegiría cualquiera de ellas.
         obj = cls.objects.first()
         if obj is None:
-            obj = cls.objects.create()
+            obj, _ = cls.objects.get_or_create(pk=1)
         return obj
 
 

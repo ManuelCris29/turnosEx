@@ -31,6 +31,8 @@ class CTPermanenteStrategy(SolicitudStrategy):
     def _datos_desde_solicitud(self, solicitud):
         """Reconstruye los datos para re-validar al aprobar (ver base). Rearma
         dias_seleccionados desde los CambioPermanenteDia del detalle."""
+        from ..ct_permanente_helper import _rango_detalle
+
         det = getattr(solicitud, 'cambio_permanente', None)
         if not det:
             return None
@@ -40,13 +42,18 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 fechas_especificas.append(d.fecha_especifica.strftime('%Y-%m-%d'))
             elif d.tipo == 'dia_semana' and d.dia_semana is not None:
                 dias_semana.append(d.dia_semana)
+        # `fecha_fin` es obligatoria desde hace tiempo, pero los registros HEREDADOS pueden no
+        # tenerla. Se usa el mismo cierre de rango que la aplicación y el detalle (`_rango_detalle`:
+        # hasta fin de año) en vez de pasar None: con None, `validar_solicitud` cortaba en
+        # "Faltan datos requeridos" y esas solicitudes antiguas quedaban INAPROBABLES para siempre.
+        _inicio, fecha_fin = _rango_detalle(det)
         return {
             'explorador_solicitante': solicitud.explorador_solicitante,
             'explorador_receptor': solicitud.explorador_receptor,
             'tipo_cambio': solicitud.tipo_cambio,
             'comentario': solicitud.comentario or '',
             'fecha_inicio': det.fecha_inicio.strftime('%Y-%m-%d'),
-            'fecha_fin': det.fecha_fin.strftime('%Y-%m-%d') if det.fecha_fin else None,
+            'fecha_fin': fecha_fin.strftime('%Y-%m-%d'),
             'dias_seleccionados': {'fechas_especificas': fechas_especificas, 'dias_semana': dias_semana},
         }
 
@@ -86,41 +93,51 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # Comentario obligatorio
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de cambio de turno permanente')
 
-            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
-            if not datos.get('es_revalidacion'):
-                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(explorador_solicitante, fecha_inicio)
+            es_revalidacion = bool(datos.get('es_revalidacion'))
 
             # Validaciones específicas de CT PERMANENTE
-            SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin)
-            
+            SolicitudValidator.validar_fechas_cambio_permanente(fecha_inicio, fecha_fin, es_revalidacion)
+
+            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
+            # Se miran TODOS los días que el cambio tocaría, no solo `fecha_inicio`.
+            if not es_revalidacion:
+                from ..ct_permanente_helper import generar_fechas_candidatas_ct_permanente
+                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fechas(
+                    explorador_solicitante,
+                    generar_fechas_candidatas_ct_permanente(
+                        DateUtils.parse_date(fecha_inicio) if isinstance(fecha_inicio, str) else fecha_inicio,
+                        DateUtils.parse_date(fecha_fin) if isinstance(fecha_fin, str) else fecha_fin,
+                        dias_seleccionados,
+                    ),
+                )
+
             # Validar días seleccionados si existen
             if dias_seleccionados:
                 SolicitudValidator.validar_dias_seleccionados_permanente(fecha_inicio, fecha_fin, dias_seleccionados)
-            
-            # Validar jornadas contrarias:
-            # - Si hay fechas_especificas, omitir validación (ya se evaluó día a día en get_empleados_disponibles)
-            # - Si no hay fechas_especificas, validar que haya al menos un día en el rango con jornadas contrarias
-            fechas_especificas = dias_seleccionados.get('fechas_especificas', []) if dias_seleccionados else []
-            if not fechas_especificas:
-                # No hay fechas específicas, validar jornadas contrarias en todo el rango
-                SolicitudValidator.validar_jornada_contraria_rango_permanente(
-                    explorador_solicitante, 
-                    explorador_receptor, 
-                    fecha_inicio, 
-                    fecha_fin,
-                    dias_seleccionados if dias_seleccionados else None
-                )
-            # Si hay fechas_especificas, confiar en la evaluación previa del sistema de compatibilidad parcial
-            
-            # Validar rango completo (todos los días o días seleccionados)
-            SolicitudValidator.validar_rango_completo_cambio_permanente(
-                explorador_solicitante, 
-                explorador_receptor, 
-                fecha_inicio, 
+
+            # Jornadas contrarias: se valida SIEMPRE, también con `fechas_especificas`.
+            # Antes se omitía "confiando" en la evaluación previa del frontend, así que un POST
+            # con fechas fabricadas —o una jornada que cambiara entre el envío y la aprobación—
+            # no encontraba ningún control en el backend.
+            SolicitudValidator.validar_jornada_contraria_rango_permanente(
+                explorador_solicitante,
+                explorador_receptor,
+                fecha_inicio,
                 fecha_fin,
                 dias_seleccionados if dias_seleccionados else None
             )
-            
+
+            # Al menos un día realmente aplicable (misma evaluación que la vista previa y la
+            # aplicación: excluye festivos, descansos, días ya cambiados y días sin intercambio).
+            SolicitudValidator.validar_rango_completo_cambio_permanente(
+                explorador_solicitante,
+                explorador_receptor,
+                fecha_inicio,
+                fecha_fin,
+                dias_seleccionados if dias_seleccionados else None,
+                es_revalidacion=es_revalidacion,
+            )
+
             # Validar superposición con otros cambios permanentes (excluyendo la propia solicitud
             # al re-validar para aprobar).
             SolicitudValidator.validar_no_cambio_permanente_superpuesto(
@@ -232,27 +249,90 @@ class CTPermanenteStrategy(SolicitudStrategy):
         borra solo los turnos `CT PERMANENTE` que esta gestión creó (en las fechas exactas
         guardadas en el snapshot). NO toca cambios posteriores sobre esos días (p. ej. un CT
         sencillo que mutó el turno a 'CT'): como ya no es 'CT PERMANENTE', se respeta.
-        El estado previo de esos días era virtual, así que basta con borrar.
+        El estado previo de esos días suele ser virtual (lista vacía en el snapshot); cuando NO
+        lo era (había un turno real, p. ej. del horario importado), el snapshot lo guarda y aquí
+        se RESTAURA — pero solo si de verdad borramos nuestro turno de ese día, para no duplicar
+        turnos sobre un cambio posterior que ya pisó el día.
         """
         from datetime import date as _date
-        from turnos.models import Turno
+        from turnos.models import Turno, Jornada as JornadaModel
+        from turnos.services.doblada_turno_service import DobladaTurnoService
+        from empleados.models import Empleado as EmpleadoModel
         snap = getattr(solicitud, 'snapshot_turnos_previos', None) or {}
         meses_afectados = set()
-        for key in snap:
+        for key, filas in snap.items():
             try:
                 emp_str, fecha_str = key.split(':', 1)
                 emp_id = int(emp_str)
                 fecha = _date.fromisoformat(fecha_str)
             except (ValueError, TypeError):
                 continue
-            Turno.objects.filter(
+            borrados, _ = Turno.objects.filter(
                 explorador_id=emp_id, fecha=fecha, tipo_cambio='CT PERMANENTE',
             ).delete()
             meses_afectados.add((emp_id, fecha.month, fecha.year))
 
+            # Solo restauramos si nuestro turno seguía ahí: si un cambio posterior ya pisó el
+            # día, ese cambio manda y no debemos añadirle nada encima.
+            if not borrados or not filas:
+                continue
+            empleado = EmpleadoModel.objects.filter(pk=emp_id).first()
+            if not empleado:
+                continue
+            for fila in filas:
+                jornada = JornadaModel.objects.filter(nombre__iexact=(fila.get('jornada_nombre') or '')).first()
+                if not jornada:
+                    logger.warning('CT permanente revert: jornada %r desconocida para %s en %s',
+                                   fila.get('jornada_nombre'), emp_id, fecha)
+                    continue
+                sala_id = fila.get('sala_id')
+                if not sala_id:
+                    sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha)
+                    sala_id = sala.id if sala else None
+                if not sala_id:
+                    continue
+                Turno.objects.create(
+                    explorador_id=emp_id, fecha=fecha, jornada=jornada,
+                    sala_id=sala_id, tipo_cambio=fila.get('tipo_cambio'),
+                )
+
         from core.services.cache_service import CacheService
         for emp_id, mes, anio in meses_afectados:
             CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
+
+    @staticmethod
+    def _jornada_previa_ct(snap: dict, empleado: Empleado, fecha: date):
+        """
+        Jornada que `empleado` tenía en `fecha` ANTES de que esta gestión la pisara, para poder
+        re-materializar el intercambio exactamente como se aplicó.
+
+        Prioriza el SNAPSHOT: si allí quedó registrado un turno real único, esa era su jornada
+        efectiva ese día. Es el caso que la jornada base no puede reproducir — un turno del
+        horario importado (con `tipo_cambio` NULL, así que `_tipo_cambio_previo` no lo excluye)
+        puede diferir de la asignación de `AsignarJornadaExplorador`, y re-derivar desde la base
+        habría restaurado un intercambio distinto del original.
+
+        Si el snapshot está vacío (el día estaba en su estado virtual, lo normal) se usa la
+        jornada base. Devuelve un objeto Jornada o None.
+        """
+        from core.utils.jornada_utils import obtener_jornada_base, obtener_jornadas_am_pm
+
+        filas = snap.get(f"{empleado.id}:{fecha.isoformat()}") or []
+        nombres = {
+            (f.get('jornada_nombre') or '').upper()
+            for f in filas
+            if (f.get('jornada_nombre') or '').upper() in ('AM', 'PM')
+        }
+        # Solo sirve una jornada ÚNICA: si el snapshot trae AM+PM, ese día era una doblada y no
+        # hay una "jornada previa" que intercambiar; se deja que la comprobación AM/PM del
+        # llamador descarte la fecha.
+        if len(nombres) > 1:
+            return None
+        if len(nombres) == 1:
+            jornada = obtener_jornadas_am_pm().get(next(iter(nombres)))
+            if jornada:
+                return jornada
+        return obtener_jornada_base(empleado, fecha)
 
     @staticmethod
     def reaplicar_fechas(solicitud: SolicitudCambio, fechas) -> int:
@@ -269,7 +349,6 @@ class CTPermanenteStrategy(SolicitudStrategy):
         from datetime import date as _date
         from turnos.models import Turno
         from turnos.services.doblada_turno_service import DobladaTurnoService
-        from core.utils.jornada_utils import obtener_jornada_base, obtener_jornada_contraria
 
         objetivo = set(fechas)
         snap = getattr(solicitud, 'snapshot_turnos_previos', None) or {}
@@ -281,254 +360,179 @@ class CTPermanenteStrategy(SolicitudStrategy):
             except (ValueError, TypeError):
                 continue
 
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+
         dias = 0
         for fecha in sorted(aplicadas & objetivo):
-            for empleado in (solicitud.explorador_solicitante, solicitud.explorador_receptor):
-                jornada = obtener_jornada_contraria(obtener_jornada_base(empleado, fecha))
-                if not jornada:
-                    logger.warning(
-                        "CT permanente %s no re-materializado para %s en %s: sin jornada contraria.",
-                        solicitud.id, empleado.id, fecha,
-                    )
-                    continue
+            # Se re-materializa el INTERCAMBIO: cada uno recupera la jornada que el otro tenía
+            # ANTES de aplicar esta gestión. Esa jornada previa se lee del propio snapshot cuando
+            # allí quedó un turno real (p. ej. el del horario importado, que puede diferir de la
+            # asignación base); si el día estaba en su estado virtual, el snapshot va vacío y se
+            # cae a la jornada base. No se consulta el estado EN VIVO a propósito: la
+            # reconciliación corre con el día a medio reconstruir y el estado del compañero puede
+            # ser el que esta misma gestión escribió, lo que daría un intercambio degenerado.
+            j_sol = CTPermanenteStrategy._jornada_previa_ct(snap, solicitante, fecha)
+            j_rec = CTPermanenteStrategy._jornada_previa_ct(snap, receptor, fecha)
+            nombres = {(j_sol.nombre or '').upper() if j_sol else None,
+                       (j_rec.nombre or '').upper() if j_rec else None}
+            if not j_sol or not j_rec or nombres != {'AM', 'PM'}:
+                logger.warning(
+                    "CT permanente %s no re-materializado en %s: sin jornadas contrarias (%s/%s).",
+                    solicitud.id, fecha,
+                    getattr(j_sol, 'nombre', None), getattr(j_rec, 'nombre', None),
+                )
+                continue
+            for empleado, jornada in ((solicitante, j_rec), (receptor, j_sol)):
+                sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha)
                 Turno.objects.filter(explorador=empleado, fecha=fecha).delete()
                 Turno.objects.create(
                     explorador=empleado, fecha=fecha, jornada=jornada,
-                    sala=DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha),
-                    tipo_cambio='CT PERMANENTE',
+                    sala=sala, tipo_cambio='CT PERMANENTE',
                 )
             dias += 1
         return dias
 
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
-        Apply permanent change when solicitud is approved.
+        Materializa el CT PERMANENTE al aprobarlo: en cada día aplicable, solicitante y receptor
+        INTERCAMBIAN su jornada (cada uno recibe la del otro).
 
-        Args:
-            solicitud: The approved solicitud instance
-            
-        Returns:
-            Tuple of (success, message)
+        Las fechas se derivan de `evaluar_fechas_ct_permanente` — la MISMA función que usan la
+        validación y la vista previa—, así que lo que el usuario vio es exactamente lo que se
+        aplica. Si no queda ningún día aplicable se devuelve False: aprobar sin materializar nada
+        dejaba solicitudes "aprobadas" fantasma, sin turnos ni snapshot.
+
+        NO toca el estado de la solicitud: de eso se encarga el orquestador
+        (`SolicitudAprobacionService._confirmar_aprobacion_y_aplicar`) a través de la máquina de
+        estados, dentro de la misma transacción.
         """
         try:
-            from datetime import datetime, date, timedelta
-            from turnos.models import AsignarJornadaExplorador, Turno
-            from django.utils import timezone
-            
-            # Obtener el detalle del cambio permanente
+            from turnos.models import Turno
+            from turnos.services.doblada_turno_service import DobladaTurnoService
+            from core.utils.jornada_utils import obtener_jornadas_am_pm
+            from ..ct_permanente_helper import (
+                evaluar_fechas_ct_permanente,
+                dias_seleccionados_desde_detalle,
+                jornadas_intercambiables_ct,
+                _rango_detalle,
+            )
+
             detalle = solicitud.cambio_permanente
             if not detalle:
                 return False, "No se encontró el detalle del cambio permanente"
-            
-            # Obtener las jornadas actuales de ambos empleados
-            
-            # Las jornadas son indefinidas por defecto (sin fecha_fin)
-            jornada_solicitante = AsignarJornadaExplorador.objects.filter(
-                explorador=solicitud.explorador_solicitante,
-                fecha_inicio__lte=detalle.fecha_inicio
-            ).order_by('-fecha_inicio').first()
-            
-            jornada_receptor = AsignarJornadaExplorador.objects.filter(
-                explorador=solicitud.explorador_receptor,
-                fecha_inicio__lte=detalle.fecha_inicio
-            ).order_by('-fecha_inicio').first()
-            
-            if not jornada_solicitante or not jornada_receptor:
-                return False, "No se encontraron las jornadas de los empleados"
-            
-            # Obtener las jornadas actuales
-            jornada_solicitante_actual = jornada_solicitante.jornada
-            jornada_receptor_actual = jornada_receptor.jornada
-            
-            # Buscar la jornada contraria para cada uno
-            from empleados.models import Jornada
-            jornada_contraria_solicitante = Jornada.objects.exclude(id=jornada_solicitante_actual.id).first()
-            jornada_contraria_receptor = Jornada.objects.exclude(id=jornada_receptor_actual.id).first()
-            
-            if not jornada_contraria_solicitante or not jornada_contraria_receptor:
-                return False, "No se encontraron jornadas contrarias"
-            
-            # Calcular fecha fin del cambio permanente
-            fecha_fin_cambio = detalle.fecha_fin
-            if not fecha_fin_cambio:
-                # Si no hay fecha fin, usar fin de año
-                fecha_fin_cambio = date(detalle.fecha_inicio.year, 12, 31)
-            
-            # 1. Las jornadas son indefinidas por defecto, no necesitan finalización
-            # Las jornadas se mantienen activas hasta que se cree una nueva asignación
-            
-            # 2. Generar lista de fechas válidas según días seleccionados o rango completo
-            fechas_validas = self._generar_fechas_validas(detalle, fecha_fin_cambio)
-            
-            if not fechas_validas:
-                return False, "No se encontraron días válidos para aplicar el cambio permanente"
-            
-            # 3. Crear registros en Turno para el período de cambio permanente
-            from turnos.models import Turno
-            
-            turnos_creados = []
-            dias_omitidos = []
-            dias_procesados = 0
-            # Snapshot de las fechas que ESTA gestión crea (para revertir con borrado dirigido).
-            _snapshot_previos = {}
-            
-            # Obtener la sala (especialidad) de cada empleado vía CompetenciaEmpleado
-            from empleados.models import CompetenciaEmpleado
-            sala_solicitante = CompetenciaEmpleado.objects.filter(
-                empleado=solicitud.explorador_solicitante
-            ).select_related('sala').first()
 
-            sala_receptor = CompetenciaEmpleado.objects.filter(
-                empleado=solicitud.explorador_receptor
-            ).select_related('sala').first()
+            solicitante = solicitud.explorador_solicitante
+            receptor = solicitud.explorador_receptor
+            fecha_inicio, fecha_fin_cambio = _rango_detalle(detalle)
 
-            # Si no se encuentran salas asignadas, usar la primera sala disponible
-            if not sala_solicitante:
-                from turnos.models import Sala
-                sala_default = Sala.objects.first()
-                if not sala_default:
-                    return False, "No se encontraron salas disponibles en el sistema"
-                sala_solicitante = type('obj', (object,), {'sala': sala_default})()
-                print(f"Usando sala por defecto para {solicitud.explorador_solicitante.nombre}: {sala_default.nombre}")
-            
-            if not sala_receptor:
-                from turnos.models import Sala
-                sala_default = Sala.objects.first()
-                if not sala_default:
-                    return False, "No se encontraron salas disponibles en el sistema"
-                sala_receptor = type('obj', (object,), {'sala': sala_default})()
-                print(f"Usando sala por defecto para {solicitud.explorador_receptor.nombre}: {sala_default.nombre}")
-            
-            # Procesar solo las fechas válidas generadas
-            for fecha_actual in fechas_validas:
-                # Verificar si es día válido (no sábado, no domingo, no festivo, no mantenimiento, no descanso)
-                # IMPORTANTE: CT PERMANENTE solo permite lunes-viernes (weekday 0-4)
-                # Nota: Los días de descanso ya deberían estar excluidos en la validación,
-                # pero verificamos aquí como medida de seguridad
-                from ..ct_permanente_helper import _es_temporada as _es_temp
-                es_sabado = fecha_actual.weekday() == 5
-                es_domingo = fecha_actual.weekday() == 6
-                es_festivo = self._es_festivo(fecha_actual)
-                es_mantenimiento = self._es_mantenimiento(fecha_actual)
-                es_temporada = _es_temp(fecha_actual)
-                es_descanso_solicitante = self._es_dia_descanso(solicitud.explorador_solicitante, fecha_actual)
-                es_descanso_receptor = self._es_dia_descanso(solicitud.explorador_receptor, fecha_actual)
-                # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada
-                # predeterminada, por lo que el CT permanente NO puede aplicarse ese día.
-                tipo_previo_solicitante = self._tipo_cambio_previo(solicitud.explorador_solicitante, fecha_actual)
-                tipo_previo_receptor = self._tipo_cambio_previo(solicitud.explorador_receptor, fecha_actual)
-                # Día LIBRE por otra solicitud aprobada (L2) que no deja Turno (doblada cedida,
-                # cambio de descanso, etc.). CT permanente no genera descansos L2, así que no se
-                # auto-referencia: basta con detectar las de OTRAS solicitudes (excluir_id=None).
-                from turnos.services.turno_service import TurnoService as _TSv
-                libre_solicitante = _TSv.dia_comprometido_por_solicitud(solicitud.explorador_solicitante, fecha_actual) is not None
-                libre_receptor = _TSv.dia_comprometido_por_solicitud(solicitud.explorador_receptor, fecha_actual) is not None
+            fechas_aplicables, fechas_excluidas = evaluar_fechas_ct_permanente(
+                fecha_inicio, fecha_fin_cambio, solicitante, receptor,
+                dias_seleccionados_desde_detalle(detalle),
+                # Una aprobación tardía no debe reescribir turnos de días ya transcurridos.
+                excluir_pasadas=True,
+            )
 
-                # Determinar si el día es válido
-                es_valido = (not es_sabado and
-                            not es_domingo and
-                            not es_festivo and
-                            not es_mantenimiento and
-                            not es_temporada and
-                            not es_descanso_solicitante and
-                            not es_descanso_receptor and
-                            not tipo_previo_solicitante and
-                            not tipo_previo_receptor and
-                            not libre_solicitante and
-                            not libre_receptor)
-                
-                if es_valido:
-                    # Guardar la fecha que creamos (para el revert dirigido). El estado previo de
-                    # estos días es virtual (es_valido excluye días ya comprometidos).
-                    _snapshot_previos[f"{solicitud.explorador_solicitante.id}:{fecha_actual.isoformat()}"] = []
-                    _snapshot_previos[f"{solicitud.explorador_receptor.id}:{fecha_actual.isoformat()}"] = []
-                    # Crear turnos solo para días válidos
-                    turno_solicitante = Turno.objects.create(
-                        explorador=solicitud.explorador_solicitante,
-                        fecha=fecha_actual,
-                        jornada=jornada_contraria_solicitante,
-                        sala=sala_solicitante.sala,
-                        tipo_cambio='CT PERMANENTE'
-                    )
-                    
-                    turno_receptor = Turno.objects.create(
-                        explorador=solicitud.explorador_receptor,
-                        fecha=fecha_actual,
-                        jornada=jornada_contraria_receptor,
-                        sala=sala_receptor.sala,
-                        tipo_cambio='CT PERMANENTE'
-                    )
-                    
-                    turnos_creados.append((turno_solicitante, turno_receptor))
-                    dias_procesados += 1
-                else:
-                    # Registrar día omitido con razón específica
-                    razon = self._obtener_razon_dia_invalido_detallada(
-                        fecha_actual,
-                        es_sabado,
-                        es_domingo,
-                        es_festivo,
-                        es_mantenimiento,
-                        es_descanso_solicitante,
-                        es_descanso_receptor,
-                        tipo_previo_solicitante,
-                        tipo_previo_receptor,
-                        es_temporada=es_temporada,
-                        libre_solicitante=libre_solicitante,
-                        libre_receptor=libre_receptor,
-                    )
-                    dias_omitidos.append(f"{fecha_actual.strftime('%d/%m/%Y')} ({razon})")
-            
-            # 3. Actualizar la solicitud con las referencias a los turnos creados
-            # Para CT PERMANENTE, usamos el primer turno creado como referencia
-            if turnos_creados:
-                primer_turno_solicitante, primer_turno_receptor = turnos_creados[0]
-                solicitud.turno_origen = primer_turno_solicitante
-                solicitud.turno_destino = primer_turno_receptor
-                if not solicitud.snapshot_turnos_previos:
-                    solicitud.snapshot_turnos_previos = _snapshot_previos
-                solicitud.save()
-            
-            # 3. No necesitamos jornadas de retorno - la jornada predeterminada se usará automáticamente
-            # después de la fecha_fin_cambio cuando no haya registros en Turno
-            
-            # 4. Actualizar el estado de la solicitud
-            solicitud.estado = 'aprobada'
-            solicitud.fecha_resolucion = timezone.now()
-            solicitud.save()
-            
-            # 5. Invalidar caché para todos los meses afectados por el cambio permanente
-            from core.services.cache_service import CacheService
-            # Calcular meses únicos en el rango
-            meses_afectados = set()
-            fecha_actual = detalle.fecha_inicio
-            while fecha_actual <= fecha_fin_cambio:
-                meses_afectados.add((fecha_actual.year, fecha_actual.month))
-                # Avanzar al primer día del siguiente mes
-                if fecha_actual.month == 12:
-                    fecha_actual = date(fecha_actual.year + 1, 1, 1)
-                else:
-                    fecha_actual = date(fecha_actual.year, fecha_actual.month + 1, 1)
-            
-            # Invalidar caché para cada mes afectado
-            for anio, mes in meses_afectados:
-                CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, mes, anio)
-                CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, mes, anio)
-                logger.info(
-                    f"CT PERMANENTE: Caché invalidado para solicitante (ID: {solicitud.explorador_solicitante.id}) "
-                    f"y receptor (ID: {solicitud.explorador_receptor.id}) en {mes}/{anio}"
+            dias_omitidos = [
+                f"{e['fecha'].strftime('%d/%m/%Y')} ({e['razon']})" for e in fechas_excluidas
+            ]
+
+            if not fechas_aplicables:
+                detalle_omitidos = f" Días descartados: {', '.join(dias_omitidos[:10])}." if dias_omitidos else ""
+                return False, (
+                    "No queda ningún día válido para aplicar el cambio permanente."
+                    + detalle_omitidos
                 )
-            
-            # Construir mensaje informativo
+
+            jornadas = obtener_jornadas_am_pm()
+            if not {'AM', 'PM'} <= set(jornadas):
+                return False, "No se encontraron las jornadas AM/PM del sistema"
+
+            snapshot_previos = {}
+            turnos_creados = []
+            dias_procesados = 0
+
+            for fecha_actual in fechas_aplicables:
+                par = jornadas_intercambiables_ct(solicitante, receptor, fecha_actual)
+                if not par:
+                    # Defensivo: `evaluar_fechas_ct_permanente` ya lo garantiza.
+                    logger.warning(
+                        "CT permanente %s: %s dejó de tener jornadas contrarias al aplicar; se omite.",
+                        solicitud.id, fecha_actual,
+                    )
+                    dias_omitidos.append(f"{fecha_actual.strftime('%d/%m/%Y')} (Sin jornada contraria)")
+                    continue
+
+                jornada_solicitante, jornada_receptor = par
+                # El INTERCAMBIO: cada uno recibe la jornada del otro.
+                asignaciones = (
+                    (solicitante, jornadas.get(jornada_receptor)),
+                    (receptor, jornadas.get(jornada_solicitante)),
+                )
+                if any(j is None for _, j in asignaciones):
+                    return False, "No se encontraron las jornadas AM/PM del sistema"
+
+                creados_dia = []
+                for empleado, jornada_nueva in asignaciones:
+                    # La sala se resuelve ANTES de borrar (prioriza la del turno vigente).
+                    sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha_actual)
+                    previos = list(
+                        Turno.objects.filter(explorador=empleado, fecha=fecha_actual)
+                        .select_related('jornada')
+                        .order_by('jornada_id')
+                    )
+                    # Snapshot del estado REAL previo (normalmente vacío: el día está en su
+                    # estado virtual). Guardarlo permite restaurarlo al cancelar.
+                    snapshot_previos[f"{empleado.id}:{fecha_actual.isoformat()}"] = [
+                        {'jornada_nombre': t.jornada.nombre.upper(),
+                         'sala_id': t.sala_id,
+                         'tipo_cambio': t.tipo_cambio}
+                        for t in previos if t.jornada
+                    ]
+                    # delete + create (igual que el CT sencillo): crear sin borrar dejaba dos
+                    # turnos el mismo día y "Mis Turnos" leía el día como DOBLADA.
+                    Turno.objects.filter(explorador=empleado, fecha=fecha_actual).delete()
+                    creados_dia.append(Turno.objects.create(
+                        explorador=empleado,
+                        fecha=fecha_actual,
+                        jornada=jornada_nueva,
+                        sala=sala,
+                        tipo_cambio='CT PERMANENTE',
+                    ))
+
+                turnos_creados.append(tuple(creados_dia))
+                dias_procesados += 1
+
+            if not dias_procesados:
+                return False, "No se pudo aplicar el cambio permanente en ningún día del rango"
+
+            primer_turno_solicitante, primer_turno_receptor = turnos_creados[0]
+            solicitud.turno_origen = primer_turno_solicitante
+            solicitud.turno_destino = primer_turno_receptor
+            solicitud.snapshot_turnos_previos = snapshot_previos
+            solicitud.save(update_fields=['turno_origen', 'turno_destino', 'snapshot_turnos_previos'])
+
+            # Invalidar caché de todos los meses realmente afectados.
+            from core.services.cache_service import CacheService
+            meses_afectados = {(f.year, f.month) for f in fechas_aplicables}
+            for anio, mes in sorted(meses_afectados):
+                CacheService.invalidar_cache_turnos_empleado(solicitante.id, mes, anio)
+                CacheService.invalidar_cache_turnos_empleado(receptor.id, mes, anio)
+                logger.info(
+                    "CT PERMANENTE: caché invalidado para solicitante (ID: %s) y receptor (ID: %s) en %s/%s",
+                    solicitante.id, receptor.id, mes, anio,
+                )
+
             mensaje = f"Cambio permanente aplicado para {dias_procesados} días"
             if dias_omitidos:
                 mensaje += f". Días omitidos: {', '.join(dias_omitidos)}"
-            
+
             return True, mensaje
-            
+
         except Exception as e:
+            logger.exception("Error aplicando cambio permanente para solicitud %s", getattr(solicitud, 'id', '?'))
             return False, f"Error aplicando cambio permanente: {str(e)}"
-    
+
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """
         Get available employees for CT permanente with 'Best Match' logic.
@@ -544,9 +548,6 @@ class CTPermanenteStrategy(SolicitudStrategy):
             List of available empleados with compatibility metadata
         """
         try:
-            from datetime import datetime
-            from turnos.services.jornada_service import JornadaService
-            
             fecha_inicio_str = fecha
             fecha_fin_str = kwargs.get('fecha_fin')
             dias_seleccionados = kwargs.get('dias_seleccionados', {})
@@ -610,53 +611,54 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     'dias_incompatibles': []
                 }
             
-            # 3. Evaluar día a día
-            logger.debug(f"Iniciando evaluación día a día para {len(fechas_a_evaluar)} fechas")
-            for fecha_eval in fechas_a_evaluar:
-                # Obtener jornada del usuario actual para este día
-                jornada_usuario = JornadaService.get_jornada_explorador_fecha(usuario_actual.id, fecha_eval)
-                
-                if not jornada_usuario:
-                    logger.debug(f"Usuario {usuario_actual.id} ({usuario_actual.nombre}) no tiene jornada para {fecha_eval}")
-                    continue
-                
-                # Determinar jornada contraria necesaria
-                nombre_contraria = 'PM' if jornada_usuario.nombre == 'AM' else 'AM'
-                logger.debug(f"Fecha {fecha_eval}: Usuario {usuario_actual.id} tiene jornada {jornada_usuario.nombre}, necesita {nombre_contraria}")
-                
-                # Evaluar cada candidato
+            # 3. Evaluar día a día con la MISMA definición de "día aplicable" que usan la
+            # previsualización y la aplicación (`_razones_exclusion_ct_permanente`), para que el
+            # porcentaje signifique de verdad "días que se van a aplicar con este compañero".
+            from ..ct_permanente_helper import (
+                _razones_exclusion_ct_permanente, _jornada_efectiva_ct,
+            )
+
+            # Días descartados por el LADO del solicitante (festivo, mantenimiento, temporada,
+            # su descanso, su día libre, un cambio previo suyo). No dependen del candidato, así
+            # que se calculan una sola vez y además fijan el denominador honesto del porcentaje:
+            # antes se dividía entre los días de calendario, inflando la compatibilidad.
+            fechas_evaluables = [
+                f for f in fechas_a_evaluar if not _razones_exclusion_ct_permanente(f, usuario_actual)
+            ]
+            if not fechas_evaluables:
+                logger.debug("CT PERMANENTE: el solicitante no tiene ningún día aplicable en el rango")
+                return []
+
+            logger.debug("Evaluación día a día para %s fechas aplicables del solicitante", len(fechas_evaluables))
+            for fecha_eval in fechas_evaluables:
+                # La jornada del SOLICITANTE ese día no depende del candidato: se resuelve UNA vez
+                # por fecha. Antes se llamaba a `jornadas_intercambiables_ct(usuario_actual, ...)`
+                # dentro del bucle de candidatos, que recalculaba `estado_dia` del solicitante
+                # tantas veces como candidatos hubiera (decenas de miles de consultas en rangos
+                # largos). El resultado es idéntico: contraria ⇔ ambas son AM/PM y distintas.
+                j_sol = _jornada_efectiva_ct(usuario_actual, fecha_eval)
+                fecha_fmt = fecha_eval.strftime('%Y-%m-%d')
                 for cand_id, info in mapa_compatibilidad.items():
-                    # Obtener jornada del candidato
-                    jornada_cand = JornadaService.get_jornada_explorador_fecha(cand_id, fecha_eval)
-                    
-                    es_compatible = False
-                    if jornada_cand:
-                        if jornada_cand.nombre == nombre_contraria:
-                            es_compatible = True
-                            logger.debug(f"  ✓ Candidato {cand_id} ({info['empleado'].nombre}): {jornada_cand.nombre} == {nombre_contraria} → COMPATIBLE")
-                        else:
-                            logger.debug(f"  ✗ Candidato {cand_id} ({info['empleado'].nombre}): {jornada_cand.nombre} != {nombre_contraria} → INCOMPATIBLE (misma jornada o diferente)")
-                    else:
-                        logger.debug(f"  ✗ Candidato {cand_id} ({info['empleado'].nombre}): Sin jornada para {fecha_eval} → INCOMPATIBLE")
-                    
-                    fecha_fmt = fecha_eval.strftime('%Y-%m-%d')
+                    candidato = info['empleado']
+                    # El candidato debe estar disponible ese día Y tener jornada contraria.
+                    es_compatible = bool(
+                        j_sol
+                        and not _razones_exclusion_ct_permanente(fecha_eval, candidato)
+                        and _jornada_efectiva_ct(candidato, fecha_eval) not in (None, j_sol)
+                    )
                     if es_compatible:
                         info['dias_compatibles'].append(fecha_fmt)
                     else:
                         info['dias_incompatibles'].append(fecha_fmt)
-            
+
             # 4. Construir lista de resultados con metadatos
             resultados = []
-            total_dias = len(fechas_a_evaluar)
-            
-            logger.debug(f"Construyendo resultados. Total días en rango: {total_dias}")
+            total_dias = len(fechas_evaluables)
+
             for info in mapa_compatibilidad.values():
                 empleado = info['empleado']
                 compatibles_count = len(info['dias_compatibles'])
-                incompatibles_count = len(info['dias_incompatibles'])
-                
-                logger.debug(f"Empleado {empleado.id} ({empleado.nombre}): {compatibles_count} días compatibles, {incompatibles_count} días incompatibles")
-                
+
                 # Solo incluir si tiene al menos un día compatible
                 if compatibles_count > 0:
                     # Inyectar metadatos en el objeto empleado (temporalmente para serialización)
@@ -665,15 +667,12 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     empleado.dias_incompatibles = info['dias_incompatibles']
                     empleado.total_dias_rango = total_dias
                     resultados.append(empleado)
-                    logger.debug(f"  → INCLUIDO con {empleado.compatibilidad_percent}% de compatibilidad")
-                else:
-                    logger.debug(f"  → EXCLUIDO (0% compatibilidad - misma jornada en todos los días o sin jornada)")
-            
+
             # 5. Ordenar por porcentaje de compatibilidad descendente
             resultados.sort(key=lambda x: x.compatibilidad_percent, reverse=True)
-            
-            logger.debug(f"Total resultados finales: {len(resultados)} empleados con compatibilidad > 0%")
-            
+
+            logger.debug("Total resultados finales: %s empleados con compatibilidad > 0%%", len(resultados))
+
             return resultados
             
         except Exception:
@@ -684,176 +683,12 @@ class CTPermanenteStrategy(SolicitudStrategy):
 
     def _generar_fechas_validas_params(self, fecha_inicio: date, fecha_fin: date, dias_seleccionados: dict) -> List[date]:
         """
-        Genera lista de fechas válidas basado en parámetros directos (no objeto DB).
+        Fechas de calendario (lunes-viernes) que abarca el cambio, sin filtrar por estado del día.
+
+        Delega en el helper: antes esta lógica estaba duplicada en cinco sitios y las copias
+        habían divergido. Para el conjunto realmente aplicable (que además excluye festivos,
+        descansos, días ya cambiados y días sin jornada contraria) usar
+        `evaluar_fechas_ct_permanente`.
         """
-        from datetime import datetime
-        
-        fechas_validas: Set[date] = set()
-        
-        # Extraer listas del dict
-        dias_semana_list = dias_seleccionados.get('dias_semana', [])
-        fechas_especificas_list = dias_seleccionados.get('fechas_especificas', []) 
-        
-        # Lógica para fechas específicas (tiene prioridad si existe)
-        if fechas_especificas_list:
-            for fecha_str in fechas_especificas_list:
-                try:
-                    if isinstance(fecha_str, str):
-                        fecha_obj = DateUtils.parse_date(fecha_str)
-                    else:
-                        fecha_obj = fecha_str
-                    
-                    # Solo agregar si está dentro del rango y es lunes-viernes
-                    if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
-                        fechas_validas.add(fecha_obj)
-                except (ValueError, TypeError):
-                    continue
-        
-        # Lógica para días de semana (solo si no hay fechas específicas)
-        if dias_semana_list and not fechas_especificas_list:
-            for dia_str in dias_semana_list:
-                try:
-                    dia_semana_buscado = int(dia_str)
-                    fecha_actual = fecha_inicio
-                    
-                    # Avanzar al primer día correspondiente
-                    dias_hasta = (dia_semana_buscado - fecha_actual.weekday()) % 7
-                    if dias_hasta > 0:
-                        fecha_actual += timedelta(days=dias_hasta)
-                    
-                    while fecha_actual <= fecha_fin:
-                        # Solo lunes-viernes
-                        if fecha_actual.weekday() < 5:
-                            fechas_validas.add(fecha_actual)
-                        fecha_actual += timedelta(days=7)
-                except ValueError:
-                    continue
-        
-        # Si no hay días seleccionados explícitos, usar rango completo (lunes-viernes)
-        if not dias_semana_list and not fechas_especificas_list:
-            fecha_actual = fecha_inicio
-            while fecha_actual <= fecha_fin:
-                if fecha_actual.weekday() < 5:
-                    fechas_validas.add(fecha_actual)
-                fecha_actual += timedelta(days=1)
-                
-        return sorted(list(fechas_validas))
-
-    def _generar_fechas_validas(self, detalle: CambioPermanenteDetalle, fecha_fin: date) -> List[date]:
-        """
-        Wrapper para mantener compatibilidad con el método original que usa el objeto detalle.
-        """
-        dias_semana = []
-        fechas_especificas = []
-        
-        for dia in detalle.dias.all():
-            if dia.tipo == 'dia_semana' and dia.dia_semana is not None:
-                dias_semana.append(dia.dia_semana)
-            elif dia.tipo == 'fecha_especifica' and dia.fecha_especifica:
-                fechas_especificas.append(dia.fecha_especifica)
-                
-        dias_seleccionados = {
-            'dias_semana': dias_semana,
-            'fechas_especificas': fechas_especificas
-        }
-        
-        return self._generar_fechas_validas_params(detalle.fecha_inicio, fecha_fin, dias_seleccionados)
-    
-    def _tipo_cambio_previo(self, explorador: Empleado, fecha: date):
-        """
-        Devuelve el tipo de cambio que ya tiene el explorador ese día si su turno NO es la
-        jornada predeterminada (doblada, CT sencillo, D FDS, etc.), o None si el día está en
-        su estado predeterminado (sin turno o turno del horario importado con tipo_cambio NULL).
-
-        El CT PERMANENTE intercambia las jornadas PREDETERMINADAS; si ese día el explorador ya
-        no está en su jornada predeterminada, ese día debe OMITIRSE.
-        """
-        from turnos.models import Turno
-        turnos = list(
-            Turno.objects
-            .filter(explorador=explorador, fecha=fecha)
-            .exclude(tipo_cambio__isnull=True)
-            .exclude(tipo_cambio='')
-        )
-        if not turnos:
-            return None
-        tipos = {t.tipo_cambio for t in turnos}
-        # Una doblada deja 2 turnos (día completo): priorizar reportarla como doblada.
-        if len(turnos) >= 2 or tipos & {'DOBLADA', 'DOBLADA PERM'}:
-            return 'DOBLADA PERM' if 'DOBLADA PERM' in tipos else 'DOBLADA'
-        return next(iter(tipos))
-
-    @staticmethod
-    def _razon_tipo_cambio_previo(tipo: str) -> str:
-        """Texto legible para el aviso de día omitido por cambio previo."""
-        return {
-            'DOBLADA': 'ya tiene una doblada ese día',
-            'DOBLADA PERM': 'ya tiene una doblada permanente ese día',
-            'CT': 'ya cambió su turno (CT sencillo) ese día',
-            'D FDS': 'ya tiene una doblada de fin de semana ese día',
-            'CT PERMANENTE': 'ya tiene otro cambio permanente ese día',
-        }.get(tipo, f'ya tiene un cambio previo ({tipo}) ese día')
-
-    def _es_dia_descanso(self, explorador: Empleado, fecha: date) -> bool:
-        """¿El explorador DESCANSA ese día? Delega en el helper (fuente única `estado_dia`).
-
-        Antes esto era una TERCERA reimplementación del cálculo (config + L2), que podía
-        divergir de la validación/vista previa. Ahora validar, previsualizar y aplicar
-        responden exactamente lo mismo.
-        """
-        from ..ct_permanente_helper import _es_dia_descanso as _descansa
-        return _descansa(explorador, fecha)
-    
-    def _es_festivo(self, fecha):
-        """Verificar si es festivo"""
-        from turnos.models import DiaEspecial
-        return DiaEspecial.es_festivo(fecha)
-
-    def _es_mantenimiento(self, fecha):
-        """Verificar si es día de mantenimiento EFECTIVO (temporada manda sobre mantenimiento)."""
-        try:
-            from turnos.models import DiaEspecial
-            return DiaEspecial.es_mantenimiento_efectivo(fecha)
-        except:
-            return False
-    
-    def _obtener_razon_dia_invalido(self, fecha):
-        """Obtener la razón por la cual un día es inválido"""
-        if fecha.weekday() == 5:  # Sábado
-            return "sábado"
-        elif fecha.weekday() == 6:  # Domingo
-            return "domingo"
-        elif self._es_festivo(fecha):
-            return "festivo"
-        elif self._es_mantenimiento(fecha):
-            return "mantenimiento"
-        else:
-            return "no válido"
-    
-    def _obtener_razon_dia_invalido_detallada(self, fecha, es_sabado, es_domingo, es_festivo, es_mantenimiento, es_descanso_solicitante, es_descanso_receptor, tipo_previo_solicitante=None, tipo_previo_receptor=None, es_temporada=False, libre_solicitante=False, libre_receptor=False):
-        """Obtener la razón detallada por la cual un día es inválido"""
-        razones = []
-        if es_sabado:
-            razones.append("sábado")
-        if es_domingo:
-            razones.append("domingo")
-        if es_festivo:
-            razones.append("festivo")
-        if es_mantenimiento:
-            razones.append("mantenimiento")
-        if es_temporada:
-            razones.append("temporada")
-        if es_descanso_solicitante:
-            razones.append("descanso solicitante")
-        if es_descanso_receptor:
-            razones.append("descanso receptor")
-        if libre_solicitante:
-            razones.append("día libre del solicitante (otra solicitud)")
-        if libre_receptor:
-            razones.append("día libre del compañero (otra solicitud)")
-        if tipo_previo_solicitante:
-            razones.append(f"el solicitante {self._razon_tipo_cambio_previo(tipo_previo_solicitante)}; para incluirlo, ese día debe quedar en su jornada predeterminada")
-        if tipo_previo_receptor:
-            razones.append(f"el compañero {self._razon_tipo_cambio_previo(tipo_previo_receptor)}; para incluirlo, ese día debe quedar en su jornada predeterminada")
-
-        return ", ".join(razones) if razones else "no válido"
+        from ..ct_permanente_helper import generar_fechas_candidatas_ct_permanente
+        return generar_fechas_candidatas_ct_permanente(fecha_inicio, fecha_fin, dias_seleccionados)

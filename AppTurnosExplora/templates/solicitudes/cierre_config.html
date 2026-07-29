@@ -42,14 +42,17 @@
     <div class="card-body" style="overflow-x:auto;">
       <table class="table table-sm" style="min-width:760px;">
         <thead><tr>
-          <th>Semana</th><th>Estado</th><th>Día</th><th>Hora</th><th>Ventana cerrada</th><th></th>
+          <th>Semana</th><th>Cierre (estado, día, hora y ventana)</th><th></th>
         </tr></thead>
         <tbody>
           {% for s in semanas %}
           <tr>
             <td><strong>{{ s.lunes|date:'d/m' }}–{{ s.domingo|date:'d/m/Y' }}</strong>
-              {% if s.override %}<span class="badge badge-info">override</span>{% endif %}</td>
-            <td colspan="4">
+              {% if s.override %}<br><span class="badge badge-info">override</span>{% endif %}
+              {% if s.vencida %}<br><span class="badge badge-secondary">ventana vencida</span>
+              {% elif s.activa_ahora %}<br><span class="badge badge-danger">bloqueando ahora</span>
+              {% elif s.habilitado %}<br><span class="badge badge-light">pendiente</span>{% endif %}</td>
+            <td>
               <form method="post" class="form-inline" style="gap:.6rem; flex-wrap:wrap;">
                 {% csrf_token %}
                 <input type="hidden" name="accion" value="override">
@@ -86,7 +89,9 @@
       <small class="text-muted">"Ventana cerrada" muestra el rango bloqueado (día de cierre → primer día hábil,
         ambos inclusive y contando los días intermedios) según festivos/mantenimientos, y el momento exacto en que
         empieza a aplicarse. Con "primer día hábil" la ventana cubre el fin de semana completo desde el jueves,
-        pero el bloqueo solo se activa ese primer día hábil.</small>
+        pero el bloqueo solo se activa ese primer día hábil.
+        <br><span class="badge badge-danger">bloqueando ahora</span> = el cierre de esa semana ya está rechazando
+        solicitudes; <span class="badge badge-secondary">ventana vencida</span> = su fin de semana ya pasó.</small>
     </div>
   </div>
 </div>

@@ -555,6 +555,45 @@ class NotificacionService:
         # Las notificaciones en la aplicación son suficientes
 
     @staticmethod
+    def crear_notificacion_traspaso_cobertura(solicitud, info_cobertura, sustituto):
+        """
+        Avisa al acreedor de una solicitud previa de que OTRA persona pasa a cubrir su día.
+
+        Caso: A trabajaba el día X por un favor pactado con B (se lo cubría o se lo pagaba). A
+        cede ahora ese X a C. B conserva su descanso y su deuda sigue saldada —el día lo trabaja
+        C—, pero cambia quién lo cubre, y eso B tiene que saberlo. La solicitud original NO se
+        toca: sigue aprobada y vigente.
+
+        Args:
+            solicitud: la solicitud NUEVA (el traspaso).
+            info_cobertura: dict de `TurnoService.dia_cubriendo_por_solicitud` (quién era el
+                acreedor y por qué solicitud).
+            sustituto: Empleado que pasa a cubrir el día.
+        """
+        acreedor_id = (info_cobertura.get('companero') or {}).get('id')
+        if not acreedor_id:
+            return
+        from empleados.models import Empleado
+        acreedor = Empleado.objects.filter(id=acreedor_id).first()
+        if not acreedor:
+            return
+
+        fecha_str = NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)
+        cedente = solicitud.explorador_solicitante
+        Notificacion.objects.create(
+            destinatario=acreedor,
+            tipo='aprobacion',
+            titulo=f"Cambio de cobertura - {fecha_str}",
+            mensaje=(
+                f"El {fecha_str} lo iba a cubrir {cedente.nombre} {cedente.apellido} por el "
+                f"acuerdo de la solicitud #{info_cobertura.get('solicitud_id')}. A partir de "
+                f"ahora ese día lo cubre {sustituto.nombre} {sustituto.apellido}. "
+                f"Tu descanso no cambia y el acuerdo sigue vigente."
+            ),
+            solicitud=solicitud,
+        )
+
+    @staticmethod
     def crear_notificacion_cancelacion(solicitud):
         """Crea notificación de cancelación para el receptor"""
         if not solicitud.explorador_receptor_id:
@@ -583,4 +622,44 @@ class NotificacionService:
 
         # Enviar email de cancelación
         EmailService._enviar_email_cancelacion(solicitud)
-    
+
+    @staticmethod
+    def crear_notificacion_gestion(solicitud, supervisor, accion, vincular=True):
+        """
+        Avisa a AMBAS partes de que un supervisor intervino su solicitud desde gestión.
+
+        `crear_notificacion_cancelacion` no sirve aquí por dos motivos: solo avisa al receptor
+        —y aquí el solicitante es justamente quien no se enteraba de que le tocaron su cambio— y
+        redacta "el solicitante ha cancelado", que sería falso. El nombre del supervisor va en el
+        mensaje: es la traza que le queda al explorador de quién tomó la decisión.
+
+        `accion` es el participio femenino que concuerda con "solicitud": 'cancelada', 'eliminada'.
+
+        `vincular=False` guarda la notificación SIN FK a la solicitud, para que sobreviva cuando
+        la solicitud se borra (el FK es CASCADE). Es el caso de "eliminar".
+        """
+        fecha_str = NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)
+        tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'Cambio de turno'
+        quien = f"{supervisor.nombre} {supervisor.apellido}" if supervisor else 'un supervisor'
+
+        titulo = f"Solicitud {accion} por un supervisor"
+        mensaje = (
+            f"Tu solicitud #{solicitud.id} del día {fecha_str} ha sido {accion} "
+            f"por {quien} desde Gestión de Solicitudes.\n\n"
+            f"Tipo de solicitud: {tipo_nombre}\n\n"
+            f"Si necesitas el cambio, vuelve a solicitarlo o consulta con tu supervisor."
+        )
+
+        destinatarios = [solicitud.explorador_solicitante]
+        if solicitud.explorador_receptor_id:
+            destinatarios.append(solicitud.explorador_receptor)
+
+        for destinatario in destinatarios:
+            Notificacion.objects.create(
+                destinatario=destinatario,
+                tipo='solicitud_cambio',
+                titulo=titulo,
+                mensaje=mensaje,
+                solicitud=solicitud if vincular else None,
+            )
+

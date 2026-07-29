@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from typing import Iterator
+from django.utils import timezone
 
 
 DIAS_SEMANA_LABORAL = frozenset({0, 1, 2, 3, 4})  # lunes=0 … viernes=4
@@ -49,7 +50,7 @@ def meses_en_rango(inicio: date, fin: date) -> set[tuple[int, int]]:
 
 def validar_fecha_futura(d: date, hoy: date | None = None) -> tuple[bool, str]:
     if hoy is None:
-        hoy = date.today()
+        hoy = timezone.localdate()
     if d <= hoy:
         return False, 'La fecha debe ser futura'
     return True, ''

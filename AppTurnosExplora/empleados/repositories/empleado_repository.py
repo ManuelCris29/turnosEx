@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 from django.db.models import QuerySet
+from django.utils import timezone
 
 
 class EmpleadoRepository:
@@ -72,7 +73,7 @@ class EmpleadoRepository:
         AsignarJornadaExplorador.objects.create(
             explorador=empleado,
             jornada=nueva_jornada,
-            fecha_inicio=timezone.now().date(),
+            fecha_inicio=timezone.localdate(),
         )
 
     @staticmethod
@@ -98,7 +99,7 @@ class EmpleadoRepository:
             user=user, nombre=nombre, apellido=apellido, cedula=cedula, activo=True
         )
         AsignarJornadaExplorador.objects.create(
-            explorador=empleado, jornada=jornada, fecha_inicio=timezone.now().date()
+            explorador=empleado, jornada=jornada, fecha_inicio=timezone.localdate()
         )
         for rol in (roles or []):
             EmpleadoRole.objects.create(empleado=empleado, role=rol)

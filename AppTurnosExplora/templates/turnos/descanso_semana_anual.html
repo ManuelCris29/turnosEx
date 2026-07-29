@@ -14,10 +14,16 @@
   <div class="dsa-wrap" style="width:100%;">
     <div class="pg-header">
       <h1 class="pg-title"><i class="fas fa-bed"></i> Planeación de Descansos de Semana</h1>
-      <p class="pg-subtitle">Programa el año completo: haz clic en un día (lun-vie) para asignar qué jornada descansa esa semana de temporada. Clic repetido cambia AM → PM → ambas → ninguna.</p>
+      <p class="pg-subtitle">Programa el año completo: en las semanas con temporada o festivo el descanso se mueve, así que haz clic en el día (lun-vie) al que se traslada y asigna qué jornada descansa. Clic repetido cambia AM → PM → ambas → ninguna. En las semanas de temporada elige aquí el día que descansa cada jornada. Los días de festivo y mantenimiento no son seleccionables.</p>
     </div>
 
     {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }}" style="border-radius:8px;">{{ m }}</div>{% endfor %}{% endif %}
+
+    {% if not anio_editable_completo %}
+    <div class="alert alert-warning" style="border-radius:8px;">
+      <i class="fas fa-lock"></i> Algunos días de {{ anio }} ya tienen solicitudes aprobadas apoyadas en su descanso y no se pueden modificar desde aquí.
+    </div>
+    {% endif %}
 
     <div class="dsa-toolbar">
       <form method="get" class="form-inline" style="gap:8px;">
@@ -31,6 +37,8 @@
         <span><i class="dsa-box box-am"></i> Descansa AM</span>
         <span><i class="dsa-box box-pm"></i> Descansa PM</span>
         <span><i class="dsa-box box-amb"></i> Ambas</span>
+        <span><i class="dsa-box box-lock"></i> Con solicitud aprobada (no editable)</span>
+        <span><i class="dsa-box box-otro"></i> Descanso individual (otro motivo)</span>
         <span style="color:#cbd5e1;">|</span>
         <span><i class="mk mk-temporada" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Temporada</span>
         <span><i class="mk mk-festivo" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Festivo</span>
@@ -82,6 +90,8 @@
 </div>
 {{ preseleccion_json|json_script:"dsa-preseleccion" }}
 {{ marcadores_json|json_script:"dsa-marcadores" }}
+{{ bloqueadas_json|json_script:"dsa-bloqueadas" }}
+{{ otros_motivos_json|json_script:"dsa-otros-motivos" }}
 <script src="{% static_v 'js/turnos/descanso_semana_anual.js' %}"></script>
 {% endblock %}
 

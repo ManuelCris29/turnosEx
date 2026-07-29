@@ -3,6 +3,7 @@ from empleados.models import Empleado
 
 from .base_validator import BaseValidator
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 
 class DobladaValidator:
@@ -26,8 +27,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si no se cumple el acuerdo previo
         """
-        from datetime import date
-        from core.utils.date_utils import DateUtils
 
         if not fecha_pago:
             raise ValidationError('La fecha de pago es obligatoria. No existen dobladas abiertas.')
@@ -38,7 +37,7 @@ class DobladaValidator:
         if fecha_creacion_solicitud:
             fecha_creacion_obj = DateUtils.parse_date(fecha_creacion_solicitud)
         else:
-            fecha_creacion_obj = date.today()
+            fecha_creacion_obj = timezone.localdate()
 
         # Validar que fecha_pago sea posterior a fecha_creacion_solicitud
         if fecha_pago_obj <= fecha_creacion_obj:
@@ -60,7 +59,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si fecha_pago == fecha_cesion
         """
-        from core.utils.date_utils import DateUtils
         fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
 
@@ -90,7 +88,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si las jornadas no son contrarias
         """
-        from core.utils.date_utils import DateUtils
         from turnos.services.jornada_service import JornadaService
         from turnos.models import Turno
 
@@ -186,7 +183,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si la fecha es domingo o mantenimiento
         """
-        from core.utils.date_utils import DateUtils
         from turnos.models import DiaEspecial
 
         fecha_obj = DateUtils.parse_date(fecha)
@@ -217,7 +213,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si alguna fecha no es festivo de semana o si no son del mismo mes
         """
-        from datetime import datetime
 
         if isinstance(fecha1, str):
             fecha1_obj = DateUtils.parse_date(fecha1)
@@ -262,7 +257,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si ambos están descansando en fecha_pago
         """
-        from core.utils.date_utils import DateUtils
 
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
         # _explorador_trabaja considera TODO descanso (fin de semana, semana manual, mantenimiento).
@@ -286,7 +280,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si el receptor no tiene jornada en fecha_pago
         """
-        from core.utils.date_utils import DateUtils
 
         fecha_pago_obj = DateUtils.parse_date(fecha_pago)
         # _explorador_trabaja considera TODO descanso (fin de semana por alternancia, descanso de
@@ -314,7 +307,6 @@ class DobladaValidator:
         Raises:
             ValidationError: Si el receptor ya descansa por una doblada aprobada en fecha_pago
         """
-        from datetime import datetime
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_pago, str):
@@ -322,9 +314,14 @@ class DobladaValidator:
         else:
             fecha_pago_obj = fecha_pago
 
+        # DOBLADA y D FDS comparten exactamente esta semántica: el solicitante CEDE su jornada en
+        # `fecha_cambio_turno` y ese día descansa. Antes solo se miraba 'DOBLADA', así que un
+        # receptor que había cedido ese día por D FDS pasaba el filtro — la misma regla con dos
+        # criterios distintos según por dónde entrara la validación. (CAMBIO DESCANSO NO se incluye:
+        # allí `fecha_cambio_turno` es el día que el solicitante pasa a TRABAJAR, no a descansar.)
         descansa_por_doblada = SolicitudCambio.objects.filter(
             explorador_solicitante=receptor,
-            tipo_cambio__nombre='DOBLADA',
+            tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
             estado='aprobada',
             fecha_cambio_turno=fecha_pago_obj
         ).exists()
@@ -360,7 +357,6 @@ class DobladaValidator:
                 - requiere_cambio_turno: bool
         """
         import logging
-        from core.utils.date_utils import DateUtils
         from turnos.services.jornada_service import JornadaService
         from turnos.models import Turno
 

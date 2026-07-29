@@ -5,3 +5,7 @@
 django-debug-toolbar==6.2.0
 pytest==8.3.4
 pytest-django==4.9.0
+# Ejecución en paralelo: `pytest -n auto`. pytest-django le da a cada worker su propia base de
+# test (sufijo _gwN), así que además de repartir la suite elimina de raíz que dos corridas
+# simultáneas se pisen la misma base `test_*`. Ver la clave TEST en config/settings.py.
+pytest-xdist==3.8.0

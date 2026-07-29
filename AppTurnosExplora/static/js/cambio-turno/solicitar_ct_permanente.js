@@ -1439,20 +1439,21 @@ async function actualizarVistaPrevia() {
 // Función helper para obtener icono según razón de exclusión
 function obtenerIconoRazon(razon) {
     const iconos = {
-        'Domingo': '<i class="fas fa-calendar-times text-danger mr-2"></i>',
-        'Sábado': '<i class="fas fa-calendar-times text-danger mr-2"></i>',
+        // Las claves deben coincidir con _PRIORIDAD_RAZONES_CT_PERMANENTE (ct_permanente_helper.py).
         'Fines de semana': '<i class="fas fa-calendar-times text-muted mr-2"></i>',
+        'Fecha pasada': '<i class="fas fa-history text-muted mr-2"></i>',
         'Festivo': '<i class="fas fa-calendar-check text-danger mr-2"></i>',
         'Mantenimiento': '<i class="fas fa-tools text-warning mr-2"></i>',
         'Temporada': '<i class="fas fa-calendar-alt text-warning mr-2"></i>',
-        'Descanso (AM)': '<i class="fas fa-moon text-secondary mr-2"></i>',
-        'Descanso (PM)': '<i class="fas fa-moon text-secondary mr-2"></i>',
-        'Descanso receptor (AM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
-        'Descanso receptor (PM)': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
+        'Descanso Solicitante': '<i class="fas fa-moon text-secondary mr-2"></i>',
+        'Descanso Receptor': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
+        'Día libre Solicitante': '<i class="fas fa-moon text-secondary mr-2"></i>',
+        'Día libre Receptor': '<i class="fas fa-user-slash text-secondary mr-2"></i>',
         'Doblada Solicitante': '<i class="fas fa-clone text-info mr-2"></i>',
         'Doblada Receptor': '<i class="fas fa-clone text-info mr-2"></i>',
         'Cambio Previo Solicitante': '<i class="fas fa-exchange-alt text-info mr-2"></i>',
-        'Cambio Previo Receptor': '<i class="fas fa-exchange-alt text-info mr-2"></i>'
+        'Cambio Previo Receptor': '<i class="fas fa-exchange-alt text-info mr-2"></i>',
+        'Sin jornada contraria': '<i class="fas fa-not-equal text-warning mr-2"></i>'
     };
     return iconos[razon] || '<i class="fas fa-ban text-danger mr-2"></i>';
 }
@@ -1460,20 +1461,21 @@ function obtenerIconoRazon(razon) {
 // Función helper para obtener color según razón de exclusión
 function obtenerColorRazon(razon) {
     const colores = {
-        'Domingo': 'danger',
-        'Sábado': 'danger',
+        // Las claves deben coincidir con _PRIORIDAD_RAZONES_CT_PERMANENTE (ct_permanente_helper.py).
         'Fines de semana': 'muted',
+        'Fecha pasada': 'muted',
         'Festivo': 'danger',
         'Mantenimiento': 'warning',
         'Temporada': 'warning',
-        'Descanso (AM)': 'secondary',
-        'Descanso (PM)': 'secondary',
-        'Descanso receptor (AM)': 'secondary',
-        'Descanso receptor (PM)': 'secondary',
+        'Descanso Solicitante': 'secondary',
+        'Descanso Receptor': 'secondary',
+        'Día libre Solicitante': 'secondary',
+        'Día libre Receptor': 'secondary',
         'Doblada Solicitante': 'info',
         'Doblada Receptor': 'info',
         'Cambio Previo Solicitante': 'info',
-        'Cambio Previo Receptor': 'info'
+        'Cambio Previo Receptor': 'info',
+        'Sin jornada contraria': 'warning'
     };
     return colores[razon] || 'danger';
 }

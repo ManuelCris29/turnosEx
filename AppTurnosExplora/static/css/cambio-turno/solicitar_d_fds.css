@@ -48,7 +48,23 @@
 .fds-dia-linea.mio { color: #065f46; font-weight: 600; }
 .fds-dia-linea.descanso { color: #94a3b8; font-size: .82rem; }
 
+/* Cada día del finde se cede por separado: la línea del día es el elemento clicable, no la
+   tarjeta, porque se puede trabajar (y ceder) tanto el sábado como el domingo. */
+.fds-dia-cedible {
+    cursor: pointer;
+    flex-wrap: wrap;
+    border-radius: 6px;
+    padding: 4px 6px;
+    margin: 2px -6px;
+    transition: background .12s ease;
+}
+.fds-dia-cedible:hover { background: #ecfdf5; }
+.fds-dia-linea.selected { background: #d1fae5; box-shadow: 0 0 0 1px #10b981 inset; }
+.fds-ceder-hint { font-size: .78rem; font-weight: 500; color: #10b981; }
+.fds-dia-cedible .fds-ceder-hint { opacity: .85; }
+
 .fds-nota { font-size: .84rem; color: #94a3b8; font-style: italic; }
+.fds-dia-linea .fds-nota { flex-basis: 100%; font-weight: 400; }
 
 @media (max-width: 520px) {
     .fds-cards { grid-template-columns: 1fr; }

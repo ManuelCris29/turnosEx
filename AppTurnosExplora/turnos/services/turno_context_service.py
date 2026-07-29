@@ -37,7 +37,7 @@ class TurnoContextService:
         Returns:
             Diccionario con datos del calendario de turnos
         """
-        fecha_actual = timezone.now().date()
+        fecha_actual = timezone.localdate()
         
         # Calcular solo el mes actual para optimizar rendimiento
         inicio_mes = fecha_actual.replace(day=1)

@@ -7,6 +7,7 @@ from empleados.models import Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from turnos.models import AsignarJornadaExplorador
 from datetime import date, timedelta
+from django.utils import timezone
 
 
 class SolicitudFlowE2ETest(TestCase):
@@ -48,12 +49,12 @@ class SolicitudFlowE2ETest(TestCase):
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado1,
             jornada=self.jornada_am,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         AsignarJornadaExplorador.objects.create(
             explorador=self.empleado2,
             jornada=self.jornada_pm,
-            fecha_inicio=date.today() - timedelta(days=30)
+            fecha_inicio=timezone.localdate() - timedelta(days=30)
         )
         
         # Crear tipo de solicitud

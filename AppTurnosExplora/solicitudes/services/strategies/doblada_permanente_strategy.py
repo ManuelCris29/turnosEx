@@ -17,6 +17,7 @@ from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from turnos.services.jornada_service import JornadaService
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 
 def _csv(dias):
@@ -64,19 +65,9 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 return None
         return fecha
 
-    @staticmethod
-    def _grupo_base(explorador, fecha):
-        # Grupo base (AM/PM) por ASIGNACIÓN de jornada, NO por el turno del día.
-        # (En sábados/dobladas el turno del día no representa el grupo del explorador.)
-        from turnos.models import AsignarJornadaExplorador
-        asg = (
-            AsignarJornadaExplorador.objects
-            .filter(explorador=explorador, fecha_inicio__lte=fecha)
-            .select_related('jornada')
-            .order_by('-fecha_inicio')
-            .first()
-        )
-        return asg.jornada.nombre.upper() if asg else None
+    # NOTA: aquí vivía `_grupo_base` (grupo AM/PM por asignación). La elegibilidad de este
+    # formulario se decide día a día con la jornada REAL (`_jornada_doblada_perm` sobre
+    # `estado_dia`), que además exige que sean contrarias, así que dejó de usarse.
 
     def _datos_desde_solicitud(self, solicitud):
         """Reconstruye los datos para re-validar al aprobar (ver base)."""
@@ -125,13 +116,13 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de doblada permanente')
 
-            # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
-            if not datos.get('es_revalidacion'):
-                SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fi)
+            # (Los DUPLICADOS pendientes se comprueban más abajo, cuando ya se sabe qué fechas
+            #  concretas tocaría el acuerdo: mirar solo `fecha_inicio` dejaba fuera todo el resto
+            #  del rango.)
 
             # Rango válido y no pasado
             from django.utils import timezone
-            hoy = timezone.now().date()
+            hoy = timezone.localdate()
             if ff < fi:
                 return False, "La fecha de fin debe ser posterior a la fecha de inicio"
             if fi < hoy:
@@ -246,6 +237,9 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                         pass
                 return out
 
+            # Fechas que el acuerdo tocaría de verdad; con ellas se comprueban las pendientes.
+            fechas_afectadas = []
+
             if fechas_cesion or fechas_devolucion:
                 # Fechas concretas elegidas por el usuario (las que realmente se aplicarán).
                 # `datos.get(...)` puede venir como lista (POST) o csv (reconstrucción desde BD);
@@ -257,6 +251,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 pedidas_dev = _parse_fechas(csv_dev)
                 validas_ces = _DPAS._fechas_validas(csv_ces, fi, ff, solicitante, receptor, _ex)
                 validas_dev = _DPAS._fechas_validas(csv_dev, fi, ff, solicitante, receptor, _ex)
+                fechas_afectadas = sorted(set(validas_ces) | set(validas_dev))
                 # Si alguna fecha pedida ya NO es válida, se nombra para que el usuario la ajuste.
                 invalidas = sorted(set(pedidas_ces) - set(validas_ces)) + sorted(set(pedidas_dev) - set(validas_dev))
                 if invalidas:
@@ -276,6 +271,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             else:
                 ocur_ces = list(_DPAS._ocurrencias(fi, ff, dias_cesion, solicitante, receptor, _ex))
                 ocur_dev = list(_DPAS._ocurrencias(fi, ff, dias_devolucion, solicitante, receptor, _ex))
+                fechas_afectadas = sorted(set(ocur_ces) | set(ocur_dev))
                 if min(len(ocur_ces), len(ocur_dev)) == 0:
                     return False, (
                         "En este rango no quedan días válidos para CUBRIR y DEVOLVER a la vez. "
@@ -283,6 +279,23 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                         "según su jornada real, y que no caigan en festivo, fin de semana, mantenimiento, "
                         "temporada, descanso, día libre o un día ya doblado. Ajusta el rango, los días o el compañero."
                     )
+
+            # DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
+            #
+            # Se comprueban TODAS las fechas que el acuerdo tocaría, no solo `fecha_inicio`, y por
+            # los DOS lados. Antes solo se miraba el primer día del rango y del solicitante, así
+            # que una solicitud pendiente sobre cualquier otro día afectado —o cualquiera del
+            # compañero— pasaba desapercibida y podía aprobarse en paralelo sobre el mismo día.
+            #
+            # Se usan las fechas VÁLIDAS (las que de verdad se aplicarían), no todo el rango: un
+            # día que este acuerdo va a saltarse igualmente no tiene por qué bloquear nada.
+            #
+            # El solape con OTRA doblada permanente se comprueba aparte, más arriba: sus fechas
+            # viven en `dias_*`/`fechas_*` y no en un campo que esta consulta pueda cruzar.
+            if not datos.get('es_revalidacion') and fechas_afectadas:
+                SolicitudValidator.validar_sin_pendiente_en_fechas(solicitante, fechas_afectadas)
+                SolicitudValidator.validar_sin_pendiente_en_fechas(
+                    receptor, fechas_afectadas, es_receptor=True)
 
             return True, "Solicitud de doblada permanente válida"
 

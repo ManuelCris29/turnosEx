@@ -38,7 +38,7 @@ class CTPermRevertTest(TestCase):
         CompetenciaEmpleado.objects.create(empleado=self.rec, sala=self.sala)
 
         # Dos martes futuros
-        d = timezone.now().date() + timedelta(days=5)
+        d = timezone.localdate() + timedelta(days=5)
         while d.weekday() != 1:
             d += timedelta(days=1)
         self.d1 = d

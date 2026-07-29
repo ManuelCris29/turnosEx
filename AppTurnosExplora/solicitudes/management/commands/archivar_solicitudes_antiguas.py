@@ -37,7 +37,7 @@ class Command(BaseCommand):
         solo_aprobadas = options['solo_aprobadas']
         
         # Calcular fecha límite
-        fecha_limite = timezone.now().date() - timedelta(days=dias_antiguedad)
+        fecha_limite = timezone.localdate() - timedelta(days=dias_antiguedad)
         
         self.stdout.write(f'[INFO] Buscando solicitudes anteriores a {fecha_limite}...')
         

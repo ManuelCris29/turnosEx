@@ -31,7 +31,7 @@ from turnos.models import AsignarJornadaExplorador, Jornada, Sala, Turno
 
 
 def _lunes_futuro(desde_dias=14):
-    d = date.today() + timedelta(days=desde_dias)
+    d = timezone.localdate() + timedelta(days=desde_dias)
     while d.weekday() != 0:
         d += timedelta(days=1)
     return d

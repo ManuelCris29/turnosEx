@@ -16,12 +16,14 @@ import calendar
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views import View
 
 from core.mixins import AdminRequiredMixin
 from ..models import SolicitudCambio, ReprogramacionDiaDoblada
 from ..services.reprogramacion_doblada_service import ReprogramacionDobladaService as RS
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +42,17 @@ class ReprogramacionListView(LoginRequiredMixin, AdminRequiredMixin, View):
     """Lista de reprogramaciones (pendientes/pagadas/canceladas)."""
     template_name = 'solicitudes/reprogramacion_list.html'
 
+    ESTADOS_VALIDOS = ('pendiente', 'pagada', 'cancelada', 'todos')
+    POR_PAGINA = 25
+
     def get(self, request):
         estado = request.GET.get('estado', 'pendiente')
+        if estado not in self.ESTADOS_VALIDOS:
+            estado = 'pendiente'
         qs = (ReprogramacionDiaDoblada.objects
               .select_related('explorador', 'doblada_origen', 'registrado_por')
               .order_by('-creado_en'))
-        if estado and estado != 'todos':
+        if estado != 'todos':
             qs = qs.filter(estado=estado)
         base = ReprogramacionDiaDoblada.objects.all()
         conteos = {
@@ -54,10 +61,17 @@ class ReprogramacionListView(LoginRequiredMixin, AdminRequiredMixin, View):
             'cancelada': base.filter(estado='cancelada').count(),
             'todos': base.count(),
         }
-        return render(request, self.template_name, {'reprogs': qs, 'estado_sel': estado, 'conteos': conteos})
+        # El histórico crece sin límite (sobre todo en "todas"): paginar para no traerlo entero.
+        pagina = Paginator(qs, self.POR_PAGINA).get_page(request.GET.get('page'))
+        return render(request, self.template_name, {
+            'reprogs': pagina, 'pagina': pagina, 'estado_sel': estado, 'conteos': conteos,
+        })
 
 
-TIPOS_REPROGRAMABLES = ('DOBLADA', 'DOBLADA PERMANENTE')
+# D FDS entra aquí igual que DOBLADA: comparte el mismo detalle y la misma estructura (el receptor
+# dobla en la cesión, el solicitante en el pago). Lo único propio del fin de semana son las reglas
+# del día con el que se compensa, que viven en el servicio (`_validar_dia_compensacion_finde`).
+TIPOS_REPROGRAMABLES = ('DOBLADA', 'D FDS', 'DOBLADA PERMANENTE')
 
 
 class RegistrarInasistenciaView(LoginRequiredMixin, AdminRequiredMixin, View):
@@ -127,34 +141,69 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
     """Programa el día en que la persona paga doblándose, mostrando su calendario real (estado_mes)."""
     template_name = 'solicitudes/reprogramacion_programar.html'
 
+    # Rango de años aceptado en la navegación del calendario (evita ?anio=99999 y meses inválidos).
+    ANIO_MIN, ANIO_MAX = 2020, 2100
+
+    def _mes_pedido(self, request, reprog):
+        """(anio, mes) validados desde la query string, con el mes del día no cumplido de fallback."""
+        hoy = timezone.localdate()
+        base_anio = reprog.fecha_original.year if reprog.fecha_original else hoy.year
+        base_mes = reprog.fecha_original.month if reprog.fecha_original else hoy.month
+        try:
+            anio = int(request.GET.get('anio'))
+            if not (self.ANIO_MIN <= anio <= self.ANIO_MAX):
+                anio = base_anio
+        except (TypeError, ValueError):
+            anio = base_anio
+        try:
+            mes = int(request.GET.get('mes'))
+            if not (1 <= mes <= 12):
+                mes = base_mes
+        except (TypeError, ValueError):
+            mes = base_mes
+        return anio, mes
+
     def _contexto_calendario(self, reprog, anio, mes):
         from turnos.services.turno_service import TurnoService
-        from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm
-        from django.core.cache import cache
-        cache.clear()
+        from core.services.cache_service import CacheService
+
+        # Refrescar solo el caché de ESTE explorador y mes: el calendario debe reflejar su estado
+        # real de Mis Turnos. (No vaciar el caché global: afectaría a toda la aplicación.)
+        CacheService.invalidar_cache_turnos_empleado(reprog.explorador_id, mes, anio)
         estados = TurnoService.estado_mes(reprog.explorador, anio, mes)
         ndias = calendar.monthrange(anio, mes)[1]
-        hoy = date.today()
+        hoy = timezone.localdate()
+        es_finde = RS.es_dfds(reprog)
         dias = []
         for d in (date(anio, mes, i) for i in range(1, ndias + 1)):
             est = estados.get(d) or {}
-            j = _jornada_doblada_perm(reprog.explorador, d)  # None si no puede doblar
-            valido = bool(j) and d >= hoy and d != reprog.fecha_original
+            # Misma validación que aplica `programar`: lo que se pinta elegible es exactamente lo
+            # que el servicio acepta (en D FDS son días de fin de semana libres, no jornadas únicas).
+            try:
+                j = RS.validar_dia_pago(reprog, d, hoy=hoy)
+                valido, motivo = True, None
+            except ValueError as e:
+                j, valido, motivo = None, False, str(e)
+            if valido:
+                cubre = 'AM + PM (día completo)' if es_finde else ('PM' if j == 'AM' else 'AM')
+            else:
+                cubre = None
             dias.append({
                 'fecha': d, 'dow': d.weekday(),
                 'jornada': (est.get('jornada') or ('DESCANSO' if not est.get('trabaja') else '')),
-                'valido': valido, 'contraria': ('PM' if j == 'AM' else 'AM') if j else None,
+                'valido': valido, 'contraria': cubre, 'motivo': motivo,
             })
-        return {'dias': dias, 'anio': anio, 'mes': mes,
+        return {'dias': dias, 'anio': anio, 'mes': mes, 'es_finde': es_finde,
                 'mes_nombre': ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio',
                                'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'][mes]}
 
     def get(self, request, reprog_id):
         reprog = get_object_or_404(
-            ReprogramacionDiaDoblada.objects.select_related('explorador', 'doblada_origen'), id=reprog_id)
-        hoy = date.today()
-        anio = int(request.GET.get('anio') or reprog.fecha_original.year or hoy.year)
-        mes = int(request.GET.get('mes') or reprog.fecha_original.month or hoy.month)
+            ReprogramacionDiaDoblada.objects.select_related(
+                'explorador', 'doblada_origen', 'doblada_origen__tipo_cambio'), id=reprog_id)
+        # Mes/año de la URL: si vienen ausentes o corruptos (?mes=abc, ?mes=13) se cae al mes del
+        # día no cumplido en vez de reventar con un 500.
+        anio, mes = self._mes_pedido(request, reprog)
         ctx = {'reprog': reprog}
         ctx.update(self._contexto_calendario(reprog, anio, mes))
         # navegación de mes
@@ -163,7 +212,9 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
         return render(request, self.template_name, ctx)
 
     def post(self, request, reprog_id):
-        reprog = get_object_or_404(ReprogramacionDiaDoblada.objects.select_related('explorador'), id=reprog_id)
+        reprog = get_object_or_404(
+            ReprogramacionDiaDoblada.objects.select_related(
+                'explorador', 'doblada_origen', 'doblada_origen__tipo_cambio'), id=reprog_id)
         fecha_str = request.POST.get('fecha_nueva')
         try:
             fecha_nueva = date.fromisoformat(fecha_str)
@@ -195,13 +246,27 @@ class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
         fecha_pago = reprog.fecha_reprogramada  # capturar antes de cancelar
         RS.cancelar(reprog)
 
-        # Avisar al empleado que su pago de doblada se canceló (si ya estaba programado).
         if fecha_pago:
+            # Ya se había programado: ese día vuelve a su jornada normal.
             _notificar(
                 reprog.explorador,
                 'Pago de doblada cancelado',
                 f"Tu supervisor canceló el pago de doblada que tenías el {fecha_pago.strftime('%d/%m/%Y')}. "
                 f"Ese día vuelve a tu jornada normal en Mis Turnos.",
             )
-        messages.success(request, 'Reprogramación cancelada.')
+            messages.success(request, 'Reprogramación cancelada: el día de pago volvió a su jornada normal.')
+        else:
+            # Estaba PENDIENTE: no había día de pago que deshacer. El día no cumplido sigue anulado
+            # y sus 30 min cancelados — la doblada queda sin compensar, así que se avisa a ambos.
+            _notificar(
+                reprog.explorador,
+                'Reprogramación de doblada cerrada sin pago',
+                f"Tu supervisor cerró la reprogramación de tu día de doblada del "
+                f"{reprog.fecha_original.strftime('%d/%m/%Y')} sin programar un día de pago. "
+                f"Ese día queda anulado y no tienes que doblarlo.",
+            )
+            messages.warning(
+                request,
+                f'Reprogramación cancelada sin pago: el día {reprog.fecha_original.strftime("%d/%m/%Y")} '
+                f'queda anulado y {reprog.explorador.nombre} no lo repondrá.')
         return redirect('solicitudes:reprog_list')

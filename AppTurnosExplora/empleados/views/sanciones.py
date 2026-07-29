@@ -45,7 +45,7 @@ class SancionListView(LoginRequiredMixin, ListView):
         context = super().get_context_data(**kwargs)
         queryset = self._base_queryset()
         user = self.request.user
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
 
         total_sanciones = queryset.count()
         total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
@@ -73,7 +73,7 @@ def _invalidar_turnos_cache_sancion(sancion):
     try:
         from datetime import date, timedelta
         from core.services.cache_service import CacheService
-        hoy = date.today()
+        hoy = timezone.localdate()
         # Para indefinidas, cubrir hasta el mes actual (no solo +365 días desde inicio)
         fin = sancion.fecha_fin or max(sancion.fecha_inicio + timedelta(days=365), hoy)
         meses = set()
@@ -165,7 +165,7 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
         from django.utils import timezone
         context = super().get_context_data(**kwargs)
         user = self.request.user
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
 
         # Totales sobre el queryset ya filtrado
         qs = self.get_queryset()

@@ -754,6 +754,62 @@ mecanismo de auditoría del proyecto y estos casos hay que poder revisarlos).
 
 ---
 
+### 27. **Una sola noción de "hoy": `timezone.localdate()`** (Backend)
+**Qué es:** El día de hoy se pide SIEMPRE con `timezone.localdate()`. Nunca con `date.today()`
+ni con `timezone.now().date()`.
+
+**Por qué:** El proyecto corre con `USE_TZ=True` y `TIME_ZONE='America/Bogota'` (UTC-5), y el
+contenedor **no fija `TZ`**, así que el sistema operativo va en UTC. Con eso hay dos formas
+distintas de equivocarse, y el código tenía las dos:
+
+- `timezone.now()` devuelve UTC; pedirle `.date()` da **el día siguiente desde las 19:00 locales**.
+- `date.today()` usa la zona del SO: correcta en un PC configurado en Bogotá, **UTC en producción
+  y en el CI** (`ubuntu-latest`).
+
+El efecto no es teórico. Medido a las 19:58 hora local:
+
+```
+timezone.localdate()  = 2026-07-27   ← el día real
+timezone.now().date() = 2026-07-28   ← un día por delante
+```
+
+Con eso, **cada validación de "la fecha no puede ser pasada" corría un día adelantada de 19:00 a
+medianoche, todos los días**: CT Permanente ofrecía como fecha mínima pasado mañana en vez de
+mañana, y una solicitud legítima para el día siguiente se rechazaba con "debe ser posterior a
+hoy". El turno PM trabaja de 14:00 a 22:00, o sea justo dentro de la ventana rota.
+
+En los tests el mismo desajuste produce fallos **intermitentes según la hora**: un test que
+calcula "ayer" con una noción y compara contra código que usa la otra pasa de día y falla de
+noche. Así se descubrió.
+
+**Dónde:** Todo el código de negocio y todos los tests. También en los tests: el CI corre en UTC,
+así que mezclar nociones ahí genera fallos que no se reproducen en local.
+
+**Implementación:**
+```python
+from django.utils import timezone
+
+hoy = timezone.localdate()          # ✅ el día en la zona de la operación
+
+hoy = timezone.now().date()         # ❌ fecha UTC: adelanta un día desde las 19:00
+hoy = date.today()                  # ❌ zona del SO: UTC en el contenedor
+```
+
+⚠️ Al unificar, cuidado con dos trampas:
+1. Hay alias como `_date.today()`; una sustitución de texto ingenua sobre `date.today()` los rompe.
+   Usar límite de palabra: `\b_?date\.today\(\)`.
+2. No basta con que el archivo contenga el import: tiene que estar **a nivel de módulo**. Varios
+   archivos lo tenían dentro de una función y el uso a nivel de módulo reventaba con
+   `NameError`. Peor aún, las strategies capturan `Exception` genérica y lo devolvían como
+   mensaje de validación ("name 'timezone' is not defined"), así que el fallo de programación
+   llegaba al usuario disfrazado de solicitud inválida en vez de dar un 500 visible.
+
+**Estado:** ✅ **APLICADO** (27/07/2026)
+- 137 sitios unificados en 62 archivos (`solicitudes`, `turnos`, `empleados`, `permisos`, `core`,
+  `config`, `integration_tests`), incluidos los tests
+- Quedan 0 usos de `date.today()` y `timezone.now().date()` en código de aplicación
+- No se tocó `scripts/` (diagnósticos sueltos, fuera de las rutas de producción)
+
 ---
 
 ## 📊 Matriz Completa de Patrones por Flujo
@@ -921,7 +977,7 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 
 ---
 
-**Última actualización:** 2026-07-26  
+**Última actualización:** 2026-07-27  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 

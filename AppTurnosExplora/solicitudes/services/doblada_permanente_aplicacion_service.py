@@ -8,6 +8,12 @@ domingo ni festivo):
 
 Cada doblada efectiva acumula 30 min de deuda corporativa para quien se dobla
 (se ve en el Consolidado de Horas y se paga vía PDH).
+
+Además se registra el favor ENTRE LOS DOS EXPLORADORES: una `DeudaExplorador` por cada par
+(cesión, devolución), que es lo que alimenta la pantalla "Mis Favores". Una doblada permanente
+es la misma operación que una doblada suelta repetida N veces, así que deja el mismo rastro;
+antes solo se guardaba la deuda corporativa y la pantalla salía vacía aunque el compañero te
+hubiera cubierto doce días. Ver `docs/05-referencia/solicitudes/COBERTURA_MIS_FAVORES.md`.
 """
 from datetime import date, timedelta
 import logging
@@ -16,6 +22,7 @@ from django.db import transaction
 
 from turnos.models import Turno
 from .deuda_corporativa_service import DeudaCorporativaService
+from .deuda_service import DeudaService
 from .d_fds_aplicacion_service import DFDSAplicacionService
 
 logger = logging.getLogger(__name__)
@@ -259,6 +266,13 @@ class DobladaPermanenteAplicacionService:
 
         n_ces = n_dev = 0
 
+        # La jornada que el solicitante CEDE cada día hay que leerla ANTES de mutar nada: los
+        # bucles de abajo le borran el turno, y después el día ya no dice qué jornada tenía.
+        from .ct_permanente_helper import _jornada_doblada_perm
+        jornadas_cedidas = {
+            fecha: _jornada_doblada_perm(solicitante, fecha, _ex) for fecha in ocur_ces
+        }
+
         # Cesión: receptor dobla, solicitante descansa
         for fecha in ocur_ces:
             DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio='DOBLADA PERM')
@@ -273,12 +287,48 @@ class DobladaPermanenteAplicacionService:
             DobladaPermanenteAplicacionService._deuda(solicitante, fecha, solicitud, 'devolución')
             n_dev += 1
 
+        DobladaPermanenteAplicacionService._deudas_entre_exploradores(
+            solicitud, solicitante, receptor, ocur_ces, ocur_dev, jornadas_cedidas)
+
         logger.info(
             "Doblada permanente aplicada: solicitud %s — %s ocurrencias cesión (receptor dobla), "
             "%s ocurrencias devolución (solicitante dobla)",
             solicitud.id, n_ces, n_dev,
         )
         return n_ces, n_dev
+
+    @staticmethod
+    def _deudas_entre_exploradores(solicitud, solicitante, receptor, ocur_ces, ocur_dev,
+                                   jornadas_cedidas):
+        """
+        Una `DeudaExplorador` por cada par (cesión, devolución): el favor entre las dos personas,
+        que es lo que lee "Mis Favores".
+
+        El emparejamiento por índice es válido porque `_calcular_ocurrencias(balancear=True)` ya
+        recortó ambos lados al mínimo común: `ocur_ces[i]` se salda con `ocur_dev[i]`. Nace
+        'pagada' (con `fecha_pago_real`) igual que la doblada suelta, porque la devolución se
+        aplica en el mismo acto, no queda abierta.
+
+        Idempotente por (solicitud, deudor, acreedor, fecha_pago_pactada): como cada par tiene
+        una fecha de devolución distinta, re-aplicar la solicitud no duplica ninguna fila.
+        """
+        for fecha_ces, fecha_dev in zip(ocur_ces, ocur_dev):
+            DeudaService.crear_deuda_idempotente(
+                deudor=solicitante,          # cedió su jornada ese día
+                acreedor=receptor,           # dobló para cubrirla
+                solicitud=solicitud,
+                fecha_pago_pactada=fecha_dev,
+                fecha_pago_real=fecha_dev,
+                # Sin jornada legible (día raro o solicitud antigua) no se inventa: 'AM' es el
+                # mismo valor por defecto que usa D FDS, y el campo no admite vacío.
+                jornada_cedida=jornadas_cedidas.get(fecha_ces) or 'AM',
+                media_jornada=True,          # se cede UNA jornada, no el día entero
+            )
+        if ocur_ces:
+            logger.info(
+                "Doblada permanente %s: %d favor(es) entre %s y %s registrados en Mis Favores.",
+                solicitud.id, len(ocur_ces), solicitante.nombre, receptor.nombre,
+            )
 
     @staticmethod
     @transaction.atomic
@@ -340,9 +390,10 @@ class DobladaPermanenteAplicacionService:
         Revierte una doblada permanente aplicada (cancelación dentro de los 30 min):
         - Restaura los turnos previos desde el snapshot (borra las dobladas creadas
           y recrea lo que había antes).
-        - Cancela las deudas corporativas generadas por la solicitud.
+        - Cancela las deudas corporativas y los favores entre exploradores generados
+          por la solicitud.
         """
-        from solicitudes.models import DeudaCorporativa
+        from solicitudes.models import DeudaCorporativa, DeudaExplorador
         from .doblada_aplicacion_service import DobladaAplicacionService
 
         detalle = solicitud.doblada_permanente
@@ -362,6 +413,9 @@ class DobladaPermanenteAplicacionService:
                     Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio='DOBLADA PERM').delete()
 
         DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        # Un acuerdo deshecho no es un favor: se cancelan igual que en D FDS y en la doblada
+        # suelta, o quedarían para siempre en "Mis Favores" de ambos exploradores.
+        DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
         # Patrón #22: restaurar el snapshot arrasa cada día del rango. Reconstruir lo que SIGUE
         # vigente en esas fechas (otra doblada, un CT, un CT permanente…) o se borra en silencio.
         if snapshot:

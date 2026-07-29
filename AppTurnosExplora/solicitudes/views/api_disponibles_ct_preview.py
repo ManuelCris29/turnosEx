@@ -91,8 +91,12 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         cache_params = f"{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
         if fecha_fin:
             import hashlib
-            # No es uso criptográfico: solo deriva una clave de caché estable.
-            dias_hash = hashlib.md5(dias_seleccionados_json.encode(), usedforsecurity=False).hexdigest()
+            # No es uso criptográfico: solo deriva una clave de caché estable. Se hashea el JSON
+            # NORMALIZADO (claves ordenadas, sin espacios), no el texto crudo del parámetro: dos
+            # peticiones equivalentes que solo difieran en el orden de las claves o en el espaciado
+            # generaban entradas de caché distintas y recalculaban todo el rango.
+            dias_norm = json.dumps(dias_seleccionados, sort_keys=True, separators=(',', ':'))
+            dias_hash = hashlib.md5(dias_norm.encode(), usedforsecurity=False).hexdigest()
             cache_params += f"_{fecha_fin}_{dias_hash}"
             
         cache_key = f"empleados_disp_v4_{cache_params}"  # Incrementado a v4 para invalidar caché anterior
@@ -192,16 +196,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
         import json
         from django.core.exceptions import ValidationError
         from empleados.models import Empleado
-        from ..services.ct_permanente_helper import (
-            _es_festivo,
-            _es_mantenimiento,
-            _es_temporada,
-            _es_dia_descanso,
-            _tipo_cambio_previo,
-            _dia_libre_por_solicitud,
-            _razon_cambio_previo,
-            _razon_principal_ct_permanente,
-        )
+        from ..services.ct_permanente_helper import evaluar_fechas_ct_permanente
         from ..services.solicitud_validator import SolicitudValidator  # type: ignore
 
         fecha_inicio_str = request.GET.get('fecha_inicio')
@@ -261,116 +256,43 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
 
             # Jornada contraria en rango solo si hay receptor
             if receptor:
-                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
-                if not fechas_especificas:
-                    SolicitudValidator.validar_jornada_contraria_rango_permanente(
-                        solicitante,
-                        receptor,
-                        fecha_inicio,
-                        fecha_fin,
-                        dias_seleccionados if dias_seleccionados else None,
-                    )
+                SolicitudValidator.validar_jornada_contraria_rango_permanente(
+                    solicitante,
+                    receptor,
+                    fecha_inicio,
+                    fecha_fin,
+                    dias_seleccionados if dias_seleccionados else None,
+                )
 
-            # Generar fechas candidatas
-            fechas_candidatas = []
+            # MISMA evaluación que usan la validación y la aplicación: lo que se ve aquí es
+            # exactamente lo que se va a aplicar. Antes esta vista repetía la expansión y el
+            # filtrado por su cuenta (quinta copia de la misma lógica) y no comprobaba que las
+            # jornadas fueran contrarias día a día.
+            fechas_aplicables_dt, fechas_excluidas_dt = evaluar_fechas_ct_permanente(
+                fecha_inicio, fecha_fin, solicitante, receptor,
+                dias_seleccionados if dias_seleccionados else None,
+                incluir_fines_semana=True,
+            )
 
-            if dias_seleccionados:
-                fechas_especificas = dias_seleccionados.get('fechas_especificas', [])
-                dias_semana = dias_seleccionados.get('dias_semana', [])
-
-                if fechas_especificas:
-                    for fecha_str in fechas_especificas:
-                        try:
-                            if isinstance(fecha_str, str):
-                                fecha_obj = DateUtils.parse_date(fecha_str)
-                            else:
-                                fecha_obj = fecha_str
-                            if fecha_inicio <= fecha_obj <= fecha_fin and fecha_obj.weekday() < 5:
-                                fechas_candidatas.append(fecha_obj)
-                        except (ValueError, TypeError):
-                            continue
-                elif dias_semana:
-                    dias_semana_int = [int(d) for d in dias_semana]
-                    fecha_actual = fecha_inicio
-                    while fecha_actual <= fecha_fin:
-                        weekday = fecha_actual.weekday()
-                        if weekday in dias_semana_int and weekday < 5:
-                            fechas_candidatas.append(fecha_actual)
-                        fecha_actual += timedelta(days=1)
-            else:
-                # Rango completo lunes-viernes
-                fecha_actual = fecha_inicio
-                while fecha_actual <= fecha_fin:
-                    if fecha_actual.weekday() < 5:
-                        fechas_candidatas.append(fecha_actual)
-                    fecha_actual += timedelta(days=1)
-
-            # Filtrar fechas aplicables / excluidas usando la misma lógica del helper
-            fechas_aplicables = []
-            fechas_excluidas = []
-
-            # Incluir fines de semana en el set evaluado para reportarlos en excluidas (transparencia),
-            # sin alterar que los aplicables sean solo lunes-viernes.
-            fecha_actual = fecha_inicio
-            while fecha_actual <= fecha_fin:
-                if fecha_actual.weekday() in (5, 6):
-                    fechas_candidatas.append(fecha_actual)
-                fecha_actual += timedelta(days=1)
-
-            for fecha_dia in sorted(set(fechas_candidatas)):
-                razones_exclusion = []
-
-                if fecha_dia.weekday() in (5, 6):
-                    razones_exclusion.append('Fines de semana')
-                if _es_festivo(fecha_dia):
-                    razones_exclusion.append('Festivo')
-                if _es_mantenimiento(fecha_dia):
-                    razones_exclusion.append('Mantenimiento')
-                if _es_temporada(fecha_dia):
-                    razones_exclusion.append('Temporada')
-                if _es_dia_descanso(solicitante, fecha_dia):
-                    razones_exclusion.append('Descanso Solicitante')
-                if receptor and _es_dia_descanso(receptor, fecha_dia):
-                    razones_exclusion.append('Descanso Receptor')
-                # Día LIBRE por otra solicitud aprobada (sin Turno: doblada cedida, cambio de
-                # descanso…) — lo que _es_dia_descanso (calendario) no ve, para reflejar Mis Turnos.
-                if _dia_libre_por_solicitud(solicitante, fecha_dia):
-                    razones_exclusion.append('Día libre Solicitante')
-                if receptor and _dia_libre_por_solicitud(receptor, fecha_dia):
-                    razones_exclusion.append('Día libre Receptor')
-                # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
-                tipo_previo_sol = _tipo_cambio_previo(solicitante, fecha_dia)
-                if tipo_previo_sol:
-                    razones_exclusion.append(_razon_cambio_previo(tipo_previo_sol, True))
-                if receptor:
-                    tipo_previo_rec = _tipo_cambio_previo(receptor, fecha_dia)
-                    if tipo_previo_rec:
-                        razones_exclusion.append(_razon_cambio_previo(tipo_previo_rec, False))
-
-                if razones_exclusion:
-                    fechas_excluidas.append(
-                        {
-                            'fecha': fecha_dia.strftime('%Y-%m-%d'),
-                            'razon': _razon_principal_ct_permanente(razones_exclusion),
-                        }
-                    )
-                else:
-                    fechas_aplicables.append(fecha_dia.strftime('%Y-%m-%d'))
+            fechas_aplicables = [f.strftime('%Y-%m-%d') for f in fechas_aplicables_dt]
+            fechas_excluidas = [
+                {'fecha': e['fecha'].strftime('%Y-%m-%d'), 'razon': e['razon']}
+                for e in fechas_excluidas_dt
+            ]
 
             if not fechas_aplicables:
                 raise ValidationError(
                     'No se encontraron días válidos en el rango seleccionado. '
-                    'Todos los días son festivos, de mantenimiento, temporada, o días de descanso.'
+                    'Todos los días quedan excluidos (fin de semana, festivo, mantenimiento, '
+                    'temporada, descanso, día ya comprometido o sin jornada contraria).'
                 )
 
             # Resumen informativo del rango (UX): siempre mostrar fines de semana en el rango
             total_dias_rango = (fecha_fin - fecha_inicio).days + 1
-            total_fines_semana_rango = 0
-            fecha_actual = fecha_inicio
-            while fecha_actual <= fecha_fin:
-                if fecha_actual.weekday() in (5, 6):
-                    total_fines_semana_rango += 1
-                fecha_actual += timedelta(days=1)
+            total_fines_semana_rango = sum(
+                1 for n in range((fecha_fin - fecha_inicio).days + 1)
+                if (fecha_inicio + timedelta(days=n)).weekday() in (5, 6)
+            )
 
             return json_ok(
                 {
@@ -383,7 +305,11 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                         'resumen': {
                             'total_dias_rango': total_dias_rango,
                             'fines_de_semana_en_rango': total_fines_semana_rango,
-                            'prioridad': 'Mantenimiento > Festivo > Temporada > Doblada/Cambio Previo > Descanso Solicitante > Descanso Receptor > Fines de semana',
+                            'prioridad': (
+                                'Mantenimiento > Festivo > Temporada > Doblada/Cambio Previo > '
+                                'Descanso Solicitante > Descanso Receptor > Sin jornada contraria > '
+                                'Fines de semana'
+                            ),
                         },
                     },
                 }

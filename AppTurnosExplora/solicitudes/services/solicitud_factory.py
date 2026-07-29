@@ -217,10 +217,12 @@ class SolicitudFactory:
         if not strategy:
             return None, f"No se encontró estrategia para el tipo: {tipo_solicitud.nombre}"
         
-        try:
-            return strategy.crear_solicitud(datos)
-        except Exception as e:
-            return None, f"Error creando solicitud: {str(e)}"
+        # Sin try/except, por el mismo motivo que en `validar_solicitud`: envolver aquí convertía
+        # cualquier BUG (p. ej. un fallo de BD) en `(None, "Error creando solicitud: ...")`, que el
+        # orquestador publica como 400 'creation_failed' — indistinguible de un rechazo legítimo y
+        # con el texto de la excepción a la vista del explorador. Los fallos inesperados suben hasta
+        # el orquestador, que los registra y responde 500 'internal_error'.
+        return strategy.crear_solicitud(datos)
     
     @classmethod
     def validar_solicitud(cls, tipo_solicitud: TipoSolicitudCambio, datos: Dict[str, Any]) -> tuple:
@@ -238,10 +240,10 @@ class SolicitudFactory:
         if not strategy:
             return False, f"No se encontró estrategia para el tipo: {tipo_solicitud.nombre}"
         
-        try:
-            return strategy.validar_solicitud(datos)
-        except Exception as e:
-            return False, f"Error validando solicitud: {str(e)}"
+        # Sin try/except: las estrategias ya devuelven (False, mensaje) para las reglas de negocio
+        # incumplidas. Envolver esto convertía cualquier BUG en un rechazo de validación con la
+        # misma forma, ocultándolo tras un mensaje que el usuario lee como "mi solicitud está mal".
+        return strategy.validar_solicitud(datos)
     
     @classmethod
     def aplicar_cambios(cls, solicitud: 'SolicitudCambio') -> tuple:
@@ -374,7 +376,11 @@ class SolicitudFactory:
                 'error': str(e),
                 'estrategia': strategy.__class__.__name__ if strategy else 'None'
             }, exc_info=True)
-            return []
+            # Se propaga en vez de devolver []: una lista vacía significa "no hay compañeros que
+            # cumplan", y usarla también para los fallos hacía indistinguible un bug de una
+            # respuesta legítima. Los llamadores que prefieran degradar a lista vacía lo deciden
+            # ellos (p. ej. ObtenerEmpleadosDisponiblesView ya tiene su propio manejo).
+            raise
     
     @classmethod
     def get_turno_explorador(cls, tipo_solicitud: TipoSolicitudCambio, 

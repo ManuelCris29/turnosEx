@@ -64,7 +64,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             from turnos.models import AsignarJornadaExplorador
             emp = request.user.empleado
             asg = (AsignarJornadaExplorador.objects
-                   .filter(explorador=emp, fecha_inicio__lte=timezone.now().date())
+                   .filter(explorador=emp, fecha_inicio__lte=timezone.localdate())
                    .select_related('jornada').order_by('-fecha_inicio').first())
             if asg:
                 jornada_base = asg.jornada.nombre.upper()
@@ -72,7 +72,9 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
             logger.warning("Error obteniendo jornada base del empleado", exc_info=True)
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.now().date(),
+            # Mañana: el día en curso ya se está trabajando y no hay jornada que intercambiar
+            # sin reescribir un turno que la persona está cubriendo (misma regla que el backend).
+            'fecha_minima': timezone.localdate() + timezone.timedelta(days=1),
             'fecha_seleccionada': None,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
@@ -86,7 +88,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         """Renderizar formulario específico para DOBLADA PERMANENTE"""
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.now().date(),
+            'fecha_minima': timezone.localdate(),
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
         }
@@ -97,7 +99,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         # No establecer fecha inicial por defecto - el usuario debe seleccionarla
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.now().date() + timezone.timedelta(days=1),
+            'fecha_minima': timezone.localdate() + timezone.timedelta(days=1),
             'fecha_inicio': None,  # Sin fecha inicial - usuario debe seleccionar
             'fecha_fin': None,
             'empleados_disponibles': [],
@@ -111,7 +113,11 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         # No establecer fecha inicial - el usuario debe seleccionarla
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.now().date(),
+            'fecha_minima': timezone.localdate(),
+            # La cesión admite HOY, pero el pago debe ser posterior a la creación de la solicitud
+            # (`validar_acuerdo_previo_obligatorio`). Sin este mínimo propio, el datepicker ofrecía
+            # hoy como fecha de pago y la validación la rechazaba después.
+            'fecha_minima_pago': timezone.localdate() + timezone.timedelta(days=1),
             'fecha_seleccionada': None,  # Sin fecha inicial - usuario debe seleccionar
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
@@ -122,7 +128,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         """Renderizar formulario específico para D FDS (Doblada de Fin de Semana)"""
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.now().date(),
+            'fecha_minima': timezone.localdate(),
             'fecha_seleccionada': None,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
@@ -148,11 +154,16 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         return (asignacion.jornada.nombre if asignacion and asignacion.jornada else '') or ''
 
     def _render_cambio_turno_normal(self, request, tipo_solicitud):
-        """Renderizar formulario para cambio de turno normal"""
+        """Renderizar formulario para cambio de turno normal.
+
+        La fecha mínima es MAÑANA: el día en curso ya se está trabajando, así que no hay
+        jornada que intercambiar sin reescribir un turno que la persona ya está cubriendo
+        (misma regla que valida el backend). Sin fecha preseleccionada: el usuario elige.
+        """
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.now().date(),
-            'fecha_seleccionada': timezone.now().date(),
+            'fecha_minima': timezone.localdate() + timezone.timedelta(days=1),
+            'fecha_seleccionada': None,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
         }

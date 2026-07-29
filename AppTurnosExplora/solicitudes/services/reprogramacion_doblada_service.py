@@ -21,6 +21,7 @@ from solicitudes.models import SolicitudCambio, ReprogramacionDiaDoblada
 from .doblada_aplicacion_service import DobladaAplicacionService
 from .d_fds_aplicacion_service import DFDSAplicacionService
 from .deuda_corporativa_service import DeudaCorporativaService
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -67,10 +68,15 @@ class ReprogramacionDobladaService:
 
     @staticmethod
     def participantes_y_dias(solicitud: SolicitudCambio) -> list:
-        """[(rol, explorador, [fechas de doblada reprogramables])] para DOBLADA o DOBLADA
-        PERMANENTE. En sencilla cada uno tiene 1 día; en permanente, varias fechas específicas."""
+        """[(rol, explorador, [fechas de doblada reprogramables])] para DOBLADA, D FDS o DOBLADA
+        PERMANENTE. En las sencillas cada uno tiene 1 día; en permanente, varias fechas específicas.
+
+        D FDS comparte estructura con DOBLADA (mismo `DobladaDetalle`: el receptor dobla en la
+        fecha de cesión y el solicitante en la de pago), así que entra por la misma rama. Lo que
+        cambia es el DÍA DE COMPENSACIÓN, que en finde tiene sus propias reglas — ver `programar`.
+        """
         tipo = solicitud.tipo_cambio.nombre
-        if tipo == 'DOBLADA':
+        if tipo in ('DOBLADA', 'D FDS'):
             det = solicitud.doblada
             return [
                 ('receptor', solicitud.explorador_receptor, [solicitud.fecha_cambio_turno]),
@@ -100,6 +106,98 @@ class ReprogramacionDobladaService:
         return None
 
     @staticmethod
+    def _validar_dia_compensacion_finde(explorador, fecha_nueva: date, fecha_original: date) -> None:
+        """
+        Reglas del día con el que se compensa una D FDS no cumplida. Lanza ValueError con el
+        motivo, o no hace nada si el día sirve.
+
+        Qué se está compensando: la persona debía trabajar un día de FIN DE SEMANA que no era suyo
+        y no lo hizo, así que ese turno se quedó corto. Lo devuelve trabajando otro día de finde
+        que tenía libre. El compañero NO entra: su descanso ya lo tuvo el día original.
+        """
+        from turnos.services.turno_service import TurnoService
+
+        if fecha_nueva.weekday() not in (5, 6):
+            raise ValueError(
+                'El día de compensación de una Doblada de Fin de Semana debe ser un sábado o un '
+                'domingo. Elige un día de fin de semana.'
+            )
+
+        # Mismo día de la semana: es la regla que mantiene intacta la cantidad de sábados y de
+        # domingos de cada persona en el mes (los domingos se pagan distinto).
+        if fecha_nueva.weekday() != fecha_original.weekday():
+            dia = 'domingo' if fecha_original.weekday() == 6 else 'sábado'
+            raise ValueError(
+                f'El día que no se cumplió era un {dia}: la compensación también debe ser un '
+                f'{dia}, para no alterar su cantidad de {dia}s del mes.'
+            )
+
+        estado = TurnoService.estado_dia(explorador, fecha_nueva)
+        if estado.get('trabaja'):
+            raise ValueError(
+                f'Esa persona ya trabaja el {fecha_nueva.strftime("%d/%m/%Y")}; no puede doblarse '
+                'de nuevo. Elige un día de fin de semana en el que descanse.'
+            )
+
+        # Estar libre no basta: si ese día lo CEDIÓ en otra solicitud, hay un compañero cubriéndolo
+        # COMO EXTRA. Trabajarlo dejaría a dos personas en el mismo turno y desperdiciaría el favor.
+        # (Un descanso por CAMBIO DE DESCANSO no estorba: es un intercambio ya saldado y quien
+        # trabaja ese día lo hace en su lugar, no de más. Mismo criterio que la validación de la
+        # fecha de pago en `d_fds_strategy`.)
+        comprometido = TurnoService.dia_comprometido_por_solicitud(explorador, fecha_nueva)
+        if (comprometido and comprometido.get('tipo') == 'cedio'
+                and comprometido.get('origen') != 'cambio_descanso'):
+            motivo = comprometido.get('motivo') or 'ya lo cedió'
+            raise ValueError(
+                f'El {fecha_nueva.strftime("%d/%m/%Y")} esa persona ya se lo cedió a un compañero '
+                f'({motivo}), que lo está cubriendo. Elige otro día de fin de semana.'
+            )
+
+    @staticmethod
+    def es_dfds(reprog: ReprogramacionDiaDoblada) -> bool:
+        """La doblada de origen es de FIN DE SEMANA (reglas de compensación propias)."""
+        tipo = getattr(reprog.doblada_origen, 'tipo_cambio', None)
+        return bool(tipo) and tipo.nombre == 'D FDS'
+
+    @staticmethod
+    def validar_dia_pago(reprog: ReprogramacionDiaDoblada, fecha_nueva: date, hoy: date | None = None):
+        """
+        FUENTE ÚNICA de "¿sirve este día para pagar la doblada no cumplida?". La usan el calendario
+        del supervisor (para pintar qué días son elegibles) y `programar` (para revalidar el POST),
+        así lo que se ve y lo que se acepta no pueden divergir.
+
+        Devuelve la jornada única que la persona tiene ese día (la que se guarda para restaurar al
+        cancelar), o None en D FDS —donde la unidad es el día completo y no hay jornada previa—.
+        Lanza ValueError con el motivo si el día no sirve.
+        """
+        from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm
+
+        hoy = hoy or timezone.localdate()
+        if fecha_nueva == reprog.fecha_original:
+            raise ValueError('El día de pago debe ser distinto al día que no se cumplió.')
+        if fecha_nueva < hoy:
+            raise ValueError('El día de pago no puede estar en el pasado.')
+
+        if ReprogramacionDobladaService.es_dfds(reprog):
+            # FIN DE SEMANA: la unidad es el DÍA COMPLETO, no media jornada. Aquí no se "agrega la
+            # jornada contraria" a un día que ya se trabaja: se trabaja un día de finde que se tenía
+            # LIBRE. Por eso no hay jornada previa que guardar (al cancelar, la persona simplemente
+            # vuelve a descansar) y los 30 min no aplican — el guard de `aplica_deuda_doblada` ya
+            # los descarta en sábado y domingo.
+            ReprogramacionDobladaService._validar_dia_compensacion_finde(
+                reprog.explorador, fecha_nueva, reprog.fecha_original)
+            return None
+
+        # La persona debe tener jornada única real ese día (para poder doblar = agregar la contraria).
+        j = _jornada_doblada_perm(reprog.explorador, fecha_nueva)
+        if j is None:
+            raise ValueError(
+                'Ese día la persona no tiene una jornada única para doblar (ya dobla, descansa, '
+                'es festivo/fin de semana, o no tiene turno). Elige otro día.'
+            )
+        return j
+
+    @staticmethod
     def puede_cancelar(solicitud: SolicitudCambio) -> bool:
         """Solo se puede CANCELAR (deshacer todo) si NINGÚN día de doblada se ha cumplido aún
         (ambas fechas de doblada son hoy o futuras). Si uno ya pasó, cancelar afectaría a quien
@@ -107,7 +205,7 @@ class ReprogramacionDobladaService:
         detalle = getattr(solicitud, 'doblada', None)
         if not detalle:
             return False
-        hoy = date.today()
+        hoy = timezone.localdate()
         return solicitud.fecha_cambio_turno >= hoy and detalle.fecha_pago >= hoy
 
     @staticmethod
@@ -152,25 +250,16 @@ class ReprogramacionDobladaService:
     def programar(reprog: ReprogramacionDiaDoblada, fecha_nueva: date) -> ReprogramacionDiaDoblada:
         """El supervisor programa el día en que la persona paga doblándose. Aplica la doblada ese
         día (sin pasar por el flujo normal) y le regenera los 30 min en la fecha real."""
-        from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm
         from core.services.cache_service import CacheService
 
         if reprog.estado != 'pendiente':
             raise ValueError('Esta reprogramación no está pendiente de programar.')
-        if fecha_nueva == reprog.fecha_original:
-            raise ValueError('El día de pago debe ser distinto al día que no se cumplió.')
 
-        # La persona debe tener jornada única real ese día (para poder doblar = agregar la contraria).
-        j = _jornada_doblada_perm(reprog.explorador, fecha_nueva)
-        if j is None:
-            raise ValueError(
-                'Ese día la persona no tiene una jornada única para doblar (ya dobla, descansa, '
-                'es festivo/fin de semana, o no tiene turno). Elige otro día.'
-            )
-
-        # Guardar la jornada única que tenía ese día ANTES de doblar, para poder
-        # restaurar exactamente su turno original si luego se cancela.
-        reprog.jornada_pago_previa = j
+        # Misma validación que pinta el calendario: el POST no puede colar un día que la pantalla
+        # no ofrecía (fecha pasada, formulario viejo, request directo).
+        # Guarda la jornada única que tenía ese día ANTES de doblar, para poder restaurar
+        # exactamente su turno original si luego se cancela (None en D FDS: día completo).
+        reprog.jornada_pago_previa = ReprogramacionDobladaService.validar_dia_pago(reprog, fecha_nueva)
 
         DFDSAplicacionService._crear_doblada_dia(
             reprog.explorador, fecha_nueva, tipo_cambio=TIPO_PAGO_REPROGRAMADO)

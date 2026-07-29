@@ -34,13 +34,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                document.getElementById('tipo_solicitud_id')?.value || 
                                window.tipoSolicitudId;
 
-        console.log('DEBUG JS:', {
-            fecha: fecha,
-            tipoSolicitudId: tipoSolicitudId,
-            urlParams: window.location.search,
-            hiddenElement: document.getElementById('tipo_solicitud_id')?.value
-        });
-
         // Mostrar indicador de carga
         empleadoSelect.innerHTML = '<option value="">Cargando compañeros...</option>';
         empleadoSelect.disabled = true;
@@ -55,8 +48,6 @@ document.addEventListener('DOMContentLoaded', function() {
             url += `&tipo_solicitud_id=${tipoSolicitudId}`;
         }
 
-        console.log('DEBUG JS: URL final:', url);
-
         // Realizar petición AJAX
         fetch(url, {
             method: 'GET',
@@ -65,34 +56,21 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         })
         .then(response => {
-            console.log('DEBUG JS: Status de respuesta:', response.status, response.statusText);
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             return response.json();
         })
         .then(data => {
-            console.log('DEBUG JS: Respuesta completa del servidor:', JSON.stringify(data, null, 2));
-            console.log('DEBUG JS: Estructura de datos:', {
-                'success': data.success,
-                'tiene_empleados': !!data.empleados,
-                'cantidad_empleados': data.empleados ? data.empleados.length : 0,
-                'tipo_empleados': typeof data.empleados,
-                'es_array': Array.isArray(data.empleados)
-            });
-            
             empleadoSelect.innerHTML = '<option value="">Selecciona un compañero...</option>';
-            
+
             if (data.success === false) {
                 // Error del servidor
                 const mensajeError = data.error || 'Error al cargar compañeros disponibles';
                 empleadoSelect.innerHTML = `<option value="">${mensajeError}</option>`;
-                console.error('ERROR: Respuesta del servidor indica error:', data);
+                console.error('Error al cargar compañeros disponibles:', mensajeError);
             } else if (data.empleados && Array.isArray(data.empleados) && data.empleados.length > 0) {
-                // Hay empleados disponibles
-                console.log(`✓ Empleados encontrados: ${data.empleados.length}`);
-                data.empleados.forEach((empleado, index) => {
-                    console.log(`  [${index + 1}] ${empleado.nombre} ${empleado.apellido} (ID: ${empleado.id})`);
+                data.empleados.forEach(empleado => {
                     const option = document.createElement('option');
                     option.value = empleado.id;
                     option.textContent = `${empleado.nombre} ${empleado.apellido}`;
@@ -100,18 +78,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 });
             } else {
                 // No hay empleados disponibles
-                const mensaje = tipoSolicitudId && window.location.pathname.includes('cambio') 
+                const mensaje = tipoSolicitudId && window.location.pathname.includes('cambio')
                     ? 'No hay compañeros de jornada contraria disponibles para esta fecha'
                     : 'No hay compañeros disponibles para esta fecha';
                 empleadoSelect.innerHTML = `<option value="">${mensaje}</option>`;
-                console.warn('⚠ No se encontraron empleados disponibles', {
-                    fecha: fecha,
-                    tipoSolicitudId: tipoSolicitudId,
-                    respuesta_completa: data,
-                    'data.empleados existe': !!data.empleados,
-                    'data.empleados es array': Array.isArray(data.empleados),
-                    'data.empleados length': data.empleados ? data.empleados.length : 'N/A'
-                });
             }
             empleadoSelect.disabled = false;
         })
@@ -146,14 +116,34 @@ document.addEventListener('DOMContentLoaded', function() {
         // Un turno es "predeterminado" si es virtual (sin registro en BD) o si el registro
         // no fue creado por ningún tipo de cambio (tipo_cambio=null → turno del horario importado).
         const esJornadaPredeterminada = turno.es_turno_virtual || (!turno.tipo_cambio && turno.id !== null);
-        const badgeClass = esJornadaPredeterminada ? 'badge-info' : 'badge-success';
-        const badgeText = esJornadaPredeterminada ? 'Jornada Predeterminada' : 'Turno Asignado';
+        let badgeClass = esJornadaPredeterminada ? 'badge-info' : 'badge-success';
+        let badgeText = esJornadaPredeterminada ? 'Jornada Predeterminada' : 'Turno Asignado';
+        // Si el día es virtual, `fuente` (estado_dia) dice QUÉ capa lo resolvió. Sin esto
+        // un día completo por temporada o por alternancia de finde se etiquetaba
+        // "Jornada Predeterminada", que es engañoso: no es la jornada base del empleado.
+        if (esJornadaPredeterminada && turno.fuente) {
+            const etiquetasPorFuente = {
+                temporada: ['badge-warning', 'Día completo por temporada'],
+                festivo: ['badge-warning', 'Día completo por festivo'],
+                alternancia: ['badge-warning', 'Fin de semana (alternancia)'],
+                manual: ['badge-warning', 'Fin de semana (asignación del supervisor)'],
+                mantenimiento: ['badge-warning', 'Lunes de mantenimiento'],
+                solicitud: ['badge-success', 'Por solicitud aprobada'],
+            };
+            const etiqueta = etiquetasPorFuente[turno.fuente];
+            if (etiqueta) {
+                [badgeClass, badgeText] = etiqueta;
+            } else if (turno.fuente === 'base' && turno.jornada === 'DOBLADA') {
+                // El endpoint puede forzar DOBLADA por festivo/rotación sin tocar `fuente`.
+                [badgeClass, badgeText] = ['badge-warning', 'Día completo'];
+            }
+        }
         detallesElem.innerHTML = `
             <div class="card mb-3">
                 <div class="card-body">
                     <div class="row align-items-center mb-2">
                         <div class="col-12 col-md-6 mb-2 mb-md-0">
-                            <strong>Jornada:</strong> ${turno.jornada || '-'}
+                            <strong>Jornada:</strong> <span translate="no">${turno.jornada || '-'}</span>
                             <span class="badge ${badgeClass} ml-1">${badgeText}</span>
                         </div>
                         <div class="col-12 col-md-6">

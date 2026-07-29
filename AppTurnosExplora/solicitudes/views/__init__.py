@@ -16,8 +16,10 @@ from .detalle import *  # noqa: F401,F403
 from .gestion_solicitudes import *  # noqa: F401,F403
 from .reprogramacion_views import *  # noqa: F401,F403
 from .cierre_config_views import *  # noqa: F401,F403
+from .favores import *  # noqa: F401,F403
 
 __all__ = [
+    "MisFavoresView",
     "SolicitudesView",
     "TipoSolicitudCambioListView",
     "TipoSolicitudCambioCreateView",

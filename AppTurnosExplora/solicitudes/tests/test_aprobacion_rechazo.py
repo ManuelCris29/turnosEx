@@ -28,7 +28,7 @@ from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 def _dia_semana_futuro(offset_semanas=2):
     """Devuelve un miércoles al menos 2 semanas en el futuro."""
-    d = timezone.now().date() + timedelta(weeks=offset_semanas)
+    d = timezone.localdate() + timedelta(weeks=offset_semanas)
     while d.weekday() != 2:
         d += timedelta(days=1)
     return d

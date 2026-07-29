@@ -15,6 +15,11 @@ from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from solicitudes.views.aprobacion_views import CancelarSolicitudView
+from solicitudes.models import DeudaCorporativa, DobladaDetalle
+from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+from solicitudes.tests.test_matriz_dobladas import (
+    MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO,
+)
 
 
 class CancelacionLIFOTest(TestCase):
@@ -38,7 +43,7 @@ class CancelacionLIFOTest(TestCase):
         self.jhon = _emp('jhon', '2', self.pm)
         self.carlos = _emp('carlos', '3', self.pm)
 
-        d = timezone.now().date() + timedelta(days=3)
+        d = timezone.localdate() + timedelta(days=3)
         while d.weekday() != 2:
             d += timedelta(days=1)
         self.x = d
@@ -93,3 +98,263 @@ class CancelacionLIFOTest(TestCase):
         self.assertEqual(code, 200, body)
         self.A.refresh_from_db()
         self.assertEqual(self.A.estado, 'cancelada')
+
+
+class CancelacionDesdeGestionTest(MatrizDobladasTestCase):
+    """
+    La cancelación del SUPERVISOR desde gestión, con sus cuatro casuísticas.
+
+    Antes solo cambiaba el estado: la solicitud quedaba "cancelada" pero los turnos seguían
+    aplicados, así que el horario mostraba un intercambio que ya no existía.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        from empleados.models import CompetenciaEmpleado
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+        self.uc = CancelarSolicitudUseCase()
+
+    def _doblada_aplicada(self, fecha_cesion=None, fecha_pago=None):
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+        datos = self._datos(tipo_cambio=self.tipo_doblada)
+        if fecha_cesion:
+            datos['fecha_cambio_turno'] = str(fecha_cesion)
+        if fecha_pago:
+            datos['fecha_pago'] = str(fecha_pago)
+        strat = DobladaStrategy()
+        sol, msg = strat.crear_solicitud(datos)
+        self.assertIsNotNone(sol, msg)
+        sol.estado = 'aprobada'
+        sol.fecha_resolucion = timezone.now()
+        sol.save()
+        sol = SolicitudCambio.objects.select_related('doblada', 'tipo_cambio').get(id=sol.id)
+        ok, m = strat.aplicar_cambios(sol)
+        self.assertTrue(ok, m)
+        return sol
+
+    def test_pendiente_solo_cambia_el_estado(self):
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+        sol, msg = DobladaStrategy().crear_solicitud(
+            self._datos(tipo_cambio=self.tipo_doblada))
+        self.assertIsNotNone(sol, msg)
+        ok, m = self.uc.execute_supervisor(sol.id, self.emisor)
+        self.assertTrue(ok, m)
+        sol.refresh_from_db()
+        self.assertEqual(sol.estado, 'cancelada')
+
+    def test_aprobada_sin_cumplir_revierte_los_turnos(self):
+        """El caso que estaba roto: se cancelaba y los turnos se quedaban puestos."""
+        sol = self._doblada_aplicada()
+        self.assertTrue(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).exists(),
+                        'sanity: la doblada debe estar aplicada')
+
+        ok, m = self.uc.execute_supervisor(sol.id, self.emisor)
+        self.assertTrue(ok, m)
+        sol.refresh_from_db()
+        self.assertEqual(sol.estado, 'cancelada')
+        self.assertIn('restaurados', m)
+        # El receptor ya no está doblado en la fecha de cesión.
+        jornadas = sorted(t.jornada.nombre.upper() for t in
+                          Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION)
+                          .select_related('jornada'))
+        self.assertNotEqual(jornadas, ['AM', 'PM'], 'la doblada debió revertirse')
+        # Y no quedan deudas vivas.
+        self.assertFalse(DeudaCorporativa.objects.filter(solicitud_origen=sol, estado='activa').exists())
+
+    def test_cumplida_a_medias_se_bloquea(self):
+        """
+        Un día ya pasó y otro no: revertir borraría lo trabajado y no revertir dejaría el horario
+        descuadrado. Se bloquea y se explica la salida.
+        """
+        sol = self._doblada_aplicada()
+        # Simulamos que la cesión ya ocurrió moviéndola al pasado. Hay que limpiar el snapshot:
+        # es la fuente preferida de "qué días tocó" y seguiría apuntando a las fechas originales.
+        ayer = timezone.localdate() - timedelta(days=1)
+        SolicitudCambio.objects.filter(id=sol.id).update(fecha_cambio_turno=ayer)
+        sol.doblada.snapshot_turnos_previos = None
+        sol.doblada.save(update_fields=['snapshot_turnos_previos'])
+        sol.refresh_from_db()
+
+        ok, m = self.uc.execute_supervisor(sol.id, self.emisor)
+        self.assertFalse(ok, 'no debe poder cancelarse a medias')
+        self.assertIn('ya se cumplió en parte', m)
+        self.assertIn('Reprogramar', m)
+        sol.refresh_from_db()
+        self.assertEqual(sol.estado, 'aprobada', 'la solicitud debe quedar intacta')
+
+    def test_totalmente_cumplida_se_cancela_sin_reescribir_el_historial(self):
+        sol = self._doblada_aplicada()
+        ayer = timezone.localdate() - timedelta(days=1)
+        anteayer = ayer - timedelta(days=1)
+        SolicitudCambio.objects.filter(id=sol.id).update(fecha_cambio_turno=anteayer)
+        sol.doblada.fecha_pago = ayer
+        sol.doblada.save(update_fields=['fecha_pago'])
+        # El snapshot manda sobre las fechas, así que se limpia para que la guardia mire las fechas.
+        sol.doblada.snapshot_turnos_previos = None
+        sol.doblada.save(update_fields=['snapshot_turnos_previos'])
+        sol.refresh_from_db()
+
+        turnos_antes = Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count()
+        ok, m = self.uc.execute_supervisor(sol.id, self.emisor)
+        self.assertTrue(ok, m)
+        self.assertIn('historial', m)
+        sol.refresh_from_db()
+        self.assertEqual(sol.estado, 'cancelada')
+        self.assertEqual(
+            Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count(), turnos_antes,
+            'los días ya trabajados no se tocan')
+
+    def test_respeta_la_guardia_lifo(self):
+        """Si hay un cambio más reciente sobre el mismo día, el supervisor tampoco puede pisarlo."""
+        sol = self._doblada_aplicada()
+        posterior = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, comentario='posterior',
+            fecha_cambio_turno=FECHA_CESION, estado='aprobada',
+            fecha_resolucion=timezone.now() + timedelta(minutes=5))
+        DobladaDetalle.objects.create(
+            solicitud=posterior, fecha_pago=FECHA_PAGO, minutos_deuda=30,
+            tipo_cesion='cesion_completa', empleado_receptor=self.receptor)
+
+        ok, m = self.uc.execute_supervisor(sol.id, self.emisor)
+        self.assertFalse(ok)
+        self.assertIn('más reciente', m)
+
+    def test_el_boton_de_gestion_revierte_de_verdad(self):
+        """
+        Cubre el CABLEADO, no solo el caso de uso: la vista de gestión antes solo cambiaba el
+        estado y dejaba los turnos puestos. Se ejerce la vista tal cual la usa el supervisor.
+        """
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.test import RequestFactory
+        from solicitudes.views.gestion_solicitudes import GestionCancelarSolicitudView
+
+        sol = self._doblada_aplicada()
+        self.assertTrue(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).exists())
+
+        self.emisor.user.is_staff = True
+        self.emisor.user.save(update_fields=['is_staff'])
+
+        req = RequestFactory().post(f'/solicitudes/gestion-solicitudes/{sol.id}/cancelar/')
+        req.user = self.emisor.user
+        req.session = {}
+        req._messages = FallbackStorage(req)
+        GestionCancelarSolicitudView.as_view()(req, solicitud_id=sol.id)
+
+        sol.refresh_from_db()
+        self.assertEqual(sol.estado, 'cancelada')
+        jornadas = sorted(t.jornada.nombre.upper() for t in
+                          Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION)
+                          .select_related('jornada'))
+        self.assertNotEqual(jornadas, ['AM', 'PM'],
+                            'la vista debe revertir los turnos, no solo marcar el estado')
+
+    def _post_gestion(self, vista, sol_id, next_url=None):
+        """Ejerce una vista de gestión como lo hace el supervisor, y devuelve los mensajes."""
+        from django.contrib.messages.storage.fallback import FallbackStorage
+        from django.test import RequestFactory
+
+        self.emisor.user.is_staff = True
+        self.emisor.user.save(update_fields=['is_staff'])
+
+        datos = {'next': next_url} if next_url else {}
+        req = RequestFactory().post(f'/solicitudes/gestion-solicitudes/{sol_id}/x/', datos)
+        req.user = self.emisor.user
+        req.session = {}
+        req._messages = FallbackStorage(req)
+        resp = vista.as_view()(req, solicitud_id=sol_id)
+        return resp, [str(m) for m in req._messages]
+
+    def _mover_al_pasado(self, sol):
+        """Deja la solicitud enteramente en días ya trabajados."""
+        ayer = timezone.localdate() - timedelta(days=1)
+        anteayer = ayer - timedelta(days=1)
+        SolicitudCambio.objects.filter(id=sol.id).update(fecha_cambio_turno=anteayer)
+        sol.doblada.fecha_pago = ayer
+        # El snapshot manda sobre las fechas; se limpia para que la guardia mire las fechas.
+        sol.doblada.snapshot_turnos_previos = None
+        sol.doblada.save(update_fields=['fecha_pago', 'snapshot_turnos_previos'])
+        sol.refresh_from_db()
+
+    def test_no_se_puede_eliminar_una_solicitud_ya_trabajada(self):
+        """
+        Regresión: eliminar destruía lo que cancelar protege. En una solicitud ya cumplida,
+        `execute_supervisor` devuelve OK sin revertir (conserva los turnos y deja el registro
+        explicándolos), y la vista tomaba ese OK como permiso para BORRAR la fila — los turnos
+        se quedaban puestos y sin nada que dijera de dónde salían.
+        """
+        from solicitudes.views.gestion_solicitudes import GestionEliminarSolicitudView
+
+        sol = self._doblada_aplicada()
+        self._mover_al_pasado(sol)
+        turnos_antes = Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count()
+
+        _, msgs = self._post_gestion(GestionEliminarSolicitudView, sol.id)
+
+        self.assertTrue(SolicitudCambio.objects.filter(id=sol.id).exists(),
+                        'la solicitud que explica esos turnos no puede desaparecer')
+        self.assertEqual(
+            Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count(),
+            turnos_antes, 'los días ya trabajados no se tocan')
+        self.assertTrue(any('ya se trabajaron' in m for m in msgs), msgs)
+
+    def test_eliminar_una_no_cumplida_revierte_y_borra(self):
+        from solicitudes.views.gestion_solicitudes import GestionEliminarSolicitudView
+
+        sol = self._doblada_aplicada()
+        self._post_gestion(GestionEliminarSolicitudView, sol.id)
+
+        self.assertFalse(SolicitudCambio.objects.filter(id=sol.id).exists())
+        jornadas = sorted(t.jornada.nombre.upper() for t in
+                          Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION)
+                          .select_related('jornada'))
+        self.assertNotEqual(jornadas, ['AM', 'PM'], 'debe revertir antes de borrar')
+
+    def test_cancelar_avisa_a_las_partes_con_el_nombre_del_supervisor(self):
+        from solicitudes.models import Notificacion
+        from solicitudes.views.gestion_solicitudes import GestionCancelarSolicitudView
+
+        sol = self._doblada_aplicada()
+        self._post_gestion(GestionCancelarSolicitudView, sol.id)
+
+        avisos = Notificacion.objects.filter(solicitud=sol, titulo__icontains='supervisor')
+        destinatarios = set(avisos.values_list('destinatario_id', flat=True))
+        self.assertEqual(destinatarios, {self.emisor.id, self.receptor.id},
+                         'ambas partes deben enterarse')
+        self.assertIn(self.emisor.nombre, avisos.first().mensaje,
+                      'el aviso debe decir QUIÉN lo canceló')
+
+    def test_el_aviso_de_eliminacion_sobrevive_al_borrado(self):
+        """El FK a la solicitud es CASCADE: si se vincula, el aviso se borra con ella."""
+        from solicitudes.models import Notificacion
+        from solicitudes.views.gestion_solicitudes import GestionEliminarSolicitudView
+
+        sol = self._doblada_aplicada()
+        self._post_gestion(GestionEliminarSolicitudView, sol.id)
+
+        avisos = Notificacion.objects.filter(titulo__icontains='eliminada')
+        self.assertEqual(avisos.count(), 2, 'un aviso por parte, y deben seguir existiendo')
+        self.assertIn(f'#{sol.id}', avisos.first().mensaje)
+        self.assertIn(self.emisor.nombre, avisos.first().mensaje)
+
+    def test_next_externo_no_saca_de_la_aplicacion(self):
+        """`next` lo controla el cliente: sin validar era un open redirect."""
+        from solicitudes.views.gestion_solicitudes import GestionCancelarSolicitudView
+
+        sol = self._doblada_aplicada()
+        resp, _ = self._post_gestion(GestionCancelarSolicitudView, sol.id,
+                                     next_url='https://sitio-externo.example/x')
+
+        self.assertNotIn('sitio-externo', resp['Location'])
+        self.assertIn('gestion-solicitudes', resp['Location'])
+
+    def test_next_interno_se_respeta(self):
+        from solicitudes.views.gestion_solicitudes import GestionCancelarSolicitudView
+
+        sol = self._doblada_aplicada()
+        destino = '/solicitudes/gestion-solicitudes/?estado=aprobada'
+        resp, _ = self._post_gestion(GestionCancelarSolicitudView, sol.id, next_url=destino)
+        self.assertEqual(resp['Location'], destino)

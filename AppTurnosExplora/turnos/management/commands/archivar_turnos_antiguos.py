@@ -30,7 +30,7 @@ class Command(BaseCommand):
         dias_antiguedad = options['dias']
         
         # Calcular fecha límite (turnos anteriores a esta fecha se archivan)
-        fecha_limite = timezone.now().date() - timedelta(days=dias_antiguedad)
+        fecha_limite = timezone.localdate() - timedelta(days=dias_antiguedad)
         
         self.stdout.write(f'[INFO] Buscando turnos anteriores a {fecha_limite}...')
         

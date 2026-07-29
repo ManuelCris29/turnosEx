@@ -158,7 +158,7 @@ class DiaEspecialTemporadasAnualView(LoginRequiredMixin, AdminRequiredMixin, Tem
                 anio_seleccionado = None
         
         if not anio_seleccionado:
-            anio_seleccionado = date.today().year + 1
+            anio_seleccionado = timezone.localdate().year + 1
         
         # Obtener días de temporada existentes para el año seleccionado
         dias_por_mes = TemporadaService.obtener_dias_temporada_por_mes(anio_seleccionado)
@@ -169,7 +169,7 @@ class DiaEspecialTemporadasAnualView(LoginRequiredMixin, AdminRequiredMixin, Tem
         
         # Generar lista de años disponibles para el selector
         # Incluir desde el año actual hasta 10 años en el futuro (rango amplio para planificación)
-        anio_actual = date.today().year
+        anio_actual = timezone.localdate().year
         anios_disponibles = list(range(anio_actual, anio_actual + 11))  # Año actual + 10 años más
         
         # Agregar años que ya tienen temporadas pero que no están en el rango
@@ -276,7 +276,7 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
                 anio_seleccionado = None
         
         if not anio_seleccionado:
-            anio_seleccionado = date.today().year + 1
+            anio_seleccionado = timezone.localdate().year + 1
         
         # Obtener días existentes para el tipo y año seleccionados
         dias_por_mes = DiaEspecialService.obtener_dias_por_tipo_por_mes(tipo_seleccionado, anio_seleccionado)
@@ -301,7 +301,7 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
         # Generar lista de años disponibles para el selector.
         # Ventana corta (año actual + 3): los festivos/mantenimiento se generan por año
         # cuando se necesitan, no con décadas de anticipación.
-        anio_actual = date.today().year
+        anio_actual = timezone.localdate().year
         anios_disponibles = list(range(anio_actual, anio_actual + 4))  # Año actual + 3 años más
         
         # Agregar años que ya tienen días del tipo pero que no están en el rango

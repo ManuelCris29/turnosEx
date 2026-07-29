@@ -62,14 +62,12 @@ class DescansoPorSolicitudService:
         def _fmt(d):
             return d.strftime('%d/%m/%Y') if d else None
 
-        # D FDS = fin de semana COMPLETO (quien cede/paga descansa sábado Y domingo); DOBLADA
-        # entre semana = solo esa fecha. Se expande la ventana de consulta ±2 días para no
-        # perder findes que crucen el borde del rango.
+        # El descanso se atribuye SOLO a la fecha realmente cedida/pagada. Antes se expandía a
+        # los dos días del finde, pero la solicitud únicamente mueve el día que se cede: el otro
+        # día del finde ya se descansaba por ALTERNANCIA (L6 lo resuelve con su propio motivo), y
+        # si por un cambio previo se trabajaba, marcarlo como descanso era directamente falso.
+        # La ventana de consulta se mantiene ±2 días (inofensivo) por si el rango corta un finde.
         def _dias_descanso(f):
-            if f.weekday() == 5:
-                return [f, f + timedelta(days=1)]
-            if f.weekday() == 6:
-                return [f - timedelta(days=1), f]
             return [f]
 
         qini, qfin = ini - timedelta(days=2), fin + timedelta(days=2)

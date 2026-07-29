@@ -24,10 +24,11 @@ from solicitudes.models import (
     DeudaCorporativa, DeudaExplorador,
 )
 from turnos.models import Jornada, Sala, Turno, AsignarJornadaExplorador
+from django.utils import timezone
 
 
 def _martes_futuro(desde_dias=14):
-    d = date.today() + timedelta(days=desde_dias)
+    d = timezone.localdate() + timedelta(days=desde_dias)
     while d.weekday() != 1:
         d += timedelta(days=1)
     return d
@@ -493,3 +494,57 @@ class TestCicloAprobarCancelarDejaTodoComoEstaba(AuditoriaDeudasTestCase):
             emp = self.solicitante if emp_id == self.solicitante.id else self.receptor
             self.assertEqual(self._turnos(emp, f), jornadas,
                              f'los turnos de {emp.nombre} en {f} deben quedar como al inicio')
+
+
+# ===========================================================================
+# E. El snapshot debe cubrir el día de devolución en semana (pago sábado AMBAS)
+# ===========================================================================
+class TestSnapshotCubreFechaPagoSemana(TestGuardNoBloqueaDeudaLegitima):
+    """`aplicar_pago_residual_semana` muta un TERCER día (fecha_pago_semana).
+
+    Si ese día no entra en el snapshot, la cancelación a 30 min no lo revierte: el receptor
+    queda doblado sin solicitud que lo respalde y con su deuda ya cancelada. Además las claves
+    del snapshot son la fuente de `_pares_afectados`, así que sin él tampoco se reconcilia ni
+    se invalida su caché.
+    """
+
+    def _turnos(self, empleado, fecha):
+        return sorted(
+            Turno.objects.filter(explorador=empleado, fecha=fecha)
+            .values_list('jornada__nombre', flat=True)
+        )
+
+    def test_snapshot_incluye_ambos_exploradores_en_fecha_pago_semana(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        sol, detalle = self._solicitud_pago_sabado_ambas()
+        snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(sol, detalle)
+
+        semana = detalle.fecha_pago_semana.isoformat()
+        self.assertIn(f'{self.solicitante.id}:{semana}', snapshot)
+        self.assertIn(f'{self.receptor.id}:{semana}', snapshot)
+
+    def test_revertir_restaura_el_dia_de_devolucion_en_semana(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        sol, detalle = self._solicitud_pago_sabado_ambas()
+        semana = detalle.fecha_pago_semana
+        Turno.objects.create(explorador=self.solicitante, fecha=semana,
+                             jornada=self.pm, sala=self.sala)
+        Turno.objects.create(explorador=self.receptor, fecha=semana,
+                             jornada=self.am, sala=self.sala)
+
+        snapshot = DobladaAplicacionService.capturar_snapshot_turnos_previos(sol, detalle)
+        DobladaAplicacionService.aplicar_pago_residual_semana(sol, detalle)
+
+        self.assertEqual(self._turnos(self.receptor, semana), ['AM', 'PM'],
+                         'el receptor debe quedar doblado ese día para devolver la jornada')
+        self.assertEqual(self._turnos(self.solicitante, semana), [],
+                         'el solicitante descansa su jornada ese día')
+
+        DobladaAplicacionService.restaurar_turnos_desde_snapshot(snapshot)
+
+        self.assertEqual(self._turnos(self.receptor, semana), ['AM'],
+                         'tras cancelar, el receptor no puede seguir doblado en el día residual')
+        self.assertEqual(self._turnos(self.solicitante, semana), ['PM'],
+                         'tras cancelar, el solicitante recupera su jornada del día residual')

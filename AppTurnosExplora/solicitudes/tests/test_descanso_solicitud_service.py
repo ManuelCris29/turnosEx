@@ -40,7 +40,7 @@ class DescansoPorSolicitudServiceTest(TestCase):
         AsignarJornadaExplorador.objects.create(explorador=self.c2, jornada=self.am, fecha_inicio=date(2025, 1, 1))
         for e in (self.sol, self.c1, self.c2):
             CompetenciaEmpleado.objects.create(empleado=e, sala=self.sala)
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         anio, mes = (hoy.year + 1, 1) if hoy.month == 12 else (hoy.year, hoy.month + 1)
         self.fi = date(anio, mes, 1)
         import calendar

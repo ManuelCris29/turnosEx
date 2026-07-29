@@ -32,17 +32,17 @@ from core.utils.json_responses import json_ok, json_error
 class DFDSCompanerosView(LoginRequiredMixin, View):
     """
     Compañeros para un cambio de FIN DE SEMANA (D FDS o Cambio de Descanso finde) en el
-    finde de cesión dado, CADA UNO con su disponibilidad. Un compañero puede participar si:
-    trabaja el OTRO día del finde (su día) y está LIBRE el día que cedes (para poder tomarlo).
-    Si ya trabaja los dos días (doblada) no puede. Devuelve `disponible` + `motivo` para
-    deshabilitar y explicar en el formulario.
+    finde de cesión dado, CADA UNO con su disponibilidad. Devuelve `disponible` + `motivo`
+    para deshabilitar y explicar en el formulario (no se esconde a nadie: se explica).
 
-    ?tipo_solicitud_id=  → estrategia a usar para filtrar el grupo contrario
-                           (por defecto D FDS). Sirve para ambos formularios de finde.
+    La REGLA de disponibilidad la decide cada estrategia (`disponibilidad_companero`):
+      - CAMBIO DESCANSO (intercambio): trabaja el OTRO día del finde y está libre el que cedes.
+      - D FDS (cesión): basta con que tenga LIBRE el día que recibe, sin importar el grupo.
+
+    ?tipo_solicitud_id=  → estrategia a usar (por defecto D FDS). Sirve para ambos formularios.
     """
     def get(self, request):
         from datetime import datetime as _dt, timedelta as _td
-        from turnos.services.turno_service import TurnoService
         from solicitudes.services.solicitud_factory import SolicitudFactory
         from solicitudes.models import TipoSolicitudCambio
 
@@ -70,18 +70,17 @@ class DFDSCompanerosView(LoginRequiredMixin, View):
 
         companeros = []
         for r in lista:
-            trabaja_otro = TurnoService.estado_dia(r, otro)['trabaja']       # trabaja su día
-            libre_cesion = not TurnoService.estado_dia(r, fecha)['trabaja']  # libre el día que cedes
-            if trabaja_otro and libre_cesion:
-                disp, motivo = True, None
-            elif not libre_cesion:
-                disp, motivo = False, 'ya trabaja los dos días ese finde (doblada)'
-            elif not trabaja_otro:
-                disp, motivo = False, f'no trabaja el {dia_otro_nombre} de ese finde'
-            else:
-                disp, motivo = False, 'no disponible ese finde'
+            # La regla de disponibilidad la pone CADA estrategia: el intercambio (CAMBIO DESCANSO)
+            # exige que el compañero trabaje el otro día del finde para poder canjearlo; la cesión
+            # (D FDS) solo exige que tenga libre el día que recibe. Tenerla aquí dentro obligaba a
+            # que ambos formularios compartieran criterio.
+            disp, motivo = strat.disponibilidad_companero(r, fecha)
             companeros.append({
                 'id': r.id, 'nombre': f'{r.nombre} {r.apellido}',
+                # `etiqueta` la pone la estrategia y dice POR QUÉ ese compañero sirve. Antes se
+                # armaba aquí desde el calendario ("trabaja <el otro día>"), igual para todos, y
+                # con las reglas nuevas afirmaba cosas falsas de quien descansa los dos días.
+                'etiqueta': strat.etiqueta_companero(r, fecha) if disp else None,
                 'dia': dia_otro_nombre, 'dia_fecha': otro.strftime('%d/%m'),
                 'disponible': disp, 'motivo': motivo,
             })
@@ -101,7 +100,7 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
         try:
             anio = int(request.GET.get('anio'))
         except (TypeError, ValueError):
-            anio = _date.today().year
+            anio = timezone.localdate().year
         emp = getattr(request.user, 'empleado', None)
         if not emp:
             return json_ok({'descansos': {}})
@@ -300,7 +299,7 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
         if not emp:
             return json_ok({'findes': [], 'meses': [], 'jornada_base': None})
 
-        hoy = _date.today()
+        hoy = timezone.localdate()
 
         def findes_de(anio, mes):
             """Todos los findes cuyo sábado cae en el mes, con el día que trabaja el usuario.
@@ -349,12 +348,17 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
                 dia_comprometido = bool(dia_trabajo) and _CDAS.dia_bloqueado_para_nuevo_cambio(
                     emp, sabado if dia_trabajo == 'sabado' else domingo
                 )
-                seleccionable = bool(dia_trabajo) and sabado >= hoy and not dia_comprometido
+                # El día que se cede debe ser POSTERIOR a hoy: el día en curso ya se está
+                # trabajando (misma regla que la validación del backend y que D FDS). Se mira el
+                # día de TRABAJO, no el sábado: en un sábado, el domingo siguiente aún es válido.
+                fecha_trabajo = (sabado if dia_trabajo == 'sabado' else domingo) if dia_trabajo else sabado
+                pasado = fecha_trabajo <= hoy
+                seleccionable = bool(dia_trabajo) and not pasado and not dia_comprometido
                 # Motivo por el cual NO es seleccionable (para mostrarlo en la tarjeta).
                 motivo = None
                 if not seleccionable:
-                    if sabado < hoy:
-                        motivo = 'Fin de semana pasado'
+                    if pasado:
+                        motivo = 'Fin de semana pasado o en curso'
                     elif dia_comprometido:
                         motivo = 'Ese día ya está comprometido en otra solicitud aprobada'
                     elif trabaja_sab and trabaja_dom:

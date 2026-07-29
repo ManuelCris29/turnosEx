@@ -7,6 +7,7 @@ realizar ninguna solicitud (cambio de turno ni permiso).
 from datetime import date as _date
 
 from django.db.models import Q
+from django.utils import timezone
 
 
 def sancion_activa(empleado, fecha=None):
@@ -17,7 +18,7 @@ def sancion_activa(empleado, fecha=None):
     if not empleado:
         return None
     from .models import SancionEmpleado
-    f = fecha or _date.today()
+    f = fecha or timezone.localdate()
     return (
         SancionEmpleado.objects
         .filter(explorador=empleado, fecha_inicio__lte=f)
