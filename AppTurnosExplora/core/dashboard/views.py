@@ -1,6 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
 from datetime import date
+from django.utils import timezone
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
@@ -15,7 +16,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context['page_title'] = 'Dashboard'
         context['user'] = self.request.user
 
-        anio = date.today().year
+        anio = timezone.localdate().year
         es_admin = self.request.user.is_staff
         empleado = getattr(self.request.user, 'empleado', None)
 
@@ -46,9 +47,28 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         kpi_cambios = data['total_general'] if data else 0
         kpi_tasa = data['kpis']['pct_aprobacion'] if data else 0
 
+        # Aviso de apertura de año: entre la fecha de recordatorio y la de bloqueo, el
+        # supervisor ve un banner. Después de la de bloqueo ya no llega aquí (el middleware
+        # lo redirige al checklist), así que este aviso es solo la fase amable.
+        apertura_aviso = None
+        if es_admin:
+            try:
+                from turnos.services.apertura_anio_service import AperturaAnioService
+                situacion, anio_apertura = AperturaAnioService.situacion()
+                if situacion in ('aviso', 'bloqueo'):
+                    apertura_aviso = {
+                        'anio': anio_apertura,
+                        'pendientes': AperturaAnioService.pendientes(anio_apertura),
+                    }
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    'No se pudo evaluar la apertura de año para el dashboard', exc_info=True)
+
         context.update({
             'es_admin': es_admin,
             'anio': anio,
+            'apertura_aviso': apertura_aviso,
             'kpi_cambios': kpi_cambios,
             'kpi_tasa': kpi_tasa,
             'kpi_empleados': kpi_empleados,

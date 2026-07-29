@@ -80,6 +80,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
     'axes.middleware.AxesMiddleware',               # debe ir al final
+    'core.middleware.AperturaAnioMiddleware',       # bloquea al supervisor si falta planificar el año
 ]
 
 if not IS_PRODUCTION:
@@ -124,8 +125,28 @@ DATABASES = {
         'PASSWORD': env('DB_PASSWORD'),
         'HOST': env('DB_HOST', default='localhost'),
         'PORT': env('DB_PORT', default='3306'),
+        # Nombre de la base de TEST, configurable.
+        #
+        # Por defecto Django usa 'test_' + NAME, un nombre FIJO y compartido por toda corrida.
+        # Combinado con `NoInputDiscoverRunner` (interactive=False → "borrar y recrear" sin
+        # preguntar), dos ejecuciones simultáneas de la suite se destruyen mutuamente: la segunda
+        # borra la base que la primera está usando y esta falla en masa, con errores que parecen
+        # bugs del código y no lo son.
+        #
+        # Con TEST_DB_NAME cada corrida puede aislarse:
+        #     TEST_DB_NAME=test_bdturnosex_2 python -m pytest ...
+        # El valor por defecto reproduce el nombre de siempre, así que nada cambia si no se usa.
+        # (Con pytest-xdist no hace falta: pytest-django le añade el sufijo _gwN a cada worker.)
+        'TEST': {
+            'NAME': env('TEST_DB_NAME', default=f"test_{env('DB_NAME')}"),
+        },
     }
 }
+
+# Runner de tests: igual que el de Django pero sin preguntar nunca por consola. Evita que una
+# base `test_*` huérfana (de una corrida que murió a medias) deje colgada la siguiente ejecución
+# esperando un "yes" que nadie puede escribir. Ver `core/test_runner.py`.
+TEST_RUNNER = 'core.test_runner.NoInputDiscoverRunner'
 
 # ---------------------------------------------------------------------------
 # Validación de contraseñas
@@ -229,10 +250,25 @@ if 'test' in _sys.argv or 'pytest' in _sys.modules:
 # ---------------------------------------------------------------------------
 # Content Security Policy (CSP) — django-csp 4.0
 #
-# La allowlist incluye los CDN que usan los templates (jsDelivr, cdnjs,
-# Google Fonts, ionicons). Si se migran esos recursos a estáticos locales,
-# reducir estas entradas a solo "'self'".
+# Qué hace: le dice al navegador desde qué orígenes puede ejecutar scripts,
+# cargar estilos, fuentes, etc. Es la última defensa contra XSS: si alguien
+# consigue inyectar un <script src="https://sitio-malicioso.com/..."> en una
+# página, el navegador se NIEGA a ejecutarlo porque ese origen no está aquí.
+# No sustituye al escapado de plantillas: lo respalda.
+#
 # 'unsafe-inline' se mantiene por los scripts/estilos inline ya existentes.
+# Debilita la protección (permite <script> escritos en el propio HTML) y
+# eliminarlo exige migrar esos inline a archivos o usar nonces.
+#
+# ESTADO DE LA MIGRACIÓN A ESTÁTICOS LOCALES
+# Todos los recursos de cdn.jsdelivr.net (flatpickr, chart.js, sweetalert2,
+# fullcalendar) se autohospedan en static/plugins/. Igual que ionicons, que no
+# se usa en ninguna plantilla. La política ESTRICTA de abajo elimina esas tres
+# entradas y se publica en modo REPORT-ONLY: el navegador informa de las
+# violaciones en consola SIN bloquear nada. Cuando se confirme que no aparece
+# ninguna, basta con mover ese diccionario a CONTENT_SECURITY_POLICY y borrar
+# el permisivo. Sigue haciendo falta cdnjs (Font Awesome 6 en mis_turnos.html)
+# y Google Fonts (base.html y el login).
 # ---------------------------------------------------------------------------
 CONTENT_SECURITY_POLICY = {
     'DIRECTIVES': {
@@ -253,6 +289,33 @@ CONTENT_SECURITY_POLICY = {
             'https://fonts.gstatic.com',
             'https://cdnjs.cloudflare.com',
             'https://code.ionicframework.com',
+        ],
+        'img-src': ["'self'", 'data:'],
+        'connect-src': ["'self'"],
+        'frame-ancestors': ["'none'"],
+    }
+}
+
+# Política objetivo, en observación. Se envía como cabecera
+# Content-Security-Policy-Report-Only: NO bloquea, solo reporta en la consola
+# del navegador.
+#
+# Ya no aparecen jsDelivr, cdnjs ni ionicons: ninguna plantilla los usa. Font Awesome
+# se sirve desde `static/plugins/fontawesome-free` (5.15.4) para TODO el sitio, así que
+# también cayó el único uso de cdnjs. Lo único externo que queda es Google Fonts.
+CONTENT_SECURITY_POLICY_REPORT_ONLY = {
+    'DIRECTIVES': {
+        'default-src': ["'self'"],
+        'script-src': [
+            "'self'", "'unsafe-inline'",
+        ],
+        'style-src': [
+            "'self'", "'unsafe-inline'",
+            'https://fonts.googleapis.com',
+        ],
+        'font-src': [
+            "'self'", 'data:',
+            'https://fonts.gstatic.com',
         ],
         'img-src': ["'self'", 'data:'],
         'connect-src': ["'self'"],

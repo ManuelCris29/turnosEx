@@ -285,5 +285,62 @@ class AsignacionEspecialManual(models.Model):
         return f"{self.jornada_trabaja.nombre} trabaja {self.fecha} ({self.get_tipo_display()})"
 
 
+class AperturaAnioConfig(models.Model):
+    """
+    Configuración GLOBAL de la APERTURA DE AÑO: cuándo se le recuerda al supervisor que
+    debe dejar planificado el año siguiente, y cuándo se le bloquea la navegación hasta
+    que lo complete.
+
+    Es un singleton (una sola fila), igual que `CierreSolicitudesConfig`.
+
+    Aquí SOLO se configuran las FECHAS. Qué procesos son obligatorios no se configura: son
+    siempre los mismos cinco y su completitud se DERIVA de los datos reales
+    (`AperturaAnioService.estado`). Si fuera una casilla que alguien marca a mano, se podría
+    declarar listo un año a medio planificar y el checklist dejaría de significar nada.
+    """
+    inicio_recordatorio_dia = models.PositiveSmallIntegerField(
+        default=1, help_text='Día del mes en que empieza el aviso en el dashboard.')
+    inicio_recordatorio_mes = models.PositiveSmallIntegerField(
+        default=11, help_text='Mes en que empieza el aviso (1-12). Por defecto noviembre.')
+    inicio_bloqueo_dia = models.PositiveSmallIntegerField(
+        default=1, help_text='Día del mes en que empieza el bloqueo.')
+    inicio_bloqueo_mes = models.PositiveSmallIntegerField(
+        default=12, help_text='Mes en que empieza el bloqueo (1-12). Por defecto diciembre.')
+    bloqueo_duro = models.BooleanField(
+        default=True,
+        help_text='Si está apagado, solo se avisa: nunca se redirige al supervisor.')
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Apertura de año (config)'
+        verbose_name_plural = 'Apertura de año (config)'
+
+    def __str__(self):
+        return (f"Aviso {self.inicio_recordatorio_dia}/{self.inicio_recordatorio_mes} — "
+                f"Bloqueo {self.inicio_bloqueo_dia}/{self.inicio_bloqueo_mes} "
+                f"({'duro' if self.bloqueo_duro else 'solo aviso'})")
+
+    @classmethod
+    def obtener(cls):
+        # `get_or_create(pk=1)` en vez de `first()` + `create()`: dos peticiones concurrentes
+        # sobre una base vacía crearían dos filas y `first()` elegiría cualquiera de ellas.
+        obj = cls.objects.first()
+        if obj is None:
+            obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def _fecha(self, dia, mes, anio):
+        from datetime import date
+        import calendar
+        # Se recorta al último día del mes: evita que un 31 configurado reviente en meses cortos.
+        return date(anio, mes, min(dia, calendar.monthrange(anio, mes)[1]))
+
+    def fecha_recordatorio(self, anio):
+        return self._fecha(self.inicio_recordatorio_dia, self.inicio_recordatorio_mes, anio)
+
+    def fecha_bloqueo(self, anio):
+        return self._fecha(self.inicio_bloqueo_dia, self.inicio_bloqueo_mes, anio)
+
 
 # Create your models here.

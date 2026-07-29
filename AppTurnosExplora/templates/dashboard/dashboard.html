@@ -8,6 +8,18 @@
 {% endblock %}
 
 {% block content %}
+{% if apertura_aviso %}
+<div class="alert alert-warning" style="border-radius:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+  <span style="font-size:20px;">📅</span>
+  <div style="flex:1; min-width:260px;">
+    <strong>Falta planificar {{ apertura_aviso.anio }}.</strong>
+    Quedan {{ apertura_aviso.pendientes|length }} proceso(s) por completar:
+    {% for p in apertura_aviso.pendientes %}{{ p.titulo }}{% if not forloop.last %}, {% endif %}{% endfor %}.
+    <small class="d-block mt-1">Si no se completa a tiempo, el acceso al resto de la aplicación se bloqueará hasta terminarlo.</small>
+  </div>
+  <a href="{% url 'apertura_anio' apertura_aviso.anio %}" class="pg-btn pg-btn-primary pg-btn-sm">Ver checklist</a>
+</div>
+{% endif %}
 <!-- Hero / bienvenida -->
 <div class="dash-hero">
   <div>

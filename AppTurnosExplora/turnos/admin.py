@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     AsignarJornadaExplorador,
-    Turno, DiaEspecial, TurnoArchivo
+    Turno, DiaEspecial, TurnoArchivo, AperturaAnioConfig
 )
 
 
@@ -45,3 +45,19 @@ class TurnoArchivoAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('explorador', 'jornada', 'sala')
+
+
+@admin.register(AperturaAnioConfig)
+class AperturaAnioConfigAdmin(admin.ModelAdmin):
+    """
+    Solo se configuran las FECHAS del aviso y del bloqueo. Qué procesos son obligatorios
+    no se configura: se derivan del dato (ver AperturaAnioService).
+    """
+    list_display = ['__str__', 'bloqueo_duro', 'actualizado_en']
+
+    def has_add_permission(self, request):
+        # Singleton: una sola fila, creada por `obtener()`.
+        return not AperturaAnioConfig.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

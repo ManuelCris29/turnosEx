@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Apertura del año {{ anio }}{% endblock %}
+{% block page_title %}{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-header">
+    <h1 class="pg-title"><i class="fas fa-door-open"></i> Apertura del año {{ anio }}</h1>
+    <p class="pg-subtitle">
+      Estos son los procesos que deben quedar listos antes de que empiece {{ anio }}.
+      Cada uno se marca solo cuando los datos existen — no hay nada que confirmar a mano.
+    </p>
+  </div>
+
+  {% if todo_listo %}
+  <div class="alert alert-success" style="border-radius:8px;">
+    <i class="fas fa-check-circle mr-1"></i>
+    <strong>{{ anio }} está listo.</strong> Los {{ total }} procesos están completos; ya puedes navegar con normalidad.
+  </div>
+  {% else %}
+  <div class="alert alert-warning" style="border-radius:8px;">
+    <i class="fas fa-exclamation-triangle mr-1"></i>
+    <strong>Faltan {{ pendientes }} de {{ total }} procesos.</strong>
+    Completa los pendientes para poder seguir usando el resto de la aplicación.
+    {% if config.bloqueo_duro %}
+    <small class="d-block mt-1">El bloqueo se activa cada año el {{ fecha_bloqueo|date:'d/m' }}.</small>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="pg-card">
+    <div class="pg-card-body" style="padding:0;">
+      <ul style="list-style:none; margin:0; padding:0;">
+        {% for item in items %}
+        <li style="display:flex; gap:14px; align-items:flex-start; padding:16px 18px;
+                   border-bottom:1px solid #e2e8f0;">
+          <span style="font-size:22px; line-height:1;">
+            {% if item.completo %}✅{% else %}⬜{% endif %}
+          </span>
+          <div style="flex:1;">
+            <div style="font-weight:700;">
+              {{ item.titulo }}
+              <span class="badge {% if item.completo %}badge-success{% else %}badge-secondary{% endif %}"
+                    style="font-weight:600;">{{ item.detalle }}</span>
+            </div>
+            <div class="text-muted small mt-1">{{ item.descripcion }}</div>
+            {% if item.esperando %}
+            <div class="small mt-1" style="color:#b45309;">
+              <i class="fas fa-lock mr-1"></i>Conviene completar antes:
+              {% for dep in item.esperando %}<strong>{{ dep }}</strong>{% if not forloop.last %}, {% endif %}{% endfor %}
+            </div>
+            {% endif %}
+          </div>
+          <a href="{{ item.url }}" class="pg-btn {% if item.completo %}pg-btn-secondary{% else %}pg-btn-primary{% endif %} pg-btn-sm">
+            {% if item.completo %}Revisar{% else %}Completar{% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <p class="text-muted small mt-3">
+    <i class="fas fa-info-circle mr-1"></i>
+    El orden importa: la alternancia de fines de semana necesita que los festivos del año existan,
+    y los descansos de semana dependen de las temporadas.
+  </p>
+</div>
+{% endblock %}
