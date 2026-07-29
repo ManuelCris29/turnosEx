@@ -1,8 +1,13 @@
 # Alternancia de findes y festivos: arreglos de auditoría + rediseño a semilla anual
 
-> **Estado:** EN EJECUCIÓN — commit 1 en curso.
-> **Actualizado:** 2026-07-29 (revisión del impacto sobre 2026, ya en curso).
+> **Estado:** commits 1 y 2 IMPLEMENTADOS. Pendiente el commit 3 (apertura de año).
+> **Actualizado:** 2026-07-29.
 > **Alcance:** `turnos` (asignación especial anual) + consumidores en `solicitudes`.
+>
+> **Corte de 2026 ejecutado el 29-jul-2026:** 121 días congelados (104 findes + 17 festivos).
+> Verificado con un volcado de `estado_dia` de los 11 exploradores activos × 365 días:
+> **0 cambios reales** en 4015 estados; las 732 diferencias fueron solo el campo `fuente`
+> (`alternancia` → `manual`), es decir el mismo resultado leído ahora de la tabla.
 
 ## Contexto
 

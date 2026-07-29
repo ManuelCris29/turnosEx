@@ -119,6 +119,11 @@ class MatrizDobladasTestCase(TestCase):
             cedula='2222222222', email='j@t.com', activo=True
         )
 
+        # La alternancia de findes es un DATO publicado, no una fórmula: sin publicarla,
+        # los findes de estos tests saldrían como 'sin_planificar'.
+        from turnos.tests.alternancia_helpers import publicar_alternancia
+        publicar_alternancia(FECHA_CESION.year, FECHA_PAGO.year)
+
         self.strategy = DobladaStrategy()
 
     # ------------------------------------------------------------------
@@ -2067,6 +2072,9 @@ class TestFestivoDobladaReglas(MatrizDobladasTestCase):
         # Rotación: primer festivo cronológico -> dobla grupo PM (índice 0); segundo -> AM (índice 1).
         DiaEspecial.objects.create(fecha=FECHA_CESION, tipo='festivo', activo=True)
         DiaEspecial.objects.create(fecha=FECHA_PAGO, tipo='festivo', activo=True)
+        # Los festivos acaban de nacer: hay que publicar su alternancia (idempotente).
+        from turnos.tests.alternancia_helpers import publicar_alternancia
+        publicar_alternancia(FECHA_CESION.year, FECHA_PAGO.year)
         # FECHA_CESION es el festivo más temprano -> dobla el grupo PM.
         self._asignar_jornada_base(self.emisor, self.jornada_pm)
         self._asignar_jornada_base(self.receptor, self.jornada_am)

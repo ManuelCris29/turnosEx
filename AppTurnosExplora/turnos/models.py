@@ -232,17 +232,17 @@ class DescansoSemanaManual(models.Model):
 
 class AsignacionEspecialManual(models.Model):
     """
-    OVERRIDE manual del grupo que TRABAJA (día completo AM+PM) en un día especial:
+    FUENTE DE VERDAD del grupo que TRABAJA (día completo AM+PM) en un día especial:
     un fin de semana (sábado/domingo) o un festivo entre semana.
 
-    Normalmente esto lo resuelve la alternancia automática:
-    - Fin de semana → AlternanciaFinesSemanaService (cálculo por paridad de semanas).
-    - Festivo entre semana → FestivosRotacionService (rotación global PM/AM).
+    `jornada_trabaja` es el grupo que cubre el día completo (dobla); el otro descansa.
+    Un registro por fecha (unique) basta: define quién trabaja, el resto descansa.
 
-    Cuando existe un registro ACTIVO para una fecha, MANDA sobre el cálculo automático:
-    `jornada_trabaja` es el grupo que cubre el día completo (dobla), el otro descansa.
-    Si no hay registro para la fecha, sigue aplicando la alternancia automática (fallback).
-    Un registro por fecha (unique) basta: define quién trabaja; el resto descansa.
+    El supervisor publica estas filas una vez al año desde `/turnos/asignacion-especial/anual/`
+    (sembrar + ajustes). NO hay cálculo automático detrás: una fecha SIN fila significa
+    "sin planificar", y así se reporta en `TurnoService.estado_dia` — nunca se inventa un
+    grupo. Antes esto era un override sobre una fórmula, lo que hacía que el pasado se
+    recalculara solo; ver docs/02-refactorizacion/PLAN_ALTERNANCIA_SEMILLA_ANUAL.md.
     """
     TIPO_CHOICES = [
         ('finde', 'Fin de semana'),

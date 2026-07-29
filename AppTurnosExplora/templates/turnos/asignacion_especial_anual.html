@@ -17,17 +17,20 @@
       <p class="pg-subtitle">Fija manualmente qué grupo TRABAJA el día completo en un fin de semana (sáb/dom) o un festivo. Sin fijar nada, sigue la alternancia automática. Clic repetido cambia: automático → AM trabaja → PM trabaja → automático.</p>
     </div>
 
-    <!-- Nota informativa: recuerda el ancla de la alternancia automática (base del sistema). -->
+    <!-- Esta pantalla ES la fuente de verdad: no hay cálculo automático detrás. -->
     <div class="alert alert-info" style="border-radius:8px;">
-      <i class="fas fa-anchor mr-1"></i>
-      <strong>Alternancia automática (base).</strong>
+      <i class="fas fa-calendar-check mr-1"></i>
+      <strong>Lo que publiques aquí es lo que verán los exploradores.</strong>
       <ul style="margin:6px 0 0 0; padding-left:20px;">
-        <li><strong>Fines de semana:</strong> ancla en <strong>{{ ancla_fecha|date:'d/m/Y' }}</strong> — ese <strong>sábado trabaja {{ ancla_jornada_sabado }}</strong> y el <strong>domingo {{ ancla_jornada_domingo }}</strong>. Cada fin de semana se <strong>invierte</strong>. Los días sin asignación manual siguen esta alternancia automáticamente.</li>
-        <li><strong>Festivos entre semana:</strong> alternan en orden cronológico. La rotación cuenta <strong>todos</strong> los festivos registrados en el sistema, no reinicia cada año.{% if primer_festivo_grupo %} El primer festivo de {{ anio }} ({{ primer_festivo_fecha }}) dobla <strong>{{ primer_festivo_grupo }}</strong>.{% endif %}</li>
-        <li><strong>Festivos en fin de semana:</strong> se marcan con el punto, pero manda la alternancia del finde; no tienen rotación propia.</li>
+        <li><strong>Fines de semana:</strong> el grupo que trabaja lo hace el día completo (AM+PM) y el otro descansa. El domingo trabaja el grupo contrario al de su sábado, y cada fin de semana se invierte.</li>
+        <li><strong>Festivos entre semana:</strong> alternan en orden cronológico dentro del año.</li>
+        <li><strong>Festivos en fin de semana:</strong> se marcan con el punto, pero manda la alternancia del finde; no tienen alternancia propia.</li>
+        <li><strong>Días sin planificar (—):</strong> el explorador no verá turno ese día. El año no está listo hasta que no quede ninguno.</li>
       </ul>
-      <small class="d-block mt-1 text-muted">La siembra y la edición manual solo crean asignaciones que <strong>mandan</strong> sobre esta alternancia; borrarlas devuelve el día al automático.</small>
+      <small class="d-block mt-1 text-muted">Usa <strong>Sembrar</strong> para rellenar el año entero y luego ajusta a mano lo que necesites. Recuerda <strong>Guardar</strong> al final.</small>
     </div>
+
+    <div id="ae-contador" class="alert alert-warning" style="border-radius:8px;"></div>
 
     {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }}" style="border-radius:8px;">{{ m }}</div>{% endfor %}{% endif %}
 
@@ -41,28 +44,25 @@
     <div class="pg-card" style="margin-bottom:14px;">
       <div class="pg-card-body" style="display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end;">
         <div>
-          <label class="mb-1 small font-weight-bold d-block"><i class="fas fa-seedling mr-1"></i> Sembrar fines de semana</label>
-          <div style="display:flex; gap:8px; align-items:center;">
+          <label class="mb-1 small font-weight-bold d-block"><i class="fas fa-seedling mr-1"></i> Sembrar el año {{ anio }}</label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <span class="small">Primer sábado trabaja:</span>
             <select id="seed-finde" class="form-control form-control-sm" style="width:auto;">
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
+              <option value="AM" {% if sugerencia.primer_sabado == 'AM' %}selected{% endif %}>AM</option>
+              <option value="PM" {% if sugerencia.primer_sabado == 'PM' %}selected{% endif %}>PM</option>
             </select>
-            <button type="button" id="btn-sembrar-finde" class="pg-btn pg-btn-primary pg-btn-sm">Sembrar</button>
-          </div>
-          <small class="text-muted d-block mt-1">El domingo trabaja el grupo contrario automáticamente; cada finde se invierte.</small>
-        </div>
-        <div>
-          <label class="mb-1 small font-weight-bold d-block"><i class="fas fa-seedling mr-1"></i> Sembrar festivos de semana</label>
-          <div style="display:flex; gap:8px; align-items:center;">
             <span class="small">Primer festivo dobla:</span>
             <select id="seed-festivo" class="form-control form-control-sm" style="width:auto;">
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
+              <option value="AM" {% if sugerencia.primer_festivo == 'AM' %}selected{% endif %}>AM</option>
+              <option value="PM" {% if sugerencia.primer_festivo == 'PM' %}selected{% endif %}>PM</option>
             </select>
-            <button type="button" id="btn-sembrar-festivo" class="pg-btn pg-btn-primary pg-btn-sm">Sembrar</button>
+            <button type="button" id="btn-sembrar" class="pg-btn pg-btn-primary pg-btn-sm">Sembrar</button>
           </div>
-          <small class="text-muted d-block mt-1">Los festivos lun-vie alternan en orden cronológico. Recuerda Guardar al final.</small>
+          {% if sugerencia.primer_sabado %}
+          <small class="text-muted d-block mt-1"><i class="fas fa-link mr-1"></i>Los valores sugeridos <strong>continúan la alternancia de {{ anio|add:"-1" }}</strong>, para que no se repita grupo en el cambio de año. Puedes cambiarlos.</small>
+          {% else %}
+          <small class="text-muted d-block mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>{{ anio|add:"-1" }} no está sembrado, así que no hay continuidad de la que partir: elige los grupos explícitamente.</small>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -86,11 +86,11 @@
         <span><i class="dsa-box box-pm"></i> Trabaja PM</span>
         <span style="color:#cbd5e1;">|</span>
         <span><i class="mk mk-festivo" style="width:8px;height:8px;border-radius:50%;display:inline-block;"></i> Festivo</span>
-        <span class="text-muted"><small>gris pequeño = automático</small></span>
+        <span class="text-muted"><small>— = sin planificar</small></span>
       </div>
     </div>
 
-    <form method="post" id="aeForm">
+    <form method="post" id="aeForm" data-siembra-url="{% url 'asignacion_especial_siembra' %}">
       {% csrf_token %}
       <input type="hidden" name="anio" value="{{ anio }}">
       <input type="hidden" name="seleccion" id="seleccion">
@@ -130,7 +130,6 @@
 {{ preseleccion_json|json_script:"ae-preseleccion" }}
 {{ festivos_json|json_script:"ae-festivos" }}
 {{ festivos_finde_json|json_script:"ae-festivos-finde" }}
-{{ auto_json|json_script:"ae-auto" }}
 {{ bloqueadas_json|json_script:"ae-bloqueadas" }}
 <script src="{% static_v 'js/turnos/asignacion_especial_anual.js' %}"></script>
 {% endblock %}

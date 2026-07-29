@@ -46,9 +46,15 @@ class ReflejoMisTurnosTest(TestCase):
         self.tipos = {n: TipoSolicitudCambio.objects.create(nombre=n) for n in
                       ['CAMBIO TURNO', 'DOBLADA', 'D FDS', 'CT PERMANENTE', 'DOBLADA PERMANENTE']}
 
+        # La alternancia de findes/festivos es un DATO publicado: sin publicarla, estos
+        # días saldrían como 'sin_planificar'. Se publica igual a la fórmula histórica.
+        from turnos.tests.alternancia_helpers import publicar_alternancia
+        _hoy = timezone.localdate().year
+        publicar_alternancia(_hoy, _hoy + 1)
+
     # ----------------------------------------------------------------- helpers
     def _dia_semana(self, weekday, desde=None):
-        d = desde or (timezone.now().date() + timedelta(days=30))
+        d = desde or (timezone.localdate() + timedelta(days=30))
         while d.weekday() != weekday:
             d += timedelta(days=1)
         return d
@@ -58,7 +64,7 @@ class ReflejoMisTurnosTest(TestCase):
         (cesion, pago) en un mismo mes futuro y del MISMO día de la semana (regla D FDS:
         si cedes un domingo, devuelves un domingo). cesion: trabaja AM; pago: trabaja PM.
         """
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         base = hoy + timedelta(days=30)
         for _ in range(6):
             anio, mes = base.year, base.month
@@ -121,7 +127,7 @@ class ReflejoMisTurnosTest(TestCase):
             'tipo_cambio': self.tipos['DOBLADA'], 'comentario': 'test',
             'fecha_cambio_turno': fc.strftime('%Y-%m-%d'), 'fecha_pago': fp.strftime('%Y-%m-%d'),
             'jornada_cedida': 'AM', 'tipo_cesion': 'cesion_completa',
-            'fecha_creacion_solicitud': timezone.now().date(),
+            'fecha_creacion_solicitud': timezone.localdate(),
         })
         self.assertTrue(self._cell(self.sol, fc).get('es_descanso'))   # solicitante descansa en cesión
         self.assertEqual(self._cell(self.rec, fc).get('jornada'), 'DOBLADA')  # receptor dobla en cesión
@@ -134,7 +140,7 @@ class ReflejoMisTurnosTest(TestCase):
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['D FDS'], 'comentario': 'test',
             'fecha_cambio_turno': ces.strftime('%Y-%m-%d'), 'fecha_pago': pago.strftime('%Y-%m-%d'),
-            'fecha_creacion_solicitud': timezone.now().date(),
+            'fecha_creacion_solicitud': timezone.localdate(),
         })
         self.assertTrue(self._cell(self.sol, ces).get('es_descanso'))
         self.assertEqual(self._cell(self.rec, ces).get('jornada'), 'DOBLADA')

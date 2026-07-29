@@ -189,17 +189,60 @@ class AsignacionEspecialAnualTest(TestCase):
                 self.domingo.isoformat(): 'PM',
             })
 
-    # --------------------------------------------------- grupo_trabaja_efectivo
-    def test_grupo_trabaja_efectivo_resuelve_festivo_entre_semana(self):
-        """Antes devolvía None: caía a la alternancia de finde, que no cubre festivos."""
-        self.assertIn(AsignacionEspecialService.grupo_trabaja_efectivo(self.festivo), ('AM', 'PM'))
+    # ------------------------------------------------------------ grupo_trabaja
+    def test_grupo_trabaja_sin_publicar_es_none(self):
+        """None = SIN PLANIFICAR. No se inventa un grupo con una fórmula."""
+        self.assertIsNone(AsignacionEspecialService.grupo_trabaja(self.festivo))
+        self.assertIsNone(AsignacionEspecialService.grupo_trabaja(self.sabado))
 
-    def test_grupo_trabaja_efectivo_respeta_el_override(self):
+    def test_grupo_trabaja_devuelve_lo_publicado(self):
         AsignacionEspecialService.guardar_anual(self.ANIO, {self.festivo.isoformat(): 'AM'})
-        self.assertEqual(AsignacionEspecialService.grupo_trabaja_efectivo(self.festivo), 'AM')
+        self.assertEqual(AsignacionEspecialService.grupo_trabaja(self.festivo), 'AM')
 
-    def test_grupo_trabaja_efectivo_en_dia_normal_es_none(self):
-        self.assertIsNone(AsignacionEspecialService.grupo_trabaja_efectivo(self.martes))
+    def test_grupo_trabaja_en_dia_normal_es_none(self):
+        self.assertIsNone(AsignacionEspecialService.grupo_trabaja(self.martes))
+
+    # ----------------------------------------------------------------- siembra
+    def test_la_siembra_cubre_el_anio_completo(self):
+        n = AsignacionEspecialService.sembrar_anio(self.ANIO, 'AM', 'PM')
+        self.assertEqual(AsignacionEspecialService.fechas_sin_planificar(self.ANIO), [])
+        self.assertTrue(AsignacionEspecialService.anio_sembrado(self.ANIO))
+        self.assertGreater(n, 100)
+
+    def test_la_siembra_alterna_findes_por_paridad_de_fecha(self):
+        """
+        Por paridad y no por posición: así, saltarse un día (p. ej. bloqueado) no desfasa
+        el resto del año. Era el bug de la siembra que vivía en el JavaScript.
+        """
+        siembra = AsignacionEspecialService.calcular_siembra(self.ANIO, 'AM', 'PM')
+        primer_sabado = _primer_weekday_del_anio(self.ANIO, 5)
+        self.assertEqual(siembra[primer_sabado.isoformat()], 'AM')
+        # El domingo de ese finde trabaja el contrario…
+        self.assertEqual(siembra[(primer_sabado + timedelta(days=1)).isoformat()], 'PM')
+        # …y el finde siguiente se invierte.
+        self.assertEqual(siembra[(primer_sabado + timedelta(days=7)).isoformat()], 'PM')
+
+    def test_la_siembra_rechaza_grupos_invalidos(self):
+        with self.assertRaises(ValueError):
+            AsignacionEspecialService.calcular_siembra(self.ANIO, 'XX', 'PM')
+
+    # -------------------------------------------------- continuidad entre años
+    def test_sin_anio_previo_no_hay_sugerencia(self):
+        self.assertEqual(AsignacionEspecialService.sugerencia_siembra(self.ANIO),
+                         {'primer_sabado': None, 'primer_festivo': None})
+
+    def test_la_sugerencia_continua_la_alternancia_del_anio_anterior(self):
+        """Sustituye al ancla que antes estaba fija en el código: sale del dato, no de una constante."""
+        AsignacionEspecialService.sembrar_anio(self.ANIO, 'AM', 'PM')
+        sug = AsignacionEspecialService.sugerencia_siembra(self.ANIO + 1)
+
+        ultimo = (AsignacionEspecialManual.objects
+                  .filter(fecha__year=self.ANIO, tipo='finde').order_by('-fecha').first())
+        grupo_sabado_final = ultimo.jornada_trabaja.nombre.upper()
+        if ultimo.fecha.weekday() == 6:
+            grupo_sabado_final = 'AM' if grupo_sabado_final == 'PM' else 'PM'
+        esperado = 'AM' if grupo_sabado_final == 'PM' else 'PM'
+        self.assertEqual(sug['primer_sabado'], esperado)
 
     # ------------------------------------------------------------- capa L2 / festivo
     def test_cesion_completa_de_festivo_deja_al_solicitante_descansando(self):
@@ -214,7 +257,7 @@ class AsignacionEspecialAnualTest(TestCase):
         from turnos.services.turno_service import TurnoService
         from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
 
-        grupo = AsignacionEspecialService.grupo_trabaja_efectivo(self.festivo)
+        grupo = AsignacionEspecialService.grupo_trabaja(self.festivo)
         s = self._solicitud(self.festivo, sufijo='f')
         DobladaDetalle.objects.create(
             solicitud=s, fecha_pago=self.festivo + timedelta(days=7),

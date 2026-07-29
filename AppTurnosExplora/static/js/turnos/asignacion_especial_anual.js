@@ -1,25 +1,32 @@
 /**
- * Asignación manual de fines de semana y festivos.
+ * Alternancia anual de fines de semana y festivos.
  *
- * Solo son clickeables los sábados/domingos y los festivos entre semana. Al hacer clic
- * se cicla el grupo que TRABAJA el día completo: automático → AM → PM → automático.
- * El default automático se muestra como pista tenue (clase auto-am / auto-pm).
+ * Lo que se guarda aquí es la FUENTE DE VERDAD: no hay cálculo automático detrás. Un
+ * sábado, domingo o festivo entre semana sin grupo asignado queda SIN PLANIFICAR y así
+ * lo verá el explorador, con lo cual el año no está listo hasta que no quede ninguno.
+ *
+ * Clic en un día: AM trabaja → PM trabaja → sin planificar → AM…
+ *
+ * La regla de siembra NO vive aquí: se pide al servidor (`/siembra/`). Antes estaba
+ * duplicada en este archivo con una variante propia que alternaba los festivos por
+ * posición en la lista, de modo que un festivo bloqueado intercalado invertía todos los
+ * siguientes sin que nadie se enterara.
  */
 (function () {
-    const pre = JSON.parse(document.getElementById('ae-preseleccion').textContent);       // {fecha: 'AM'/'PM'} overrides
-    const festivos = new Set(JSON.parse(document.getElementById('ae-festivos').textContent)); // fechas festivo lun-vie
+    const pre = JSON.parse(document.getElementById('ae-preseleccion').textContent);       // {fecha: 'AM'/'PM'} publicado
+    const festivos = new Set(JSON.parse(document.getElementById('ae-festivos').textContent)); // festivos lun-vie
     // Festivos que caen en sáb/dom: se marcan igual, pero NO son un caso aparte —
     // manda la alternancia del finde, así que no cambian el comportamiento del clic.
     const festivosFinde = new Set(JSON.parse(document.getElementById('ae-festivos-finde').textContent));
-    const auto = JSON.parse(document.getElementById('ae-auto').textContent);              // {fecha: 'AM'/'PM'} automático
-    const bloqueadas = new Set(JSON.parse(document.getElementById('ae-bloqueadas').textContent)); // findes/festivos con solicitudes
+    const bloqueadas = new Set(JSON.parse(document.getElementById('ae-bloqueadas').textContent)); // con solicitudes
     const form = document.getElementById('aeForm');
     const hidden = document.getElementById('seleccion');
+    const anio = parseInt(form.querySelector('input[name="anio"]').value, 10);
 
-    const estado = {};  // solo overrides manuales: {fecha: 'AM'/'PM'}
+    const estado = {};  // {fecha: 'AM'/'PM'}; una fecha ausente = sin planificar
     Object.keys(pre).forEach(f => { estado[f] = pre[f]; });
 
-    const CICLO = [null, 'AM', 'PM'];
+    const CICLO = ['AM', 'PM', null];
 
     function esEspecial(span) {
         const wd = parseInt(span.dataset.weekday, 10);
@@ -28,23 +35,33 @@
 
     function pintar(span) {
         const f = span.dataset.fecha;
-        span.classList.remove('sel-am', 'sel-pm', 'auto-am', 'auto-pm');
+        span.classList.remove('sel-am', 'sel-pm', 'sin-planificar');
         const et = span.querySelector('.et');
         if (estado[f] === 'AM') { span.classList.add('sel-am'); et.textContent = 'AM'; }
         else if (estado[f] === 'PM') { span.classList.add('sel-pm'); et.textContent = 'PM'; }
         else {
-            // Sin override: mostrar el automático como pista tenue
-            const a = auto[f];
-            if (a === 'AM') { span.classList.add('auto-am'); et.textContent = 'am'; }
-            else if (a === 'PM') { span.classList.add('auto-pm'); et.textContent = 'pm'; }
-            else { et.textContent = ''; }
+            // Sin publicar: no se insinúa ningún grupo, porque no hay ninguno.
+            span.classList.add('sin-planificar');
+            et.textContent = '—';
+            span.title = 'Sin planificar: el explorador no verá turno este día hasta que lo asignes.';
         }
+    }
+
+    const celdas = Array.from(document.querySelectorAll('.dia[data-fecha]')).filter(esEspecial);
+
+    function actualizarContador() {
+        const faltan = celdas.filter(s => !estado[s.dataset.fecha]).length;
+        const chip = document.getElementById('ae-contador');
+        if (!chip) return;
+        chip.textContent = faltan === 0
+            ? 'Año completo: no queda ningún día sin planificar.'
+            : `Faltan ${faltan} día(s) por planificar.`;
+        chip.className = faltan === 0 ? 'alert alert-success' : 'alert alert-warning';
     }
 
     document.querySelectorAll('.dia[data-fecha]').forEach(span => {
         if (!esEspecial(span)) {
-            // Día normal entre semana: no aplica aquí
-            span.classList.add('bloqueado');
+            span.classList.add('bloqueado');   // día normal: no aplica aquí
             return;
         }
         if (festivos.has(span.dataset.fecha) || festivosFinde.has(span.dataset.fecha)) {
@@ -71,94 +88,45 @@
         }
         span.addEventListener('click', () => {
             const f = span.dataset.fecha;
-            const actual = estado[f] || null;
-            let idx = CICLO.indexOf(actual);
-            if (idx < 0) idx = 0;
-            const siguiente = CICLO[(idx + 1) % CICLO.length];
+            const siguiente = CICLO[(CICLO.indexOf(estado[f] || null) + 1) % CICLO.length];
             if (siguiente) estado[f] = siguiente; else delete estado[f];
             pintar(span);
+            actualizarContador();
         });
     });
 
     // ===========================================================
-    //  SEMBRAR: fija el grupo del primer día y rellena TODO el año
-    //  siguiendo la alternancia. Solo existe cuando el año está en
-    //  limpio (los botones no se renderizan si hay solicitudes).
+    //  SEMBRAR: el servidor propone el año entero; aquí solo se pinta.
+    //  Los días bloqueados NUNCA se tocan.
     // ===========================================================
-    const DAY = 86400000;
-    const oppos = (g) => (g === 'AM' ? 'PM' : 'AM');
-    const parseISO = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
-    const isoFromMs = (ms) => {
-        const d = new Date(ms);
-        return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-    };
-    const isoMinus1 = (iso) => isoFromMs(parseISO(iso) - DAY);
-
-    // Celdas especiales (sáb/dom y festivos lun-vie) presentes en el calendario.
-    const celdas = Array.from(document.querySelectorAll('.dia[data-fecha]')).filter(esEspecial);
-
-    // Primer sábado del año (ISO menor entre las celdas con weekday 5).
-    function primerSabadoISO() {
-        let best = null;
-        celdas.forEach(s => {
-            if (parseInt(s.dataset.weekday, 10) === 5) {
-                const iso = s.dataset.fecha;
-                if (best === null || iso < best) best = iso;
-            }
-        });
-        return best;
-    }
-
-    // Grupo que trabaja un sábado dado, según paridad de semanas desde el primer sábado.
-    function grupoSabado(satISO, primerSabISO, primerGrupo) {
-        const semanas = Math.floor((parseISO(satISO) - parseISO(primerSabISO)) / (7 * DAY));
-        return (semanas % 2 === 0) ? primerGrupo : oppos(primerGrupo);
-    }
-
-    function repintarTodo() { celdas.forEach(pintar); }
-
-    function sembrarFindes(primerGrupo) {
-        const primerSab = primerSabadoISO();
-        if (!primerSab) return;
-        celdas.forEach(s => {
-            const iso = s.dataset.fecha;
-            if (bloqueadas.has(iso)) return;  // seguridad: nunca tocar días bloqueados
-            const wd = parseInt(s.dataset.weekday, 10);
-            if (wd === 5) {
-                estado[iso] = grupoSabado(iso, primerSab, primerGrupo);
-            } else if (wd === 6) {
-                // Domingo: grupo contrario al de SU sábado (fecha - 1 día).
-                estado[iso] = oppos(grupoSabado(isoMinus1(iso), primerSab, primerGrupo));
-            }
-        });
-        repintarTodo();
-    }
-
-    function sembrarFestivos(primerGrupo) {
-        const fechas = celdas
-            .filter(s => festivos.has(s.dataset.fecha) && !bloqueadas.has(s.dataset.fecha))
-            .map(s => s.dataset.fecha)
-            .sort();  // ISO ordena cronológicamente
-        let g = primerGrupo;
-        fechas.forEach(iso => { estado[iso] = g; g = oppos(g); });
-        repintarTodo();
-    }
-
-    // Prefijar los selectores con el grupo automático del primer día (pista útil).
     const selFinde = document.getElementById('seed-finde');
     const selFestivo = document.getElementById('seed-festivo');
-    const btnFinde = document.getElementById('btn-sembrar-finde');
-    const btnFestivo = document.getElementById('btn-sembrar-festivo');
-    if (selFinde) {
-        const ps = primerSabadoISO();
-        if (ps && auto[ps]) selFinde.value = auto[ps];
-    }
-    if (selFestivo) {
-        const primerFest = celdas.filter(s => festivos.has(s.dataset.fecha)).map(s => s.dataset.fecha).sort()[0];
-        if (primerFest && auto[primerFest]) selFestivo.value = auto[primerFest];
-    }
-    if (btnFinde) btnFinde.addEventListener('click', () => sembrarFindes(selFinde.value));
-    if (btnFestivo) btnFestivo.addEventListener('click', () => sembrarFestivos(selFestivo.value));
+    const btnSembrar = document.getElementById('btn-sembrar');
 
+    async function sembrar() {
+        btnSembrar.disabled = true;
+        try {
+            const url = `${form.dataset.siembraUrl}?anio=${anio}`
+                + `&finde=${encodeURIComponent(selFinde.value)}`
+                + `&festivo=${encodeURIComponent(selFestivo.value)}`;
+            const resp = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || 'No se pudo calcular la siembra.');
+            Object.entries(data.siembra).forEach(([iso, grupo]) => {
+                if (bloqueadas.has(iso)) return;   // seguridad: nunca tocar días bloqueados
+                estado[iso] = grupo;
+            });
+            celdas.forEach(pintar);
+            actualizarContador();
+        } catch (e) {
+            alert(e.message);
+        } finally {
+            btnSembrar.disabled = false;
+        }
+    }
+
+    if (btnSembrar) btnSembrar.addEventListener('click', sembrar);
+
+    actualizarContador();
     form.addEventListener('submit', () => { hidden.value = JSON.stringify(estado); });
 })();

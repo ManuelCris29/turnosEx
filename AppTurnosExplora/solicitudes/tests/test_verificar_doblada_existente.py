@@ -292,6 +292,9 @@ class VerificarDobladaExistenteTest(TestCase):
             descripcion='Día festivo',
             activo=True
         )
+        # Publicar la alternancia: es un DATO, no una fórmula (ver alternancia_helpers).
+        from turnos.tests.alternancia_helpers import publicar_alternancia
+        publicar_alternancia(2026)
         # 2. Asignar jornada AM a Jeison (fecha_inicio antes del festivo)
         AsignarJornadaExplorador.objects.create(
             explorador=self.jeison,

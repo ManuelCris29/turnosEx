@@ -1,7 +1,9 @@
 import logging
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from django.http import JsonResponse
 from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
@@ -192,10 +194,12 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
 
 class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
     """
-    Planeación ANUAL del OVERRIDE manual de días especiales (fines de semana y festivos):
-    el supervisor hace clic en un sábado/domingo o un festivo entre semana y fija qué grupo
-    (AM/PM) TRABAJA el día completo. Sin override, sigue la alternancia/rotación automática.
-    Clic repetido cambia: automático → AM trabaja → PM trabaja → automático.
+    Planeación ANUAL de la alternancia de días especiales (fines de semana y festivos).
+
+    El supervisor SIEMBRA el año y ajusta a mano lo que quiera: qué grupo (AM/PM) TRABAJA
+    el día completo cada sábado, domingo y festivo entre semana. Lo que aquí se guarda es
+    la fuente de verdad — no hay cálculo automático detrás. Un día sin publicar sale como
+    SIN PLANIFICAR, nunca como un turno inventado.
     """
     template_name = 'turnos/asignacion_especial_anual.html'
 
@@ -208,10 +212,6 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
     def get_context_data(self, **kwargs):
         import calendar as _cal
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
-        from turnos.services.alternancia_fines_semana_service import (
-            AlternanciaFinesSemanaService, FECHA_REFERENCIA_SABADO, JORNADA_REFERENCIA_SABADO,
-        )
-        from turnos.services.festivos_rotacion_service import FestivosRotacionService
         context = super().get_context_data(**kwargs)
         anio = self._anio()
         meses_nombres = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -221,32 +221,15 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
                  for m in range(1, 13)]
 
         # Festivos del año, separados por dónde caen:
-        # - entre semana → clickeables, tienen su propia rotación.
+        # - entre semana → clickeables, tienen su propia alternancia.
         # - en fin de semana → solo se marcan; manda la alternancia del finde, no son un caso aparte.
         festivos_semana, festivos_finde = [], []
         for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='festivo', activo=True):
             (festivos_semana if de.fecha.weekday() < 5 else festivos_finde).append(de.fecha.isoformat())
 
-        # Default AUTOMÁTICO por fecha especial (pista visual de qué pasa sin override)
-        auto = {}
-        d = date(anio, 1, 1)
-        fin = date(anio, 12, 31)
-        while d <= fin:
-            if d.weekday() >= 5:
-                g = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(d)
-                if g:
-                    auto[d.isoformat()] = g
-            d += timedelta(days=1)
-        for iso in festivos_semana:
-            try:
-                g = FestivosRotacionService.get_grupo_que_dobla_en_festivo(date.fromisoformat(iso))
-                auto[iso] = g
-            except Exception:
-                logger.warning("Error obteniendo grupo que dobla en festivo (fecha=%s)", iso, exc_info=True)
-
         bloqueadas = AsignacionEspecialService.fechas_bloqueadas_por_solicitud(anio)
+        sin_planificar = AsignacionEspecialService.fechas_sin_planificar(anio)
         anio_actual = timezone.localdate().year
-        ancla_sabado = JORNADA_REFERENCIA_SABADO.upper()
         context.update({
             'anio': anio,
             'anios_disponibles': list(range(anio_actual, anio_actual + 6)),
@@ -254,19 +237,14 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
             'preseleccion_json': AsignacionEspecialService.asignaciones_anual(anio),
             'festivos_json': festivos_semana,
             'festivos_finde_json': festivos_finde,
-            'auto_json': auto,
             'bloqueadas_json': sorted(bloqueadas),
             'anio_editable_completo': len(bloqueadas) == 0,
-            # Ancla de la alternancia automática (para la nota informativa). Se lee de las
-            # constantes del servicio para que la nota nunca quede desactualizada.
-            'ancla_fecha': FECHA_REFERENCIA_SABADO,
-            'ancla_jornada_sabado': ancla_sabado,
-            'ancla_jornada_domingo': 'AM' if ancla_sabado == 'PM' else 'PM',
-            # Rotación REAL del primer festivo del año que se está viendo. La rotación cuenta
-            # todos los festivos de la tabla desde el primero que exista, así que no siempre
-            # empieza en PM: la nota debe mostrar lo que de verdad se aplica, no una constante.
-            'primer_festivo_fecha': min(festivos_semana) if festivos_semana else None,
-            'primer_festivo_grupo': auto.get(min(festivos_semana)) if festivos_semana else None,
+            # Días que aún no tienen alternancia publicada: el supervisor tiene que verlos.
+            'sin_planificar_json': [f.isoformat() for f in sin_planificar],
+            'total_sin_planificar': len(sin_planificar),
+            # Grupos sugeridos, derivados del año anterior para no romper la continuidad.
+            # None cuando el año previo no está sembrado: entonces se elige explícitamente.
+            'sugerencia': AsignacionEspecialService.sugerencia_siembra(anio),
         })
         return context
 
@@ -294,7 +272,37 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
             messages.error(request, str(e))
             return redirect(f"{reverse('asignacion_especial_anual')}?anio={anio}")
         _invalidar_cache_turnos(anio)
-        messages.success(request, f'Asignaciones especiales guardadas para {anio} ({n} día(s) fijados).')
+        faltan = len(AsignacionEspecialService.fechas_sin_planificar(anio))
+        if faltan:
+            messages.warning(
+                request,
+                f'Guardado ({n} día(s)), pero quedan {faltan} día(s) sin alternancia publicada '
+                f'en {anio}. Los exploradores los verán como "sin planificar" hasta completarlos.')
+        else:
+            messages.success(
+                request, f'Alternancia de {anio} publicada completa ({n} día(s)).')
         return redirect(f"{reverse('asignacion_especial_anual')}?anio={anio}")
+
+
+class AsignacionEspecialSiembraView(LoginRequiredMixin, AdminRequiredMixin, View):
+    """
+    Propuesta de siembra de un año: {fecha_iso: 'AM'|'PM'}.
+
+    La regla vive en el servicio, no en el navegador. El JS solo pinta lo que llega y el
+    supervisor sigue revisando y pulsando Guardar; nada se escribe desde aquí.
+    """
+
+    def get(self, request, *args, **kwargs):
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        try:
+            anio = int(request.GET.get('anio'))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Año inválido.'}, status=400)
+        try:
+            propuesta = AsignacionEspecialService.calcular_siembra(
+                anio, request.GET.get('finde'), request.GET.get('festivo'))
+        except ValueError as e:
+            return JsonResponse({'error': str(e)}, status=400)
+        return JsonResponse({'siembra': propuesta})
 
 

@@ -8,102 +8,19 @@ creating a debt that must be paid back later.
 
 import logging
 import json
-import time
 from typing import Dict, Any, Tuple, Optional
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.utils import DatabaseError, IntegrityError, OperationalError, ProgrammingError
-from datetime import datetime, date
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from ..solicitud_validator import SolicitudValidator
 from turnos.services.jornada_service import JornadaService
-from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from core.services import get_empleado_disponibilidad_service, get_turno_service
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
-
-
-def _mysql_unknown_column_error(exc: BaseException) -> bool:
-    """
-    Detecta error de columna inexistente (MySQL 1054, SQLite "no such column", etc.).
-    No fiarse solo de exc.args: a veces el mensaje útil está en str(exc) o en __cause__.
-    """
-    chain = []
-    cur: Optional[BaseException] = exc
-    seen = set()
-    while cur is not None and id(cur) not in seen:
-        seen.add(id(cur))
-        chain.append(cur)
-        cur = getattr(cur, '__cause__', None)
-
-    for err in chain:
-        msg = str(err)
-        if 'Unknown column' in msg:
-            return True
-        if 'no such column' in msg.lower():
-            return True
-        if '1054' in msg and 'column' in msg.lower():
-            return True
-        if isinstance(err, OperationalError) and err.args:
-            a0 = err.args[0]
-            if a0 == 1054:
-                return True
-            if isinstance(a0, tuple) and len(a0) > 0 and a0[0] == 1054:
-                return True
-    return False
-
-
-def _create_doblada_detalle(doblada_detalle_data: Dict[str, Any]) -> DobladaDetalle:
-    """
-    Inserta DobladaDetalle (sin envolver en transaction.atomic aquí).
-
-    Si el primer INSERT falla por columna desconocida (1054), reintenta sin campos opcionales.
-    Fuera de atomic(), cada intento usa su propia transacción implícita en MySQL y no queda
-    la conexión bloqueada como con atomic()+savepoint en algunos entornos.
-    """
-    try:
-        return DobladaDetalle.objects.create(**doblada_detalle_data)
-    except IntegrityError:
-        raise
-    except DatabaseError as e:
-        if not _mysql_unknown_column_error(e):
-            raise
-        logger.warning(
-            "DobladaDetalle: columnas opcionales no existen en BD. Reintentando sin ellas: %s",
-            e,
-        )
-        slim = {
-            k: v
-            for k, v in doblada_detalle_data.items()
-            if k not in ('jornada_pago_sabado', 'jornada_cubre_en_pago')
-        }
-        detalle = DobladaDetalle.objects.create(**slim)
-        update_fields = []
-        jps = doblada_detalle_data.get('jornada_pago_sabado')
-        jcp = doblada_detalle_data.get('jornada_cubre_en_pago')
-        if jps:
-            detalle.jornada_pago_sabado = jps
-            update_fields.append('jornada_pago_sabado')
-        if jcp:
-            j = str(jcp).strip().upper()
-            if j in ('AM', 'PM', 'AMBAS'):
-                detalle.jornada_cubre_en_pago = j
-                update_fields.append('jornada_cubre_en_pago')
-        if update_fields:
-            try:
-                detalle.save(update_fields=update_fields)
-            except IntegrityError:
-                raise
-            except DatabaseError as e2:
-                if not _mysql_unknown_column_error(e2):
-                    raise
-                logger.warning(
-                    "No se pudieron persistir campos opcionales tras crear detalle: %s", e2
-                )
-        return detalle
 
 
 class DobladaStrategy(SolicitudStrategy):
@@ -177,7 +94,10 @@ class DobladaStrategy(SolicitudStrategy):
             tipo_cesion = datos.get('tipo_cesion', 'cesion_completa')
             fecha_creacion_solicitud = datos.get('fecha_creacion_solicitud')
             comentario = datos.get('comentario') or ''
-            
+            # Al RE-VALIDAR para aprobar, la propia solicitud debe excluirse de todo chequeo de
+            # "día ya comprometido"; si no, se auto-detecta y se rechaza a sí misma.
+            _excluir_id = datos.get('solicitud_actual_id')
+
             # Validaciones básicas de campos requeridos
             if not explorador_solicitante:
                 return False, "Explorador solicitante es requerido"
@@ -193,10 +113,20 @@ class DobladaStrategy(SolicitudStrategy):
             
             # Comentario obligatorio
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de doblada')
-            
+
+            # Fechas MALFORMADAS = entrada inválida del cliente, no un fallo del sistema.
+            # `DateUtils.parse_date` lanza ValueError con basura ('abc', '2026-13-45'…), que sin
+            # esta guarda subiría hasta el manejador genérico y saldría como 500. No se llega por
+            # el formulario (usa datepicker), pero sí manipulando la petición. Se responde con un
+            # mensaje de negocio claro y un 400.
+            try:
+                fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
+                DateUtils.parse_date(fecha_pago)
+            except (ValueError, TypeError):
+                return False, "Las fechas enviadas no son válidas. Usa el calendario del formulario."
+
             # Validar que fecha_cesion no sea en el pasado
-            fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
-            fecha_actual = date.today()
+            fecha_actual = timezone.localdate()
             if fecha_cesion_obj < fecha_actual:
                 return False, f"La fecha de cesión ({fecha_cesion_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
             
@@ -229,6 +159,24 @@ class DobladaStrategy(SolicitudStrategy):
             # sí se permiten), en ninguna de las dos fechas.
             SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
             SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
+
+            fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+
+            # Sábado por sábado se gestiona en Doblada de Fin de Semana (D FDS), no en doblada
+            # normal. Se permite el sábado en UN solo lado (sábado ↔ día de semana), pero no en
+            # ambos. Es una regla del TIPO de solicitud, así que rige también el intercambio.
+            if fecha_cesion_obj.weekday() == 5 and fecha_pago_obj.weekday() == 5:
+                return False, ("No puedes hacer una doblada de sábado por sábado. "
+                               "Para intercambiar sábados usa una Doblada de Fin de Semana (D FDS).")
+
+            # Un FESTIVO solo se cruza con otro FESTIVO del mismo mes. También es regla del tipo:
+            # en un festivo el grupo que rota trabaja AM+PM, así que cuenta como DOBLADA y encajaría
+            # con cualquier otra (una cobertura, un día de temporada…) si no se restringiera.
+            es_cesion_festivo = SolicitudValidator.es_festivo_semana(fecha_cesion_obj)
+            es_pago_festivo = SolicitudValidator.es_festivo_semana(fecha_pago_obj)
+            if es_cesion_festivo or es_pago_festivo:
+                # Lanza ValidationError si alguna fecha no es festivo o si son de distinto mes.
+                SolicitudValidator.validar_festivos_mismo_mes(fecha_cesion_obj, fecha_pago_obj)
 
             # Casos C/D: sin solicitud pendiente en fecha_cesion (reglas de CREACIÓN; se OMITEN
             # al re-validar para aprobar, donde la solicitud ya existe).
@@ -270,13 +218,28 @@ class DobladaStrategy(SolicitudStrategy):
             from turnos.services.turno_service import TurnoService as _TSv
             _fc_obj = DateUtils.parse_date(fecha_cesion)
             _fp_obj = DateUtils.parse_date(fecha_pago)
-            _comp_ces = _TSv.dia_comprometido_por_solicitud(explorador_solicitante, _fc_obj)
+            _comp_ces = _TSv.dia_comprometido_por_solicitud(
+                explorador_solicitante, _fc_obj, excluir_id=_excluir_id)
             if _comp_ces:
                 return False, (
                     f"Ya tienes el {_fc_obj.strftime('%d/%m/%Y')} comprometido en otra "
                     f"solicitud aprobada ({_comp_ces['motivo']}); no puedes cederlo de nuevo."
                 )
-            _comp_pago = _TSv.dia_comprometido_por_solicitud(explorador_receptor, _fp_obj)
+            # Espejo del anterior: `dia_comprometido_por_solicitud` solo ve DESCANSOS. Un día que
+            # se trabaja porque se está CUBRIENDO a un tercero (pago de una doblada/D FDS, o el
+            # día que te cedieron) parecía un día normal y se podía volver a ceder, dejando al
+            # acreedor original sin cobertura y con su deuda marcada como saldada.
+            _cubre_ces = _TSv.dia_cubriendo_por_solicitud(
+                explorador_solicitante, _fc_obj, excluir_id=_excluir_id)
+            if _cubre_ces:
+                _c = (_cubre_ces.get('companero') or {}).get('nombre') or 'otro compañero'
+                return False, (
+                    f"No puedes ceder el {_fc_obj.strftime('%d/%m/%Y')}: trabajas ese día porque "
+                    f"{_cubre_ces['motivo']} con {_c} (solicitud #{_cubre_ces['solicitud_id']}). "
+                    "Si lo cedes, ese compañero se queda sin cobertura."
+                )
+            _comp_pago = _TSv.dia_comprometido_por_solicitud(
+                explorador_receptor, _fp_obj, excluir_id=_excluir_id)
             if _comp_pago:
                 # EXCEPCIÓN (sábado, dos mitades al MISMO compañero): si el compromiso del compañero
                 # viene de OTRA doblada TUYA que le pagas ESE MISMO sábado con la mitad CONTRARIA,
@@ -287,14 +250,17 @@ class DobladaStrategy(SolicitudStrategy):
                     _jps_nueva = str(jornada_pago_sabado or '').upper()
                     if _jps_nueva in ('AM', 'PM'):
                         _contraria_nueva = 'PM' if _jps_nueva == 'AM' else 'AM'
-                        _es_complemento_sabado = SolicitudCambio.objects.filter(
+                        _q_comp = SolicitudCambio.objects.filter(
                             explorador_solicitante=explorador_solicitante,
                             explorador_receptor=explorador_receptor,
                             tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                             estado='aprobada',
                             doblada__fecha_pago=_fp_obj,
                             doblada__jornada_pago_sabado__iexact=_contraria_nueva,
-                        ).exists()
+                        )
+                        if _excluir_id:
+                            _q_comp = _q_comp.exclude(id=_excluir_id)
+                        _es_complemento_sabado = _q_comp.exists()
                 if not _es_complemento_sabado:
                     return False, (
                         f"Tu compañero ya tiene el {_fp_obj.strftime('%d/%m/%Y')} comprometido en "
@@ -323,25 +289,9 @@ class DobladaStrategy(SolicitudStrategy):
                         f"de pago en la que él trabaje."
                     )
 
-            # (Días especiales de ambas fechas: ya validados arriba, en las reglas comunes.)
-
-            # Validar reglas de festivos: si ambas fechas son festivos de semana, deben ser del mismo mes
-            fecha_cesion_obj = DateUtils.parse_date(fecha_cesion)
-            fecha_pago_obj = DateUtils.parse_date(fecha_pago)
-
-            # Sábado por sábado se gestiona en Doblada de Fin de Semana (D FDS), no en doblada normal.
-            # Se permite el sábado en UN solo lado (sábado ↔ día de semana), pero no en ambos.
-            if fecha_cesion_obj.weekday() == 5 and fecha_pago_obj.weekday() == 5:
-                return False, ("No puedes hacer una doblada de sábado por sábado. "
-                               "Para intercambiar sábados usa una Doblada de Fin de Semana (D FDS).")
-
-            es_cesion_festivo = SolicitudValidator.es_festivo_semana(fecha_cesion_obj)
-            es_pago_festivo = SolicitudValidator.es_festivo_semana(fecha_pago_obj)
+            # (Días especiales, sábado×sábado y festivos-del-mismo-mes: ya validados arriba, en las
+            # reglas comunes. Aquí solo quedan las reglas propias de la CESIÓN en festivo.)
             if es_cesion_festivo or es_pago_festivo:
-                # Regla de festivos: si una fecha es festivo, la otra también debe serlo del mismo mes.
-                # validar_festivos_mismo_mes lanza ValidationError si alguna fecha no es festivo o son de distinto mes.
-                SolicitudValidator.validar_festivos_mismo_mes(fecha_cesion_obj, fecha_pago_obj)
-
                 # En un festivo se trabaja la DOBLADA COMPLETA (AM+PM) y se cede ENTERA: la doblada
                 # de festivo es todo-o-nada. No se admiten cesiones parciales (dejarían media jornada
                 # colgando en un día que por rotación es doblada o descanso).
@@ -363,9 +313,9 @@ class DobladaStrategy(SolicitudStrategy):
                     )
 
                 try:
-                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                    grupo_cesion = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_cesion_obj)
-                    grupo_pago = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_pago_obj)
+                    from turnos.services.asignacion_especial_service import AsignacionEspecialService
+                    grupo_cesion = AsignacionEspecialService.grupo_trabaja(fecha_cesion_obj)
+                    grupo_pago = AsignacionEspecialService.grupo_trabaja(fecha_pago_obj)
                     logger.info(
                         f"DobladaStrategy: Cesión festiva {fecha_cesion_obj} (grupo {grupo_cesion}) "
                         f"<-> Pago festivo {fecha_pago_obj} (grupo {grupo_pago})"
@@ -376,7 +326,7 @@ class DobladaStrategy(SolicitudStrategy):
             # ===========================
             # Regla especial: pago en sábado (día de semana ↔ sábado)
             # ===========================
-            fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+            # (fecha_pago_obj ya se parseó una sola vez en las reglas comunes.)
 
             # Un sábado se reparte en dos MITADES (AM/PM). Se permite un SEGUNDO pago de doblada en
             # el mismo sábado SOLO si usa la mitad LIBRE: así terminas doblado (AM+PM) y cada mitad
@@ -390,7 +340,7 @@ class DobladaStrategy(SolicitudStrategy):
                     estado='aprobada',
                     doblada__fecha_pago=fecha_pago_obj,
                 ).select_related('doblada')
-                _sid = datos.get('solicitud_id')
+                _sid = _excluir_id
                 if _sid:
                     _otras_pago_sab = _otras_pago_sab.exclude(id=_sid)
                 _ocupadas = set()
@@ -424,10 +374,25 @@ class DobladaStrategy(SolicitudStrategy):
                             f"por cada media jornada; elige otro día de pago."
                         )
 
+            # Pagar en sábado EXIGE elegir la media jornada (AM/PM/AMBAS). Sin ese dato, ni la
+            # validación de sábado ni la aplicación entran en su rama de fin de semana: se caía a
+            # la lógica de día de semana, que usa la jornada predeterminada e IGNORA la alternancia
+            # de fines de semana → turnos incoherentes. El formulario siempre lo envía; esto es el
+            # guard de servidor equivalente.
+            if fecha_pago_obj.weekday() == 5 and not jornada_pago_sabado:
+                return False, (
+                    f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')} debes indicar qué "
+                    f"jornada cubrirás ese día (AM, PM o ambas)."
+                )
+
             es_pago_sabado = fecha_pago_obj.weekday() == 5 and jornada_pago_sabado
 
             if es_pago_sabado:
-                res = DobladaStrategy._validar_pago_en_sabado(explorador_solicitante, explorador_receptor, fecha_pago_obj, jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana)
+                res = DobladaStrategy._validar_pago_en_sabado(
+                    explorador_solicitante, explorador_receptor, fecha_pago_obj,
+                    jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana,
+                    excluir_id=_excluir_id,
+                )
                 if res is not None:
                     return res
             # Cobertura explícita AM / PM / AMBAS cuando el receptor tiene doblada en fecha de pago (no aplica a pago sábado especial)
@@ -555,10 +520,16 @@ class DobladaStrategy(SolicitudStrategy):
             return True, "Solicitud de doblada válida"
             
         except ValidationError as e:
+            # ÚNICO caso que se traduce a "(False, mensaje)": una regla de negocio incumplida.
             return False, str(e)
-        except Exception as e:
-            logger.error(f"Error validando doblada: {str(e)}", exc_info=True)
-            return False, f"Error validando doblada: {str(e)}"
+        except Exception:
+            # Cualquier otra excepción es un BUG, no una regla de negocio. Antes se devolvía
+            # como (False, "Error validando doblada: ..."), con la misma forma que un rechazo
+            # legítimo: el explorador leía un traceback y entendía "mi solicitud está mal",
+            # la solicitud quedaba bloqueada y nadie se enteraba de que había un fallo.
+            # Ahora se propaga para que salga como error del sistema y se pueda corregir.
+            logger.exception("Error INESPERADO validando doblada (no es una regla de negocio)")
+            raise
     
 
     @staticmethod
@@ -571,12 +542,12 @@ class DobladaStrategy(SolicitudStrategy):
             return False, f"El día B ({fp_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
         if fecha_cesion_obj == fp_obj:
             return False, "Para intercambiar dobladas, el día A y el día B deben ser distintos."
-        # Sábado por sábado se gestiona en D FDS, también cuando es un INTERCAMBIO: el formulario de
-        # doblada solo cruza un día de semana con el sábado de esa semana. (Misma regla que valida el
-        # flujo de cesión/pago más arriba; aquí hay que repetirla porque el intercambio retorna antes.)
-        if fecha_cesion_obj.weekday() == 5 and fp_obj.weekday() == 5:
-            return False, ("No puedes intercambiar una doblada de sábado por otra de sábado. "
-                           "Para intercambiar sábados usa una Doblada de Fin de Semana (D FDS).")
+        # NOTA: sábado×sábado y "festivo solo contra festivo del mismo mes" NO se repiten aquí.
+        # Son reglas del TIPO de solicitud y viven en el bloque de REGLAS COMUNES de
+        # `validar_solicitud`, que corre ANTES del corte del intercambio. Estaban duplicadas en
+        # este método porque el `return` del intercambio se saltaba el flujo normal, y cada una
+        # se añadió después de que se colara una solicitud inválida. Al subirlas, este método
+        # queda con lo ÚNICO específico del swap: que ambos tengan doblada y estén libres.
         if _TSint.estado_dia(explorador_solicitante, fecha_cesion_obj).get('jornada') != 'DOBLADA':
             return False, (f"Para intercambiar, debes tener una DOBLADA (AM+PM) el "
                            f"{fecha_cesion_obj.strftime('%d/%m/%Y')}.")
@@ -602,18 +573,23 @@ class DobladaStrategy(SolicitudStrategy):
 
 
     @staticmethod
-    def _validar_pago_en_sabado(explorador_solicitante, explorador_receptor, fecha_pago_obj, jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana) -> Optional[Tuple[bool, str]]:
+    def _validar_pago_en_sabado(explorador_solicitante, explorador_receptor, fecha_pago_obj, jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana, excluir_id=None) -> Optional[Tuple[bool, str]]:
         from ..solicitud_validator import SolicitudValidator
         jornada_pago_sabado_upper = str(jornada_pago_sabado).upper()
         if jornada_pago_sabado_upper not in ("AM", "PM", "AMBAS"):
             logger.warning(f"Validación fallida: jornada_pago_sabado inválida: {jornada_pago_sabado}")
             return False, "Para pagar en sábado debes seleccionar una jornada válida (AM, PM o ambas)."
 
-        # Validar que el receptor TRABAJA ese sábado según alternancia
-        jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_pago_obj)
+        # Validar que el receptor TRABAJA ese sábado según la alternancia PUBLICADA.
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        jornada_trabaja_sabado = AsignacionEspecialService.grupo_trabaja(fecha_pago_obj)
         if not jornada_trabaja_sabado:
-            logger.warning(f"Validación fallida: no se pudo determinar alternancia para {fecha_pago_obj}")
-            return False, "No se pudo determinar la alternancia para el sábado seleccionado."
+            logger.warning("Sin alternancia publicada para el sábado %s", fecha_pago_obj)
+            return False, (
+                f"El año {fecha_pago_obj.year} aún no tiene publicada la alternancia de fines de "
+                f"semana, así que no se puede saber quién trabaja ese sábado. "
+                f"Pídele al supervisor que la publique."
+            )
 
         # Si el receptor tiene un Turno REAL en ese sábado (p. ej. por un cambio de
         # descanso previo que le asignó ese día), ese turno es la fuente de verdad:
@@ -706,8 +682,51 @@ class DobladaStrategy(SolicitudStrategy):
             from turnos.models import DiaEspecial
             if SolicitudValidator.es_festivo_semana(fps_obj) or DiaEspecial.es_mantenimiento_efectivo(fps_obj):
                 return False, "El día de pago en semana no puede ser festivo ni de mantenimiento."
-            if fps_obj < date.today():
+            if fps_obj < timezone.localdate():
                 return False, "El día de pago en semana no puede ser en el pasado."
+
+            # El día de devolución es un TERCER día que esta solicitud MUTA (el receptor se dobla
+            # y el solicitante descansa), así que necesita las mismas guardas L2 que la cesión y la
+            # fecha de pago. Sin esto se podía programar sobre un día ya comprometido por otra
+            # solicitud aprobada, o sobre un día en que el receptor ya dobla (triple turno).
+            from turnos.services.turno_service import TurnoService as _TSsem
+            _comp_rec = _TSsem.dia_comprometido_por_solicitud(
+                explorador_receptor, fps_obj, excluir_id=excluir_id)
+            if _comp_rec:
+                return False, (
+                    f"El compañero ya tiene el {fps_obj.strftime('%d/%m/%Y')} comprometido en otra "
+                    f"solicitud aprobada ({_comp_rec['motivo']}); no puede doblarse ese día para "
+                    f"devolverte la jornada. Elige otro día de la semana."
+                )
+            _comp_sol = _TSsem.dia_comprometido_por_solicitud(
+                explorador_solicitante, fps_obj, excluir_id=excluir_id)
+            if _comp_sol:
+                return False, (
+                    f"Ya tienes el {fps_obj.strftime('%d/%m/%Y')} comprometido en otra solicitud "
+                    f"aprobada ({_comp_sol['motivo']}); ese día no trabajas, así que el compañero "
+                    f"no tiene nada que devolverte. Elige otro día de la semana."
+                )
+            _cubre_sol = _TSsem.dia_cubriendo_por_solicitud(
+                explorador_solicitante, fps_obj, excluir_id=excluir_id)
+            if _cubre_sol:
+                _c = (_cubre_sol.get('companero') or {}).get('nombre') or 'otro compañero'
+                return False, (
+                    f"No puedes descansar el {fps_obj.strftime('%d/%m/%Y')}: trabajas ese día porque "
+                    f"{_cubre_sol['motivo']} con {_c} (solicitud #{_cubre_sol['solicitud_id']}). "
+                    "Elige otro día de la semana para que te devuelva la jornada."
+                )
+            try:
+                SolicitudValidator.validar_no_doblada_activa(
+                    explorador_receptor, fps_obj,
+                    mensaje=(
+                        f'El compañero ya tiene una jornada doblada (AM + PM) el '
+                        f'{fps_obj.strftime("%d/%m/%Y")}: no le queda jornada libre para devolverte '
+                        f'la tuya. Elige otro día de la semana.'
+                    ),
+                )
+            except ValidationError as e:
+                return False, str(e.messages[0] if getattr(e, 'messages', None) else e)
+
             j_sol = JornadaService.get_jornada_explorador_fecha(
                 explorador_solicitante.id, fps_obj.strftime('%Y-%m-%d'))
             j_rec = JornadaService.get_jornada_explorador_fecha(
@@ -795,7 +814,7 @@ class DobladaStrategy(SolicitudStrategy):
                     doblada_detalle_data['jornada_cubre_en_pago'] = jcp
 
             try:
-                doblada_detalle = _create_doblada_detalle(doblada_detalle_data)
+                doblada_detalle = DobladaDetalle.objects.create(**doblada_detalle_data)
             except Exception:
                 solicitud.delete()
                 raise
@@ -821,10 +840,16 @@ class DobladaStrategy(SolicitudStrategy):
                 # pero loguear el problema para diagnóstico
             
             return solicitud, "Solicitud de doblada creada correctamente"
-            
-        except Exception as e:
-            logger.error(f"Error creando solicitud de doblada: {str(e)}", exc_info=True)
-            return None, f"Error creando solicitud de doblada: {str(e)}"
+
+        except Exception:
+            # Mismo criterio que `validar_solicitud`: aquí ya NO quedan reglas de negocio (se
+            # validaron antes), así que cualquier excepción es un BUG. Antes se devolvía
+            # (None, str(e)), y el orquestador lo publicaba como 'creation_failed' 400 con el
+            # texto de la excepción: el explorador leía un error de BD como si su solicitud
+            # estuviera mal, y el fallo real no se distinguía de un rechazo legítimo.
+            # Propagando, el orquestador lo convierte en 500 'internal_error' logueado.
+            logger.exception("Error INESPERADO creando solicitud de doblada (no es una regla de negocio)")
+            raise
     
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
@@ -939,7 +964,8 @@ class DobladaStrategy(SolicitudStrategy):
 
             if es_sabado:
                 # Fecha de pago (o cesión) es sábado
-                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                from turnos.services.asignacion_especial_service import AsignacionEspecialService
+                jornada_trabaja_sabado = AsignacionEspecialService.grupo_trabaja(fecha_obj)
                 if not jornada_trabaja_sabado:
                     return []
 
@@ -1012,9 +1038,9 @@ class DobladaStrategy(SolicitudStrategy):
                 jornada_solicitante = None
                 if es_festivo_semana:
                     try:
-                        from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                        from turnos.services.asignacion_especial_service import AsignacionEspecialService
                         from turnos.models import AsignarJornadaExplorador
-                        grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                        grupo_que_dobla = AsignacionEspecialService.grupo_trabaja(fecha_obj)
                         # Usar jornada BASE del solicitante (AsignarJornadaExplorador), NO la jornada
                         # del día (que en festivos puede devolver 'DOBLADA' y romper la comparación).
                         asignacion_base = (
@@ -1103,10 +1129,16 @@ class DobladaStrategy(SolicitudStrategy):
             
             return DobladaFiltroService.convertir_empleados_a_dict(empleados_filtrados, fecha)
             
-        except Exception as e:
-            logger.error(f"Error obteniendo empleados disponibles para doblada: {str(e)}", exc_info=True)
-            return []
-    
+        except Exception:
+            # NO devolver [] ante un fallo: la lista vacía YA SIGNIFICA otra cosa ("no hay ningún
+            # compañero que cumpla las condiciones ese día", los `return []` legítimos de arriba).
+            # Devolver lo mismo ante un bug hacía que el desplegable saliera vacío y el explorador
+            # concluyera "ese día no hay nadie", sin señal de que el código había reventado.
+            # Propagando, la vista responde 500/'internal_error' y el JS muestra "Error al cargar
+            # compañeros" — distinguible de la lista vacía legítima.
+            logger.exception("Error obteniendo empleados disponibles para doblada")
+            raise
+
     def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
         """
         Get turn information for an explorer.
@@ -1118,8 +1150,8 @@ class DobladaStrategy(SolicitudStrategy):
         Returns:
             Dictionary with turn information
         """
-        try:
-            turno_service = get_turno_service()
-            return turno_service.get_turno_explorador(explorador_id, fecha)
-        except Exception:
-            return {}
+        # Sin try/except: un `{}` silencioso se interpreta aguas arriba como "no tiene turno",
+        # que es una respuesta de negocio válida. Un fallo real debe verse, no disfrazarse de
+        # día sin turno.
+        turno_service = get_turno_service()
+        return turno_service.get_turno_explorador(explorador_id, fecha)

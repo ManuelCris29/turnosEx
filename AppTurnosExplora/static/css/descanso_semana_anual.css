@@ -7,6 +7,8 @@
 .box-am  { background: #0d6efd; }
 .box-pm  { background: #f59e0b; }
 .box-amb { background: linear-gradient(90deg, #0d6efd 50%, #f59e0b 50%); }
+.box-lock { background: #e2e8f0; border: 1px dashed #64748b; }
+.box-otro { background: #f1f5f9; border: 1px dashed #94a3b8; }
 
 .dsa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .dsa-mes { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); padding: 12px; }
@@ -33,9 +35,23 @@
 .dia.sel-amb { background: linear-gradient(90deg, #dbeafe 50%, #fef3c7 50%); border-color: #6366f1; }
 .dia.sel-amb .et { color: #4338ca; }
 
-/* Pista del automático (override no fijado): etiqueta tenue en minúscula */
+/* Pista del automático (override no fijado): etiqueta tenue en minúscula.
+   Sigue en uso en la pantalla de descansos de semana. */
 .dia.auto-am .et { color: #93c5fd; font-weight: 600; }
 .dia.auto-pm .et { color: #fcd34d; font-weight: 600; }
+
+/* Día especial SIN alternancia publicada. Se marca en rojo tenue a propósito: no es un
+   estado neutro, es trabajo pendiente del supervisor — el explorador no verá turno. */
+.dia.sin-planificar { background: #fff1f2; border-color: #fda4af; border-style: dashed; }
+.dia.sin-planificar .et { color: #e11d48; font-weight: 700; }
+
+/* Día no editable porque ya tiene solicitudes aprobadas apoyadas en su descanso.
+   Sigue mostrando su selección (atenuada) para que el descanso vigente nunca quede invisible. */
+.dia.bloqueado-solicitud { border-style: dashed; border-color: #64748b; opacity: .75; }
+
+/* Descanso individual de otro motivo: referencia de solo lectura */
+.dia.otro-motivo { border-style: dashed; border-color: #94a3b8; cursor: default; }
+.dia.otro-motivo .et { color: #64748b; font-weight: 600; }
 
 /* Finde/festivo bloqueado por solicitudes aprobadas */
 .dia .ae-lock { position: absolute; bottom: 1px; right: 2px; font-size: .6rem; line-height: 1; }

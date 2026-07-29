@@ -1,5 +1,12 @@
 """
-Servicio de alternancia de fines de semana (sábados y domingos).
+Calculadora de alternancia de fines de semana (sábados y domingos).
+
+YA NO ES LA FUENTE DE VERDAD. Qué grupo trabaja un finde se lee de
+`AsignacionEspecialManual` vía `AsignacionEspecialService.grupo_trabaja`; este módulo solo
+sobrevive como calculadora pura para PROPONER una siembra y para el comando de corte
+`materializar_alternancia`. No lo uses para decidir el turno de nadie: una fórmula
+recalcula el pasado, y eso es exactamente lo que se eliminó
+(ver docs/02-refactorizacion/PLAN_ALTERNANCIA_SEMILLA_ANUAL.md).
 
 Responsabilidad única:
 - Determinar qué jornada (AM o PM) TRABAJA o DESCANSA un sábado o domingo,

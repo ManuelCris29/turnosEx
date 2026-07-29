@@ -6,13 +6,15 @@ MODALIDAD FIN DE SEMANA:
 - Ej: Mariana trabaja SAB 4, Jhon trabaja DOM 5 → después: Mariana trabaja DOM 5, Jhon trabaja SAB 4.
 - En otra semana del mismo mes se revierte.
 - No hay dobladas ni deudas: cada explorador sigue trabajando UN solo día por finde, solo cambia CUÁL.
-- Validación de balance: si el mes tiene 5 domingos (impar), se muestra advertencia.
+- Balance: si el mes tiene 5 domingos (impar) se avisa, pero NO bloquea. Al ser informativo, ese
+  aviso vive solo en el formulario (`validarBalanceDomingos` en solicitar_cambio_descanso.js).
 
 MODALIDAD ENTRE SEMANA (Temporada):
 - Intercambio DIRECTO de descansos asignados por el supervisor.
-- Ej: Mariana descansa martes, Jhon descansa viernes → después: Mariana descansa viernes, Jhon descansa martes.
+- Ej: Mariana descansa martes, Jhon descansa el día completo de esa semana → se intercambian.
 - SIN devolución, es un intercambio simple.
-- Ambos deben estar en el mismo rango de temporada.
+- Ambos días deben estar en la MISMA semana de temporada (misma regla dura que las
+  sub-modalidades; ver _validar_semana_comun).
 """
 from typing import Dict, Any, Tuple, Optional
 from datetime import datetime
@@ -23,9 +25,9 @@ from django.db import transaction
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from turnos.services.jornada_service import JornadaService
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 
 class CambioDescansoStrategy(SolicitudStrategy):
@@ -58,11 +60,6 @@ class CambioDescansoStrategy(SolicitudStrategy):
         return asg.jornada.nombre.upper() if asg else None
 
     @staticmethod
-    def _es_festivo(fecha) -> bool:
-        from turnos.models import DiaEspecial
-        return DiaEspecial.es_festivo(fecha)
-
-    @staticmethod
     def _otro_dia_finde(fecha):
         """Retorna el otro día del fin de semana (sábado <-> domingo)."""
         from datetime import timedelta
@@ -71,23 +68,6 @@ class CambioDescansoStrategy(SolicitudStrategy):
         elif fecha.weekday() == 6:  # domingo
             return fecha - timedelta(days=1)  # sábado
         return None
-
-    @staticmethod
-    def _contar_domingos_mes(fecha):
-        """Cuenta cuántos domingos hay en el mes de fecha."""
-        from datetime import timedelta
-        from calendar import monthrange
-        year, month = fecha.year, fecha.month
-        _, ultimo_dia = monthrange(year, month)
-        inicio = fecha.replace(day=1)
-        fin = fecha.replace(day=ultimo_dia)
-        contador = 0
-        actual = inicio
-        while actual <= fin:
-            if actual.weekday() == 6:  # domingo
-                contador += 1
-            actual += timedelta(days=1)
-        return contador
 
     @staticmethod
     def _es_duplicado_pendiente(solicitante, receptor, fecha_cesion, fecha_pago):
@@ -245,9 +225,16 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 return False, "El día de devolución debe ser un fin de semana (sábado o domingo)"
 
             from django.utils import timezone
-            hoy = timezone.now().date()
-            if fecha_cesion < hoy:
-                return False, "No se puede cambiar el descanso de un fin de semana pasado"
+            hoy = timezone.localdate()
+            # El día en curso YA se está trabajando: no hay jornada que intercambiar sin
+            # reescribir un turno que la persona está cubriendo ahora mismo (misma regla que
+            # D FDS). Se omite al re-validar: una solicitud enviada ayer para hoy no debe
+            # volverse inaprobable por el paso del tiempo, la decide el supervisor.
+            if fecha_cesion < hoy or (fecha_cesion == hoy and not datos.get('es_revalidacion')):
+                return False, (
+                    "El fin de semana que cambias debe ser posterior a hoy: el día en curso "
+                    "ya se está trabajando."
+                )
             if fecha_pago <= hoy:
                 return False, "La fecha de devolución debe ser posterior a hoy"
             if fecha_pago == fecha_cesion:
@@ -349,13 +336,9 @@ class CambioDescansoStrategy(SolicitudStrategy):
                     f"trabajas los dos días de ese fin de semana."
                 )
 
-            # ADVERTENCIA (no bloqueo): si el mes tiene 5 domingos, el balance es impar
-            if fecha_cesion.weekday() == 6:  # Si estamos intercambiando domingos
-                domingos_mes = self._contar_domingos_mes(fecha_cesion)
-                if domingos_mes == 5:
-                    # Es una advertencia informativa, pero no bloqueamos
-                    # El frontend debería mostrar esto, pero no es un error de validación
-                    pass  # No es error, solo información
+            # NOTA: la advertencia de "mes con 5 domingos" (balance impar) es informativa y NO
+            # bloquea, por eso vive solo en el formulario (`validarBalanceDomingos` en
+            # solicitar_cambio_descanso.js). Aquí no hay nada que validar.
 
             return True, "Solicitud de cambio de descanso válida"
 
@@ -377,23 +360,36 @@ class CambioDescansoStrategy(SolicitudStrategy):
         """
         from django.utils import timezone
         from turnos.services.descanso_semana_service import DescansoSemanaService
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
 
         if fecha_cesion.weekday() >= 5:
             return False, "El día que cambias debe ser de lunes a viernes."
         if fecha_pago.weekday() >= 5:
             return False, "El compañero solo puede descansar de lunes a viernes."
-        if fecha_cesion < hoy:
-            return False, "No se puede cambiar el descanso de un día pasado."
+        # Igual que en finde: el día en curso ya se está trabajando. Se omite al re-validar.
+        if fecha_cesion < hoy or (fecha_cesion == hoy and not es_revalidacion):
+            return False, (
+                "El día que cambias debe ser posterior a hoy: el día en curso ya se está "
+                "trabajando."
+            )
         if fecha_pago <= hoy:
             return False, "El descanso del compañero debe ser posterior a hoy."
         if fecha_pago == fecha_cesion:
             return False, "Los descansos deben ser días distintos."
 
-        # Deben estar en el mismo rango (temporada): máximo 30-45 días
-        dias_diff = abs((fecha_pago - fecha_cesion).days)
-        if dias_diff > 45:
-            return False, "Los descansos deben estar en el mismo rango de temporada (máximo 45 días)."
+        # MISMA SEMANA: misma regla dura que el resto de sub-modalidades de temporada
+        # (ver _validar_semana_comun). El formulario nunca ofreció otra semana —solo el
+        # descanso del grupo contrario de la semana seleccionada—, así que esto cierra el
+        # hueco de un POST directo sin cambiar lo que el usuario puede hacer.
+        # Aplica TAMBIÉN al re-validar para aprobar, igual que _validar_semana_comun: es una
+        # regla de negocio del intercambio, no una regla de creación.
+        from datetime import timedelta
+        if (fecha_cesion - timedelta(days=fecha_cesion.weekday())) != \
+                (fecha_pago - timedelta(days=fecha_pago.weekday())):
+            return False, (
+                "El intercambio de descansos de temporada debe ser en la MISMA semana. "
+                "Elige el descanso del grupo contrario de esa misma semana."
+            )
 
         # Duplicado (par de fechas en cualquier orden, mismas personas). Igual que en finde:
         # el genérico solo mira fecha_cesion y no ve la versión invertida (roles intercambiados).
@@ -440,25 +436,46 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 f"(ya lo intercambió o está comprometido). Elige otro día o compañero."
             )
 
+        # Los días que cada uno RECIBE también se reescriben al aplicar (`_descansa_dia` borra
+        # los turnos de receptor@cesión y de solicitante@pago). Si esos días ya están
+        # comprometidos por otra solicitud aprobada (una doblada, un d_fds…), aplicar este
+        # intercambio los borraría en silencio dejando la otra solicitud aprobada sin turnos.
+        # Las tres sub-modalidades ya hacían este chequeo; esta ruta era la única que faltaba,
+        # y es la que asume el docstring de `_marcar_reemplazadas` ("entre semana lo impide la
+        # validación, no el reemplazo").
+        for emp, f, quien in ((receptor, fecha_cesion, 'Tu compañero tiene'),
+                              (solicitante, fecha_pago, 'Tienes')):
+            comp = self._comprometido(emp, f)
+            if comp:
+                return False, (
+                    f"{quien} el {f.strftime('%d/%m/%Y')} comprometido por otra solicitud "
+                    f"({comp.get('motivo')}). No se puede usar en el intercambio."
+                )
+
         return True, "Solicitud de cambio de descanso (entre semana) válida"
 
     # ---------------------------------------------- sub-modalidades de semana
     @staticmethod
-    def _validar_semana_comun(fecha_a, fecha_b):
+    def _validar_semana_comun(fecha_a, fecha_b, es_revalidacion=False):
         """
         Validaciones comunes de las sub-modalidades nuevas de temporada:
         lun-vie, futuras, MISMA semana (regla dura del negocio) y que la semana
         tenga descansos de temporada configurados.
+
+        "Futuras" excluye HOY al crear (el día en curso ya se está trabajando), igual que en
+        finde y en D FDS; al re-validar solo se exige que no sea pasado.
         """
         from datetime import timedelta
         from django.utils import timezone
         from turnos.services.descanso_semana_service import DescansoSemanaService
 
-        hoy = timezone.now().date()
+        hoy = timezone.localdate()
         if fecha_a.weekday() >= 5 or fecha_b.weekday() >= 5:
             return False, "Ambos días deben ser de lunes a viernes."
-        if fecha_a < hoy or fecha_b < hoy:
-            return False, "No se pueden usar días pasados."
+        limite = hoy if es_revalidacion else hoy + timedelta(days=1)
+        if fecha_a < limite or fecha_b < limite:
+            return False, ("No se pueden usar días pasados ni el día en curso."
+                           if not es_revalidacion else "No se pueden usar días pasados.")
         if fecha_a == fecha_b:
             return False, "Los días deben ser distintos."
         lunes_a = fecha_a - timedelta(days=fecha_a.weekday())
@@ -491,7 +508,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         receptor la contraria. fecha_cesion = día de trabajo del solicitante;
         fecha_pago = día de trabajo del receptor. Sin deuda.
         """
-        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago)
+        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago, datos.get('es_revalidacion'))
         if not ok:
             return False, msg
 
@@ -526,7 +543,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         """
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
 
-        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago)
+        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago, datos.get('es_revalidacion'))
         if not ok:
             return False, msg
 
@@ -637,7 +654,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         from turnos.models import Turno
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
 
-        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago)
+        ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago, datos.get('es_revalidacion'))
         if not ok:
             return False, msg
 
@@ -752,10 +769,9 @@ class CambioDescansoStrategy(SolicitudStrategy):
                     else:
                         CambioDescansoAplicacionService.aplicar_entre_semana(solicitud, detalle)
 
-            for fecha in (solicitud.fecha_cambio_turno, solicitud.doblada.fecha_pago):
-                if fecha:
-                    CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
-                    CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+            for fecha in CambioDescansoAplicacionService.fechas_afectadas(solicitud):
+                CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
+                CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
             return True, "Cambio de día de descanso aplicado correctamente."
         except Exception as e:
             import logging

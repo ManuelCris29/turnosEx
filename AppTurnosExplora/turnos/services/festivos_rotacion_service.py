@@ -1,5 +1,10 @@
 """
-Servicio para rotación global AM/PM en festivos entre semana.
+Calculadora de rotación global AM/PM en festivos entre semana.
+
+YA NO ES LA FUENTE DE VERDAD. Qué grupo dobla un festivo se lee de
+`AsignacionEspecialManual` vía `AsignacionEspecialService.grupo_trabaja`; este módulo solo
+sobrevive para el comando de corte `materializar_alternancia`. Los problemas del índice
+global que se describen abajo son precisamente la razón por la que dejó de mandar.
 
 Regla de negocio:
 - Se toman TODOS los festivos de lunes a viernes (tipo='festivo', activo=True) en orden cronológico.

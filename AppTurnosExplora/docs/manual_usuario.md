@@ -127,6 +127,7 @@ y al supervisor.
 | No se puede cambiar por la misma jornada | Ambos tienen AM, o ambos PM | Busca un compañero del grupo contrario |
 | No se puede cambiar domingo por día de semana | Los domingos no admiten este trámite | Consulta con tu supervisor |
 | No se puede cambiar sábado por día de semana | El fin de semana se rige por la alternancia | Usa **Cambio de descanso** o **D FDS** |
+| Un sábado, domingo o festivo aparece «sin planificar» | El supervisor todavía no publicó la alternancia de ese año | Avísale: se publica en **Turnos → Fines de semana y festivos** |
 | No se puede solicitar para una fecha pasada | La fecha ya pasó | Elige una fecha futura |
 | No trabajas esa fecha | Ese día descansas: no hay jornada que intercambiar | Elige otro día |
 

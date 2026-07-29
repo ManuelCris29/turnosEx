@@ -11,8 +11,11 @@
 - [Doblada](#2-doblada)
 - [CT Permanente](#3-ct-permanente)
 - [D-FDS — Doblada Fin de Semana](#4-d-fds--doblada-fin-de-semana)
-- [Validadores reutilizables (SolicitudValidator)](#5-validadores-reutilizables-solicitudvalidator)
-- [Convenciones de nomenclatura de casos](#6-convenciones-de-nomenclatura-de-casos)
+- [Doblada Permanente](#5-doblada-permanente)
+- [Cambio de Día de Descanso](#6-cambio-de-día-de-descanso)
+- [Cancelar y eliminar desde gestión](#7-cancelar-y-eliminar-desde-gestión)
+- [Validadores reutilizables (SolicitudValidator)](#8-validadores-reutilizables-solicitudvalidator)
+- [Convenciones de nomenclatura de casos](#9-convenciones-de-nomenclatura-de-casos)
 
 ---
 
@@ -33,7 +36,7 @@
 | # | Caso | Regla | Mensaje de error | Capa |
 |---|---|---|---|---|
 | 1 | — | Datos requeridos presentes (solicitante, receptor, fecha) | "Faltan datos requeridos para la validación" | Backend |
-| 2 | **A** | La fecha no puede ser pasada | "No se puede solicitar un cambio de turno para una fecha pasada." | Backend |
+| 2 | **A** | La fecha debe ser a partir de MAÑANA. El día en curso ya se está trabajando, así que no hay jornada que intercambiar. Al re-validar para aprobar solo se exige que no sea pasada (una solicitud enviada ayer para hoy sigue siendo aprobable: decide el supervisor) | "No se puede solicitar un cambio de turno para hoy: el día ya está en curso. Elige a partir de mañana." / "No se puede solicitar un cambio de turno para una fecha pasada." | Backend + Frontend (`fecha_minima = hoy + 1`) |
 | 3 | — | Solicitante activo | "El empleado no está activo" | Backend |
 | 4 | — | Receptor activo | "El empleado no está activo" | Backend |
 | 5 | — | No mismo empleado | "No puedes solicitar cambio contigo mismo" | Backend |
@@ -49,14 +52,15 @@
 | 15 | — | No sábado (exclusivo de CT Sencillo) | "No se puede cambiar sábado por día de semana" | Backend |
 | 16 | — | Rotación de festivos — informativo, no bloquea | — (solo logging) | Backend |
 | 17 | — | Ninguno con doblada activa (AM+PM) — redirige a Solicitud de Dobladas | Ver mensajes diferenciados según quién tiene la doblada | Backend |
-| 18 | **B** | Límite de 3 cambios aprobados por explorador/fecha al CREAR | "No puedes crear esta solicitud. Ya tienes {N} cambio(s) aprobado(s) para el DD/MM/YYYY. Límite máximo: 3." | Backend |
+| 18 | — | **No hay tope de cambios por fecha** (eliminado). Lo que se puede hacer ese día ya lo gobiernan el estado real del día (trabaja, no está doblado, no está comprometido por otra solicitud aprobada) y el principio de "la última aprobada gana" | — | — |
 
 ### Reglas al aprobar — `aplicar_cambios()`
 
 | Regla | Detalle |
 |---|---|
-| Límite de 3 cambios (segunda línea de defensa) | Cubre condiciones de carrera: si dos solicitudes se aprueban casi simultáneamente, la segunda falla con el mismo mensaje del Caso B. |
 | First-Come, First-Served | Al aprobar una solicitud, rechaza automáticamente todas las demás solicitudes pendientes del mismo receptor para la misma fecha. Notifica a cada solicitante afectado. |
+| La sala no se intercambia | El CT intercambia la JORNADA. La sala es informativa (en qué es experto el explorador) y cada uno conserva la suya, igual que en las dobladas. |
+| El cierre semanal NO se re-valida al aprobar | Es deliberado: el cierre limita a quién ENVÍA. Si el explorador envió el jueves y el cierre es el viernes, aprobar a tiempo es responsabilidad del supervisor. |
 
 ### Validaciones frontend
 
@@ -163,7 +167,7 @@
 | Receptor con doblada en fecha_pago | Permitido. El deudor indica explícitamente qué cubre: **solo AM**, **solo PM** o **AMBAS** (receptor sin turnos ese día y deudor con AM+PM). Si no se envía `jornada_cubre_en_pago`, el backend aplica la jornada de pago según `jornada_cedida` (una media jornada; el receptor conserva la otra). **No aplica** en fecha de pago **sábado** cuando rige `jornada_pago_sabado`. |
 | Deudor con doblada (AM+PM) en fecha_pago | Puede pagar cualquier jornada de deuda porque ya trabaja las dos jornadas. |
 | Temporada | Permitida para cesión. El supervisor recibe aviso en la notificación. |
-| Festivos | Permitidos en ambas fechas. Si una es festivo, la otra también debe serlo del mismo mes. |
+| Festivos | Permitidos en ambas fechas. Si una es festivo, la otra también debe serlo del mismo mes. **También en el INTERCAMBIO de dobladas**: la regla se repite dentro de `_validar_intercambio`, que retorna antes del bloque de festivos del flujo normal. Sin ella se colaba cambiar un festivo por un día ordinario —en festivo el grupo que rota trabaja AM+PM, así que cuenta como DOBLADA y encajaba con cualquier otra— y el festivo se paga distinto. |
 
 ### Cobertura explícita en fecha de pago (`jornada_cubre_en_pago`)
 
@@ -262,9 +266,16 @@ El **backend** acepta receptor sin jornada en cesión cuando el emisor cede AM/P
 | Capa | Archivo |
 |---|---|
 | Strategy (backend) | `solicitudes/services/strategies/ct_permanente_strategy.py` |
-| Validadores | `solicitudes/services/solicitud_validator.py` |
+| **Evaluación de fechas (fuente única)** | `solicitudes/services/ct_permanente_helper.py` → `evaluar_fechas_ct_permanente` |
+| Validadores | `solicitudes/services/validators/ct_permanente_validator.py` |
+| Previsualización | `solicitudes/views/api_disponibles_ct_preview.py` → `PrevisualizarCTPermanenteView` |
 | Frontend | `static/js/cambio-turno/solicitar_ct_permanente.js` |
 | Frontend validadores | `static/js/cambio-turno/validadores_solicitudes.js` |
+
+> **Fuente única de fechas.** Qué días entran en el cambio lo decide **solo**
+> `evaluar_fechas_ct_permanente`. La validación, la vista previa y la aplicación llaman ahí, así
+> que las tres responden lo mismo: lo que el usuario ve en el paso previo es exactamente lo que
+> se materializa. No añadir copias de la expansión/filtrado de fechas.
 
 ### Reglas al crear — `validar_solicitud()`
 
@@ -274,20 +285,35 @@ El **backend** acepta receptor sin jornada en cesión cuando el emisor cede AM/P
 | 2 | — | Solicitante y receptor activos | "El empleado no está activo" | Backend |
 | 3 | — | No mismo empleado | "No puedes solicitar cambio contigo mismo" | Backend |
 | 4 | — | Comentario obligatorio | "Debes ingresar un comentario para la solicitud de cambio de turno permanente." | Backend + Frontend |
-| 5 | — | fecha_inicio no puede ser pasada | "La fecha de inicio no puede ser en el pasado" | Backend |
+| 5 | — | fecha_inicio no puede ser pasada (**solo al crear**; al re-validar para aprobar se omite y los días ya transcurridos se descartan uno a uno) | "La fecha de inicio no puede ser en el pasado" | Backend |
 | 6 | — | fecha_fin obligatoria y posterior a fecha_inicio | "La fecha fin es obligatoria..." / "La fecha fin debe ser posterior a la fecha inicio" | Backend + Frontend |
 | 7 | — | Solo lunes a viernes en el rango (no sábados ni domingos) | "No se pueden realizar cambios permanentes en sábados..." / "...en domingos" | Backend |
 | 8 | — | No festivos en el rango | "No se pueden realizar cambios permanentes en días festivos" | Backend |
 | 9 | — | No mantenimiento en el rango | "No se pueden realizar cambios de turno en días de mantenimiento. {descripcion}" | Backend |
 | 10 | — | No temporada en el rango | "No se pueden realizar cambios permanentes en días de temporada. {descripcion}" | Backend |
-| 11 | — | Al menos un día del rango con jornadas contrarias (AM ↔ PM) | "No se puede realizar el cambio permanente. No se encontraron días en el rango donde los empleados tengan jornadas contrarias..." | Backend |
-| 12 | — | Al menos un día válido en el rango (excluidos: domingos, sábados, festivos, mantenimiento, temporada, descansos) | "No se encontraron días válidos en el rango seleccionado. Todos los días son festivos, de mantenimiento, temporada, o días de descanso." | Backend |
-| 13 | — | Sin superposición con otros cambios permanentes entre los mismos empleados (en ambas direcciones) | "Ya existe un cambio permanente superpuesto entre estos empleados" | Backend |
+| 11 | — | Al menos un día del rango con jornadas contrarias (AM ↔ PM), según el estado REAL (`estado_dia`). Se valida **siempre**, también con `fechas_especificas` | "No se puede realizar el cambio permanente. No se encontraron días en el rango donde los empleados tengan jornadas contrarias..." | Backend |
+| 11b | — | **Por día**: un día en que ambos trabajan la MISMA jornada NO se aplica (no hay intercambio; aplicarlo dejaría a los dos en la contraria y la franja original sin cobertura) | Se excluye con razón "Sin jornada contraria" | Backend |
+| 12 | — | Al menos un día APLICABLE en el rango (excluidos: fines de semana, festivos, mantenimiento, temporada, descansos reales, días ya comprometidos por otra solicitud, días ya cambiados y días sin jornada contraria) | "No se encontraron días válidos en el rango seleccionado..." | Backend |
+| 13 | — | Sin superposición con otros cambios permanentes entre los mismos empleados (en ambas direcciones; solapamiento de intervalos completo, `fecha_fin` nula = indefinido) | "Ya existe un cambio permanente superpuesto entre estos empleados" | Backend |
+| 15 | — | El solicitante no puede tener otra solicitud pendiente en **ninguno** de los días que el cambio tocaría | "Ya tienes una solicitud pendiente para el {fecha}, uno de los días que este cambio permanente afectaría..." | Backend |
 | 14 | — | Si hay dias_seleccionados: al menos uno, todos dentro del rango, todos lunes-viernes | Mensajes específicos por sub-regla | Backend + Frontend |
 
 ### Reglas al aprobar
 
-*(No hay validaciones especiales adicionales documentadas fuera de las de creación)*
+- Se **re-valida** con el estado actual (`revalidar_para_aprobar`): si entre el envío y la
+  aprobación cambió una jornada, apareció un festivo o el día quedó comprometido, se bloquea.
+- Se omite "no empezar en el pasado" (regla de creación) y, en su lugar, se descartan los días
+  ya transcurridos: una aprobación tardía aplica solo los días futuros y no reescribe historia.
+- **Si no queda ningún día aplicable, la aprobación falla** y la transacción revierte. Antes se
+  aprobaba con "0 días", dejando la solicitud aprobada sin turnos ni snapshot.
+
+### Aplicación
+
+Por cada día aplicable, solicitante y receptor **intercambian** su jornada: cada uno recibe la
+del otro (no "la contraria de la suya"). Los turnos se escriben con `delete()` + `create()`,
+igual que el CT sencillo: crear sin borrar dejaba dos turnos el mismo día y "Mis Turnos" leía el
+día como DOBLADA. El estado previo real se guarda en `snapshot_turnos_previos` y se restaura al
+cancelar dentro de los 30 min (borrado dirigido: si otro cambio ya pisó el día, se respeta).
 
 ### Validaciones frontend
 
@@ -302,8 +328,9 @@ El **backend** acepta receptor sin jornada en cesión cuando el emisor cede AM/P
 
 | Caso | Comportamiento |
 |---|---|
-| Selección de días completa vs fechas específicas | `dias_seleccionados` puede contener `dias_semana` (lunes a viernes como números 0-4) o `fechas_especificas` (listado de fechas puntuales) |
-| Fechas específicas incompatibles | Si ninguna de las fechas específicas tiene jornadas contrarias con el compañero, se bloquea |
+| Selección de días completa vs fechas específicas | `dias_seleccionados` puede contener `dias_semana` (lunes a viernes como números 0-4) o `fechas_especificas` (listado de fechas puntuales). `fechas_especificas` tiene prioridad |
+| Fechas específicas incompatibles | El JS precarga solo los días compatibles (`window.overrideDiasSeleccionados`), pero eso es **solo UX**: el backend re-evalúa cada día por su cuenta y descarta los que no tengan jornada contraria. Un POST con fechas fabricadas no salta el control |
+| Compatibilidad (%) del compañero | Se calcula sobre los días realmente aplicables del solicitante, no sobre días de calendario, y usa la misma definición de "día aplicable" que la aplicación |
 
 ### Pendientes / posibles mejoras
 
@@ -317,12 +344,14 @@ El **backend** acepta receptor sin jornada en cesión cuando el emisor cede AM/P
 
 ### Concepto
 
-En un fin de semana, según la **alternancia** (`AlternanciaFinesSemanaService`), **un grupo trabaja un día completo (AM+PM)** y el otro grupo trabaja el otro día. Cada explorador trabaja un solo día del finde.
+El punto de partida es la **alternancia publicada** por el supervisor para el año (`AsignacionEspecialService.grupo_trabaja`, tabla `AsignacionEspecialManual`): un grupo trabaja un día completo del finde (AM+PM) y el otro grupo trabaja el otro día. Si el año no está publicado, esos días quedan *sin planificar* y no se puede solicitar sobre ellos. Pero esa es solo la programación por defecto — el estado real de cada persona lo da `TurnoService.estado_dia`, y ahí conviven quienes trabajan **los dos** días del finde (el propio más uno que cubren por un favor), quienes **descansan los dos** y quienes tienen **media jornada** por un cambio previo.
 
-- **Favor (fecha de cesión):** el solicitante trabaja SU día del finde pero no puede asistir y lo cede. El **receptor** (grupo contrario, trabaja el otro día) **se dobla** ese finde: trabaja su día propio + el día cedido. El solicitante **descansa todo el finde**.
-- **Pago (fecha de pago, mismo mes):** espejo. El solicitante cubre el día del receptor en otro finde del mismo mes: trabaja su día propio + el día del receptor. El receptor **descansa su día**.
+- **Favor (fecha de cesión):** el solicitante trabaja un día del finde a jornada completa y lo cede. El **receptor** —cualquiera que ESE día descanse, sin importar el grupo— pasa a trabajarlo completo (AM+PM).
+- **Pago (fecha de pago, mismo mes y mismo día de la semana):** espejo. El solicitante cubre al compañero en un día que el compañero trabaja y él tiene libre. El receptor **descansa ese día**.
 
 Unidad transferida = un día de finde completo. No hay medias jornadas, ni matriz de casos AM/PM.
+
+**Traspaso de cobertura**: quien trabaja un día por un favor puede volver a cederlo. Se admite porque el sustituto trabaja el día completo, así que el acreedor original conserva su descanso y su acuerdo sigue vigente. Cada cesión crea su **propia** deuda con su fecha de pago —no se acumulan ni se traspasan— y para recibir hay que descansar ese día, así que nadie acumula dos coberturas en el mismo finde. La cadena solo se deshace en orden inverso, por la guardia LIFO de `use_cases/cancelar_solicitud.py`.
 
 ### Archivos clave
 
@@ -338,6 +367,8 @@ Unidad transferida = un día de finde completo. No hay medias jornadas, ni matri
 
 ### Reglas al crear — `validar_solicitud()`
 
+La elegibilidad se decide por el **estado real de cada día** (`TurnoService.estado_dia`, las mismas capas que Mis Turnos), **no** por el grupo AM/PM ni por la alternancia teórica: en la operación conviven quienes trabajan los dos días del finde (el propio más uno que cubren por un favor), quienes descansan los dos y quienes tienen media jornada por un cambio previo.
+
 | # | Regla | Mensaje de error | Capa |
 |---|---|---|---|
 | 1 | Requeridos: solicitante, receptor, fecha de cesión, fecha de pago | Mensajes específicos por campo faltante | Backend + Frontend |
@@ -345,13 +376,17 @@ Unidad transferida = un día de finde completo. No hay medias jornadas, ni matri
 | 3 | No mismo empleado | "No puedes solicitar cambio contigo mismo" | Backend |
 | 4 | Comentario obligatorio | "Debes ingresar un comentario para la solicitud de D FDS." | Backend + Frontend |
 | 5 | Cesión y pago deben ser fin de semana (sáb/dom) | "La fecha de cesión/pago debe ser un fin de semana (sábado o domingo)" | Backend + Frontend |
-| 6 | Cesión no pasada; pago posterior a hoy; pago ≠ cesión | Mensajes específicos | Backend + Frontend |
+| 6 | Cesión y pago **posteriores a hoy**; pago ≠ cesión. Al re-validar para aprobar se admite la cesión del día en curso (no bloquear al supervisor) | Mensajes específicos | Backend + Frontend |
 | 7 | Pago en el **mismo mes** que la cesión | "La fecha de pago (...) debe estar en el mismo mes que la fecha de cesión (...)" | Backend + Frontend |
 | 8 | No mantenimiento en ninguna fecha | "No se pueden realizar cambios... en días de mantenimiento" | Backend |
-| 9 | Solicitante y receptor de **grupos contrarios** | "El compañero debe ser del grupo contrario..." | Backend |
-| 10 | Al solicitante le corresponde trabajar SU día en la cesión (alternancia) | "Ese día no te corresponde trabajar por alternancia; no tienes un día que ceder..." | Backend |
-| 11 | El día de pago debe ser el que trabaja el **receptor** (alternancia) | "En la fecha de pago debes cubrir el día que trabaja tu compañero (grupo X)..." | Backend |
-| 12 | No triple turno: receptor sin doblada en cesión; solicitante sin doblada en pago | "El compañero ya tiene una doblada (AM+PM) en la fecha de cesión..." | Backend |
+| 9 | **Cesión**: el solicitante TRABAJA ese día a jornada completa (`estado_dia(...).jornada == 'DOBLADA'`) | "No tienes un turno que ceder el dd/mm/aaaa (...)" / "solo tienes media jornada (...) por un cambio previo" | Backend + Frontend |
+| 10 | **Cesión**: el compañero tiene ese día LIBRE (es lo único que se le exige; el grupo AM/PM ya no interviene) | "Tu compañero ya trabaja el dd/mm/aaaa; no tiene ese día libre para cubrirte..." | Backend + Frontend |
+| 11 | **Pago**: el compañero trabaja ese día completo y el solicitante lo tiene LIBRE | "Tu compañero no trabaja el dd/mm/aaaa..." / "No puedes pagar el dd/mm/aaaa: ese día ya trabajas..." | Backend + Frontend |
+| 12 | No se puede pagar con un día **ya cedido** a otro compañero (él lo está cubriendo) | "No puedes pagar el dd/mm/aaaa: ese día ya se lo cediste a un compañero..." | Backend |
+| 13 | El pago debe caer en el **mismo día de la semana** que la cesión (sáb→sáb, dom→dom), para conservar la misma cantidad de sábados/domingos al mes | "Cediste un domingo: la devolución también debe ser un domingo..." | Backend + Frontend |
+| 14 | Ninguna de las dos fechas puede estar tomada por otra **solicitud pendiente** del solicitante o del receptor, cruzando tanto la cesión como el pago de esas solicitudes | "Ya tienes una solicitud pendiente que afecta el dd/mm/aaaa (como cesión o como pago)..." | Backend |
+| 15 | **No importa POR QUÉ trabaja cada uno su día**, solo que el día quede cubierto. Vale ceder un día de cobertura, y vale pagar cubriendo un día que el compañero trabaja por un favor ajeno: un favor se mide en días trabajados, no en de quién es el día | — (no bloquea; el formulario lo señala como información) | Backend + Frontend |
+| 16 | **Traspaso de cobertura**: al ceder un día que se trabaja por un favor, el sustituto lo cubre completo, el acreedor original conserva su descanso y su acuerdo sigue vigente; solo cambia quién cubre, y se le notifica | Aviso informativo en el resumen del formulario y notificación al acreedor | Backend + Frontend |
 
 ### Reglas al aprobar — `aplicar_cambios()` → `DFDSAplicacionService`
 
@@ -360,30 +395,241 @@ Unidad transferida = un día de finde completo. No hay medias jornadas, ni matri
 | Cesión | Receptor dobla AM+PM en la fecha de cesión; solicitante sin turnos (descansa el finde). |
 | Pago | Solicitante dobla AM+PM en la fecha de pago; receptor sin turnos (descansa su día). |
 | Deuda entre exploradores | `DeudaExplorador`: solicitante (deudor) → receptor (acreedor), saldada con la fecha de pago. |
-| Deuda corporativa | **30 min por cada día con doblada efectiva AM+PM**: receptor en la cesión, solicitante en el pago. |
+| Deuda corporativa | **No aplica en D FDS**: los 30 min solo se generan de lunes a viernes y ambas fechas son de fin de semana (`aplica_deuda_doblada` lo garantiza). |
 | Snapshot | Se captura snapshot de turnos previos (reutiliza el de doblada) para permitir reversión. |
 
 ### Display en Mis Turnos
 
 La vista `turnos/api/views.py` incluye `D FDS` junto con `DOBLADA` en las consultas de descanso: el solicitante ve "descanso (cedió)" en la cesión y el receptor ve "descanso (pago)" en la fecha de pago.
 
+El descanso se atribuye **solo a la fecha cedida/pagada**, no a los dos días del finde: el otro día ya se descansaba por alternancia (lo resuelve L6 con su propio motivo).
+
 ### Validaciones frontend
 
 | Validación | Detalle |
 |---|---|
-| Date pickers solo findes | `flatpickr` con `disable` de días entre semana en cesión y pago (`solicitar_d_fds.js`) |
-| Pago restringido al mismo mes | El picker de pago se limita a `[primer..último día]` del mes de la cesión y excluye la fecha de cesión |
-| Compañeros del grupo contrario | Se cargan vía `obtener-empleados-disponibles` (`DFDSStrategy.get_empleados_disponibles`) |
+| Selección por tarjetas de finde, día a día | `solicitar_d_fds.js` pinta un finde por tarjeta con el estado real de SUS DOS días; se toca el día concreto que se cede. Cada día es independiente: se puede trabajar sábado y domingo y ceder cualquiera de los dos. Los no cedibles quedan deshabilitados con su motivo |
+| Compañeros | Se ofrece a quien DESCANSE el día que se cede, sin filtro de grupo AM/PM; los no disponibles se muestran igualmente con su motivo (`dfds-companeros` → `DFDSStrategy.disponibilidad_companero`) |
+| Aviso de traspaso | Si el día que cedes lo trabajas por un favor, el resumen indica con quién era el acuerdo y quién pasará a cubrirlo |
+| Días de pago que el compañero cubre | `alternancia-mes` marca por día `propio` (lo trabaja porque es SU día) y `cobertura` (a quién cubre). Si el compañero cubre a un tercero ese día, la fecha SÍ sirve, pero la tarjeta lo advierte: hay un tercero implicado y el día cambia de manos |
+| Findes a caballo entre dos meses | `alternancia-mes` lista el finde cuyo sábado es del mes anterior si el domingo cae en el mes consultado, y solo permite elegirlo desde el mes al que pertenece el día trabajado (`del_mes`), porque el pago debe ser del mismo mes |
+| Cierre semanal | Cada día trae `cerrado`; las tarjetas de findes ya cerrados no se pueden elegir (el POST también lo valida) |
+| Pago restringido al mismo mes y día de semana | Los candidatos de pago se filtran por mes de la cesión, mismo día de la semana y fecha posterior a hoy |
 | Campos requeridos + comentario | Validación previa al POST con SweetAlert |
+
+### Reprogramación por inasistencia
+
+Si alguien **no cumple su día** (el receptor en la cesión, o el solicitante en el pago), el
+supervisor lo registra y le asigna otro día. Usa el mismo `ReprogramacionDobladaService` que
+DOBLADA y DOBLADA PERMANENTE: se anula el día no cumplido (soft-delete + se resta su deuda) y se
+programa uno nuevo, **sin tocar al otro explorador** — su descanso ya lo tuvo el día original, lo
+que quedó sin cubrir es el turno.
+
+Lo propio del fin de semana está en `_validar_dia_compensacion_finde`. El día de compensación:
+
+| Regla | Motivo |
+|---|---|
+| Debe ser **sábado o domingo** | La unidad de D FDS es el día completo de finde |
+| **Mismo día de la semana** que el que no se cumplió | Mantiene intacta su cantidad de sábados y domingos del mes |
+| La persona debe **descansarlo** | Si ya trabaja, no puede doblarse de nuevo |
+| No puede ser un día que **ella cedió** | Lo cubre un compañero como extra: quedarían dos personas en el turno |
+
+No genera los 30 min: `aplica_deuda_doblada` los descarta en fin de semana. Al cancelar la
+reprogramación la persona simplemente vuelve a descansar (no había jornada previa que restaurar).
 
 ### Pendientes / posibles mejoras
 
 - Ventana de cancelación de 30 min (existe snapshot; falta exponer el botón/flujo para D FDS).
+- La reprogramación **compensa** (la persona trabaja otro día de finde), no mueve la fecha pactada.
+  Si avisa con antelación, hoy no hay forma de cambiar el día de pago para que el compañero vuelva
+  a trabajar el original y la sala no quede corta.
 - Mensaje de éxito compartido en `procesar_solicitud.py` tiene un mojibake heredado ("compañero").
 
 ---
 
-## 5. Validadores reutilizables (SolicitudValidator)
+## 5. Doblada Permanente
+
+> Acuerdo **recurrente** dentro de un rango del mismo mes, entre el solicitante y uno o varios
+> compañeros. El formulario es multi-compañero: el orquestador agrupa por compañero y crea **una
+> solicitud independiente por cada uno**, todo o nada.
+
+### Concepto
+
+- **Días de cesión:** el compañero cubre; él dobla AM+PM y el solicitante descansa.
+- **Días de devolución:** el solicitante devuelve el favor; él dobla y el compañero descansa.
+- Cada doblada efectiva = **30 min de deuda corporativa** para quien dobla (Consolidado / PDH).
+
+La elegibilidad se decide **día a día con la jornada REAL** (`_jornada_doblada_perm` sobre
+`estado_dia`): ambos deben tener ese día una jornada única AM/PM y **contraria** entre sí. Los días
+que no cumplen se **omiten** (no se rechaza el acuerdo entero), que es lo correcto para algo
+recurrente. Al aplicar, cada lado se recorta al **mínimo común**: solo se aplican pares
+cubrir↔devolver completos.
+
+### Archivos clave
+
+| Capa | Archivo |
+|---|---|
+| Strategy | `solicitudes/services/strategies/doblada_permanente_strategy.py` |
+| Aplicación / reversión | `solicitudes/services/doblada_permanente_aplicacion_service.py` |
+| Elegibilidad por día | `solicitudes/services/ct_permanente_helper.py` → `_jornada_doblada_perm` |
+| Flujo multi-compañero | `solicitudes/services/solicitud_orchestrator.py` → `_procesar_doblada_permanente_multi` |
+| Detalle (modelo) | `solicitudes/models.py` → `DobladaPermanenteDetalle` |
+| Form | `templates/solicitudes/solicitar_doblada_permanente.html`; `static/js/cambio-turno/solicitar_doblada_permanente.js` |
+| Tests | `solicitudes/tests/test_doblada_permanente.py` |
+
+### Reglas al crear — `validar_solicitud()`
+
+| # | Regla | Mensaje de error | Capa |
+|---|---|---|---|
+| 1 | Requeridos: solicitante, compañero, rango y al menos un día de cesión y uno de devolución | Mensajes específicos | Backend + Frontend |
+| 2 | Empleados activos, no uno mismo, comentario obligatorio | Mensajes estándar | Backend + Frontend |
+| 3 | Rango válido y no iniciado en el pasado | "El rango no puede iniciar en el pasado" | Backend + Frontend |
+| 4 | Rango **dentro del mismo mes** | "El rango debe estar dentro del mismo mes..." | Backend + Frontend |
+| 5 | Solo **lunes a viernes** (los findes se rigen por alternancia → D FDS) | "La doblada permanente es solo de lunes a viernes..." | Backend + Frontend |
+| 6 | Un mismo día no puede ser de cesión y de devolución | "Un mismo día de la semana no puede ser de cesión y de devolución a la vez." | Backend + Frontend |
+| 7 | **Balance**: misma cantidad de fechas (o días) cubiertas que devueltas | "Debes devolver la misma cantidad de fechas que te cubren..." | Backend + Frontend |
+| 8 | Ni solicitante ni compañero pueden estar **sancionados** en el rango | "Estás sancionado en ese rango..." / "{compañero} está sancionado en ese rango." | Backend |
+| 9 | El compañero no puede tener otra **doblada permanente** (pendiente o aprobada) que solape rango y días | "{compañero} ya tiene una doblada permanente en esos días dentro del rango." | Backend |
+| 10 | Jornadas **contrarias** por fecha real; deben quedar días válidos para cubrir **y** devolver | "No quedan fechas válidas para CUBRIR y DEVOLVER a la vez..." | Backend + Frontend |
+| 11 | Ninguna de las **fechas afectadas** puede estar tomada por otra solicitud **pendiente**, ni del solicitante ni del compañero. Se cruzan las fechas que de verdad se aplicarían, no solo el inicio del rango | "Ya tienes una solicitud pendiente que afecta el dd/mm/aaaa..." | Backend |
+
+### Reglas del flujo multi-compañero — `_procesar_doblada_permanente_multi`
+
+| # | Regla | Mensaje de error |
+|---|---|---|
+| 1 | Una fecha solo la puede **cubrir** un compañero (ni **pagar** dos) | "La fecha dd/mm/aaaa está asignada a dos compañeros..." |
+| 2 | Una fecha no puede ser **cesión de uno y devolución de otro**: ese día no se puede descansar y doblar a la vez | "El dd/mm/aaaa lo tienes como día que cedes y como día que devuelves a la vez..." |
+| 3 | Solo se devuelve a quien te cubre, y **por compañero** la misma cantidad de fechas | "Solo puedes devolverle a un compañero que te cubra." / "A cada compañero debes devolverle la misma cantidad..." |
+| 4 | **Cierre semanal** sobre todas las fechas (si la solicitud llega por el flujo antiguo de días de la semana, el rango se expande para poder comprobarlo) | Mensaje de cierre |
+| 5 | Creación **todo o nada**: el lote va en una transacción; si una falla, ninguna queda creada | "Error creando la solicitud para {nombre}: ..." |
+
+### Reglas al aprobar y aplicar
+
+| Efecto | Detalle |
+|---|---|
+| Cesión | El receptor queda AM+PM (`tipo_cambio='DOBLADA PERM'`); el solicitante sin turnos. |
+| Devolución | El solicitante queda AM+PM; el receptor sin turnos. |
+| Deuda corporativa | 30 min por doblada efectiva, **idempotente** (aplicar dos veces no duplica) y solo lun-vie. |
+| Snapshot | Se captura antes de mutar y **no se sobrescribe** en una segunda aplicación. |
+| Reversión | Restaura el snapshot, cancela las deudas y **reconcilia** lo que siga vigente en esas fechas (patrón #22). |
+
+### Pendientes / posibles mejoras
+
+- El recorte al mínimo común descarta pares tomando los primeros por fecha; el usuario solo ve los
+  conteos en el mensaje, no qué fechas quedaron fuera.
+
+---
+
+## 6. Cambio de Día de Descanso
+
+> **Intercambio puro de días entre dos exploradores: no genera deuda.** Cada uno sigue trabajando
+> lo mismo, solo cambia CUÁL día. Es lo que lo distingue de una doblada, donde alguien trabaja de
+> más y hay que devolvérselo.
+
+### Dos mundos distintos según el día
+
+| | Fin de semana (sáb/dom) | Entre semana (lun-vie, temporada) |
+|---|---|---|
+| Qué se cambia | Cuál de los dos días del finde trabaja cada uno | El día de descanso de temporada |
+| Devolución | Sí, en otro finde del mismo mes | No: el intercambio se salda en el acto |
+| Día de la devolución | El **contrario** (cedes sábado → devuelves domingo) | — |
+| Sub-modalidades | Una sola | Cuatro (ver abajo) |
+
+### Archivos clave
+
+| Capa | Archivo |
+|---|---|
+| Strategy | `solicitudes/services/strategies/cambio_descanso_strategy.py` |
+| Aplicación / reversión | `solicitudes/services/cambio_descanso_aplicacion_service.py` |
+| Compañeros (finde) | `solicitudes/views/api_fin_semana.py` → `DFDSCompanerosView` (compartida con D FDS) |
+| Descansos de semana | `solicitudes/views/api_fin_semana.py` → `DescansosSemanaUsuarioView` |
+| Form | `templates/solicitudes/solicitar_cambio_descanso.html`; `static/js/cambio-turno/solicitar_cambio_descanso.js` |
+
+### Modalidad FIN DE SEMANA
+
+Semana 1 (cesión): el solicitante trabaja el otro día del finde en lugar del que cede, y el
+receptor al revés. Semana 2 (devolución): espejo. Cada uno sigue trabajando **un solo día por
+finde**.
+
+| # | Regla | Mensaje de error |
+|---|---|---|
+| 1 | Ambas fechas de fin de semana, futuras y distintas | Mensajes específicos |
+| 2 | La devolución debe ser el **día contrario** (sáb↔dom) | "Cambiaste un sábado: la devolución debe ser un domingo (el día contrario), para mantener tu balance de domingos en el mes." |
+| 3 | Mismo mes | "La fecha de pago debe estar en el mismo mes…" |
+| 4 | Grupos **contrarios** | "El compañero debe ser del grupo contrario…" |
+| 5 | Ambos con turno real en los días que ceden | "No tienes un turno válido el…" |
+| 6 | Cada uno debe **descansar el día que recibe** (si ya trabaja los dos días del finde, no hay hueco donde encajarlo) | "Tu compañero ya trabaja el… (trabaja los dos días de ese fin de semana)." |
+| 7 | Sin duplicado pendiente del mismo par de fechas, en cualquier orden | "Ya enviaste esta solicitud de cambio de descanso…" |
+
+El **balance de domingos** se conserva por construcción: ganas un domingo en un finde y lo cedes
+en el otro. En meses con 5 domingos el reparto puede quedar impar; el formulario lo advierte
+(`validarBalanceDomingos`) pero **no bloquea**.
+
+### Modalidad ENTRE SEMANA (temporada)
+
+Cuatro sub-modalidades, todas con dos reglas duras comunes (`_validar_semana_comun`): días
+**lunes a viernes**, futuros (hoy no vale al crear, porque ya se está trabajando) y **de la MISMA
+semana** — un día de temporada modificado se compensa dentro de su propia semana, nunca en otra.
+
+| Sub-modalidad | Qué hace | Deuda |
+|---|---|---|
+| `intercambio_dia` | Intercambio directo de descansos: yo descanso tu día y tú el mío | No |
+| `jornadas_partidas` | Los dos días especiales se reparten por jornada: yo trabajo siempre AM y tú siempre PM (o al revés) | No |
+| `cobertura_misma_semana` | Un compañero me cubre **AM o PM** de mi día completo de temporada, y le devuelvo esa jornada otro día de la misma semana | 30 min solo si quien cubre **ya tenía jornada** ese día y acabó doblado |
+| `cambio_doblada` | El compañero tiene una doblada real ese día y yo mi día completo de temporada: se intercambian | No |
+
+En `cobertura_misma_semana` **no se puede ceder el día completo a UNA sola persona** —eso es
+"intercambiar el día"—; el día entero solo se reparte entre **dos** compañeros (una solicitud por
+jornada).
+
+### Reglas al aprobar y aplicar
+
+| Efecto | Detalle |
+|---|---|
+| Finde | Cada uno pasa a trabajar el día del otro, ambos findes. Nadie dobla. |
+| Entre semana | Depende de la sub-modalidad; solo `cobertura_misma_semana` puede dejar a alguien doblado (y ahí nacen los 30 min). |
+| Reemplazo | Si un día ya cedido se vuelve a ceder a un tercero, la solicitud anterior pasa a `reemplazada` (`_marcar_reemplazadas`, **solo fin de semana**). |
+| Snapshot | Se captura antes de mutar; la cancelación en 30 min restaura y reconcilia. |
+
+### Casos especiales
+
+| Caso | Comportamiento |
+|---|---|
+| Día ya comprometido | En temporada no se reemplaza la solicitud previa: la **validación impide crear** la nueva mientras el día siga comprometido (`dia_comprometido_por_solicitud`). |
+| Ventana de 30 min | `dia_bloqueado_para_nuevo_cambio` mira si el descanso todavía puede revertirse; pasada la ventana, el día vuelve a estar disponible. |
+| Permisos de temporada | Un permiso de media jornada de temporada consume el día de descanso; el formulario lo explica en vez de mostrar un error genérico. |
+
+### Pendientes / posibles mejoras
+
+- El descanso por intercambio no guarda `solicitud_id` en `DescansoPorSolicitudService`, así que
+  los mensajes que lo citan no pueden enlazar a la solicitud que lo originó.
+
+---
+
+## 7. Cancelar y eliminar desde gestión
+
+El supervisor cancela desde la pantalla de gestión. **No tiene la ventana de 30 minutos** —esa
+limita al explorador— pero sí las guardas que protegen los datos. La lógica vive en
+`CancelarSolicitudUseCase.execute_supervisor`; la vista solo muestra el resultado.
+
+| Situación | Qué hace |
+|---|---|
+| **Pendiente** | Cancela. No hay nada aplicado que deshacer. |
+| **Aprobada, ningún día ha pasado** | Revierte turnos y deudas, reconcilia lo que siga vigente, y cancela. |
+| **Aprobada, todos los días ya pasaron** | Cancela **sin revertir**: la gente ya trabajó esos días y borrar sus turnos sería reescribir el historial. |
+| **Aprobada, cumplida a medias** | **Bloquea.** Revertir borraría lo ya trabajado y no revertir dejaría el horario descuadrado. El mensaje nombra los días cumplidos y los pendientes, y remite a "Reprogramar" en las dobladas. |
+
+Además se aplica la **guardia LIFO** (`bloqueo_lifo`, compartida con la cancelación del
+explorador): si hay un cambio aprobado más reciente sobre alguno de esos días, revertir este
+pisaría aquel, así que se deshace en orden inverso.
+
+**Eliminar** hace lo mismo antes de borrar la fila: revierte con idénticas guardas y solo
+entonces elimina. Sin eso, borrar una solicitud aplicada dejaba los turnos puestos y sin ningún
+registro que explicara de dónde salían.
+
+---
+
+## 8. Validadores reutilizables (SolicitudValidator)
 
 Todos los tipos de solicitud comparten el mismo archivo de validadores. Los métodos relevantes y su reutilización:
 
@@ -396,6 +642,8 @@ Todos los tipos de solicitud comparten el mismo archivo de validadores. Los mét
 | `validar_duplicada_misma_fecha` | CT |
 | `validar_receptor_sin_solicitud_pendiente_en_fecha` | CT (Caso C), Doblada (Caso C) |
 | `validar_solicitante_sin_solicitud_pendiente_en_fecha` | CT (Caso C), Doblada (Caso D) |
+| `validar_solicitante_sin_solicitud_pendiente_en_fechas` | CT Permanente (todos los días candidatos) |
+| `validar_sin_pendiente_en_fechas` | D-FDS, Doblada Permanente. Cruza VARIAS fechas y mira las DOS fechas de las otras solicitudes (su cesión **y** su pago); sirve para solicitante y para compañero (`es_receptor`) |
 | `validar_jornada_contraria` | CT |
 | `validar_jornadas_contrarias_doblada` | Doblada |
 | `validar_no_dia_mantenimiento` | CT, Doblada, CT Permanente, D-FDS |
@@ -421,14 +669,13 @@ Todos los tipos de solicitud comparten el mismo archivo de validadores. Los mét
 
 ---
 
-## 6. Convenciones de nomenclatura de casos
+## 9. Convenciones de nomenclatura de casos
 
 Los casos implementados siguiendo el esquema Caso A, B, C... corresponden a:
 
 | Caso | Descripción | Tipos afectados |
 |---|---|---|
-| **Caso A** | Validación de mes: fecha_pago/fecha_cesion en el mismo mes | Doblada; CT: fecha no pasada |
-| **Caso B** | Límite de 3 cambios aprobados por explorador/fecha | CT Sencillo |
+| **Caso A** | Validación de mes: fecha_pago/fecha_cesion en el mismo mes | Doblada; CT: fecha a partir de mañana |
 | **Caso C** | Receptor sin solicitud pendiente para esa fecha | CT Sencillo, Doblada |
 | **Caso D** | Solicitante sin solicitud pendiente para esa fecha | CT Sencillo (integrado en Caso C), Doblada |
 | **Caso E** | Aviso de temporada al supervisor en la notificación | CT Sencillo, Doblada (implementado en `notificacion_service.py`) |

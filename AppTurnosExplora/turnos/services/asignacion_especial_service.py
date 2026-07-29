@@ -1,10 +1,18 @@
 """
-Servicio del OVERRIDE manual de días especiales (fines de semana y festivos).
+Servicio de la alternancia de días especiales (fines de semana y festivos).
 
-La alternancia de fines de semana y la rotación de festivos son automáticas. Este
-servicio deja que el supervisor FIJE manualmente qué grupo (AM/PM) trabaja el día
-completo en fechas puntuales; cuando existe un registro activo, MANDA sobre el
-cálculo automático. Sin registro, el que consulta cae al automático (fallback).
+FUENTE ÚNICA DE VERDAD: qué grupo (AM/PM) trabaja el día completo un finde o un festivo
+entre semana es un DATO en `AsignacionEspecialManual`, publicado por el supervisor al
+sembrar el año. No es una fórmula.
+
+Antes se calculaba al vuelo desde un ancla y un índice global de festivos. Eso hacía que
+el pasado se recalculara solo (borrar un festivo antiguo invertía todos los posteriores,
+incluidos días con solicitudes aprobadas encima) y que dos entornos con distintos festivos
+cargados produjeran calendarios opuestos para el mismo año. Ver
+`docs/02-refactorizacion/PLAN_ALTERNANCIA_SEMILLA_ANUAL.md`.
+
+Un día sin fila NO se inventa: se reporta como `sin_planificar` para que se vea que a ese
+año le falta la publicación, en vez de mostrar un turno que cambiará cuando se siembre.
 """
 import logging
 from datetime import date, datetime, timedelta
@@ -23,10 +31,12 @@ class AsignacionEspecialConflicto(Exception):
 class AsignacionEspecialService:
 
     @staticmethod
-    def get_grupo_trabaja(fecha: date):
+    def grupo_trabaja(fecha: date):
         """
-        Grupo ('AM'/'PM') fijado manualmente para trabajar el día completo esa fecha,
-        o None si no hay override activo (entonces aplica la alternancia automática).
+        Grupo ('AM'/'PM') que trabaja el día completo esa fecha, o None si el año todavía
+        no tiene publicada la alternancia de ese día.
+
+        None significa SIN PLANIFICAR, no "descansa": quien consulta debe distinguirlo.
         """
         if not fecha:
             return None
@@ -37,34 +47,132 @@ class AsignacionEspecialService:
         return reg.jornada_trabaja.nombre.upper() if reg else None
 
     @staticmethod
-    def grupo_trabaja_efectivo(fecha: date):
+    def anio_sembrado(anio: int) -> bool:
         """
-        Grupo que TRABAJA el día completo un fin de semana, considerando el override:
-        si hay asignación manual manda; si no, la alternancia automática.
-        Fuente única para validar/aplicar solicitudes de finde de forma consistente
-        con lo que muestra Mis Turnos.
+        True si el año tiene publicada la alternancia COMPLETA: toda fecha de finde y todo
+        festivo entre semana tiene su fila. Es lo que garantiza que nadie vea
+        `sin_planificar`; el checklist de apertura de año se apoya en esto.
         """
-        override = AsignacionEspecialService.get_grupo_trabaja(fecha)
-        if override:
-            return override
-        # Festivo entre semana: la regla automática es la ROTACIÓN, no la alternancia de finde
-        # (que devolvería None y dejaría el día sin grupo).
-        if fecha.weekday() < 5:
-            from turnos.models import DiaEspecial
-            if DiaEspecial.es_festivo(fecha):
-                from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                try:
-                    return FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
-                except Exception:
-                    logger.warning("Sin rotación de festivo para %s", fecha, exc_info=True)
-            return None
-        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-        return AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha)
+        return not AsignacionEspecialService.fechas_sin_planificar(anio)
+
+    @staticmethod
+    def fechas_sin_planificar(anio: int) -> list:
+        """Findes y festivos entre semana del año que aún no tienen alternancia publicada."""
+        from turnos.models import DiaEspecial
+        ini, fin = date(anio, 1, 1), date(anio, 12, 31)
+        festivos_semana = set(
+            f for f in DiaEspecial.objects.filter(
+                fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True)
+            if f.weekday() < 5
+        )
+        publicadas = set(AsignacionEspecialManual.objects.filter(
+            fecha__range=(ini, fin), activo=True).values_list('fecha', flat=True))
+        faltan, d = [], ini
+        while d <= fin:
+            if (d.weekday() >= 5 or d in festivos_semana) and d not in publicadas:
+                faltan.append(d)
+            d += timedelta(days=1)
+        return faltan
+
+    # ------------------------------------------------------------------ siembra
+    # La siembra vive AQUÍ y no en el JavaScript. Antes estaba duplicada en el navegador
+    # con una regla distinta (alternaba los festivos por posición en la lista, así que un
+    # festivo bloqueado intercalado invertía todos los siguientes). Una sola regla, en un
+    # solo sitio, y además reutilizable desde los tests.
+
+    @staticmethod
+    def calcular_siembra(anio: int, primer_sabado: str, primer_festivo: str) -> dict:
+        """
+        Propone la alternancia de TODO el año: {fecha_iso: 'AM'|'PM'}.
+
+        - Findes: por PARIDAD DE FECHA respecto al primer sábado del año (no por posición),
+          para que saltarse un día no desfase el resto. El domingo trabaja el grupo contrario
+          al de su sábado.
+        - Festivos entre semana: alternan en orden cronológico dentro del año.
+
+        No escribe nada: es una propuesta que el supervisor revisa antes de guardar.
+        """
+        from turnos.models import DiaEspecial
+        primer_sabado = str(primer_sabado).upper()
+        primer_festivo = str(primer_festivo).upper()
+        if primer_sabado not in ('AM', 'PM') or primer_festivo not in ('AM', 'PM'):
+            raise ValueError('Los grupos de siembra deben ser AM o PM.')
+
+        def _otro(g):
+            return 'PM' if g == 'AM' else 'AM'
+
+        ini, fin = date(anio, 1, 1), date(anio, 12, 31)
+        sabado_ancla = ini
+        while sabado_ancla.weekday() != 5:
+            sabado_ancla += timedelta(days=1)
+
+        propuesta = {}
+        d = ini
+        while d <= fin:
+            if d.weekday() in (5, 6):
+                sabado = d if d.weekday() == 5 else d - timedelta(days=1)
+                semanas = (sabado - sabado_ancla).days // 7
+                grupo_sabado = primer_sabado if semanas % 2 == 0 else _otro(primer_sabado)
+                propuesta[d.isoformat()] = grupo_sabado if d.weekday() == 5 else _otro(grupo_sabado)
+            d += timedelta(days=1)
+
+        festivos = sorted(
+            f for f in DiaEspecial.objects.filter(
+                fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True)
+            if f.weekday() < 5
+        )
+        grupo = primer_festivo
+        for f in festivos:
+            propuesta[f.isoformat()] = grupo
+            grupo = _otro(grupo)
+        return propuesta
+
+    @staticmethod
+    def sugerencia_siembra(anio: int) -> dict:
+        """
+        Grupos sugeridos para sembrar `anio`, DERIVADOS del año anterior para que la
+        alternancia no se rompa en el cambio de año (dos findes seguidos del mismo grupo).
+
+        Devuelve {'primer_sabado': 'AM'|'PM'|None, 'primer_festivo': ...}. None cuando el
+        año anterior no está sembrado: entonces no hay nada de qué derivar y el supervisor
+        elige explícitamente. Esto sustituye al ancla que antes estaba fija en el código.
+        """
+        def _otro(g):
+            return 'PM' if g == 'AM' else 'AM'
+
+        previo = anio - 1
+        ultimo_sabado = (AsignacionEspecialManual.objects
+                         .filter(fecha__year=previo, tipo='finde', activo=True)
+                         .select_related('jornada_trabaja').order_by('-fecha').first())
+        ultimo_festivo = (AsignacionEspecialManual.objects
+                          .filter(fecha__year=previo, tipo='festivo', activo=True)
+                          .select_related('jornada_trabaja').order_by('-fecha').first())
+
+        sugerido_sabado = None
+        if ultimo_sabado:
+            grupo = ultimo_sabado.jornada_trabaja.nombre.upper()
+            # El último registro del año puede ser sábado o domingo; se normaliza al sábado
+            # de ESE finde y se invierte para el finde siguiente.
+            if ultimo_sabado.fecha.weekday() == 6:
+                grupo = _otro(grupo)
+            sugerido_sabado = _otro(grupo)
+
+        return {
+            'primer_sabado': sugerido_sabado,
+            'primer_festivo': (_otro(ultimo_festivo.jornada_trabaja.nombre.upper())
+                               if ultimo_festivo else None),
+        }
+
+    @staticmethod
+    def sembrar_anio(anio: int, primer_sabado: str, primer_festivo: str) -> int:
+        """Calcula la siembra y la guarda. Atajo para tests y para el comando de apertura."""
+        return AsignacionEspecialService.guardar_anual(
+            anio, AsignacionEspecialService.calcular_siembra(anio, primer_sabado, primer_festivo))
 
     @staticmethod
     def mapa_grupo_trabaja(ini: date, fin: date) -> dict:
         """
-        {fecha: 'AM'/'PM'} de los overrides activos en el rango [ini, fin]. Para el
+        {fecha: 'AM'/'PM'} de la alternancia publicada en el rango [ini, fin]. Para el
         batch de estado_mes: una sola consulta en vez de N.
         """
         res = {}

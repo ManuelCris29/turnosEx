@@ -288,7 +288,8 @@ como mantenimiento (`services/validators/base_validator.py:65-67`).
 
 `turnos/services/` reúne ~12 servicios especializados; los más consultados desde
 `solicitudes` son `turno_service`, `jornada_service`,
-`alternancia_fines_semana_service` y `descanso_semana_service`.
+`asignacion_especial_service` (alternancia publicada de findes y festivos) y
+`descanso_semana_service`.
 
 ## 7. Reglas de negocio transversales
 
@@ -468,9 +469,11 @@ del mismo mes (`strategies/d_fds_strategy.py:1-14`).
 - Pago y cesión no pueden ser el mismo día (`:124`).
 - El compañero no puede tener ya doblada en la fecha de cesión (`:246`), ni el
   solicitante en la fecha de pago (`:248`).
-- La **alternancia** determina qué grupo trabaja cada día del fin de semana
-  (`:175`, `:201`). Como en fin de semana quien trabaja lo hace AM+PM, el grupo se
-  determina por la asignación base, no por el turno del día (`:49-59`).
+- La **alternancia publicada** por el supervisor determina qué grupo trabaja cada día
+  del fin de semana (`AsignacionEspecialService.grupo_trabaja`). Como en fin de semana
+  quien trabaja lo hace AM+PM, el grupo se determina por la asignación base, no por el
+  turno del día (`:49-59`). Si el año no está publicado, no se puede solicitar sobre
+  esos días: salen como *sin planificar*.
 
 ## 9. Configuración local
 

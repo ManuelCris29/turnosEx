@@ -6,7 +6,7 @@ from .views import (
     DiaEspecialListView, DiaEspecialCreateView, DiaEspecialUpdateView, DiaEspecialDeleteView,
     DiaEspecialVisualizarListView, DiaEspecialTemporadasAnualView, DiaEspecialFestivosMantenimientoAnualView,
     DescansoSemanaListView, DescansoSemanaCreateView, DescansoSemanaUpdateView, DescansoSemanaDeleteView,
-    DescansoSemanaAnualView, AsignacionEspecialAnualView,
+    DescansoSemanaAnualView, AsignacionEspecialAnualView, AsignacionEspecialSiembraView,
 )
 
 urlpatterns = [
@@ -26,6 +26,7 @@ urlpatterns = [
     path('descanso-semana/', DescansoSemanaListView.as_view(), name='descanso_semana_list'),
     path('descanso-semana/anual/', DescansoSemanaAnualView.as_view(), name='descanso_semana_anual'),
     path('asignacion-especial/anual/', AsignacionEspecialAnualView.as_view(), name='asignacion_especial_anual'),
+    path('asignacion-especial/anual/siembra/', AsignacionEspecialSiembraView.as_view(), name='asignacion_especial_siembra'),
     path('descanso-semana/create/', DescansoSemanaCreateView.as_view(), name='descanso_semana_create'),
     path('descanso-semana/edit/<int:pk>/', DescansoSemanaUpdateView.as_view(), name='descanso_semana_edit'),
     path('descanso-semana/delete/<int:pk>/', DescansoSemanaDeleteView.as_view(), name='descanso_semana_delete'),

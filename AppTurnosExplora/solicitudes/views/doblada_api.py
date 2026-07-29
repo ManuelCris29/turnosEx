@@ -247,9 +247,9 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             )
             if not es_doblada_turnos and es_festivo:
                 try:
-                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
+                    from turnos.services.asignacion_especial_service import AsignacionEspecialService
                     from turnos.services.jornada_service import JornadaService
-                    grupo_que_dobla = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj)
+                    grupo_que_dobla = AsignacionEspecialService.grupo_trabaja(fecha_obj)
                     jornada_usuario = None
                     if jornadas:
                         jornada_usuario = jornadas[0].upper()  # Un solo turno en BD
@@ -258,7 +258,10 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                             usuario_actual.id, fecha_obj.strftime('%Y-%m-%d')
                         )
                         jornada_usuario = pred.nombre.upper() if pred else None
-                    coincide = bool(jornada_usuario and jornada_usuario == grupo_que_dobla.upper())
+                    # `grupo_que_dobla` es None si el año no tiene la alternancia publicada:
+                    # entonces no se afirma nada sobre ese festivo.
+                    coincide = bool(grupo_que_dobla and jornada_usuario
+                                    and jornada_usuario == grupo_que_dobla)
                     logger.info(
                         "VerificarDobladaExistente festivo: grupo_que_dobla=%s jornada_usuario=%s coincide=%s",
                         grupo_que_dobla, jornada_usuario, coincide
@@ -280,7 +283,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                         f'completo a un compañero, y la fecha de pago debe ser otro día festivo del mismo mes.'
                     )
                     # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
-                    if not jornadas and jornada_usuario and jornada_usuario == grupo_que_dobla.upper():
+                    if not jornadas and grupo_que_dobla and jornada_usuario == grupo_que_dobla:
                         return json_ok({
                             'tiene_doblada': True,
                             'esta_descansando': False,
@@ -293,7 +296,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                             'requiere_atencion_admin': False
                         })
                     # Doblada real en BD (2 turnos AM+PM)
-                    if tiene_doblada_real_bd and jornada_usuario and jornada_usuario == grupo_que_dobla.upper():
+                    if tiene_doblada_real_bd and grupo_que_dobla and jornada_usuario == grupo_que_dobla:
                         return json_ok({
                             'tiene_doblada': True,
                             'esta_descansando': False,
@@ -466,10 +469,10 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                         'solicitud_id': None,
                     })
 
-                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+                from turnos.services.asignacion_especial_service import AsignacionEspecialService
                 from turnos.services.jornada_service import JornadaService
 
-                jornada_trabaja_sabado = AlternanciaFinesSemanaService.jornada_trabaja_sabado(fecha_obj)
+                jornada_trabaja_sabado = AsignacionEspecialService.grupo_trabaja(fecha_obj)
                 if jornada_trabaja_sabado:
                     jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(
                         usuario_actual.id, fecha_obj.strftime('%Y-%m-%d')
@@ -531,7 +534,7 @@ class ObtenerFechasDescansoView(LoginRequiredMixin, View):
             from turnos.services.turno_service import TurnoService
             usuario_actual = request.user.empleado
 
-            hoy = date.today()
+            hoy = timezone.localdate()
             # Ventana que cubre la navegación típica del datepicker: mes anterior .. +6 meses.
             anio, mes = hoy.year, hoy.month
             mes -= 1

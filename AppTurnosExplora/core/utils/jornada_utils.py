@@ -9,10 +9,6 @@ Responsabilidad única:
 from datetime import date
 from typing import Dict
 
-from turnos.services.alternancia_fines_semana_service import (
-    AlternanciaFinesSemanaService,
-)
-
 
 class JornadaUtils:
     """
@@ -26,12 +22,11 @@ class JornadaUtils:
         - Jornada base (AM o PM).
         - Alternancia real de fines de semana (sábados y domingos).
 
-        Nueva lógica de fines de semana:
-        - Los fines de semana se alternan por grupo:
-          - En un fin de semana, un grupo (AM o PM) TRABAJA sábado (doblada completa)
-            y DESCANSA domingo.
-          - El grupo contrario DESCANSA sábado y TRABAJA domingo (doblada completa).
-        - Esta alternancia se calcula a partir del sábado 10/01/2026 donde trabaja PM.
+        Lógica de fines de semana:
+        - En un fin de semana, un grupo (AM o PM) TRABAJA sábado (doblada completa)
+          y DESCANSA domingo; el grupo contrario hace lo inverso.
+        - Qué grupo trabaja cada día NO se calcula: se lee de la alternancia que el
+          supervisor publicó para el año (`AsignacionEspecialManual`).
 
         Comportamiento:
         - Si la fecha es sábado o domingo:
@@ -63,28 +58,17 @@ class JornadaUtils:
         if fecha.weekday() < 5:
             return jornada_base
 
-        # Sábados y domingos: usar servicio de alternancia
-        jornada_trabaja = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(
-            fecha
-        )
-        jornada_descansa = AlternanciaFinesSemanaService.jornada_descansa_fin_semana(
-            fecha
-        )
+        # Sábados y domingos: alternancia PUBLICADA por el supervisor.
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        jornada_trabaja = AsignacionEspecialService.grupo_trabaja(fecha)
 
-        # Seguridad: si por alguna razón no se pudo determinar, usar comportamiento base
-        if jornada_trabaja is None or jornada_descansa is None:
+        # Sin publicar no se puede afirmar nada del día. Se devuelve la jornada base como
+        # antes (comportamiento conservador de esta utilidad, que no sabe expresar
+        # "sin planificar"); la fuente de verdad para eso es `TurnoService.estado_dia`.
+        if jornada_trabaja is None:
             return jornada_base
 
-        jornada_base_upper = jornada_base.upper()
-
-        if jornada_base_upper == jornada_trabaja:
-            return jornada_base  # Trabaja ese día
-
-        if jornada_base_upper == jornada_descansa:
-            return "Descanso"
-
-        # Si por alguna razón no coincide con ninguna (no debería ocurrir), devolver base
-        return jornada_base
+        return jornada_base if jornada_base.upper() == jornada_trabaja else "Descanso"
 
 
 def obtener_jornada_base(empleado, fecha):
@@ -119,18 +103,21 @@ def obtener_jornada_contraria(jornada):
 
 def obtener_jornadas_am_pm() -> Dict[str, object]:
     """
-    Retorna {'AM': Jornada, 'PM': Jornada} con caché de proceso (1 hora).
-    Uso centralizado para evitar múltiples consultas a la BD en servicios de doblada.
+    Retorna {'AM': Jornada, 'PM': Jornada} en UNA sola consulta.
+
+    Uso centralizado para evitar consultas repetidas en los servicios de doblada: resuelve las
+    dos jornadas de golpe en vez de dos `.get()` sueltos.
+
+    NO se cachea entre llamadas, a propósito. Antes guardaba las instancias en caché una hora y
+    devolvía objetos con IDs que ya no existían si la tabla se recreaba (el caso claro es la BD
+    de test, que se reconstruye entre corridas: el ID viejo reventaba con un fallo de clave
+    foránea al crear un Turno). Cachear los IDs en lugar de las instancias no arregla nada — un
+    ID obsoleto sigue siendo obsoleto. Son dos filas con índice por nombre: la consulta es
+    barata y siempre correcta.
     """
-    from django.core.cache import cache
     from turnos.models import Jornada
 
-    cache_key = 'jornadas_am_pm'
-    jornadas = cache.get(cache_key)
-    if jornadas is None:
-        jornadas = {
-            'AM': Jornada.objects.get(nombre='AM'),
-            'PM': Jornada.objects.get(nombre='PM'),
-        }
-        cache.set(cache_key, jornadas, 3600)
-    return jornadas
+    return {
+        (j.nombre or '').upper(): j
+        for j in Jornada.objects.filter(nombre__in=['AM', 'PM'])
+    }

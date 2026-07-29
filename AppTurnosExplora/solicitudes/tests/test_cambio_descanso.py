@@ -30,7 +30,7 @@ def _fechas_cd(grupo_sol, grupo_rec):
     - pago: un DOMINGO (día opuesto, otro finde) donde trabaja el solicitante (y el receptor
       trabaja el sábado).
     """
-    hoy = timezone.now().date()
+    hoy = timezone.localdate()
     anio, mes = hoy.year, hoy.month
     for _ in range(2):  # arrancar 2 meses adelante
         mes += 1
@@ -84,6 +84,10 @@ class CDBaseTest(TestCase):
 
         self.strat = CambioDescansoStrategy()
         self.ces, self.pago = _fechas_cd('PM', 'AM')
+        # La alternancia de findes/festivos es un DATO publicado: sin publicarla, estos
+        # días saldrían como 'sin_planificar'. Se publica igual a la fórmula histórica.
+        from turnos.tests.alternancia_helpers import publicar_alternancia
+        publicar_alternancia(self.ces.year, self.pago.year)
 
     def _datos(self, **over):
         d = {
@@ -331,3 +335,182 @@ class CDRevalidacionTest(CDBaseTest):
         Turno.objects.create(explorador=self.solicitante, fecha=self.ces, jornada=self.pm, sala=self.sala, tipo_cambio='DOBLADA')
         ok, msg = self.strat.revalidar_para_aprobar(sol)
         self.assertFalse(ok, "Debió rechazar la aprobación: el día ya no es válido")
+
+
+class CDEntreSemanaMismaSemanaTest(CDBaseTest):
+    """El intercambio de descansos de temporada debe ser en la MISMA semana, igual que las
+    demás sub-modalidades. El formulario nunca ofreció otra semana; esto cierra el POST directo."""
+
+    @staticmethod
+    def _proximo_lunes():
+        hoy = timezone.localdate()
+        d = hoy + timedelta(days=1)
+        while d.weekday() != 0:
+            d += timedelta(days=1)
+        return d
+
+    def test_semanas_distintas_rechazado(self):
+        lunes = self._proximo_lunes()
+        miercoles_otra_semana = lunes + timedelta(days=9)
+        ok, msg = self.strat.validar_solicitud(self._datos(
+            fecha_cambio_turno=lunes.strftime('%Y-%m-%d'),
+            fecha_pago=miercoles_otra_semana.strftime('%Y-%m-%d'),
+        ))
+        self.assertFalse(ok)
+        self.assertIn('MISMA semana', msg)
+
+    def test_semanas_distintas_tambien_rechazado_al_aprobar(self):
+        """Es una regla del intercambio, no solo de la creación: si una solicitud quedó con las
+        fechas en semanas distintas, tampoco se puede APROBAR (igual que _validar_semana_comun)."""
+        lunes = self._proximo_lunes()
+        miercoles_otra_semana = lunes + timedelta(days=9)
+        ok, msg = self.strat.validar_solicitud(self._datos(
+            fecha_cambio_turno=lunes.strftime('%Y-%m-%d'),
+            fecha_pago=miercoles_otra_semana.strftime('%Y-%m-%d'),
+            es_revalidacion=True,
+        ))
+        self.assertFalse(ok)
+        self.assertIn('MISMA semana', msg)
+
+    def test_misma_semana_pasa_de_la_regla_de_semana(self):
+        """Con ambos días en la misma semana, la validación ya NO falla por la regla de semana
+        (puede fallar más adelante por descansos de temporada, que este test no configura)."""
+        lunes = self._proximo_lunes()
+        miercoles = lunes + timedelta(days=2)
+        ok, msg = self.strat.validar_solicitud(self._datos(
+            fecha_cambio_turno=lunes.strftime('%Y-%m-%d'),
+            fecha_pago=miercoles.strftime('%Y-%m-%d'),
+        ))
+        self.assertNotIn('MISMA semana', msg)
+
+
+class CDDiaEnCursoTest(CDBaseTest):
+    """El día que se CEDE debe ser posterior a hoy: el día en curso ya se está trabajando y no
+    hay jornada que intercambiar sin reescribir un turno que la persona está cubriendo (misma
+    regla que D FDS). Al RE-VALIDAR para aprobar sí se admite hoy: una solicitud enviada ayer
+    para hoy no debe volverse inaprobable por el paso del tiempo."""
+
+    def test_ceder_hoy_rechazado_en_finde(self):
+        hoy = timezone.localdate()
+        if hoy.weekday() not in (5, 6):  # forzar un "hoy" de fin de semana
+            hoy = hoy + timedelta(days=(5 - hoy.weekday()) % 7)
+        pago = hoy + timedelta(days=8 if hoy.weekday() == 5 else 6)  # día contrario, otro finde
+        with self.settings(USE_TZ=True):
+            ok, msg = self.strat.validar_solicitud(self._datos(
+                fecha_cambio_turno=hoy.strftime('%Y-%m-%d'),
+                fecha_pago=pago.strftime('%Y-%m-%d'),
+            ))
+        self.assertFalse(ok)
+
+    def test_ceder_hoy_rechazado_entre_semana(self):
+        hoy = timezone.localdate()
+        if hoy.weekday() >= 5:
+            self.skipTest('Hoy es fin de semana: esta ruta es la de lun-vie')
+        otro = hoy + timedelta(days=1)
+        if otro.weekday() >= 5:
+            self.skipTest('No hay otro día lun-vie en la misma semana')
+        ok, msg = self.strat.validar_solicitud(self._datos(
+            fecha_cambio_turno=hoy.strftime('%Y-%m-%d'),
+            fecha_pago=otro.strftime('%Y-%m-%d'),
+        ))
+        self.assertFalse(ok)
+        self.assertIn('posterior a hoy', msg)
+
+    def test_revalidar_no_rechaza_por_ser_hoy(self):
+        """Al aprobar, la cesión de HOY ya no se rechaza por la regla del día en curso."""
+        hoy = timezone.localdate()
+        if hoy.weekday() >= 5:
+            self.skipTest('Hoy es fin de semana: esta ruta es la de lun-vie')
+        otro = hoy + timedelta(days=1)
+        if otro.weekday() >= 5:
+            self.skipTest('No hay otro día lun-vie en la misma semana')
+        ok, msg = self.strat.validar_solicitud(self._datos(
+            fecha_cambio_turno=hoy.strftime('%Y-%m-%d'),
+            fecha_pago=otro.strftime('%Y-%m-%d'),
+            es_revalidacion=True,
+        ))
+        self.assertNotIn('posterior a hoy', msg)
+
+
+class CDEntreSemanaCompromisoTest(CDBaseTest):
+    """`intercambio_dia` también reescribe los días que cada uno RECIBE (receptor@cesión y
+    solicitante@pago): `aplicar_entre_semana` los deja en descanso borrando sus turnos. Si esos
+    días ya están comprometidos por otra solicitud aprobada, el intercambio los borraría en
+    silencio, así que la validación debe rechazarlo."""
+
+    def setUp(self):
+        super().setUp()
+        from turnos.models import DescansoSemanaManual
+        # Semana futura completa: el solicitante (PM) descansa el martes, el receptor (AM) el jueves.
+        hoy = timezone.localdate()
+        lunes = hoy + timedelta(days=7 - hoy.weekday() + 7)
+        self.fc = lunes + timedelta(days=1)   # martes: descansa PM (el solicitante)
+        self.fp = lunes + timedelta(days=3)   # jueves: descansa AM (el receptor)
+        DescansoSemanaManual.objects.create(fecha=self.fc, jornada=self.pm, activo=True)
+        DescansoSemanaManual.objects.create(fecha=self.fp, jornada=self.am, activo=True)
+        self.datos_semana = self._datos(
+            fecha_cambio_turno=self.fc.strftime('%Y-%m-%d'),
+            fecha_pago=self.fp.strftime('%Y-%m-%d'),
+        )
+
+    def _doblada_aprobada_cediendo(self, empleado, fecha):
+        """Solicitud DOBLADA aprobada donde `empleado` CEDE `fecha` → ese día le queda
+        comprometido (descansa por solicitud)."""
+        from solicitudes.models import DobladaDetalle
+        tipo_dob = TipoSolicitudCambio.objects.create(nombre='DOBLADA')
+        otro = self.receptor if empleado == self.solicitante else self.solicitante
+        s = SolicitudCambio.objects.create(
+            explorador_solicitante=empleado, explorador_receptor=otro,
+            tipo_cambio=tipo_dob, comentario='previa', fecha_cambio_turno=fecha,
+            estado='aprobada', fecha_resolucion=timezone.now(),
+        )
+        DobladaDetalle.objects.create(solicitud=s, fecha_pago=fecha + timedelta(days=14),
+                                      tipo_cesion='cesion_completa', empleado_receptor=otro)
+        return s
+
+    def test_caso_base_valido(self):
+        ok, msg = self.strat.validar_solicitud(self.datos_semana)
+        self.assertTrue(ok, msg)
+
+    def test_pago_del_solicitante_ya_comprometido_rechazado(self):
+        """El solicitante ya cedió su día de pago en una doblada: aplicar el intercambio
+        borraría los turnos de esa doblada."""
+        self._doblada_aprobada_cediendo(self.solicitante, self.fp)
+        ok, msg = self.strat.validar_solicitud(self.datos_semana)
+        self.assertFalse(ok, 'Debió rechazar: el día de pago del solicitante está comprometido')
+        self.assertIn('comprometido', msg)
+
+    def test_cesion_del_receptor_ya_comprometida_rechazada(self):
+        """El receptor ya cedió el día que iba a recibir en el intercambio."""
+        self._doblada_aprobada_cediendo(self.receptor, self.fc)
+        ok, msg = self.strat.validar_solicitud(self.datos_semana)
+        self.assertFalse(ok, 'Debió rechazar: la cesión del receptor está comprometida')
+        self.assertIn('comprometido', msg)
+
+
+class CDFechasAfectadasTest(CDBaseTest):
+    """La invalidación de caché se apoya en `fechas_afectadas`: en finde también se reescribe el
+    día OPUESTO de cada finde, que puede caer en otro mes (sábado 31/01 → domingo 01/02)."""
+
+    def test_incluye_los_dias_opuestos_del_finde(self):
+        sol = self._crear()
+        fechas = CambioDescansoAplicacionService.fechas_afectadas(sol)
+        self.assertIn(self.ces, fechas)
+        self.assertIn(self.pago, fechas)
+        self.assertIn(self.ces + timedelta(days=1), fechas)   # domingo del finde de cesión
+        self.assertIn(self.pago - timedelta(days=1), fechas)  # sábado del finde de pago
+        self.assertEqual(len(fechas), len(set(fechas)), 'no debe repetir fechas')
+
+    def test_entre_semana_no_agrega_dias_opuestos(self):
+        sol = self._crear()
+        lunes = timezone.localdate() + timedelta(days=14)
+        lunes -= timedelta(days=lunes.weekday())
+        sol.fecha_cambio_turno = lunes
+        sol.save()
+        sol.doblada.fecha_pago = lunes + timedelta(days=2)
+        sol.doblada.save()
+        sol.refresh_from_db()
+        self.assertEqual(
+            CambioDescansoAplicacionService.fechas_afectadas(sol),
+            [lunes, lunes + timedelta(days=2)],
+        )

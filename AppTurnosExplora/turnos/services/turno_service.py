@@ -6,7 +6,6 @@ Responsabilidad única: Obtener y procesar información de turnos de exploradore
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from turnos.models import AsignarJornadaExplorador, Turno
 from turnos.services.jornada_service import JornadaService
-from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from core.utils.jornada_utils import JornadaUtils
 from datetime import datetime, timedelta
 from django.db.models import Q
@@ -16,6 +15,10 @@ from core.interfaces import ITurnoService
 from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
+
+# Un finde o festivo sin alternancia publicada NO se resuelve inventando un grupo: se
+# reporta con esta fuente para que la UI y los formularios lo distingan de un descanso.
+_MOTIVO_SIN_PLANIFICAR = 'El año %s aún no tiene la alternancia de findes y festivos publicada'
 
 
 class TurnoService(ITurnoService):
@@ -348,13 +351,7 @@ class TurnoService(ITurnoService):
         if not jb:
             return False
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
-        grupo = AsignacionEspecialService.get_grupo_trabaja(fecha)
-        if not grupo:
-            try:
-                from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                grupo = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
-            except Exception:
-                grupo = None
+        grupo = AsignacionEspecialService.grupo_trabaja(fecha)
         return bool(grupo and jb == grupo.upper())
 
     @staticmethod
@@ -380,7 +377,6 @@ class TurnoService(ITurnoService):
         from datetime import datetime as _dt
         from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador
         from turnos.services.descanso_semana_service import DescansoSemanaService
-        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)
@@ -411,16 +407,13 @@ class TurnoService(ITurnoService):
             asg_fv = (AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_inicio__lte=fecha)
                       .select_related('jornada').order_by('-fecha_inicio').first())
             jb_fv = asg_fv.jornada.nombre.upper() if asg_fv else None
-            # Override manual del festivo (si existe); si no, rotación automática.
+            # Alternancia publicada por el supervisor. Si el año no está sembrado no se
+            # inventa un grupo: se dice que falta publicarlo.
             from turnos.services.asignacion_especial_service import AsignacionEspecialService
-            grupo = AsignacionEspecialService.get_grupo_trabaja(fecha)
+            grupo = AsignacionEspecialService.grupo_trabaja(fecha)
             if not grupo:
-                try:
-                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                    grupo = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
-                except Exception:
-                    grupo = None
-            if jb_fv and grupo and jb_fv == grupo.upper():
+                return _r(False, None, 'sin_planificar', motivo=_MOTIVO_SIN_PLANIFICAR % fecha.year)
+            if jb_fv and jb_fv == grupo.upper():
                 return _r(True, 'DOBLADA', 'festivo')
             return _r(False, None, 'festivo', motivo='festivo: descansa el grupo contrario')
 
@@ -451,17 +444,16 @@ class TurnoService(ITurnoService):
         if not jornada_base:
             return _r(False, None, 'base', motivo='sin jornada asignada')
 
-        # L6: fin de semana. Override manual si existe; si no, alternancia automática.
+        # L6: fin de semana. Alternancia PUBLICADA por el supervisor (ya no se calcula).
         # Quien trabaja el finde lo hace AM+PM (DOBLADA); el otro grupo descansa.
         if fecha.weekday() in (5, 6):
             from turnos.services.asignacion_especial_service import AsignacionEspecialService
-            trabaja_grp = AsignacionEspecialService.get_grupo_trabaja(fecha)
-            fuente_fs = 'manual' if trabaja_grp else 'alternancia'
+            trabaja_grp = AsignacionEspecialService.grupo_trabaja(fecha)
             if not trabaja_grp:
-                trabaja_grp = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha)
-            if trabaja_grp and jornada_base == trabaja_grp.upper():
-                return _r(True, 'DOBLADA', fuente_fs)
-            return _r(False, None, fuente_fs, motivo='descanso de fin de semana')
+                return _r(False, None, 'sin_planificar', motivo=_MOTIVO_SIN_PLANIFICAR % fecha.year)
+            if jornada_base == trabaja_grp.upper():
+                return _r(True, 'DOBLADA', 'alternancia')
+            return _r(False, None, 'alternancia', motivo='descanso de fin de semana')
 
         # Entre semana: L4 temporada y L3 mantenimiento.
         if DescansoSemanaService.es_descanso_semana_manual(jornada_base, fecha):
@@ -490,7 +482,6 @@ class TurnoService(ITurnoService):
         from turnos.models import (Turno, DiaEspecial, AsignarJornadaExplorador,
                                    DescansoSemanaManual)
         from turnos.services.descanso_semana_service import DescansoSemanaService
-        from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 
         ndias = monthrange(anio, mes)[1]
         ini = _date(anio, mes, 1)
@@ -533,20 +524,10 @@ class TurnoService(ITurnoService):
                 elif nombre_dsm == jornada_contraria:
                     temporada_trabaja_completo.add(dsm.fecha)
 
-        # Override manual de días especiales (finde/festivo) del rango: {fecha: 'AM'/'PM'}
+        # Alternancia publicada para findes y festivos del rango: {fecha: 'AM'/'PM'}.
+        # Una fecha ausente significa SIN PLANIFICAR, no "descansa".
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
-        override_especial = AsignacionEspecialService.mapa_grupo_trabaja(ini, fin)
-
-        # L5: festivos entre semana → override manual si existe; si no, rotación automática.
-        grupo_festivo = {}
-        try:
-            from turnos.services.festivos_rotacion_service import FestivosRotacionService
-            for fdia in festivos:
-                if fdia.weekday() < 5:
-                    grupo_festivo[fdia] = (override_especial.get(fdia)
-                                           or FestivosRotacionService.get_grupo_que_dobla_en_festivo(fdia))
-        except Exception:
-            grupo_festivo = {}
+        alternancia = AsignacionEspecialService.mapa_grupo_trabaja(ini, fin)
 
         # Decisión por día (MISMO orden que estado_dia)
         out = {}
@@ -573,8 +554,11 @@ class TurnoService(ITurnoService):
                     out[d] = _r(False, None, 'solicitud', motivo=info['motivo'],
                                 companero=info.get('companero'))
                 else:
-                    grupo = grupo_festivo.get(d)
-                    if jornada_base and grupo and jornada_base == grupo.upper():
+                    grupo = alternancia.get(d)
+                    if not grupo:
+                        out[d] = _r(False, None, 'sin_planificar',
+                                    motivo=_MOTIVO_SIN_PLANIFICAR % d.year)
+                    elif jornada_base and jornada_base == grupo.upper():
                         out[d] = _r(True, 'DOBLADA', 'festivo')
                     else:
                         out[d] = _r(False, None, 'festivo', motivo='festivo: descansa el grupo contrario')
@@ -593,14 +577,13 @@ class TurnoService(ITurnoService):
             elif not jornada_base:
                 out[d] = _r(False, None, 'base', motivo='sin jornada asignada')
             elif d.weekday() in (5, 6):
-                trabaja_grp = override_especial.get(d)
-                fuente_fs = 'manual' if trabaja_grp else 'alternancia'
+                trabaja_grp = alternancia.get(d)
                 if not trabaja_grp:
-                    trabaja_grp = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(d)
-                if trabaja_grp and jornada_base == trabaja_grp.upper():
-                    out[d] = _r(True, 'DOBLADA', fuente_fs)
+                    out[d] = _r(False, None, 'sin_planificar', motivo=_MOTIVO_SIN_PLANIFICAR % d.year)
+                elif jornada_base == trabaja_grp.upper():
+                    out[d] = _r(True, 'DOBLADA', 'alternancia')
                 else:
-                    out[d] = _r(False, None, fuente_fs, motivo='descanso de fin de semana')
+                    out[d] = _r(False, None, 'alternancia', motivo='descanso de fin de semana')
             elif d in temporada:
                 out[d] = _r(False, None, 'temporada', motivo='descanso de temporada')
             elif DiaEspecial.es_mantenimiento_efectivo(d):

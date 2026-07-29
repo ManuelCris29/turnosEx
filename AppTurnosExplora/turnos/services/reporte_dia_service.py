@@ -85,26 +85,15 @@ class ReporteDiaService:
         es_mantenimiento = (not es_festivo and not es_finde
                             and DiaEspecial.es_mantenimiento_efectivo(fecha))
 
+        # Festivos y findes salen de la MISMA fuente que `estado_dia` y las validaciones de
+        # solicitudes: la alternancia publicada. None = el año no está sembrado.
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
         grupo_dobla_festivo = None
         if es_festivo and fecha.weekday() < 5:
-            try:
-                from turnos.services.festivos_rotacion_service import FestivosRotacionService
-                grupo_dobla_festivo = FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha)
-                if grupo_dobla_festivo:
-                    grupo_dobla_festivo = grupo_dobla_festivo.upper()
-            except Exception:
-                logger.warning("Error obteniendo grupo que dobla en festivo (fecha=%s)", fecha, exc_info=True)
+            grupo_dobla_festivo = AsignacionEspecialService.grupo_trabaja(fecha)
 
         # ── Grupo que trabaja el fin de semana ───────────────────────────────
-        grupo_trabaja_finde = None
-        if es_finde:
-            try:
-                from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-                grupo_trabaja_finde = AlternanciaFinesSemanaService.jornada_trabaja_fin_semana(fecha)
-                if grupo_trabaja_finde:
-                    grupo_trabaja_finde = grupo_trabaja_finde.upper()
-            except Exception:
-                logger.warning("Error obteniendo grupo que trabaja el fin de semana (fecha=%s)", fecha, exc_info=True)
+        grupo_trabaja_finde = AsignacionEspecialService.grupo_trabaja(fecha) if es_finde else None
 
         # ── Descanso de semana manual (temporada) por jornada ───────────────
         jornadas_descanso_temporada = set()

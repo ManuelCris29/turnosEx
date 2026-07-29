@@ -26,8 +26,9 @@ propone unificar la lógica en una sola función canónica.
 | L2 | **Día comprometido por solicitud aprobada** | El día quedó en descanso por una DOBLADA / D FDS / CAMBIO DESCANSO / DOBLADA PERMANENTE aprobada (sin registro `Turno`). |
 | L3 | **Mantenimiento** | Lunes de mantenimiento efectivo → descansan AM y PM. |
 | L4 | **Temporada** | `DescansoSemanaManual` (descanso entre semana por jornada). |
-| L5 | **Festivos / días especiales** | `DiaEspecial` tipo festivo. En festivo entre semana, el grupo que dobla por **rotación** (`FestivosRotacionService`) trabaja AM+PM (DOBLADA) y el grupo contrario DESCANSA. Esta regla MANDA sobre el horario predeterminado/importado; un cambio EXPLÍCITO (turno con `tipo_cambio`, p. ej. festivo-por-festivo) se respeta por encima. |
-| L6 | **Alternancia de fin de semana** | Sáb/Dom: un grupo trabaja un día (AM+PM) y descansa el otro. |
+| L5 | **Festivos / días especiales** | `DiaEspecial` tipo festivo. En festivo entre semana, el grupo que dobla según la **alternancia publicada** (`AsignacionEspecialService.grupo_trabaja`) trabaja AM+PM (DOBLADA) y el grupo contrario DESCANSA. Esta regla MANDA sobre el horario predeterminado/importado; un cambio EXPLÍCITO (turno con `tipo_cambio`) o un descanso por solicitud aprobada se respetan por encima. |
+| L6 | **Alternancia de fin de semana** | Sáb/Dom: un grupo trabaja un día (AM+PM) y descansa el otro, según la **alternancia publicada**. |
+| — | **Sin planificar** | Si un finde o festivo entre semana NO tiene alternancia publicada, `estado_dia` devuelve `fuente='sin_planificar'` y `trabaja=False`. **No es un descanso**: es que al año le falta la publicación. Nunca se inventa un grupo con una fórmula. |
 
 ### Dónde vive cada capa hoy
 

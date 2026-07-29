@@ -28,4 +28,5 @@ __all__ = [
     "DescansoSemanaDeleteView",
     "DescansoSemanaAnualView",
     "AsignacionEspecialAnualView",
+    "AsignacionEspecialSiembraView",
 ]

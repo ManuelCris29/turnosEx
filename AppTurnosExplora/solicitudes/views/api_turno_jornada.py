@@ -130,7 +130,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             es_fin_semana_doblada_predeterminada = False
             if fecha_obj.weekday() in (5, 6):
                 from turnos.services.asignacion_especial_service import AsignacionEspecialService
-                grupo_finde = AsignacionEspecialService.grupo_trabaja_efectivo(fecha_obj)
+                grupo_finde = AsignacionEspecialService.grupo_trabaja(fecha_obj)
                 if grupo_finde:
                     from turnos.services.jornada_service import JornadaService
                     jornada_predeterminada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
@@ -253,14 +253,12 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             if not es_doblada and not es_fin_semana_doblada_predeterminada:
                 try:
                     from solicitudes.services.solicitud_validator import SolicitudValidator
-                    from turnos.services.festivos_rotacion_service import FestivosRotacionService
 
                     es_festivo_semana = SolicitudValidator.es_festivo_semana(fecha_obj)
                     if es_festivo_semana:
-                        # Grupo EFECTIVO del festivo: override manual si existe; si no, rotación.
+                        # Alternancia publicada del festivo (None si el año no está sembrado).
                         from turnos.services.asignacion_especial_service import AsignacionEspecialService as _AES
-                        grupo_que_dobla = (_AES.get_grupo_trabaja(fecha_obj)
-                                           or FestivosRotacionService.get_grupo_que_dobla_en_festivo(fecha_obj))
+                        grupo_que_dobla = _AES.grupo_trabaja(fecha_obj)
                         jornada_turno = (turno_dict.get('jornada') or '').upper() if turno_dict else None
                         if not jornada_turno and not turnos_list:
                             from turnos.services.jornada_service import JornadaService
@@ -268,13 +266,13 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                             jornada_turno = pred.nombre.upper() if pred else None
                         tiene_doblada_real_bd = set(turnos_list) == {'AM', 'PM'}
                         # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
-                        if not turnos_list and jornada_turno and jornada_turno == grupo_que_dobla.upper():
+                        if not turnos_list and jornada_turno and grupo_que_dobla and jornada_turno == grupo_que_dobla:
                             es_doblada = True
                             turnos_list = ['AM', 'PM']
-                        elif tiene_doblada_real_bd and turno_dict and jornada_turno and jornada_turno == grupo_que_dobla.upper():
+                        elif tiene_doblada_real_bd and turno_dict and jornada_turno and grupo_que_dobla and jornada_turno == grupo_que_dobla:
                             es_doblada = True
                             turnos_list = ['AM', 'PM']
-                        elif not tiene_doblada_real_bd and jornada_turno and jornada_turno != grupo_que_dobla.upper():
+                        elif not tiene_doblada_real_bd and jornada_turno and grupo_que_dobla and jornada_turno != grupo_que_dobla:
                             # Festivo donde el solicitante NO es del grupo que dobla → DESCANSA por
                             # rotación. Aplica a CUALQUIER tipo de solicitud (igual que "Mis Turnos");
                             # antes solo se contemplaba para DOBLADA y el Cambio de Turno mostraba la
@@ -320,7 +318,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             if fecha_obj.weekday() == 5:
                 from turnos.services.asignacion_especial_service import AsignacionEspecialService as _AES2
                 from turnos.models import AsignarJornadaExplorador as _AJE2
-                _grupo_trabaja_sab = _AES2.grupo_trabaja_efectivo(fecha_obj)
+                _grupo_trabaja_sab = _AES2.grupo_trabaja(fecha_obj)
                 response_data['jornada_trabaja_sabado'] = _grupo_trabaja_sab
                 # ¿Al empleado le corresponde trabajar ese sábado por su GRUPO (alternancia)?
                 # Debe basarse en su jornada BASE (AsignarJornadaExplorador), NO en el turno del día

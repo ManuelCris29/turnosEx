@@ -139,3 +139,71 @@ class ReporteDiaEnriquecidoTest(TestCase):
         self.assertIn('¿Por qué trabaja hoy?', headers)
         self.assertIn('Restricción', headers)
         self.assertIn('Doblada pendiente', headers)
+
+
+class ReporteDiaOverrideFindeTest(TestCase):
+    """
+    El reporte del día debe leer la MISMA alternancia publicada que `estado_dia`.
+
+    El servicio reimplementa las capas de `estado_dia` "en batch" y en esa copia miraba la
+    alternancia cruda, así que un finde con asignación manual salía al revés en TODO el reporte:
+    el grupo de la rotación aparecía trabajando y el que de verdad iba, descansando.
+    """
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.am = Jornada.objects.create(nombre='AM', hora_inicio='06:00:00', hora_fin='14:00:00')
+        self.pm = Jornada.objects.create(nombre='PM', hora_inicio='14:00:00', hora_fin='22:00:00')
+
+        def _emp(username, ced, jor):
+            u = User.objects.create_user(username=username, password='x')
+            e = Empleado.objects.create(user=u, nombre=username, apellido='X', cedula=ced, activo=True)
+            AsignarJornadaExplorador.objects.create(explorador=e, jornada=jor, fecha_inicio=date(2025, 1, 1))
+            return e
+
+        self.emp_am = _emp('ov_am', '9101', self.am)
+        self.emp_pm = _emp('ov_pm', '9102', self.pm)
+
+        # Un sábado futuro cualquiera.
+        d = date(2026, 3, 7)
+        while d.weekday() != 5:
+            d += timedelta(days=1)
+        self.sabado = d
+
+    def _grupos(self):
+        data = ReporteDiaService.reporte(self.sabado)
+        trabajando = {e['id'] for e in data['trabajando']}
+        return trabajando
+
+    def _publicar(self, grupo):
+        from turnos.models import AsignacionEspecialManual
+        from django.core.cache import cache
+        AsignacionEspecialManual.objects.update_or_create(
+            fecha=self.sabado,
+            defaults={'jornada_trabaja': self.am if grupo == 'AM' else self.pm,
+                      'tipo': 'finde', 'activo': True})
+        cache.clear()
+
+    def test_el_reporte_sigue_la_alternancia_publicada(self):
+        for grupo in ('AM', 'PM'):
+            with self.subTest(grupo=grupo):
+                self._publicar(grupo)
+                esperado = self.emp_am if grupo == 'AM' else self.emp_pm
+                el_otro = self.emp_pm if grupo == 'AM' else self.emp_am
+                trabajando = self._grupos()
+                self.assertIn(esperado.id, trabajando,
+                              'debe trabajar el grupo que publicó el supervisor')
+                self.assertNotIn(el_otro.id, trabajando,
+                                 'el grupo contrario descansa ese día')
+
+    def test_sin_alternancia_publicada_no_trabaja_nadie(self):
+        """
+        Sin fila no se inventa un grupo: nadie sale trabajando. Antes se caía a la fórmula
+        y el reporte mostraba turnos de un año que el supervisor nunca publicó.
+        """
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        self.assertIsNone(AsignacionEspecialService.grupo_trabaja(self.sabado))
+        trabajando = self._grupos()
+        self.assertNotIn(self.emp_am.id, trabajando)
+        self.assertNotIn(self.emp_pm.id, trabajando)
