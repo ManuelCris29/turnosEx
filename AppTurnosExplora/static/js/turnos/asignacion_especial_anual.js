@@ -8,6 +8,9 @@
 (function () {
     const pre = JSON.parse(document.getElementById('ae-preseleccion').textContent);       // {fecha: 'AM'/'PM'} overrides
     const festivos = new Set(JSON.parse(document.getElementById('ae-festivos').textContent)); // fechas festivo lun-vie
+    // Festivos que caen en sáb/dom: se marcan igual, pero NO son un caso aparte —
+    // manda la alternancia del finde, así que no cambian el comportamiento del clic.
+    const festivosFinde = new Set(JSON.parse(document.getElementById('ae-festivos-finde').textContent));
     const auto = JSON.parse(document.getElementById('ae-auto').textContent);              // {fecha: 'AM'/'PM'} automático
     const bloqueadas = new Set(JSON.parse(document.getElementById('ae-bloqueadas').textContent)); // findes/festivos con solicitudes
     const form = document.getElementById('aeForm');
@@ -44,11 +47,14 @@
             span.classList.add('bloqueado');
             return;
         }
-        if (festivos.has(span.dataset.fecha)) {
+        if (festivos.has(span.dataset.fecha) || festivosFinde.has(span.dataset.fecha)) {
             const cont = document.createElement('span');
             cont.className = 'marks';
             const d = document.createElement('span');
-            d.className = 'mk mk-festivo'; d.title = 'festivo';
+            d.className = 'mk mk-festivo';
+            d.title = festivosFinde.has(span.dataset.fecha)
+                ? 'festivo en fin de semana (manda la alternancia del finde)'
+                : 'festivo';
             cont.appendChild(d);
             span.appendChild(cont);
         }

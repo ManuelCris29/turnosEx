@@ -5,12 +5,22 @@ Regla de negocio:
 - Se toman TODOS los festivos de lunes a viernes (tipo='festivo', activo=True) en orden cronológico.
 - Al primer festivo de la historia le corresponde doblar el grupo PM (índice 0).
 - Al segundo festivo le corresponde doblar el grupo AM (índice 1).
-- Se alterna así sucesivamente (PM, AM, PM, AM, ...) SIN reiniciar por mes.
+- Se alterna así sucesivamente (PM, AM, PM, AM, ...) SIN reiniciar por mes NI por año.
 
-Esto permite que, por ejemplo:
-- 1 de enero de 2026 (primer festivo de semana registrado) -> grupo PM
-- 12 de enero de 2026 (segundo festivo de semana) -> grupo AM
-- El siguiente festivo de semana, aunque sea en otro mes, vuelve a ser PM, etc.
+CUIDADO — el índice es GLOBAL, no por año:
+El grupo de un festivo depende de CUÁNTOS festivos de lunes a viernes hay registrados antes
+en la tabla `DiaEspecial`, desde el primero que exista. No empieza en un año concreto. Dos
+consecuencias que han causado confusión:
+
+- Agregar, desactivar o borrar UN festivo pasado invierte el grupo de TODOS los festivos
+  posteriores, incluidos los que ya tienen solicitudes aprobadas encima.
+- El resultado depende del contenido de la tabla, así que dos entornos con distintos festivos
+  cargados (p. ej. desarrollo con 2025 y producción sin él) calculan calendarios OPUESTOS para
+  el mismo año.
+
+Por eso NO se debe documentar "el festivo X dobla el grupo Y" como si fuera fijo: hay que
+consultarlo. Este servicio va a dejar de ser la fuente de verdad — ver
+`docs/02-refactorizacion/PLAN_ALTERNANCIA_SEMILLA_ANUAL.md`.
 """
 
 from __future__ import annotations

@@ -23,7 +23,8 @@
       <strong>Alternancia automática (base).</strong>
       <ul style="margin:6px 0 0 0; padding-left:20px;">
         <li><strong>Fines de semana:</strong> ancla en <strong>{{ ancla_fecha|date:'d/m/Y' }}</strong> — ese <strong>sábado trabaja {{ ancla_jornada_sabado }}</strong> y el <strong>domingo {{ ancla_jornada_domingo }}</strong>. Cada fin de semana se <strong>invierte</strong>. Los días sin asignación manual siguen esta alternancia automáticamente.</li>
-        <li><strong>Festivos entre semana:</strong> alternan en orden cronológico, empezando por <strong>PM</strong> en el primero.</li>
+        <li><strong>Festivos entre semana:</strong> alternan en orden cronológico. La rotación cuenta <strong>todos</strong> los festivos registrados en el sistema, no reinicia cada año.{% if primer_festivo_grupo %} El primer festivo de {{ anio }} ({{ primer_festivo_fecha }}) dobla <strong>{{ primer_festivo_grupo }}</strong>.{% endif %}</li>
+        <li><strong>Festivos en fin de semana:</strong> se marcan con el punto, pero manda la alternancia del finde; no tienen rotación propia.</li>
       </ul>
       <small class="d-block mt-1 text-muted">La siembra y la edición manual solo crean asignaciones que <strong>mandan</strong> sobre esta alternancia; borrarlas devuelve el día al automático.</small>
     </div>
@@ -128,6 +129,7 @@
 </div>
 {{ preseleccion_json|json_script:"ae-preseleccion" }}
 {{ festivos_json|json_script:"ae-festivos" }}
+{{ festivos_finde_json|json_script:"ae-festivos-finde" }}
 {{ auto_json|json_script:"ae-auto" }}
 {{ bloqueadas_json|json_script:"ae-bloqueadas" }}
 <script src="{% static_v 'js/turnos/asignacion_especial_anual.js' %}"></script>

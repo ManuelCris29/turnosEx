@@ -27,12 +27,13 @@ from empleados.models import Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio, DobladaDetalle
 from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
+from django.utils import timezone
 
 
 # ---------------------------------------------------------------------------
 # Fechas de prueba — SIEMPRE futuras y en el mismo mes.
 #
-# Se calculan dinámicamente relativas a date.today() para no caducar: usar
+# Se calculan dinámicamente relativas a timezone.localdate() para no caducar: usar
 # fechas fijas provoca que, al pasar esa fecha, la validación "la fecha de
 # cesión no puede ser en el pasado" rechace todos los casos antes de llegar a
 # la lógica real. Tomamos el mes SIGUIENTE (garantiza futuro y holgura para
@@ -41,7 +42,7 @@ from turnos.models import Turno, AsignarJornadaExplorador, Sala
 # está vacía en tests, así que no hay festivos ni mantenimiento que evitar).
 # ---------------------------------------------------------------------------
 def _fechas_prueba_doblada():
-    hoy = date.today()
+    hoy = timezone.localdate()
     if hoy.month == 12:
         anio, mes = hoy.year + 1, 1
     else:
@@ -81,9 +82,10 @@ class MatrizDobladasTestCase(TestCase):
     # setUp
     # ------------------------------------------------------------------
     def setUp(self):
-        # Limpiar la caché de jornadas (LocMemCache) entre tests: _obtener_jornadas_cache guarda
-        # objetos Jornada por 1h y, al crear jornadas nuevas por test, los IDs cacheados quedan
-        # obsoletos (rollback) y provocan IntegrityError de FK al aplicar dobladas.
+        # Caché limpia entre tests (turnos, estado_dia, etc.): cada test recrea sus jornadas y
+        # empleados, así que nada de la corrida anterior debe sobrevivir.
+        # (`obtener_jornadas_am_pm` ya no cachea instancias, que era la causa de los
+        # IntegrityError de FK al aplicar dobladas; esto sigue por el resto de cachés.)
         from django.core.cache import cache as _django_cache
         _django_cache.clear()
         # Jornadas
@@ -766,7 +768,7 @@ class TestValidacionesGenerales(MatrizDobladasTestCase):
 
     def test_fecha_cesion_en_pasado_rechazado(self):
         """Fecha de cesión en el pasado → RECHAZADO."""
-        cesion_pasada = date.today() - timedelta(days=30)
+        cesion_pasada = timezone.localdate() - timedelta(days=30)
         datos = self._datos(
             fecha_cambio_turno=str(cesion_pasada),
             fecha_pago=str(cesion_pasada + timedelta(days=7)),
@@ -830,7 +832,7 @@ class TestDeudaEmisorDobladaSemanaPagoSabado(MatrizDobladasTestCase):
     @staticmethod
     def _martes_y_sabado_futuros():
         """Devuelve (martes futuro, sábado de esa misma semana)."""
-        d = date.today() + timedelta(days=7)
+        d = timezone.localdate() + timedelta(days=7)
         while d.weekday() != 1:          # 1 = martes
             d += timedelta(days=1)
         cesion = d
@@ -913,12 +915,12 @@ class TestPagoSabadoCesionParcial(MatrizDobladasTestCase):
     @staticmethod
     def _sabado_am_y_cesion():
         from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
-        d = date.today() + timedelta(days=10)
+        d = timezone.localdate() + timedelta(days=10)
         while not (d.weekday() == 5 and (AlternanciaFinesSemanaService.jornada_trabaja_sabado(d) or '').upper() == 'AM'):
             d += timedelta(days=1)
         sab = d
         ces = date(sab.year, sab.month, 2)
-        while ces.weekday() >= 5 or ces <= date.today():
+        while ces.weekday() >= 5 or ces <= timezone.localdate():
             ces += timedelta(days=1)
         return ces, sab
 
@@ -932,7 +934,7 @@ class TestPagoSabadoCesionParcial(MatrizDobladasTestCase):
             'tipo_cesion': 'cesion_parcial_pm',
             'jornada_cedida': 'PM',
             'jornada_pago_sabado': jps,
-            'fecha_creacion_solicitud': date.today(),
+            'fecha_creacion_solicitud': timezone.localdate(),
         }
 
     def test_subpago_sabado_am_valido(self):
@@ -978,7 +980,7 @@ class TestCubrePagoReceptorDobladaJornadaVirtual(MatrizDobladasTestCase):
             'comentario': 'test cubre pago',
             'tipo_cesion': 'cesion_completa',
             'jornada_cubre_en_pago': jcp,
-            'fecha_creacion_solicitud': date.today(),
+            'fecha_creacion_solicitud': timezone.localdate(),
         }
 
     def test_solo_puede_cubrir_la_contraria(self):
@@ -1039,7 +1041,7 @@ class TestReceptorDescansaFinDeSemanaEnPago(MatrizDobladasTestCase):
 
     @staticmethod
     def _sabado_futuro():
-        d = date.today() + timedelta(days=7)
+        d = timezone.localdate() + timedelta(days=7)
         while d.weekday() != 5:   # 5 = sábado
             d += timedelta(days=1)
         return d
@@ -1169,7 +1171,7 @@ class TestDeudaEmisorContinuacion(MatrizDobladasTestCase):
 
     @staticmethod
     def _martes_y_sabado_futuros():
-        d = date.today() + timedelta(days=7)
+        d = timezone.localdate() + timedelta(days=7)
         while d.weekday() != 1:
             d += timedelta(days=1)
         cesion = d
@@ -1429,8 +1431,11 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
         )
 
     def test_intercambio_rechaza_sabado_por_sabado(self):
-        """Sábado por sábado se gestiona en D FDS, también cuando es un INTERCAMBIO. Regresión:
-        el intercambio retorna antes de la regla del flujo de cesión/pago y se colaba."""
+        """Sábado por sábado se gestiona en D FDS, también cuando es un INTERCAMBIO.
+
+        Regresión histórica: el intercambio retornaba antes de esta regla y se colaba. La regla
+        vive ahora en el bloque de REGLAS COMUNES de `validar_solicitud`, que corre ANTES del
+        corte del intercambio, así que rige ambos caminos sin estar duplicada."""
         sab_a = FECHA_CESION
         while sab_a.weekday() != 5:
             sab_a += timedelta(days=1)
@@ -1797,7 +1802,7 @@ class TestDosPagosMismoSabado(MatrizDobladasTestCase):
 
     @staticmethod
     def _sabado_futuro():
-        d = date.today() + timedelta(days=10)
+        d = timezone.localdate() + timedelta(days=10)
         while d.weekday() != 5:
             d += timedelta(days=1)
         return d
@@ -2107,6 +2112,11 @@ class TestFestivoDobladaReglas(MatrizDobladasTestCase):
             empleado_receptor=self.receptor,
         )
         DobladaAplicacionService.revertir_doblada_aplicada(sol)
+        # El caso de uso de cancelación revierte y transiciona a 'cancelada' en la MISMA
+        # transacción (ver CancelarSolicitudUseCase._revertir_por_tipo): una solicitud revertida
+        # nunca queda 'aprobada'. Si lo estuviera, seguiría atribuyendo descanso al emisor.
+        sol.estado = 'cancelada'
+        sol.save(update_fields=['estado'])
         self.assertEqual(
             Turno.objects.filter(explorador=self.emisor, fecha=FECHA_CESION).count(), 0,
             'en festivo el revert no debe recrear un turno base suelto',
@@ -2257,3 +2267,93 @@ class TestDeudasIdempotentesYCancelacion(MatrizDobladasTestCase):
         self.assertFalse(
             DeudaExplorador.objects.filter(solicitud_origen=sol).exclude(estado='cancelada').exists(),
             'una solicitud cancelada no puede dejar deuda entre exploradores viva')
+
+
+class TestIntercambioDobladasFestivos(MatrizDobladasTestCase):
+    """
+    Un FESTIVO solo se cambia por otro FESTIVO del mismo mes, también en el INTERCAMBIO de
+    dobladas.
+
+    Regresión histórica: el intercambio retornaba antes del bloque de festivos del flujo normal
+    y se colaba cambiar un festivo por un día ordinario. En un festivo el grupo que rota trabaja
+    AM+PM, o sea que cuenta como DOBLADA y encajaba con cualquier otra doblada (una cobertura,
+    un día de temporada…). El festivo se paga distinto, así que ese cambio movía dinero entre
+    personas.
+
+    La regla vive ahora en el bloque de REGLAS COMUNES de `validar_solicitud`, que corre ANTES
+    del corte del intercambio: rige los dos caminos sin estar duplicada.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Sin jornada base a propósito: el intercambio exige que cada uno esté LIBRE el día del
+        # otro, y una jornada base los pondría a trabajar todos los días de semana. El estado lo
+        # dan los turnos explícitos: doblada real en el día propio, nada en el del compañero.
+        self._crear_doblada_turnos(self.emisor, FECHA_CESION)
+        self._crear_doblada_turnos(self.receptor, FECHA_PAGO)
+
+    def _datos_intercambio(self, **extra):
+        return self._datos(es_intercambio=True, **extra)
+
+    def _marcar_festivo(self, fecha):
+        from turnos.models import DiaEspecial
+        DiaEspecial.objects.create(fecha=fecha, tipo='festivo', activo=True,
+                                   descripcion='Festivo de prueba')
+
+    def test_festivo_por_dia_ordinario_rechazado(self):
+        """El día A es festivo y el B no: no se puede."""
+        self._marcar_festivo(FECHA_CESION)
+        self.assertRechazado(self._datos_intercambio(), 'no es un festivo')
+
+    def test_dia_ordinario_por_festivo_rechazado(self):
+        """Simétrico: el festivo está en el día B."""
+        self._marcar_festivo(FECHA_PAGO)
+        self.assertRechazado(self._datos_intercambio(), 'no es un festivo')
+
+    def test_festivo_por_festivo_de_otro_mes_rechazado(self):
+        """Ambos festivos, pero de meses distintos."""
+        otro_mes = FECHA_PAGO
+        while otro_mes.month == FECHA_CESION.month:
+            otro_mes += timedelta(days=1)
+        while otro_mes.weekday() >= 5:
+            otro_mes += timedelta(days=1)
+        self._limpiar_turnos(self.receptor, FECHA_PAGO)
+        self._crear_doblada_turnos(self.receptor, otro_mes)
+        self._marcar_festivo(FECHA_CESION)
+        self._marcar_festivo(otro_mes)
+        valido, error = self.strategy.validar_solicitud(
+            self._datos_intercambio(fecha_pago=str(otro_mes)))
+        self.assertFalse(valido, 'Dos festivos de meses distintos no se pueden intercambiar')
+        self.assertIn('mismo mes', error.lower())
+
+    def test_festivo_por_festivo_del_mismo_mes_permitido(self):
+        """El caso que sí debe pasar: festivo por festivo, mismo mes."""
+        self._marcar_festivo(FECHA_CESION)
+        self._marcar_festivo(FECHA_PAGO)
+        self.assertValido(self._datos_intercambio())
+
+    def test_sin_festivos_el_intercambio_sigue_funcionando(self):
+        """La regla nueva no debe estorbar al intercambio normal entre días ordinarios."""
+        self.assertValido(self._datos_intercambio())
+
+
+class TestFechasMalformadas(MatrizDobladasTestCase):
+    """Una fecha basura es ENTRADA INVÁLIDA del cliente, no un fallo del sistema.
+
+    `DateUtils.parse_date` lanza ValueError con texto no parseable. Desde que
+    `validar_solicitud` propaga los fallos inesperados (en vez de disfrazarlos de rechazo de
+    negocio), sin una guarda explícita ese ValueError subiría hasta el manejador genérico y
+    saldría como 500. No se llega por el formulario —usa datepicker— pero sí manipulando la
+    petición, así que debe responder como rechazo de validación normal.
+    """
+
+    def test_fecha_cesion_basura_es_rechazo_no_excepcion(self):
+        self.assertRechazado(
+            self._datos(fecha_cambio_turno='no-es-una-fecha'), 'no son válidas')
+
+    def test_fecha_pago_basura_es_rechazo_no_excepcion(self):
+        self.assertRechazado(
+            self._datos(fecha_pago='2026-13-45'), 'no son válidas')
+
+    # Que la guarda no estorbe al camino normal lo cubren ya los ~130 tests restantes de este
+    # módulo: todos pasan fechas bien formadas por aquí antes de llegar a su propia regla.

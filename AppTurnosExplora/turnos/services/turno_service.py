@@ -257,6 +257,71 @@ class TurnoService(ITurnoService):
         return TurnoService._descanso_por_solicitud(empleado, fecha, excluir_id=excluir_id)
 
     @staticmethod
+    def dia_cubriendo_por_solicitud(empleado, fecha, excluir_id=None):
+        """
+        Espejo de `dia_comprometido_por_solicitud`: ¿el empleado TRABAJA `fecha` porque está
+        CUBRIENDO a otro por una solicitud APROBADA?
+
+        Dos formas de estar cubriendo:
+          - es el RECEPTOR y `fecha` es la fecha de cesión (tomó el día del compañero),
+          - es el SOLICITANTE y `fecha` es la fecha de pago (devuelve el favor).
+
+        Hace falta porque `dia_comprometido_por_solicitud` solo ve DESCANSOS: un día que se
+        trabaja por un compromiso previo parece un día normal de trabajo, y así se podía ceder
+        (o vaciar) dejando sin cobertura al acreedor de la solicitud original.
+
+        Devuelve {motivo, companero, solicitud_id, tipo, fecha_cesion, fecha_pago} o None.
+        `excluir_id`: ignora esa solicitud (la PROPIA, al re-validarla o re-aplicarla).
+        """
+        from django.db.models import Q
+        from solicitudes.models import SolicitudCambio
+
+        if isinstance(fecha, str):
+            fecha = DateUtils.parse_date(fecha)
+        if not fecha:
+            return None
+
+        # CAMBIO DESCANSO queda FUERA a propósito: en el finde es un INTERCAMBIO puro (cada uno
+        # sigue trabajando un solo día, solo cambia cuál). El día recibido ya se pagó con el día
+        # propio, así que es jornada propia y sí se puede volver a mover. Aquí solo interesan los
+        # días que se trabajan por un FAVOR pendiente: doblada/D FDS.
+        TIPOS = ['DOBLADA', 'D FDS']
+        qs = (SolicitudCambio.objects
+              .filter(estado='aprobada', doblada__isnull=False, tipo_cambio__nombre__in=TIPOS)
+              .filter(Q(explorador_receptor=empleado, fecha_cambio_turno=fecha)
+                      | Q(explorador_solicitante=empleado, doblada__fecha_pago=fecha))
+              .select_related('doblada', 'tipo_cambio',
+                              'explorador_solicitante', 'explorador_receptor')
+              .order_by('-id'))
+        if excluir_id:
+            qs = qs.exclude(id=excluir_id)
+        s = qs.first()
+        if not s:
+            return None
+
+        es_pago = s.explorador_solicitante_id == getattr(empleado, 'id', empleado)
+        # El "compañero" es SIEMPRE la otra parte del favor: si estoy pagando, es quien me cubrió
+        # (el receptor); si estoy cubriendo su cesión, es quien me cedió el día (el solicitante).
+        companero = s.explorador_receptor if es_pago else s.explorador_solicitante
+        det = getattr(s, 'doblada', None)
+        return {
+            # `motivo` va en 2ª persona (para mensajes dirigidos al propio interesado) y
+            # `motivo_3p` en 3ª (para mensajes que hablan DE esa persona a otro). Sin las dos
+            # formas, un mensaje sobre el compañero acababa diciéndole "cubres" al lector.
+            'motivo': ('devuelves el favor (pago) de tu solicitud'
+                       if es_pago else 'cubres el día que te cedió tu compañero'),
+            'motivo_3p': ('está devolviendo el favor (pago) de su solicitud'
+                          if es_pago else 'está cubriendo el día que le cedió un compañero'),
+            'tipo': 'pago' if es_pago else 'cubre_cesion',
+            'companero': {'id': companero.id,
+                          'nombre': f'{companero.nombre} {companero.apellido}'},
+            'solicitud_id': s.id,
+            'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
+            'fecha_cesion': s.fecha_cambio_turno,
+            'fecha_pago': det.fecha_pago if det else None,
+        }
+
+    @staticmethod
     def dobla_en_festivo(empleado, fecha):
         """
         ¿Al empleado le corresponde DOBLAR (AM+PM) ese festivo por rotación?
@@ -337,6 +402,12 @@ class TurnoService(ITurnoService):
                 js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
                 jornada = ('DOBLADA' if {'AM', 'PM'} <= js else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
                 return _r(True, jornada, 'turno')
+            # L2 también aquí: si cedió el festivo por una solicitud aprobada y la aplicación no
+            # dejó turno (cesión completa), la rotación no puede ponerlo a trabajar igualmente.
+            desc_fv = TurnoService._descanso_por_solicitud(empleado, fecha)
+            if desc_fv:
+                return _r(False, None, 'solicitud', motivo=desc_fv['motivo'],
+                          companero=desc_fv.get('companero'))
             asg_fv = (AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_inicio__lte=fecha)
                       .select_related('jornada').order_by('-fecha_inicio').first())
             jb_fv = asg_fv.jornada.nombre.upper() if asg_fv else None
@@ -496,6 +567,11 @@ class TurnoService(ITurnoService):
                     js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
                     jornada = ('DOBLADA' if {'AM', 'PM'} <= js else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
                     out[d] = _r(True, jornada, 'turno')
+                elif d in rest_sol:
+                    # Mismo orden que `estado_dia`: la cesión por solicitud manda sobre la rotación.
+                    info = rest_sol[d]
+                    out[d] = _r(False, None, 'solicitud', motivo=info['motivo'],
+                                companero=info.get('companero'))
                 else:
                     grupo = grupo_festivo.get(d)
                     if jornada_base and grupo and jornada_base == grupo.upper():

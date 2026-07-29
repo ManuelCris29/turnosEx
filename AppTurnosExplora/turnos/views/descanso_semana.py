@@ -16,7 +16,28 @@ import json
 
 logger = logging.getLogger(__name__)
 
-# Create your views here.
+
+def _invalidar_cache_turnos(anio, meses=None):
+    """
+    Invalida el caché de Mis Turnos de todos los empleados activos para los meses indicados
+    (por defecto, el año completo). Cambiar un descanso de semana cambia el estado del día
+    para toda la plantilla, así que el caché debe caer o los empleados verían el dato viejo.
+    """
+    from core.services.cache_service import CacheService
+    from empleados.models import Empleado as _Emp
+    meses = meses or range(1, 13)
+    for emp_id in _Emp.objects.filter(activo=True).values_list('id', flat=True):
+        for mes in meses:
+            CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
+
+
+class _InvalidaCacheDescansoMixin:
+    """Invalida el caché de turnos del mes afectado tras crear/editar/borrar un descanso."""
+
+    def _invalidar_por_objeto(self, obj):
+        if obj and obj.fecha:
+            _invalidar_cache_turnos(obj.fecha.year, meses=[obj.fecha.month])
+
 
 class DescansoSemanaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     model = DescansoSemanaManual
@@ -27,7 +48,8 @@ class DescansoSemanaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
         return DescansoSemanaManual.objects.select_related('jornada').order_by('-fecha', 'jornada__nombre')
 
 
-class DescansoSemanaCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+class DescansoSemanaCreateView(LoginRequiredMixin, AdminRequiredMixin,
+                               _InvalidaCacheDescansoMixin, CreateView):
     model = DescansoSemanaManual
     template_name = 'turnos/descanso_semana_form.html'
     fields = ['fecha', 'jornada', 'motivo', 'descripcion', 'activo']
@@ -38,8 +60,14 @@ class DescansoSemanaCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateVie
         ctx['titulo'] = 'Nuevo descanso de semana'
         return ctx
 
+    def form_valid(self, form):
+        resp = super().form_valid(form)
+        self._invalidar_por_objeto(self.object)
+        return resp
 
-class DescansoSemanaUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+
+class DescansoSemanaUpdateView(LoginRequiredMixin, AdminRequiredMixin,
+                               _InvalidaCacheDescansoMixin, UpdateView):
     model = DescansoSemanaManual
     template_name = 'turnos/descanso_semana_form.html'
     fields = ['fecha', 'jornada', 'motivo', 'descripcion', 'activo']
@@ -50,11 +78,28 @@ class DescansoSemanaUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateVie
         ctx['titulo'] = 'Editar descanso de semana'
         return ctx
 
+    def form_valid(self, form):
+        # La fecha puede cambiar de mes: hay que invalidar el mes viejo y el nuevo.
+        anterior = self.get_object()
+        fecha_anterior = anterior.fecha if anterior else None
+        resp = super().form_valid(form)
+        if fecha_anterior:
+            _invalidar_cache_turnos(fecha_anterior.year, meses=[fecha_anterior.month])
+        self._invalidar_por_objeto(self.object)
+        return resp
 
-class DescansoSemanaDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
+
+class DescansoSemanaDeleteView(LoginRequiredMixin, AdminRequiredMixin,
+                               _InvalidaCacheDescansoMixin, DeleteView):
     model = DescansoSemanaManual
     template_name = 'turnos/descanso_semana_confirm_delete.html'
     success_url = '/turnos/descanso-semana/'
+
+    def form_valid(self, form):
+        obj = self.get_object()
+        resp = super().form_valid(form)
+        self._invalidar_por_objeto(obj)
+        return resp
 
 
 class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
@@ -70,7 +115,7 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
         try:
             return int(anio)
         except (TypeError, ValueError):
-            return date.today().year
+            return timezone.localdate().year
 
     def get_context_data(self, **kwargs):
         import calendar as _cal
@@ -103,35 +148,44 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
             if tag not in marcadores[f]:
                 marcadores[f].append(tag)
 
-        anio_actual = date.today().year
+        anio_actual = timezone.localdate().year
+        bloqueadas = DescansoSemanaService.fechas_bloqueadas_por_solicitud(anio)
         context.update({
             'anio': anio,
             'anios_disponibles': list(range(anio_actual, anio_actual + 6)),
             'meses': meses,
             'preseleccion_json': DescansoSemanaService.descansos_anual(anio),
+            'otros_motivos_json': DescansoSemanaService.descansos_anual_otros_motivos(anio),
             'marcadores_json': dict(marcadores),
+            'bloqueadas_json': sorted(bloqueadas),
+            'anio_editable_completo': len(bloqueadas) == 0,
         })
         return context
 
     def post(self, request, *args, **kwargs):
-        from turnos.services.descanso_semana_service import DescansoSemanaService
+        from turnos.services.descanso_semana_service import (
+            DescansoSemanaService, DescansoSemanaConflicto,
+        )
         try:
             anio = int(request.POST.get('anio'))
         except (TypeError, ValueError):
             messages.error(request, 'Año inválido.')
             return redirect('descanso_semana_anual')
+        anio_actual = timezone.localdate().year
+        if not (anio_actual <= anio <= anio_actual + 5):
+            messages.error(request, 'Año fuera del rango planificable.')
+            return redirect('descanso_semana_anual')
         try:
             seleccion = json.loads(request.POST.get('seleccion', '{}'))
         except json.JSONDecodeError:
             seleccion = {}
-        n = DescansoSemanaService.guardar_anual(anio, seleccion)
+        try:
+            n = DescansoSemanaService.guardar_anual(anio, seleccion)
+        except DescansoSemanaConflicto as e:
+            messages.error(request, str(e))
+            return redirect(f"{reverse('descanso_semana_anual')}?anio={anio}")
         # Invalidar caché de Mis Turnos para que todos los empleados vean el cambio inmediatamente
-        from core.services.cache_service import CacheService
-        from empleados.models import Empleado as _Emp
-        empleados_ids = list(_Emp.objects.filter(activo=True).values_list('id', flat=True))
-        for emp_id in empleados_ids:
-            for mes in range(1, 13):
-                CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
+        _invalidar_cache_turnos(anio)
         messages.success(request, f'Programación de descansos guardada para {anio} ({n} día(s) asignados).')
         return redirect(f"{reverse('descanso_semana_anual')}?anio={anio}")
 
@@ -149,7 +203,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
         try:
             return int(self.request.GET.get('anio'))
         except (TypeError, ValueError):
-            return date.today().year
+            return timezone.localdate().year
 
     def get_context_data(self, **kwargs):
         import calendar as _cal
@@ -166,12 +220,12 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
         meses = [{'numero': m, 'nombre': meses_nombres[m - 1], 'semanas': cal.monthdatescalendar(anio, m)}
                  for m in range(1, 13)]
 
-        # Festivos entre semana del año (clickeables además de los fines de semana)
-        festivos_semana = [
-            de.fecha.isoformat()
-            for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='festivo', activo=True)
-            if de.fecha.weekday() < 5
-        ]
+        # Festivos del año, separados por dónde caen:
+        # - entre semana → clickeables, tienen su propia rotación.
+        # - en fin de semana → solo se marcan; manda la alternancia del finde, no son un caso aparte.
+        festivos_semana, festivos_finde = [], []
+        for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='festivo', activo=True):
+            (festivos_semana if de.fecha.weekday() < 5 else festivos_finde).append(de.fecha.isoformat())
 
         # Default AUTOMÁTICO por fecha especial (pista visual de qué pasa sin override)
         auto = {}
@@ -191,7 +245,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
                 logger.warning("Error obteniendo grupo que dobla en festivo (fecha=%s)", iso, exc_info=True)
 
         bloqueadas = AsignacionEspecialService.fechas_bloqueadas_por_solicitud(anio)
-        anio_actual = date.today().year
+        anio_actual = timezone.localdate().year
         ancla_sabado = JORNADA_REFERENCIA_SABADO.upper()
         context.update({
             'anio': anio,
@@ -199,6 +253,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
             'meses': meses,
             'preseleccion_json': AsignacionEspecialService.asignaciones_anual(anio),
             'festivos_json': festivos_semana,
+            'festivos_finde_json': festivos_finde,
             'auto_json': auto,
             'bloqueadas_json': sorted(bloqueadas),
             'anio_editable_completo': len(bloqueadas) == 0,
@@ -207,6 +262,11 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
             'ancla_fecha': FECHA_REFERENCIA_SABADO,
             'ancla_jornada_sabado': ancla_sabado,
             'ancla_jornada_domingo': 'AM' if ancla_sabado == 'PM' else 'PM',
+            # Rotación REAL del primer festivo del año que se está viendo. La rotación cuenta
+            # todos los festivos de la tabla desde el primero que exista, así que no siempre
+            # empieza en PM: la nota debe mostrar lo que de verdad se aplica, no una constante.
+            'primer_festivo_fecha': min(festivos_semana) if festivos_semana else None,
+            'primer_festivo_grupo': auto.get(min(festivos_semana)) if festivos_semana else None,
         })
         return context
 
@@ -219,6 +279,11 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
         except (TypeError, ValueError):
             messages.error(request, 'Año inválido.')
             return redirect('asignacion_especial_anual')
+        # Los años pasados no se reprograman: alterarían turnos ya trabajados.
+        anio_actual = timezone.localdate().year
+        if not (anio_actual <= anio <= anio_actual + 5):
+            messages.error(request, 'Año fuera del rango planificable.')
+            return redirect('asignacion_especial_anual')
         try:
             seleccion = json.loads(request.POST.get('seleccion', '{}'))
         except json.JSONDecodeError:
@@ -228,11 +293,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
         except AsignacionEspecialConflicto as e:
             messages.error(request, str(e))
             return redirect(f"{reverse('asignacion_especial_anual')}?anio={anio}")
-        from core.services.cache_service import CacheService
-        from empleados.models import Empleado as _Emp
-        for emp_id in _Emp.objects.filter(activo=True).values_list('id', flat=True):
-            for mes in range(1, 13):
-                CacheService.invalidar_cache_turnos_empleado(emp_id, mes, anio)
+        _invalidar_cache_turnos(anio)
         messages.success(request, f'Asignaciones especiales guardadas para {anio} ({n} día(s) fijados).')
         return redirect(f"{reverse('asignacion_especial_anual')}?anio={anio}")
 
