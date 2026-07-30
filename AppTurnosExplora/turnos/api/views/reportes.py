@@ -1,9 +1,10 @@
+import logging
 import math
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
-from datetime import datetime
+from core.mixins import SupervisorApiRequiredMixin
 from core.utils.date_utils import DateUtils
 
 
@@ -68,6 +69,9 @@ def _frase_descansa(emp):
         'descanso de temporada': f'Descansa por descanso de temporada asignado a su grupo ({jb}).',
         'lunes de mantenimiento': 'Descansa porque hoy es lunes de mantenimiento (no hay operación).',
         'sin jornada asignada': 'No tiene jornada asignada actualmente (verificar con el supervisor).',
+        'sin alternancia publicada': ('⚠ SIN PLANIFICAR: este día no tiene publicada la alternancia '
+                                      'de findes/festivos, así que NO se sabe si trabaja. No es un '
+                                      'descanso: hay que publicar la alternancia del año.'),
     }
     return frases.get(motivo, (emp.get('motivo') or 'Descansa').capitalize())
 
@@ -139,71 +143,64 @@ def _altura(*pairs):
     return min(140, max(16, lineas * 14 + 2))
 
 
-class ReporteDiaView(LoginRequiredMixin, View):
+def _fecha_de_request(request):
+    """
+    Lee y valida ?fecha=YYYY-MM-DD.
+
+    Devuelve (fecha, None) si es válida, o (None, JsonResponse de error) si no.
+    """
+    fecha_str = request.GET.get('fecha')
+    if not fecha_str:
+        return None, JsonResponse({'error': 'Debe enviar fecha (YYYY-MM-DD)'}, status=400)
+    try:
+        return DateUtils.parse_date(fecha_str), None
+    except (ValueError, TypeError):
+        return None, JsonResponse({'error': 'Formato de fecha inválido'}, status=400)
+
+
+def _error_500(nombre_vista, exc):
+    """
+    Registra el detalle en el log y devuelve un mensaje genérico.
+
+    El texto de la excepción puede contener rutas, SQL o nombres de tabla: no se
+    manda al navegador, que además lo pintaría dentro del HTML del reporte.
+    """
+    logging.getLogger(__name__).error('%s: %s', nombre_vista, exc, exc_info=True)
+    return JsonResponse(
+        {'error': 'No se pudo generar el reporte. Inténtalo de nuevo o avisa al administrador.'},
+        status=500,
+    )
+
+
+class ReporteDiaView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
     """Reporte operacional del día para supervisores. Solo accesible con rol supervisor/staff."""
 
     def get(self, request):
-        from core.mixins import AdminRequiredMixin as _AM
-        # Verificar permiso de supervisor
-        if not request.user.is_staff:
-            try:
-                tiene = request.user.empleado.empleadorole_set.filter(
-                    role__nombre__icontains='supervisor').exists()
-            except Exception:
-                tiene = False
-            if not tiene:
-                return JsonResponse({'error': 'Sin permisos'}, status=403)
-
-        fecha_str = request.GET.get('fecha')
-        if not fecha_str:
-            return JsonResponse({'error': 'Debe enviar fecha (YYYY-MM-DD)'}, status=400)
-        try:
-            fecha = DateUtils.parse_date(fecha_str)
-        except ValueError:
-            return JsonResponse({'error': 'Formato de fecha inválido'}, status=400)
+        fecha, error = _fecha_de_request(request)
+        if error:
+            return error
 
         try:
             from turnos.services.reporte_dia_service import ReporteDiaService
-            data = ReporteDiaService.reporte(fecha)
-            return JsonResponse(data)
+            return JsonResponse(ReporteDiaService.reporte(fecha))
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f'ReporteDiaView: {e}', exc_info=True)
-            return JsonResponse({'error': str(e)}, status=500)
+            return _error_500('ReporteDiaView', e)
 
 
-class ReporteDiaExcelView(LoginRequiredMixin, View):
+class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
     """Exporta el reporte operacional del día como archivo Excel (.xlsx)."""
 
-    def _check_permiso(self, request):
-        if request.user.is_staff:
-            return True
-        try:
-            return request.user.empleado.empleadorole_set.filter(
-                role__nombre__icontains='supervisor').exists()
-        except Exception:
-            return False
-
     def get(self, request):
-        if not self._check_permiso(request):
-            return JsonResponse({'error': 'Sin permisos'}, status=403)
-
-        fecha_str = request.GET.get('fecha')
-        if not fecha_str:
-            return JsonResponse({'error': 'Debe enviar fecha (YYYY-MM-DD)'}, status=400)
-        try:
-            fecha = DateUtils.parse_date(fecha_str)
-        except ValueError:
-            return JsonResponse({'error': 'Formato de fecha inválido'}, status=400)
+        fecha, error = _fecha_de_request(request)
+        if error:
+            return error
 
         try:
             from turnos.services.reporte_dia_service import ReporteDiaService
             data = ReporteDiaService.reporte(fecha)
             return self._generar_excel(fecha, data)
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).error(f'ReporteDiaExcelView: {e}', exc_info=True)
-            return JsonResponse({'error': str(e)}, status=500)
+            return _error_500('ReporteDiaExcelView', e)
 
     def _generar_excel(self, fecha, data):
         import io
@@ -292,11 +289,13 @@ class ReporteDiaExcelView(LoginRequiredMixin, View):
                     else '🏖️ Fin de semana' if dia_info.get('es_finde')
                     else '🔧 Mantenimiento' if dia_info.get('es_mantenimiento')
                     else '💼 Día laboral')
+        if dia_info.get('sin_planificar'):
+            tipo_dia += '  ·  ⚠ SIN ALTERNANCIA PUBLICADA: este día no está planificado'
         ws.merge_cells('A3:D3')
         c = ws['A3']
         c.value = tipo_dia
-        c.font = fuente(bold=True, size=10)
-        c.fill = fill('EFF6FF')
+        c.font = fuente(bold=True, size=10, color=('991B1B' if dia_info.get('sin_planificar') else '000000'))
+        c.fill = fill('FEE2E2' if dia_info.get('sin_planificar') else 'EFF6FF')
         c.alignment = centrado()
         ws.row_dimensions[3].height = 18
 
@@ -409,6 +408,9 @@ class ReporteDiaExcelView(LoginRequiredMixin, View):
             ('⚠ Restricción', 'FEF3C7', '92400E', 'Tiene una restricción médica/operativa activa (ver recomendación).'),
             ('⛔ Sanción',     'FEE2E2', '991B1B', 'Está sancionado/a; no puede hacer solicitudes mientras dure.'),
             ('🕐 Permiso',     'FEFCE8', '854D0E', 'Tiene permiso especial ese día (horas indicadas).'),
+            ('⚠ Sin planificar', 'FEE2E2', '991B1B',
+             'El día es finde o festivo y todavía no tiene publicada la alternancia: '
+             'las columnas vacías NO significan que descansen todos.'),
         ]
         for etiqueta, bg, fg, desc_txt in leyenda:
             cb = ws.cell(row=fila, column=1, value=etiqueta)
@@ -572,6 +574,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, View):
             'lunes de mantenimiento':    GRIS_CLARO,
             'descanso de fin de semana': 'F0FDF4',
             'festivo':                   'FEF2F2',
+            'sin alternancia publicada': 'FEE2E2',
         }
         for i, emp in enumerate(empleados, 5):
             bg = 'FFFFFF' if i % 2 == 1 else 'F8FAFC'

@@ -59,6 +59,20 @@ class ReflejoMisTurnosTest(TestCase):
             d += timedelta(days=1)
         return d
 
+    def _primer_dia_semana_de_mes_futuro(self, weekday):
+        """
+        Primera ocurrencia de `weekday` en un mes FUTURO, contando desde el día 1 de ese mes.
+
+        Anclar en el primer lunes del mes (en vez de en el primer lunes tras hoy+30) es lo que hace
+        deterministas los escenarios que necesitan varias ocurrencias del mismo día de la semana:
+        todo mes tiene 4 lunes como mínimo, así que desde su PRIMER lunes siempre quedan ≥3 lunes y
+        ≥2 martes hasta fin de mes. Anclado en hoy+30 el ancla podía caer a final de mes y el test
+        se saltaba solo, dejando la regla sin comprobar según el día en que se corriera la suite.
+        """
+        base = timezone.localdate() + timedelta(days=30)
+        anio, mes = (base.year + 1, 1) if base.month == 12 else (base.year, base.month + 1)
+        return self._dia_semana(weekday, desde=date(anio, mes, 1))
+
     def _findes_fds(self):
         """
         (cesion, pago) en un mismo mes futuro y del MISMO día de la semana (regla D FDS:
@@ -198,7 +212,9 @@ class ReflejoMisTurnosTest(TestCase):
         AsignarJornadaExplorador.objects.create(explorador=comp2, jornada=self.pm, fecha_inicio=date(2025, 1, 1))
         CompetenciaEmpleado.objects.create(empleado=comp2, sala=self.sala)
 
-        fi = self._dia_semana(0)  # primer lunes
+        # Primer lunes de un mes futuro: garantiza ≥3 lunes y ≥2 martes hasta fin de mes, así que
+        # el escenario siempre se puede armar (antes se saltaba según el día en que se corriera).
+        fi = self._primer_dia_semana_de_mes_futuro(0)
         ultimo = date(fi.year, fi.month, calendar.monthrange(fi.year, fi.month)[1])
         lunes, martes = [], []
         d = fi
@@ -208,8 +224,8 @@ class ReflejoMisTurnosTest(TestCase):
             if d.weekday() == 1:
                 martes.append(d)
             d += timedelta(days=1)
-        if len(lunes) < 3 or len(martes) < 2:
-            self.skipTest('el mes no tiene suficientes lunes/martes para el escenario')
+        self.assertGreaterEqual(len(lunes), 3, 'el ancla debe garantizar 3 lunes')
+        self.assertGreaterEqual(len(martes), 2, 'el ancla debe garantizar 2 martes')
         ff = ultimo
         # sol -> rec cubre el lunes[0]; sol -> comp2 cubre el lunes[1] (mismo weekday, fechas distintas).
         self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {

@@ -1315,6 +1315,72 @@ class TestDobladaFestivoSinDeudaCorporativa(MatrizDobladasTestCase):
 # ===========================================================================
 # INTERCAMBIO DE DOBLADAS: swap de días doblados (sin deuda)
 # ===========================================================================
+class TestDescansoDelAcreedorEnElPago(MatrizDobladasTestCase):
+    """
+    Qué pierde el ACREEDOR en la fecha de pago. Lo decide el reparto del PAGO
+    (`jornada_pago_sabado` / `jornada_cubre_en_pago`), NUNCA `tipo_cesion`, que describe el día de
+    la CESIÓN. Regresión (Mariana → arley, #568): con cesión parcial PM y pago en día de semana, el
+    acreedor quedaba libre el día COMPLETO (el deudor cubre su única jornada) pero se atribuía medio
+    día, así que no se reportaba descanso: sin fila `Turno` y sin motivo, `estado_dia` caía a la
+    jornada BASE y lo mostraba trabajando.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        from empleados.models import CompetenciaEmpleado
+        for e in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+
+    def _aprobar_y_aplicar(self, **detalle_extra):
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from django.utils import timezone as _tz
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION, comentario='pago en día de semana',
+            fecha_resolucion=_tz.now(),
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            empleado_receptor=self.receptor, **detalle_extra)
+        ok, msg = self.strategy.aplicar_cambios(sol)
+        self.assertTrue(ok, msg)
+        return sol
+
+    def test_cesion_parcial_deja_al_acreedor_libre_el_dia_completo_del_pago(self):
+        from turnos.services.turno_service import TurnoService
+
+        self._crear_doblada_turnos(self.emisor, FECHA_CESION)   # el emisor tiene AM+PM y cede la PM
+        self._crear_turno(self.receptor, FECHA_PAGO, self.jornada_am)  # el acreedor trabaja solo AM
+        self._aprobar_y_aplicar(tipo_cesion='cesion_parcial_pm', jornada_cedida='PM')
+
+        self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_PAGO).count(), 0,
+                         'el deudor cubre su única jornada: el acreedor queda sin turnos')
+        est = TurnoService.estado_dia(self.receptor, FECHA_PAGO)
+        self.assertFalse(est['trabaja'], f'el acreedor debe quedar LIBRE el día del pago: {est}')
+        self.assertEqual(est['fuente'], 'solicitud')
+        self.assertEqual(est['motivo'], 'paga doblada')
+
+    def test_si_solo_cubre_una_mitad_el_acreedor_conserva_la_otra(self):
+        """Con `jornada_cubre_en_pago` AM/PM el acreedor sigue trabajando la mitad contraria: ahí
+        NO hay descanso de día completo que atribuir."""
+        from turnos.services.turno_service import TurnoService
+
+        self._crear_doblada_turnos(self.emisor, FECHA_CESION)
+        self._crear_doblada_turnos(self.receptor, FECHA_PAGO)   # el acreedor tiene AM+PM
+        self._aprobar_y_aplicar(tipo_cesion='cesion_parcial_pm', jornada_cedida='PM',
+                                jornada_cubre_en_pago='AM')
+
+        jornadas = set(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_PAGO)
+                       .values_list('jornada__nombre', flat=True))
+        self.assertEqual(jornadas, {'PM'}, 'le cubren la AM; conserva la PM')
+        est = TurnoService.estado_dia(self.receptor, FECHA_PAGO)
+        self.assertTrue(est['trabaja'], f'sigue trabajando media jornada: {est}')
+
+
 class TestIntercambioDobladas(MatrizDobladasTestCase):
     """
     Intercambio de dobladas: dos exploradores que cada uno tiene una DOBLADA (AM+PM) en
@@ -1384,6 +1450,135 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
         DobladaAplicacionService.revertir_doblada_aplicada(sol)
         self.assertEqual(self._js(self.emisor, dia_a), {'AM', 'PM'})
         self.assertEqual(self._js(self.receptor, dia_b), {'AM', 'PM'})
+
+    def test_cancelar_otra_doblada_no_deshace_el_intercambio_vigente(self):
+        """
+        Regresión (mildrey ↔ arley, #566): al cancelar una doblada posterior, la reconciliación
+        re-aplica las solicitudes que SIGUEN aprobadas sobre las fechas afectadas. El intercambio
+        vigente se re-aplicaba con la lógica de cesión/pago (no tiene lado "cesión" ni "pago": es un
+        swap de día completo), y en vez de devolverle a cada uno su DOBLADA los dejaba con una sola
+        media jornada — mildrey con una PM el 06/08 y arley con una AM el 12/08.
+        """
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from empleados.models import CompetenciaEmpleado
+        from django.utils import timezone
+
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        # Sala por competencia: al re-aplicar sobre un día sin turnos no hay sala que heredar.
+        for e in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+
+        # 1) Intercambio APROBADO y aplicado: cada uno asume la doblada del otro.
+        inter = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=dia_a,
+            comentario='intercambio vigente', fecha_resolucion=timezone.now(),
+        )
+        DobladaDetalle.objects.create(
+            solicitud=inter, minutos_deuda=30, fecha_pago=dia_b,
+            tipo_cesion='cesion_parcial_am', jornada_cedida='AM',
+            empleado_receptor=self.receptor, es_intercambio=True,
+        )
+        ok, msg = self.strategy.aplicar_cambios(inter)
+        self.assertTrue(ok, msg)
+        self.assertEqual(self._js(self.receptor, dia_a), {'AM', 'PM'})
+        self.assertEqual(self._js(self.emisor, dia_b), {'AM', 'PM'})
+
+        # 2) Otra doblada posterior sobre las MISMAS fechas: se aplica (snapshot + turnos, sin
+        #    deudas: este caso de prueba corre sin jornada base) y se cancela.
+        posterior = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=dia_b,
+            comentario='doblada que se cancela', fecha_resolucion=timezone.now(),
+        )
+        det_post = DobladaDetalle.objects.create(
+            solicitud=posterior, minutos_deuda=30, fecha_pago=dia_a,
+            tipo_cesion='cesion_completa', empleado_receptor=self.receptor,
+        )
+        snap = DobladaAplicacionService.capturar_snapshot_turnos_previos(posterior, det_post)
+        DobladaDetalle.objects.filter(pk=det_post.pk).update(snapshot_turnos_previos=snap)
+        DobladaAplicacionService.aplicar_doblada_cesion(posterior, det_post)
+        DobladaAplicacionService.aplicar_doblada_pago(posterior, det_post)
+        self.assertNotEqual(self._js(self.receptor, dia_a), {'AM', 'PM'},
+                            'la doblada posterior debe haber mutado el estado del swap')
+
+        posterior.refresh_from_db()
+        DobladaAplicacionService.revertir_doblada_aplicada(posterior)
+
+        # 3) El intercambio sigue aprobado → cada uno recupera la DOBLADA COMPLETA que tenía.
+        self.assertEqual(self._js(self.receptor, dia_a), {'AM', 'PM'},
+                         'el receptor debe recuperar la doblada del día A que asumió por el swap')
+        self.assertEqual(self._js(self.emisor, dia_b), {'AM', 'PM'},
+                         'el emisor debe recuperar la doblada del día B que asumió por el swap')
+        self.assertEqual(Turno.objects.filter(explorador=self.emisor, fecha=dia_a).count(), 0)
+        self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=dia_b).count(), 0)
+
+    def test_intercambio_atribuye_descanso_completo_a_los_dos_lados(self):
+        """
+        Regresión (mildrey ↔ arley, #565): el detalle del intercambio llegó con
+        `tipo_cesion='cesion_parcial_am'` (ruido del formulario). La atribución de descanso leía ese
+        campo, tomaba el día por MEDIO y no reportaba nada; con el día sin turnos (los borra
+        `aplicar_intercambio`) y sin motivo, `estado_dia` caía al fallback de la jornada BASE y
+        mostraba trabajando a quien tenía el día libre. Un intercambio es día completo por los dos
+        lados, sea cual sea el `tipo_cesion` guardado.
+        """
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from turnos.services.turno_service import TurnoService
+
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        # Jornada base para que el fallback tenga algo que mostrar si la atribución falla.
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=dia_a,
+            comentario='intercambio con tipo_cesion parcial heredado del formulario',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=dia_b,
+            tipo_cesion='cesion_parcial_am', jornada_cedida='AM',
+            empleado_receptor=self.receptor, es_intercambio=True,
+        )
+        ok, _msg = self.strategy.aplicar_cambios(sol)
+        self.assertTrue(ok, _msg)
+
+        # Día A: el emisor cedió su doblada completa → libre, y la fuente es la solicitud.
+        est_a = TurnoService.estado_dia(self.emisor, dia_a)
+        self.assertFalse(est_a['trabaja'], f'el emisor cedió su doblada del día A: {est_a}')
+        self.assertEqual(est_a['fuente'], 'solicitud')
+        # Día B: el receptor entregó la suya → libre también.
+        est_b = TurnoService.estado_dia(self.receptor, dia_b)
+        self.assertFalse(est_b['trabaja'], f'el receptor entregó su doblada del día B: {est_b}')
+        self.assertEqual(est_b['fuente'], 'solicitud')
+        # Y quien asume cada doblada sí trabaja (AM+PM).
+        self.assertEqual(self._js(self.receptor, dia_a), {'AM', 'PM'})
+        self.assertEqual(self._js(self.emisor, dia_b), {'AM', 'PM'})
+
+    def test_intercambio_se_guarda_como_cesion_completa(self):
+        """El `tipo_cesion` parcial que manda el formulario se normaliza al crear la solicitud."""
+        from solicitudes.models import SolicitudCambio
+
+        dia_a, dia_b = FECHA_CESION, FECHA_PAGO
+        self._crear_doblada_turnos(self.emisor, dia_a)
+        self._crear_doblada_turnos(self.receptor, dia_b)
+
+        ok, msg = self.strategy.crear_solicitud(self._datos(
+            es_intercambio=True, fecha_cambio_turno=str(dia_a), fecha_pago=str(dia_b),
+            tipo_cesion='cesion_parcial_am', jornada_cedida='AM',
+            tipo_cambio=self.tipo_doblada))
+        self.assertTrue(ok, msg)
+
+        det = SolicitudCambio.objects.filter(
+            explorador_solicitante=self.emisor, fecha_cambio_turno=dia_a).latest('id').doblada
+        self.assertTrue(det.es_intercambio)
+        self.assertEqual(det.tipo_cesion, 'cesion_completa', 'un intercambio es día completo')
+        self.assertIsNone(det.jornada_cedida)
 
     def test_intercambio_rechaza_si_el_companero_no_tiene_doblada(self):
         # Emisor con doblada en A; receptor con UNA sola jornada en B (no doblada) → rechazado

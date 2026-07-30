@@ -177,6 +177,17 @@ class DobladaSnapshotService:
                 # de doblada entre semana.
                 from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
                 DFDSAplicacionService.aplicar(s, det)
+            elif getattr(det, 'es_intercambio', False):
+                # INTERCAMBIO DE DOBLADAS: NO se puede re-aplicar con la lógica de cesión/pago.
+                # Es un swap de día completo entre dos dobladas y tiene su propio aplicador; el
+                # `tipo_cesion` del detalle no describe nada (puede venir parcial del formulario).
+                # Al re-aplicarlo como doblada normal, la reconciliación reconstruía un estado
+                # inventado: mildrey quedó con una sola PM el 06/08 y arley con una sola AM el
+                # 12/08, cuando cada uno debía recuperar su DOBLADA (AM+PM).
+                # Muta los DOS días de una vez, así que basta con que UNO caiga en las afectadas
+                # (y se llama una sola vez, no una por día).
+                from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+                DobladaAplicacionService.aplicar_intercambio(s, det)
             else:
                 # DOBLADA: re-aplicar solo el lado (cesión/pago) que cae en fecha afectada.
                 from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService

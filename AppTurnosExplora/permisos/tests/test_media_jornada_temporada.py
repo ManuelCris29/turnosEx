@@ -52,24 +52,30 @@ class MediaJornadaTemporadaGatesTest(TestCase):
     def test_cierre_semanal_bloquea(self):
         """Con el cierre activo, este endpoint no puede ser una puerta trasera.
 
-        Busca con el propio servicio un día lun-vie que YA esté bloqueado y siga siendo futuro
-        (la ventana del fin de semana en curso), para no depender del día en que se corra.
+        Antes buscaba un día lun-vie que YA estuviera bloqueado y siguiera siendo futuro. Eso solo
+        existe de jueves a domingo (las opciones de `dia_cierre` no incluyen lun-mié), así que la
+        mitad de la semana el test se saltaba solo y la puerta trasera quedaba sin comprobar.
+
+        Ahora se fija el reloj: se toma un lunes futuro, se pregunta al propio servicio cuál es su
+        cutoff, y se sitúa `ahora` un minuto DESPUÉS. Así el día está bloqueado por construcción,
+        corra la suite el día que corra.
         """
+        from unittest import mock
         from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService as CS
+
         cfg = CierreSolicitudesConfig.obtener()
         cfg.habilitado = True
         cfg.dia_cierre = 'jueves'
         cfg.hora_cierre = time(0, 1)
         cfg.save()
 
-        hoy = timezone.localdate()
-        objetivo = next((hoy + timedelta(days=i) for i in range(0, 10)
-                         if (hoy + timedelta(days=i)).weekday() < 5
-                         and CS.fecha_bloqueada(hoy + timedelta(days=i))), None)
-        if objetivo is None:
-            self.skipTest('Hoy no hay ningún día lun-vie futuro dentro de una ventana ya cerrada.')
+        objetivo = self._lunes_futuro(semanas=2)
+        cutoff = CS.cutoff_para_fecha(objetivo)
+        self.assertIsNotNone(cutoff, 'con el cierre habilitado, un lunes debe tener cutoff')
 
-        r = self._post(objetivo, objetivo)
+        with mock.patch('django.utils.timezone.now', return_value=cutoff + timedelta(minutes=1)):
+            r = self._post(objetivo, objetivo)
+
         self.assertEqual(r.status_code, 400)
         self.assertIn('Cierre de solicitudes', r.json().get('error', ''))
 

@@ -138,6 +138,18 @@ class DobladaDeudaService:
                 comentario=f'Doblada efectiva (pago en semana del sábado AMBAS) ({detalle.fecha_pago_semana})',
             )
 
+        # Contrapartida del bloque anterior: quien DEJA de doblar por esta solicitud tampoco debe
+        # seguir con sus 30 min. Pasa al ceder una mitad de una doblada (el emisor se queda con una
+        # sola jornada en la cesión) y al recibir cobertura en la fecha de pago. Sin esto la deuda
+        # vieja quedaba activa sumando en el Consolidado de Horas mientras el nuevo receptor —el
+        # que realmente dobla— recibía la suya.
+        DeudaCorporativaService.sincronizar_deuda_corporativa(
+            solicitante, fecha_cesion, motivo=f'cedió una jornada en la solicitud {solicitud.id}',
+        )
+        DeudaCorporativaService.sincronizar_deuda_corporativa(
+            receptor, fecha_pago, motivo=f'recibe cobertura en la solicitud {solicitud.id}',
+        )
+
         # NOTA: CEDER una doblada NO genera 30 min al emisor. Los 30 min corporativos son solo
         # para quien REALMENTE se dobla en día hábil: el receptor en la cesión (arriba) y, si aplica,
         # el emisor cuando PAGA doblándose en día hábil. Pagar en sábado no genera nada (día completo

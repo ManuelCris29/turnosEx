@@ -48,7 +48,10 @@ class ReporteDiaService:
           ],
           'dia_info': {
             'es_festivo', 'es_finde', 'es_mantenimiento',
-            'grupo_dobla_festivo'
+            'grupo_dobla_festivo',
+            'sin_planificar'   # True si el día es finde/festivo SIN alternancia
+                               # publicada: las columnas vacías no significan
+                               # "descansan todos", sino "nadie lo ha planificado".
           }
         }
 
@@ -62,6 +65,7 @@ class ReporteDiaService:
             .order_by('apellido', 'nombre')
         )
         emp_ids = [e.id for e in empleados]
+        emp_ids_set = set(emp_ids)
 
         # ── Jornada base más reciente por empleado ───────────────────────────
         jornada_base_por_emp = {}
@@ -94,6 +98,16 @@ class ReporteDiaService:
 
         # ── Grupo que trabaja el fin de semana ───────────────────────────────
         grupo_trabaja_finde = AsignacionEspecialService.grupo_trabaja(fecha) if es_finde else None
+
+        # `grupo_trabaja` devuelve None cuando el día NO tiene alternancia publicada, y eso
+        # NO es lo mismo que "descansa todo el mundo". Si no se distingue, un año sin sembrar
+        # se ve exactamente igual que un día real con las tres columnas vacías. Se marca aquí
+        # y se propaga como motivo propio para que la UI pueda avisar.
+        sin_planificar = bool(
+            (es_finde and grupo_trabaja_finde is None)
+            or (es_festivo and fecha.weekday() < 5 and grupo_dobla_festivo is None)
+        )
+        MOTIVO_SIN_PLANIFICAR = 'sin alternancia publicada'
 
         # ── Descanso de semana manual (temporada) por jornada ───────────────
         jornadas_descanso_temporada = set()
@@ -171,10 +185,17 @@ class ReporteDiaService:
         try:
             from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
             from datetime import timedelta
+            # Solo pueden afectar a `fecha` las solicitudes cuya fecha de cambio o de pago
+            # caiga en [fecha-1, fecha+1]: en findes el día del compañero es el contiguo
+            # (ver `_otro`). Sin esta ventana la consulta arrastraba TODO el histórico
+            # aprobado y crecía sin límite con los años de operación.
+            _ventana = (fecha - timedelta(days=1), fecha + timedelta(days=1))
             for s in (SolicitudCambio.objects
                       .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
                       .filter(Q(explorador_solicitante_id__in=emp_ids) |
                               Q(explorador_receptor_id__in=emp_ids))
+                      .filter(Q(fecha_cambio_turno__range=_ventana) |
+                              Q(doblada__fecha_pago__range=_ventana))
                       .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')):
                 det = getattr(s, 'doblada', None)
                 fc = s.fecha_cambio_turno
@@ -208,6 +229,8 @@ class ReporteDiaService:
                   .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
                   .filter(Q(explorador_solicitante_id__in=emp_ids) |
                           Q(explorador_receptor_id__in=emp_ids))
+                  .filter(doblada_permanente__fecha_inicio__lte=fecha,
+                          doblada_permanente__fecha_fin__gte=fecha)
                   .select_related('doblada_permanente',
                                   'explorador_solicitante', 'explorador_receptor')):
             det = getattr(s, 'doblada_permanente', None)
@@ -215,7 +238,7 @@ class ReporteDiaService:
                 continue
             for es_sol in (True, False):
                 emp_id = s.explorador_solicitante_id if es_sol else s.explorador_receptor_id
-                if emp_id not in emp_ids:
+                if emp_id not in emp_ids_set:
                     continue
                 dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
                 dias_set = {int(x) for x in (dias_txt or '').split(',') if x.strip().isdigit()}
@@ -358,6 +381,9 @@ class ReporteDiaService:
                         jornada_dia = 'DOBLADA'
                         trabaja = True
                         tipo = 'oficial'
+                    elif grupo_dobla_festivo is None:
+                        trabaja = False
+                        motivo_descanso = MOTIVO_SIN_PLANIFICAR
                     else:
                         trabaja = False
                         motivo_descanso = 'festivo'
@@ -385,6 +411,9 @@ class ReporteDiaService:
                     jornada_dia = 'DOBLADA'
                     trabaja = True
                     tipo = 'oficial'
+                elif grupo_trabaja_finde is None:
+                    trabaja = False
+                    motivo_descanso = MOTIVO_SIN_PLANIFICAR
                 else:
                     trabaja = False
                     motivo_descanso = 'descanso de fin de semana'
@@ -438,5 +467,6 @@ class ReporteDiaService:
                 'es_finde': es_finde,
                 'es_mantenimiento': es_mantenimiento,
                 'grupo_dobla_festivo': grupo_dobla_festivo,
+                'sin_planificar': sin_planificar,
             },
         }

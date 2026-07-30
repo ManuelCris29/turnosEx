@@ -371,6 +371,70 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
             'crear_deuda_corporativa(', fuente,
             'usa crear_deuda_corporativa_idempotente(): ver patrón #21 en PROTECTION_PATTERNS.md')
 
+    def test_la_clave_idempotente_no_incluye_la_solicitud(self):
+        """
+        Patrón #21: la clave es (explorador, fecha_doblada). Si alguien vuelve a meter
+        `solicitud_origen` en el filtro, dos solicitudes distintas sobre el mismo día cobran
+        30 min cada una y el guard deja de verlo.
+        """
+        import inspect
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+
+        fuente = inspect.getsource(DeudaCorporativaService.crear_deuda_corporativa_idempotente)
+        self.assertNotIn(
+            'solicitud_origen=solicitud', fuente,
+            'la clave idempotente debe ser por DÍA, no por solicitud: ver patrón #21')
+
+    def test_todos_los_servicios_de_aplicacion_sincronizan_la_deuda(self):
+        """
+        La mitad simétrica del patrón #21: quien deja de doblar no puede seguir debiendo los 30 min.
+        Cada servicio que quita jornadas debe llamar a `sincronizar_deuda_corporativa`.
+        """
+        import inspect
+        from solicitudes.services import (
+            doblada_deuda_service, d_fds_aplicacion_service,
+            cambio_descanso_aplicacion_service, doblada_permanente_aplicacion_service,
+        )
+
+        for mod in (doblada_deuda_service, d_fds_aplicacion_service,
+                    cambio_descanso_aplicacion_service, doblada_permanente_aplicacion_service):
+            self.assertIn(
+                'sincronizar_deuda_corporativa', inspect.getsource(mod),
+                f'{mod.__name__} quita jornadas: debe cancelar los 30 min de quien deja de '
+                f'doblar (patrón #21)')
+
+    def test_ningun_servicio_cancela_deudas_corporativas_sin_filtrar_el_estado(self):
+        """
+        Al revertir hay que cancelar SOLO las activas. El filtro crudo
+        `DeudaCorporativa.objects.filter(solicitud_origen=...)` arrastra también las PAGADAS: se
+        pierde el registro de la compensación y el PDH queda apuntando a una deuda cancelada.
+        Usa `DeudaCorporativaService.cancelar_deudas_de_solicitud()`.
+        """
+        import inspect
+        from solicitudes.services import (
+            doblada_aplicacion_service, d_fds_aplicacion_service,
+            cambio_descanso_aplicacion_service, doblada_permanente_aplicacion_service,
+        )
+
+        for mod in (doblada_aplicacion_service, d_fds_aplicacion_service,
+                    cambio_descanso_aplicacion_service, doblada_permanente_aplicacion_service):
+            self.assertNotIn(
+                'DeudaCorporativa.objects.filter(solicitud_origen', inspect.getsource(mod),
+                f'{mod.__name__}: usa cancelar_deudas_de_solicitud(), que filtra estado="activa" '
+                f'(patrón #21)')
+
+    def test_la_permanente_confirma_el_estado_real_antes_de_cobrar(self):
+        """Crear sobre ocurrencias calculadas cobraba días que no acababan en AM+PM."""
+        import inspect
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService,
+        )
+
+        fuente = inspect.getsource(DobladaPermanenteAplicacionService._deuda)
+        self.assertIn(
+            'obtener_jornada_display', fuente,
+            'los 30 min se deben por el HECHO de doblar: confirma el estado real del día')
+
 
 # ===========================================================================
 # 4. 'reemplazada' es tan terminal como 'cancelada': tampoco deja deudas vivas

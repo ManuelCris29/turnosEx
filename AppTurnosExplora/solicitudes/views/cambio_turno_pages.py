@@ -113,10 +113,14 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         # No establecer fecha inicial - el usuario debe seleccionarla
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.localdate(),
-            # La cesión admite HOY, pero el pago debe ser posterior a la creación de la solicitud
-            # (`validar_acuerdo_previo_obligatorio`). Sin este mínimo propio, el datepicker ofrecía
-            # hoy como fecha de pago y la validación la rechazaba después.
+            # Mañana, no hoy: ceder el día EN CURSO no da margen a nadie (el compañero puede haber
+            # trabajado ya su jornada, y la solicitud todavía tiene que aprobarse), así que el
+            # backend lo rechaza. Si el calendario lo ofreciera, la persona llenaría el formulario
+            # entero para chocar contra el error al enviarlo.
+            'fecha_minima': timezone.localdate() + timezone.timedelta(days=1),
+            # El pago tiene su propio mínimo porque debe ser posterior a la creación de la solicitud
+            # (`validar_acuerdo_previo_obligatorio`). Hoy coincide con el de la cesión, pero son dos
+            # reglas distintas: se mantienen separadas para que cambiar una no arrastre la otra.
             'fecha_minima_pago': timezone.localdate() + timezone.timedelta(days=1),
             'fecha_seleccionada': None,  # Sin fecha inicial - usuario debe seleccionar
             'empleados_disponibles': [],
@@ -128,7 +132,10 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         """Renderizar formulario específico para D FDS (Doblada de Fin de Semana)"""
         context = {
             'tipo_solicitud': tipo_solicitud,
-            'fecha_minima': timezone.localdate(),
+            # Mañana, no hoy: `D_FDSStrategy.validar_solicitud` rechaza el día en curso. El
+            # calendario lo ofrecía igualmente, así que se llenaba el formulario entero para chocar
+            # con el error al enviarlo.
+            'fecha_minima': timezone.localdate() + timezone.timedelta(days=1),
             'fecha_seleccionada': None,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,

@@ -10,6 +10,7 @@ Cubren validación y aplicación:
 Las fechas se calculan dinámicamente (nunca hardcodeadas en el pasado).
 """
 from datetime import date, timedelta
+from unittest import mock
 
 from django.test import TestCase
 from django.contrib.auth.models import User
@@ -22,6 +23,7 @@ from solicitudes.models import (
 )
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
+from solicitudes.services.strategies import d_fds_strategy as _d_fds_mod
 from solicitudes.services.strategies.d_fds_strategy import DFDSStrategy
 
 
@@ -369,12 +371,37 @@ class DFDSHuecosCorregidosTest(DFDSBaseTest):
         self.assertIn('pendiente', m.lower())
 
     def test_cesion_hoy_rechazada_al_crear(self):
-        hoy = timezone.localdate()
-        if hoy.weekday() not in (5, 6):
-            self.skipTest('Hoy no es fin de semana')
-        ok, msg = self.strat.validar_solicitud(self._datos(
-            fecha_cambio_turno=hoy.strftime('%Y-%m-%d')))
+        """
+        Antes este test se saltaba salvo que se corriera un sábado o domingo (una D FDS solo opera
+        sobre findes), así que 5 de cada 7 días la regla no se comprobaba y `N passed` no lo
+        delataba. Ahora se fija "hoy" EN el día de cesión —que es finde por construcción— y corre
+        siempre.
+        """
+        with mock.patch.object(_d_fds_mod.timezone, 'localdate', return_value=self.ces):
+            ok, msg = self.strat.validar_solicitud(self._datos(
+                fecha_cambio_turno=self.ces.strftime('%Y-%m-%d')))
+        self.assertFalse(ok, 'ceder el finde en curso no se permite al crear')
+        self.assertIn('día en curso', msg)
+
+    def test_cesion_hoy_admitida_al_revalidar(self):
+        """
+        El supervisor puede aprobar el mismo día del finde: si no, una solicitud creada antes
+        quedaría atrapada sin poder aprobarse ni rechazarse.
+        """
+        with mock.patch.object(_d_fds_mod.timezone, 'localdate', return_value=self.ces):
+            ok, msg = self.strat.validar_solicitud(self._datos(
+                fecha_cambio_turno=self.ces.strftime('%Y-%m-%d'), es_revalidacion=True))
+        self.assertNotIn('día en curso', msg or '',
+                         'al re-validar, el día en curso no debe bloquear la aprobación')
+
+    def test_cesion_pasada_rechazada(self):
+        """Un finde ya pasado no se puede ceder, ni creando ni re-validando."""
+        with mock.patch.object(_d_fds_mod.timezone, 'localdate',
+                               return_value=self.ces + timedelta(days=7)):
+            ok, msg = self.strat.validar_solicitud(self._datos(
+                fecha_cambio_turno=self.ces.strftime('%Y-%m-%d')))
         self.assertFalse(ok)
+        self.assertIn('posterior a hoy', msg)
 
 
 class DFDSAlternanciaMesAPITest(DFDSBaseTest):

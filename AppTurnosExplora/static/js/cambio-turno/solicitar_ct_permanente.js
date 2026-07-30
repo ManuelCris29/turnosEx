@@ -43,7 +43,8 @@ document.addEventListener('DOMContentLoaded', function() {
             return Promise.resolve();
         }
         
-        const fechaMinima = fechaInicioInput.getAttribute('data-min-date') || new Date().toISOString().split('T')[0];
+        const fechaMinima = fechaInicioInput.getAttribute('data-min-date')
+            || window.DatepickerFestivos.fechaMinimaPorDefecto();
         
         // Función callback para cuando cambia la fecha de inicio
         const onDateChangeInicio = function(fecha) {

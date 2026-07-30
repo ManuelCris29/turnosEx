@@ -34,10 +34,9 @@ urlpatterns = [
     path('descanso-semana/create/', DescansoSemanaCreateView.as_view(), name='descanso_semana_create'),
     path('descanso-semana/edit/<int:pk>/', DescansoSemanaUpdateView.as_view(), name='descanso_semana_edit'),
     path('descanso-semana/delete/<int:pk>/', DescansoSemanaDeleteView.as_view(), name='descanso_semana_delete'),
-    path('lista/', TurnosCalendarioView.as_view(), name='turnos_list'),  # Cambiado aquí
+    path('lista/', TurnosCalendarioView.as_view(), name='turnos_list'),
     path('crear/', TurnoCreateView.as_view(), name='turnos_create'),
     path('editar/<int:pk>/', TurnoUpdateView.as_view(), name='turnos_edit'),
     path('eliminar/<int:pk>/', TurnoDeleteView.as_view(), name='turnos_delete'),
-    path('calendario/', TurnosCalendarioView.as_view(), name='turnos_calendario'),
     path('api/', include('turnos.api.urls')),
 ] 

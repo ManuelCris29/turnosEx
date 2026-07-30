@@ -494,15 +494,41 @@ DeudaCorporativaService.crear_deuda_corporativa(
 
 ---
 
-### 21. **Deuda Idempotente por (explorador, fecha, solicitud)** (Backend)
-**Qué es:** Antes de crear una `DeudaCorporativa`, verificar que no exista ya una ACTIVA para esa
-misma combinación de explorador + fecha de doblada + solicitud de origen.
+### 21. **Deuda Idempotente por (explorador, fecha)** (Backend)
+**Qué es:** Antes de crear una `DeudaCorporativa`, verificar que no exista ya una ACTIVA para ese
+explorador en esa fecha de doblada. **La clave es por DÍA, sin `solicitud_origen`.**
 
-**Por qué:** Un día doblado = 30 min, siempre. Los turnos toleran una re-aplicación (se borran y se
-recrean, ver `_crear_doblada_dia`), pero la deuda NO: se sumaba encima. Si `aplicar()` corría dos
-veces (reintento, re-aprobación manual, comando de mantenimiento), el explorador terminaba debiendo
-60 min por un solo día doblado. **Sin error, sin log de alarma, sin nada visible** hasta que alguien
-mira el Consolidado de Horas y no le cuadra.
+**Por qué:** Un día doblado = 30 min, siempre. Nadie puede doblar dos veces el mismo día, así que
+dos deudas activas en la misma fecha son necesariamente un cobro doble. Los turnos toleran una
+re-aplicación (se borran y se recrean, ver `_crear_doblada_dia`), pero la deuda NO: se sumaba
+encima. Si `aplicar()` corría dos veces (reintento, re-aprobación manual, comando de mantenimiento),
+el explorador terminaba debiendo 60 min por un solo día doblado. **Sin error, sin log de alarma, sin
+nada visible** hasta que alguien mira el Consolidado de Horas y no le cuadra.
+
+⚠️ **La clave NO puede incluir `solicitud_origen`** (así estaba la primera versión). Con la solicitud
+en la clave, el guard solo veía re-aplicaciones de LA MISMA solicitud: dos solicitudes DISTINTAS que
+tocaran el mismo día del mismo explorador creaban 30 min cada una y el cobro doble pasaba entero. La
+vía real era la doblada permanente, que creaba sobre sus ocurrencias calculadas sin mirar el estado
+del día.
+
+**Solo se miran las ACTIVAS:** si la deuda del día está `cancelada` (solicitud revertida, o el día
+dejó de ser doblada) se puede volver a crear — que es justo lo que debe pasar al re-aplicar. Sin ese
+filtro, un registro cancelado en el historial del día serviría de coartada permanente: el guard
+diría "ya existe" y el explorador doblaría gratis para siempre.
+
+**El mismo filtro al CANCELAR.** Revertir una solicitud cancela sus deudas corporativas, pero solo
+las `activa`. Una `pagada` es historia cerrada: revertir no des-paga lo ya pagado. Sin el filtro se
+perdía el registro de la compensación **y** el `PDH` que la pagó quedaba apuntando (vía
+`deudas_pagadas`) a una deuda que dice estar cancelada; al re-aplicar, el guard no veía nada activo
+y volvía a cobrar un día ya pagado. Usa siempre:
+
+```python
+DeudaCorporativaService.cancelar_deudas_de_solicitud(solicitud, motivo='…')
+```
+
+⚠️ Esto vale solo para `DeudaCorporativa`. En `DeudaExplorador` el estado `pagada` significa otra
+cosa —el par de favores está completo, y se marca al CREARLA— así que ahí sí se cancela al revertir
+(`exclude(estado='cancelada')`). Copiar el filtro de un modelo al otro rompe uno de los dos.
 
 ⚠️ **NO BORRAR este guard.** Parece redundante ("si solo se aplica una vez, ¿para qué comprobar?"),
 pero es la capa 3 del orden de defensa: las capas 1 y 2 previenen el doble clic, esta previene el
@@ -516,10 +542,32 @@ y antes de este guard sumaban una segunda deuda encima de la existente.
 
 **Implementación:** usa SIEMPRE las variantes idempotentes, no las crudas:
 ```python
-DeudaCorporativaService.crear_deuda_corporativa_idempotente(...)  # clave: explorador+fecha_doblada+solicitud
+DeudaCorporativaService.crear_deuda_corporativa_idempotente(...)  # clave: explorador+fecha_doblada
 DeudaService.crear_deuda_idempotente(...)                          # clave: solicitud+deudor+acreedor+fecha_pago_pactada
 # Ambas devuelven None si ya existía (útil para no loguear "creada" cuando no se creó).
 ```
+
+**Las dos mitades del guard.** Crear idempotente evita cobrar dos veces; falta lo simétrico —
+apagar cuando el día deja de ser doblada. Los 30 min son de quien REALMENTE dobla, así que hay dos
+obligaciones en todo servicio de aplicación:
+
+```python
+# 1. Al crear: confirmar el estado REAL del día, no el tipo de solicitud.
+if TurnoService.obtener_jornada_display(explorador, fecha) == 'DOBLADA':
+    DeudaCorporativaService.crear_deuda_corporativa_idempotente(...)
+
+# 2. Al quitarle una jornada a alguien: cancelar sus 30 min si dejó de doblar.
+DeudaCorporativaService.sincronizar_deuda_corporativa(explorador, fecha, motivo='…')
+```
+
+Sin el punto 2, ceder una mitad de tu doblada dejaba tu deuda vieja activa mientras el nuevo
+receptor —el que de verdad dobla— recibía la suya: 60 min cobrados por un día doblado una vez.
+Aplicado en `DobladaDeudaService`, `DFDSAplicacionService`, `CambioDescansoAplicacionService`
+(`_sincronizar_deuda_corp`) y `DobladaPermanenteAplicacionService`.
+
+⚠️ **Excepción documentada:** `aplicar_semana_cambio_doblada` NO sincroniza. Es un swap — cada uno
+sigue doblando un día de la semana, solo cambia cuál — y esa modalidad no genera deuda nueva, así
+que cancelar la del día que sueltan los dejaría doblando gratis.
 
 ⚠️ **La clave NO puede usar `fecha_generacion`:** en ambos modelos de deuda ese campo es
 `auto_now_add`, así que guarda la fecha de HOY. Un filtro por él nunca coincide y el guard queda
@@ -812,6 +860,147 @@ hoy = date.today()                  # ❌ zona del SO: UTC en el contenedor
 
 ---
 
+### 28. **El turno REAL (L1) manda sobre la atribución de descanso (L2)** (Backend)
+**Qué es:** Cuando una solicitud aprobada dice que alguien descansa un día (cedió su jornada, le
+pagan una doblada, doblada permanente), esa atribución se **anula si ese día hay un `Turno` real**.
+La guarda vive en `DescansoPorSolicitudService.en_rango` como el set `con_turno_real`, y por ser la
+fuente única la heredan `estado_dia`/`estado_mes`, Mis Turnos, los reportes y las validaciones que
+usan `TurnoService.dia_comprometido_por_solicitud`.
+
+**Por qué:** Es el corolario técnico de *la última aprobada gana por día*. Al aplicar una doblada se
+**borran** los turnos de quien queda libre (el cedente en la cesión, el acreedor en el pago), así
+que un turno presente en ese día **solo puede venir de algo aprobado DESPUÉS**. Sin la guarda, un
+descanso viejo bloquea el día para siempre aunque la persona ya recuperó jornada real.
+
+Caso que lo destapó (Marco, 30/07/2026): la solicitud #451 le pagaba una doblada el 30/07 (ese día
+descansaba); más tarde se aprobó la #560, cuyo **pago cae el mismo 30/07**, así que ese día trabaja
+la jornada del acreedor y tiene `Turno` real. Al intentar ceder ese día, la guarda L2 solo veía el
+descanso viejo y respondía *"Ya tienes el 30/07/2026 comprometido en otra solicitud aprobada (paga
+doblada); no puedes cederlo de nuevo"* — falso: ese día trabaja y sí puede cederlo.
+
+**Dónde:** `solicitudes/services/descanso_solicitud_service.py` (ramas `cedió su jornada`,
+`paga doblada` y `doblada permanente`).
+
+**Implementación:**
+```python
+con_turno_real = set(Turno.objects.filter(
+    explorador=empleado, fecha__range=(ini, fin)).values_list('fecha', flat=True))
+...
+for d, e in pago.items():
+    if d in con_turno_real:   # ✅ L1 manda: ese día trabaja de verdad
+        continue
+```
+
+⚠️ **No quitar la guarda** ni resolverla en el llamador: si cada validación decide por su cuenta
+si el descanso sigue vigente, la atribución vuelve a divergir entre pantalla y validación — que es
+exactamente el problema que este servicio existe para evitar. CAMBIO DESCANSO queda fuera a
+propósito: es un intercambio puro con su propia fuente de verdad.
+
+**Estado:** ✅ **APLICADO** (29/07/2026)
+- Test: `test_ceder_jornada_recibida.py` -
+  `test_si_ese_dia_recupero_jornada_real_si_puede_cederla`
+- La rama de doblada permanente ya tenía esta guarda por su cuenta; ahora las tres la comparten
+
+---
+
+### 29. **Un hueco en L2 no da error: da un dato FALSO** (Backend)
+**Qué es (regla afilada, tras tres recaídas):**
+
+> **Cada día que muta un aplicador tiene que tener su atribución en L2, y calculada con el campo
+> que gobierna ESE día.**
+
+Dos mitades, y las dos fallan solas:
+1. **Cada día.** Si `aplicar_*` toca tres días (cesión, pago y `fecha_pago_semana`), los tres
+   necesitan atribución. Un día mutado sin motivo es un día invisible.
+2. **Con el campo de ese día.** `tipo_cesion` describe la **cesión**; `jornada_pago_sabado` y
+   `jornada_cubre_en_pago`, el **pago**; `es_intercambio` manda sobre todos y significa día
+   completo por los dos lados. Usar el campo de otro día es un **error de categoría**: da un
+   número plausible y equivocado.
+
+Y el corolario operativo: **la lógica de reparto de L2 tiene que espejar la del aplicador**, en el
+mismo orden de prioridad. Si `DobladaPagoService` decide en cascada (sábado → `jcp` → resto),
+`DescansoPorSolicitudService` decide igual. Cuando cambie una, cambia la otra.
+
+**Por qué:** `estado_dia` resuelve el día por capas y su **último recurso es la jornada BASE**. Si
+un día no tiene fila `Turno` (porque la aplicación la borró) **y** L2 no le pone motivo, no salta
+ninguna excepción: se responde la jornada base y el sistema afirma que la persona trabaja un día
+que tiene libre. El fallo es **silencioso y verosímil**, así que no lo detecta ningún guard — solo
+alguien mirando su calendario.
+
+Es el complemento del **#28**: allí L2 sobraba (un descanso viejo que ya no era cierto), aquí L2
+faltaba. Los dos son el mismo requisito: **L1 y L2 tienen que contar la misma historia**, porque
+donde ninguna habla, contesta la base.
+
+**Los tres síntomas reales (mismo hueco, tres campos distintos).** Los tres se vieron igual — una
+persona con el día libre mostrada trabajando su jornada base — y ninguno dio error:
+
+| # | Solicitud | Campo mal leído | Qué mostraba |
+|---|---|---|---|
+| 1 | INTERCAMBIO mildrey ↔ arley (#565) | `es_intercambio` no se leía; se leía `tipo_cesion` (parcial, ruido del formulario) cuando un swap es día completo por los dos lados | `arley 06/08 → {'trabaja': True, 'jornada': 'AM', 'fuente': 'base'}` y `mildrey 12/08 → {…'PM', 'fuente': 'base'}` |
+| 2 | El mismo #565, tras cancelar otra doblada (#566/#567) | La **reconciliación** post-revert no miraba `es_intercambio` y re-aplicaba el swap como cesión/pago | mildrey con una PM sola el 06/08; arley con una AM sola el 12/08 (perdieron la DOBLADA) |
+| 3 | DOBLADA Mariana → arley (#568) | `tipo_cesion` (día de la CESIÓN) usado para decidir el día del **PAGO** | `arley 26/08 → {'trabaja': True, 'jornada': 'AM', 'fuente': 'base'}` cuando el deudor le cubría su única jornada |
+
+Y de paso, un cuarto día que no se atribuía a NADIE: `fecha_pago_semana` (la devolución en semana
+de un pago en sábado AMBAS). `aplicar_pago_residual_semana` lo muta —el solicitante descansa su
+jornada— pero las dos ramas de la atribución solo miraban cesión y pago.
+
+**Dónde:** `solicitudes/services/descanso_solicitud_service.py` (helpers `_full` y `_mitad_pago`,
+ramas de cesión, de pago y de `fecha_pago_semana`), `doblada_snapshot_service.reconciliar_dobladas_
+aprobadas`, la creación en `doblada_strategy.crear_solicitud` y el comando `reaplicar_doblada`.
+
+**Implementación:**
+```python
+# 1) El flag manda sobre el tipo_cesion guardado (cesión: día completo por los dos lados)
+def _full(det):
+    return bool(getattr(det, 'es_intercambio', False))
+
+# 2) El reparto del PAGO se lee de los campos del PAGO, espejando DobladaPagoService
+def _mitad_pago(det, tipo):
+    if det is None or tipo != 'DOBLADA' or getattr(det, 'es_intercambio', False):
+        return 'FULL'                 # D FDS e intercambios: siempre día completo
+    if det.fecha_pago.weekday() == 5 and jps in ('AM', 'PM'):
+        return jps                    # sábado por mitades
+    if jcp in ('AM', 'PM'):
+        return jcp                    # el acreedor conserva la contraria
+    return 'FULL'                     # parcial sin jcp, completa, AMBAS, fallback
+
+# 3) Y al crear no se guardan datos que se contradicen con lo que se aplica
+if datos.get('es_intercambio'):
+    tipo_cesion = 'cesion_completa'
+    jornada_cedida = None
+```
+
+⚠️ **Ningún subconjunto de las tres alcanza.** Solo la creación deja mal las filas ya aprobadas;
+solo la atribución sigue guardando filas contradictorias que engañan a la siguiente lectura; y con
+las dos pero sin la **reconciliación**, cualquier cancelación posterior vuelve a corromper los
+turnos (síntoma 2). Un flag nuevo se despacha en los **tres** sitios: validar, aplicar **y
+re-aplicar**.
+
+El arreglo va en el **servicio compartido**, no en el llamador donde se notó: el mismo hueco
+alimenta Mis Turnos, el calendario, los reportes y las validaciones.
+
+**Checklist al agregar un sub-flujo, un flag o un día nuevo a un formulario:**
+1. Listar **todos** los días que muta `aplicar_*` (¿hay un tercer día como `fecha_pago_semana`?).
+2. Por cada día y cada una de las dos partes: *¿queda libre el día completo, media jornada, o nada?*
+3. Comprobar que `DescansoPorSolicitudService` responde lo mismo, con el campo de **ese** día y en
+   el mismo orden de prioridad que el aplicador.
+4. Comprobar que la **reconciliación** despacha ese sub-flujo a su propio aplicador.
+5. Señal de humo: si `estado_dia` contesta `'fuente': 'base'` en un día que una solicitud aprobada
+   tocó, hay un hueco.
+
+**Estado:** ✅ **APLICADO** (29/07/2026)
+- Tests: `test_matriz_dobladas.py` — `TestIntercambioDobladas` (`…_atribuye_descanso_completo_a_los_
+  dos_lados`, `…_se_guarda_como_cesion_completa`, `test_cancelar_otra_doblada_no_deshace_el_
+  intercambio_vigente`) y `TestDescansoDelAcreedorEnElPago` (día completo en el pago, y la
+  contraparte con `jornada_cubre_en_pago` donde sí conserva media jornada)
+- Los tres tests se verificaron **fallando** con la lógica vieja antes de darlos por buenos
+- Reparación de datos solo en el síntoma 2 (turnos ya escritos, `reaplicar_doblada 565`); 1 y 3 eran
+  de lectura y se arreglaron sin tocar la BD
+- ⚠️ Los arreglos de atribución/reconciliación viven en módulos ya cargados: **hay que reiniciar el
+  servidor** o se sigue corrompiendo con el código viejo (pasó con #567)
+
+---
+
 ## 📊 Matriz Completa de Patrones por Flujo
 
 | Flujo | Button Disable | Select-For-Update | Snapshot Guard | Swal Modal | Form Disable | Cache Invalid. | Validación | Autorización | Logging | Notificaciones | Transacción Atómica |
@@ -965,6 +1154,10 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | Aplicados patrones #2, #3, #6, #7, #10, #11 en strategies | #2, #3, #6, #7, #10, #11 | Transacciones, snapshot guard, invalidación caché, logging, notificaciones |
 | **2026-07-25** | Agregado patrón #21 (Deuda Idempotente) | #21 | Auditoría de doblada permanente: re-aplicar duplicaba los 30 min en silencio |
 | | Agregado patrón #22 (Reconciliación Completa) | #22 | Las permanentes quedaban fuera de la reconciliación: deuda viva sin doblada real |
+| **2026-07-29** | #21: la clave idempotente pasa de (explorador, fecha, solicitud) a (explorador, fecha) | #21 | Dos solicitudes distintas sobre el mismo día cobraban 30 min cada una; el guard no las veía |
+| | #21: agregada la mitad simétrica — `sincronizar_deuda_corporativa` en los 4 servicios de aplicación | #21 | Ceder media jornada de tu doblada dejaba tus 30 min vivos mientras el nuevo receptor recibía los suyos |
+| | La doblada permanente ahora confirma el estado REAL del día antes de cobrar los 30 min | #21 | Creaba sobre ocurrencias calculadas: cobraba aunque el día no acabara en AM+PM |
+| | #21: al revertir se cancelan solo las deudas ACTIVAS (`cancelar_deudas_de_solicitud`) | #21 | Revertir des-pagaba una deuda ya pagada: PDH huérfano y doble cobro al re-aplicar |
 | | Auditoría de los otros 5 formularios: guards idempotentes compartidos | #21 | `reaplicar_doblada` y `corregir_doblada_cesion_total` duplicaban deuda de dobladas ya aplicadas |
 | | Agregado patrón #23 (Invariante por Señal) | #23 | Cancelar desde el admin o un comando dejaba las deudas activas |
 | | Agregado patrón #24 (Revert con Fallback) | #24 | Cambio de descanso sin snapshot cancelaba deudas pero dejaba los turnos puestos |
@@ -974,10 +1167,16 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | `reprogramacion_doblada_service` pasa a la variante idempotente | #21 | Último llamador con la variante cruda: reprogramar dos veces cobraba 60 min |
 | | La señal cubre también el estado 'reemplazada' | #23 | El predicado solo miraba 'cancelada': deuda viva sin doblada real |
 | | Restricción de unicidad de turno activo en la BD | #26 (nuevo) | La migración encontró un duplicado real: la disciplina ya había fallado |
+| **2026-07-29** | Agregado patrón #28 (el turno real L1 manda sobre el descanso L2) | #28 (nuevo) | Un descanso viejo bloqueaba para siempre un día en el que ya se recuperó jornada real (Marco, 30/07/2026) |
+| | Agregado patrón #29 (un hueco en L2 no da error: da un dato falso) | #29 (nuevo) | El intercambio de dobladas no se atribuía como día completo: `estado_dia` caía a la jornada base y mostraba trabajando a quien tenía el día libre (mildrey ↔ arley, #565) |
+| | El intercambio se guarda con `tipo_cesion='cesion_completa'` (normalizado al crear) | #29 | El formulario arrastraba `cesion_parcial_am`, que contradice lo que `aplicar_intercambio` hace de verdad |
+| | #29: la reconciliación post-revert despacha el intercambio a `aplicar_intercambio` (igual en `reaplicar_doblada`) | #29 | Al cancelar otra doblada, el swap vigente se re-aplicaba como cesión/pago y cada uno perdía su DOBLADA |
+| | #29: el reparto de la fecha de PAGO se lee de `jornada_pago_sabado`/`jornada_cubre_en_pago`, no de `tipo_cesion` | #29 | `tipo_cesion` describe la cesión: en una parcial el acreedor queda libre el día COMPLETO y se atribuía medio (arley 26/08/2026) |
+| | #29: atribución del tercer día, `fecha_pago_semana` (pago en sábado AMBAS) | #29 | Ese día lo muta `aplicar_pago_residual_semana` y no lo cubría ninguna rama: quedaba sin motivo |
 
 ---
 
-**Última actualización:** 2026-07-27  
+**Última actualización:** 2026-07-29  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 

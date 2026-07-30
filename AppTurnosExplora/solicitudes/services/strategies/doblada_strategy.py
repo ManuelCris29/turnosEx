@@ -125,10 +125,24 @@ class DobladaStrategy(SolicitudStrategy):
             except (ValueError, TypeError):
                 return False, "Las fechas enviadas no son válidas. Usa el calendario del formulario."
 
-            # Validar que fecha_cesion no sea en el pasado
+            # La cesión tiene que ser un día FUTURO: ni pasado ni HOY. Ceder el día en curso no da
+            # margen para nada — el compañero puede haber trabajado ya su jornada, y encima la
+            # solicitud aún tiene que pasar por su aprobación y la del supervisor.
+            # `es_revalidacion` sí admite hoy: una solicitud creada ayer para hoy se aprueba hoy, y
+            # sin la excepción quedaría atrapada sin poder aprobarse ni rechazarse.
+            # Mismo criterio (y misma forma) que cambio de descanso y D FDS; aquí la comparación era
+            # solo `< hoy`, así que el día en curso se colaba: pasó de verdad con la solicitud #561.
+            # Va antes del corte del intercambio, así que también rige para el swap de dobladas.
             fecha_actual = timezone.localdate()
+            _es_reval = bool(datos.get('es_revalidacion'))
             if fecha_cesion_obj < fecha_actual:
                 return False, f"La fecha de cesión ({fecha_cesion_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
+            if fecha_cesion_obj == fecha_actual and not _es_reval:
+                return False, (
+                    f"La fecha de cesión ({fecha_cesion_obj.strftime('%d/%m/%Y')}) no puede ser hoy: "
+                    "ese día ya está en curso. Elige un día posterior para que tu compañero pueda "
+                    "organizarse y la solicitud alcance a aprobarse."
+                )
             
             # Validar empleados activos
             SolicitudValidator.validar_empleado_activo(explorador_solicitante)
@@ -194,7 +208,9 @@ class DobladaStrategy(SolicitudStrategy):
             # Requiere que AMBOS tengan DOBLADA (AM+PM) en su día: solicitante en el día A
             # (fecha de cesión) y receptor en el día B (fecha de pago), con A != B.
             if datos.get('es_intercambio'):
-                return DobladaStrategy._validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago, fecha_actual)
+                return DobladaStrategy._validar_intercambio(
+                    explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago,
+                    fecha_actual, es_revalidacion=_es_reval)
 
             # Caso 1.2: ambos descansando en fecha de pago → rechazar
             SolicitudValidator.validar_ambos_descansando_fecha_pago(
@@ -225,19 +241,23 @@ class DobladaStrategy(SolicitudStrategy):
                     f"Ya tienes el {_fc_obj.strftime('%d/%m/%Y')} comprometido en otra "
                     f"solicitud aprobada ({_comp_ces['motivo']}); no puedes cederlo de nuevo."
                 )
-            # Espejo del anterior: `dia_comprometido_por_solicitud` solo ve DESCANSOS. Un día que
-            # se trabaja porque se está CUBRIENDO a un tercero (pago de una doblada/D FDS, o el
-            # día que te cedieron) parecía un día normal y se podía volver a ceder, dejando al
-            # acreedor original sin cobertura y con su deuda marcada como saldada.
-            _cubre_ces = _TSv.dia_cubriendo_por_solicitud(
-                explorador_solicitante, _fc_obj, excluir_id=_excluir_id)
-            if _cubre_ces:
-                _c = (_cubre_ces.get('companero') or {}).get('nombre') or 'otro compañero'
-                return False, (
-                    f"No puedes ceder el {_fc_obj.strftime('%d/%m/%Y')}: trabajas ese día porque "
-                    f"{_cubre_ces['motivo']} con {_c} (solicitud #{_cubre_ces['solicitud_id']}). "
-                    "Si lo cedes, ese compañero se queda sin cobertura."
-                )
+            # NO se bloquea ceder un día que se TRABAJA por un favor (ni la jornada que te cedieron
+            # ni la que estás pagando). Antes sí, con el argumento de que el acreedor se quedaba sin
+            # cobertura — y eso no ocurre nunca: quien recibe la jornada la cubre, así que el turno
+            # sigue lleno. La contabilidad también cierra:
+            #
+            #  - Jornada RECIBIDA: es tuya desde que se aprobó el favor. La cedes, el nuevo receptor
+            #    la cubre, y quien te la cedió te sigue debiendo su pago (intacto).
+            #  - Jornada de PAGO: al cederla, el nuevo receptor cubre al acreedor y tu deuda con él
+            #    queda saldada, pero nace una deuda del MISMO tamaño con el nuevo receptor. No te
+            #    libras de trabajar esa media jornada: solo cambia a quién se la debes.
+            #
+            # Los 30 min corporativos siguen a quien REALMENTE dobla: se crean sobre el estado real
+            # de los turnos y se cancelan a quien deja de doblar (ver DobladaDeudaService y
+            # DeudaCorporativaService.sincronizar_deuda_corporativa).
+            #
+            # Los compromisos que sí bloquean son los DESCANSOS (arriba, `dia_comprometido_por_
+            # solicitud`): un día que ya cediste no lo puedes ceder dos veces.
             _comp_pago = _TSv.dia_comprometido_por_solicitud(
                 explorador_receptor, _fp_obj, excluir_id=_excluir_id)
             if _comp_pago:
@@ -533,13 +553,22 @@ class DobladaStrategy(SolicitudStrategy):
     
 
     @staticmethod
-    def _validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago, fecha_actual) -> Tuple[bool, str]:
+    def _validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago,
+                             fecha_actual, es_revalidacion=False) -> Tuple[bool, str]:
         from turnos.services.turno_service import TurnoService as _TSint
         fp_obj = DateUtils.parse_date(fecha_pago)
         if not fp_obj:
             return False, "La fecha del día B (doblada del compañero) no es válida."
+        # Igual que el día A: ni pasado ni HOY. El intercambio no pasa por
+        # `validar_acuerdo_previo` (que ya exige pago posterior a la creación), así que sin esto el
+        # día B podía ser el día en curso.
         if fp_obj < fecha_actual:
             return False, f"El día B ({fp_obj.strftime('%d/%m/%Y')}) no puede ser en el pasado."
+        if fp_obj == fecha_actual and not es_revalidacion:
+            return False, (
+                f"El día B ({fp_obj.strftime('%d/%m/%Y')}) no puede ser hoy: ese día ya está en "
+                "curso. Elige un día posterior."
+            )
         if fecha_cesion_obj == fp_obj:
             return False, "Para intercambiar dobladas, el día A y el día B deben ser distintos."
         # NOTA: sábado×sábado y "festivo solo contra festivo del mismo mes" NO se repiten aquí.
@@ -781,6 +810,13 @@ class DobladaStrategy(SolicitudStrategy):
             jornada_cubre_en_pago = datos.get('jornada_cubre_en_pago')
             fecha_pago_semana = datos.get('fecha_pago_semana')
             tipo_cesion = datos.get('tipo_cesion', 'cesion_completa')
+            # Un INTERCAMBIO cambia el día COMPLETO por los dos lados (ambos tenían AM+PM), así que
+            # no admite cesión parcial: lo que traiga el formulario en `tipo_cesion`/`jornada_cedida`
+            # es ruido de otro sub-flujo. Normalizarlo al crear evita filas que se contradicen con
+            # lo que `aplicar_intercambio` hace de verdad (borrar el día entero a cada uno).
+            if datos.get('es_intercambio'):
+                tipo_cesion = 'cesion_completa'
+                jornada_cedida = None
 
             # Sin transaction.atomic(): en MySQL + reintentos tras error SQL, atomic() dejaba la conexión
             # en estado "roto" (TransactionManagementError). Si falla el detalle, borramos la solicitud.

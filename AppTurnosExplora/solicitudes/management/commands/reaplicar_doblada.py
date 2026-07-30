@@ -200,6 +200,14 @@ class Command(BaseCommand):
                 self.stdout.write('')
                 self.stdout.write('  Se aplicarían los siguientes cambios:')
                 self.stdout.write(f'    - Borrar turnos de {solicitante.nombre} y {receptor.nombre} en {fecha_cesion} y {fecha_pago}')
+                if getattr(detalle, 'es_intercambio', False):
+                    self.stdout.write(
+                        f'    - Re-aplicar el INTERCAMBIO: {receptor.nombre} asume la doblada (AM+PM) del '
+                        f'{fecha_cesion} y {solicitante.nombre} la del {fecha_pago}; cada uno descansa el día del otro')
+                    self.stdout.write('    - Sin deudas (un intercambio de dobladas no genera ninguna)')
+                    self.stdout.write('')
+                    self.stdout.write(self.style.SUCCESS('✅ DRY-RUN completado. Ejecuta sin --dry-run para aplicar.'))
+                    return
                 self.stdout.write(f'    - Aplicar doblada de cesión: {receptor.nombre} dobla en {fecha_cesion}, {solicitante.nombre} según tipo de cesión')
                 if es_cesion_parcial:
                     self.stdout.write(f'    - Aplicar doblada de pago: {solicitante.nombre} {jornada_cedida}, {receptor.nombre} {jornada_otra} en {fecha_pago}')
@@ -230,25 +238,35 @@ class Command(BaseCommand):
                 self.stdout.write('  🧹 Turnos de cesión y pago borrados para reaplicar desde cero')
                 self.stdout.write('')
 
-                # 1. Aplicar doblada de cesión
-                # 1. Aplicar doblada de cesión (siempre, tras el borrado)
-                self.stdout.write(f'  📝 Aplicando doblada en fecha de cesión ({fecha_cesion})...')
-                DobladaAplicacionService.aplicar_doblada_cesion(solicitud, detalle)
-                self.stdout.write(self.style.SUCCESS(f'     ✅ Doblada de cesión aplicada'))
+                # Un INTERCAMBIO de dobladas tiene su propio aplicador (swap de día completo entre
+                # dos dobladas) y NO genera deudas. Re-aplicarlo con la lógica de cesión/pago
+                # reconstruye un estado inventado.
+                es_intercambio = bool(getattr(detalle, 'es_intercambio', False))
+                if es_intercambio:
+                    self.stdout.write(f'  📝 Re-aplicando INTERCAMBIO de dobladas ({fecha_cesion} ↔ {fecha_pago})...')
+                    DobladaAplicacionService.aplicar_intercambio(solicitud, detalle)
+                    self.stdout.write(self.style.SUCCESS('     ✅ Intercambio aplicado (sin deudas)'))
+                else:
+                    # 1. Aplicar doblada de cesión (siempre, tras el borrado)
+                    self.stdout.write(f'  📝 Aplicando doblada en fecha de cesión ({fecha_cesion})...')
+                    DobladaAplicacionService.aplicar_doblada_cesion(solicitud, detalle)
+                    self.stdout.write(self.style.SUCCESS(f'     ✅ Doblada de cesión aplicada'))
 
-                # 2. Aplicar doblada de pago (siempre, tras el borrado)
-                self.stdout.write(f'  📝 Aplicando doblada en fecha de pago ({fecha_pago})...')
-                DobladaAplicacionService.aplicar_doblada_pago(solicitud, detalle)
-                self.stdout.write(self.style.SUCCESS(f'     ✅ Doblada de pago aplicada'))
+                    # 2. Aplicar doblada de pago (siempre, tras el borrado)
+                    self.stdout.write(f'  📝 Aplicando doblada en fecha de pago ({fecha_pago})...')
+                    DobladaAplicacionService.aplicar_doblada_pago(solicitud, detalle)
+                    self.stdout.write(self.style.SUCCESS(f'     ✅ Doblada de pago aplicada'))
 
-                # 3. Generar deudas (opcional)
-                if not skip_deudas:
+                # 3. Generar deudas (opcional; un intercambio nunca las genera)
+                if not skip_deudas and not es_intercambio:
                     # Idempotente: crea solo las deudas que falten. Antes esto duplicaba la deuda
                     # (y los 30 min corporativos) de una solicitud ya aplicada. Ver
                     # PROTECTION_PATTERNS.md #21.
                     self.stdout.write(f'  📝 Creando las deudas que falten...')
                     DobladaAplicacionService.generar_deudas_doblada(solicitud, detalle)
                     self.stdout.write(self.style.SUCCESS(f'     ✅ Deudas al día (las existentes no se duplicaron)'))
+                elif es_intercambio:
+                    self.stdout.write('  ⏭️  Un intercambio de dobladas no genera deudas')
                 else:
                     self.stdout.write(f'  ⏭️  Omitiendo regeneración de deudas (--skip-deudas)')
 
@@ -308,7 +326,18 @@ class Command(BaseCommand):
             self.stdout.write('')
 
             # Validación final
-            if es_cesion_parcial:
+            if es_intercambio:
+                # El swap es correcto cuando cada uno tiene la DOBLADA (AM+PM) del día del OTRO y
+                # descansa el propio. `es_cesion_parcial`/`jornada_cedida` no describen nada aquí.
+                tiene_doblada_cesion = (
+                    {'AM', 'PM'} <= set(jornadas_cesion_receptor_new)
+                    and not jornadas_cesion_solicitante_new
+                )
+                tiene_doblada_pago = (
+                    {'AM', 'PM'} <= set(jornadas_pago_solicitante_new)
+                    and not jornadas_pago_receptor_new
+                )
+            elif es_cesion_parcial:
                 tiene_doblada_cesion = (
                     len(jornadas_cesion_receptor_new) == 1 and jornadas_cesion_receptor_new[0] == jornada_cedida
                     and len(jornadas_cesion_solicitante_new) == 1 and jornadas_cesion_solicitante_new[0] == jornada_otra
@@ -327,7 +356,10 @@ class Command(BaseCommand):
                 ))
                 self.stdout.write('')
                 self.stdout.write('Ahora:')
-                if es_cesion_parcial:
+                if es_intercambio:
+                    self.stdout.write(f'  • {receptor.nombre} DOBLADA en {fecha_cesion} y {solicitante.nombre} descansa')
+                    self.stdout.write(f'  • {solicitante.nombre} DOBLADA en {fecha_pago} y {receptor.nombre} descansa')
+                elif es_cesion_parcial:
                     self.stdout.write(f'  • {fecha_cesion}: {receptor.nombre} {jornada_cedida}, {solicitante.nombre} {jornada_otra}')
                     self.stdout.write(f'  • {fecha_pago}: {solicitante.nombre} {jornada_cedida} (paga), {receptor.nombre} {jornada_otra}')
                 else:

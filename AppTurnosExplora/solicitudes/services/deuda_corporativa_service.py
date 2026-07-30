@@ -259,26 +259,37 @@ class DeudaCorporativaService:
     ) -> Optional[DeudaCorporativa]:
         """
         Igual que `crear_deuda_corporativa`, pero NO crea nada si ya existe una deuda ACTIVA
-        para la misma combinación (explorador, fecha_doblada, solicitud_origen).
+        para ese (explorador, fecha_doblada) — venga de la solicitud que venga.
 
-        Un día doblado = 30 min, SIEMPRE. Los turnos toleran una re-aplicación (se borran y se
-        recrean), pero la deuda no: se sumaba encima. Esto pasa de verdad al re-aplicar una
-        solicitud ya aplicada (`reaplicar_doblada`, `corregir_doblada_cesion_total`, un reintento
-        o una re-aprobación), y el cobro doble no produce ningún error visible: aparece en el
-        Consolidado de Horas semanas después.
+        Un día doblado = 30 min, SIEMPRE. Nadie puede doblar dos veces el mismo día, así que dos
+        deudas activas en la misma fecha son necesariamente un cobro doble. La clave es por DÍA a
+        propósito: cuando incluía `solicitud_origen`, dos solicitudes DISTINTAS que tocaban el mismo
+        día del mismo explorador creaban 30 min cada una (60 min por un solo día doblado) y el guard
+        no las veía. El caso real venía por la doblada permanente, que creaba sobre sus ocurrencias
+        calculadas sin mirar el estado del día.
+
+        También cubre el motivo original: re-aplicar una solicitud ya aplicada
+        (`reaplicar_doblada`, `corregir_doblada_cesion_total`, un reintento o una re-aprobación).
+        El cobro doble no produce ningún error visible: aparece en el Consolidado de Horas semanas
+        después.
+
+        Solo mira las ACTIVAS: si la deuda del día fue cancelada (solicitud revertida o el día dejó
+        de ser doblada) se puede volver a crear, que es justo lo que debe pasar al re-aplicar.
 
         Úsala SIEMPRE que la deuda nazca de aplicar una solicitud. Devuelve None si ya existía.
         Ver PROTECTION_PATTERNS.md #21.
         """
-        if DeudaCorporativa.objects.filter(
+        existente = DeudaCorporativa.objects.filter(
             explorador=explorador,
             fecha_doblada=fecha_doblada,
-            solicitud_origen=solicitud,
             estado='activa',
-        ).exists():
+        ).first()
+        if existente:
             logger.info(
-                "Deuda corporativa ya existente para %s en %s (solicitud %s): no se duplica.",
-                explorador.nombre, fecha_doblada, getattr(solicitud, 'id', None),
+                "Deuda corporativa ya existente para %s en %s (deuda %s, solicitud origen %s); "
+                "la solicitud %s no crea otra: un día doblado = 30 min.",
+                explorador.nombre, fecha_doblada, existente.id,
+                existente.solicitud_origen_id, getattr(solicitud, 'id', None),
             )
             return None
         return DeudaCorporativaService.crear_deuda_corporativa(
@@ -288,6 +299,71 @@ class DeudaCorporativaService:
             solicitud=solicitud,
             comentario=comentario,
         )
+
+    @staticmethod
+    def cancelar_deudas_de_solicitud(solicitud: SolicitudCambio, motivo: str = '') -> int:
+        """
+        Cancela las deudas corporativas ACTIVAS de una solicitud al revertirla. Devuelve cuántas.
+
+        Úsala en vez de `DeudaCorporativa.objects.filter(solicitud_origen=...).update(...)`: el
+        filtro por `estado='activa'` es la parte que importa y se olvidaba. Sin él, una deuda ya
+        PAGADA pasaba a 'cancelada' al revertir, con dos daños: se perdía el registro de que el
+        explorador ya compensó esos 30 min, y el PDH que la pagó quedaba apuntando (vía
+        `deudas_pagadas`) a una deuda que dice estar cancelada. Si después se re-aplicaba la
+        solicitud, el guard idempotente no veía nada activo y volvía a cobrar un día ya pagado.
+
+        Una deuda pagada es historia cerrada: revertir la solicitud no des-paga lo que ya se pagó.
+
+        OJO: esto vale solo para `DeudaCorporativa`. En `DeudaExplorador` el estado 'pagada' es
+        otra cosa (el par de favores está completo, y se marca al crearla), así que ahí sí hay que
+        cancelarla al revertir — ver `exclude(estado='cancelada')` en signals.py.
+        """
+        n = (DeudaCorporativa.objects
+             .filter(solicitud_origen=solicitud, estado='activa')
+             .update(estado='cancelada'))
+        if n:
+            logger.info(
+                "Solicitud %s revertida%s: %s deuda(s) corporativa(s) activa(s) canceladas "
+                "(las pagadas se conservan).",
+                getattr(solicitud, 'id', None), f' ({motivo})' if motivo else '', n,
+            )
+        return n
+
+    @staticmethod
+    def sincronizar_deuda_corporativa(explorador: Empleado, fecha: date, motivo: str = '') -> int:
+        """
+        Cancela las deudas corporativas ACTIVAS de `explorador` en `fecha` si ese día YA NO es
+        DOBLADA según los turnos reales.
+
+        Los 30 min son de quien REALMENTE dobla. Cuando una solicitud posterior le quita una de
+        las dos mitades (p. ej. cede a un tercero la jornada que otro compañero le había cedido),
+        deja de doblar y los 30 min pasan a quien ahora dobla — pero la deuda vieja seguía activa
+        y sumando en el Consolidado de Horas. Llamar después de aplicar los turnos.
+
+        Devuelve el número de deudas canceladas.
+        """
+        from turnos.services.turno_service import TurnoService
+
+        if TurnoService.obtener_jornada_display(explorador, fecha) == 'DOBLADA':
+            return 0
+
+        activas = list(DeudaCorporativa.objects.filter(
+            explorador=explorador, fecha_doblada=fecha, estado='activa',
+        ))
+        for deuda in activas:
+            DeudaCorporativaService.cancelar_deuda(
+                deuda,
+                comentario=(
+                    f"Cancelada automáticamente: el {fecha} ya no es jornada DOBLADA para "
+                    f"{explorador.nombre}{f' ({motivo})' if motivo else ''}."
+                ),
+            )
+        if activas:
+            logger.info(
+                "Deuda corporativa sincronizada: %s deuda(s) canceladas para %s en %s (ya no dobla).",
+                len(activas), explorador.nombre, fecha,
+            )
+        return len(activas)
 
     @staticmethod
     def obtener_deuda_total(explorador: Empleado) -> int:

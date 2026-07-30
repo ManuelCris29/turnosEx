@@ -140,6 +140,34 @@ class ReporteDiaEnriquecidoTest(TestCase):
         self.assertIn('Restricción', headers)
         self.assertIn('Doblada pendiente', headers)
 
+    # ── 8. Permisos de la API ────────────────────────────────────────────────
+    def test_api_sin_rol_supervisor_devuelve_403(self):
+        self.client.force_login(self.a.user)  # explorador raso
+        for url in ('/turnos/api/reporte-dia/', '/turnos/api/reporte-dia/excel/'):
+            with self.subTest(url=url):
+                resp = self.client.get(url, {'fecha': FECHA.isoformat()})
+                self.assertEqual(resp.status_code, 403)
+                self.assertEqual(resp.json()['error'], 'Sin permisos')
+
+    def test_api_supervisor_fecha_invalida_o_ausente(self):
+        self.client.force_login(self.sup.user)
+        self.assertEqual(self.client.get('/turnos/api/reporte-dia/').status_code, 400)
+        self.assertEqual(
+            self.client.get('/turnos/api/reporte-dia/', {'fecha': 'ayer'}).status_code, 400)
+        self.assertEqual(
+            self.client.get('/turnos/api/reporte-dia/',
+                            {'fecha': FECHA.isoformat()}).status_code, 200)
+
+    def test_api_error_interno_no_filtra_la_excepcion(self):
+        """El texto de la excepción puede llevar rutas o SQL: no debe salir al navegador."""
+        from unittest.mock import patch
+        self.client.force_login(self.sup.user)
+        with patch('turnos.services.reporte_dia_service.ReporteDiaService.reporte',
+                   side_effect=Exception('SELECT * FROM empleados_empleado -- /srv/app/secreto')):
+            resp = self.client.get('/turnos/api/reporte-dia/', {'fecha': FECHA.isoformat()})
+        self.assertEqual(resp.status_code, 500)
+        self.assertNotIn('SELECT', resp.json()['error'])
+
 
 class ReporteDiaOverrideFindeTest(TestCase):
     """
@@ -207,3 +235,22 @@ class ReporteDiaOverrideFindeTest(TestCase):
         trabajando = self._grupos()
         self.assertNotIn(self.emp_am.id, trabajando)
         self.assertNotIn(self.emp_pm.id, trabajando)
+
+    def test_sin_alternancia_se_distingue_de_un_descanso(self):
+        """
+        Que nadie trabaje NO puede verse igual que un día planificado en el que toca
+        descansar: el reporte tiene que decir que el día está sin planificar.
+        """
+        data = ReporteDiaService.reporte(self.sabado)
+        self.assertTrue(data['dia_info']['sin_planificar'])
+        motivos = {e['motivo'] for e in data['descansando']}
+        self.assertEqual(motivos, {'sin alternancia publicada'})
+
+    def test_finde_publicado_no_queda_marcado_sin_planificar(self):
+        self._publicar('AM')
+        data = ReporteDiaService.reporte(self.sabado)
+        self.assertFalse(data['dia_info']['sin_planificar'])
+        self.assertEqual(
+            [e['motivo'] for e in data['descansando']],
+            ['descanso de fin de semana'],
+        )

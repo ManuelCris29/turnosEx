@@ -273,7 +273,11 @@ class TurnoService(ITurnoService):
         trabaja por un compromiso previo parece un día normal de trabajo, y así se podía ceder
         (o vaciar) dejando sin cobertura al acreedor de la solicitud original.
 
-        Devuelve {motivo, companero, solicitud_id, tipo, fecha_cesion, fecha_pago} o None.
+        Devuelve {motivo, companero, solicitud_id, tipo, fecha_cesion, fecha_pago, jornada} o None.
+        `jornada` ('AM'/'PM' o None si no se puede determinar) es la MITAD del día que está
+        comprometida por el favor. Hace falta porque en una DOBLADA (AM+PM) solo una de las dos
+        mitades viene del favor: la otra es jornada propia y se puede mover libremente. Sin este
+        dato el chequeo era a nivel de DÍA y bloqueaba también ceder la mitad propia.
         `excluir_id`: ignora esa solicitud (la PROPIA, al re-validarla o re-aplicarla).
         """
         from django.db.models import Q
@@ -307,6 +311,23 @@ class TurnoService(ITurnoService):
         # (el receptor); si estoy cubriendo su cesión, es quien me cedió el día (el solicitante).
         companero = s.explorador_receptor if es_pago else s.explorador_solicitante
         det = getattr(s, 'doblada', None)
+
+        # Mitad del día que ocupa el favor. Pagando: la jornada que se le cubre al acreedor
+        # (la elegida si el pago es en sábado, si no su jornada base). Cubriendo una cesión:
+        # la jornada cedida (o la base del cedente cuando la cesión fue completa).
+        def _base(emp):
+            asg = (AsignarJornadaExplorador.objects
+                   .filter(explorador=emp, fecha_inicio__lte=fecha)
+                   .select_related('jornada').order_by('-fecha_inicio').first())
+            return asg.jornada.nombre.upper() if asg and asg.jornada else None
+
+        if es_pago:
+            _jps = (getattr(det, 'jornada_pago_sabado', '') or '').upper()
+            jornada_favor = _jps if _jps in ('AM', 'PM') else _base(s.explorador_receptor)
+        else:
+            _jc = (getattr(det, 'jornada_cedida', '') or '').upper()
+            jornada_favor = _jc if _jc in ('AM', 'PM') else _base(s.explorador_solicitante)
+
         return {
             # `motivo` va en 2ª persona (para mensajes dirigidos al propio interesado) y
             # `motivo_3p` en 3ª (para mensajes que hablan DE esa persona a otro). Sin las dos
@@ -322,6 +343,7 @@ class TurnoService(ITurnoService):
             'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
             'fecha_cesion': s.fecha_cambio_turno,
             'fecha_pago': det.fecha_pago if det else None,
+            'jornada': jornada_favor,
         }
 
     @staticmethod

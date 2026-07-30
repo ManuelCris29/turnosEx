@@ -72,6 +72,29 @@ class DescansoPorSolicitudService:
 
         qini, qfin = ini - timedelta(days=2), fin + timedelta(days=2)
 
+        # GUARDA DE REALIDAD (L1 manda sobre L2): si ese día hay un Turno REAL, el empleado
+        # TRABAJA y no se reporta descanso, aunque una solicitud aprobada antigua diga que
+        # cedió/le pagan ese día. Al aplicar una doblada se BORRAN los turnos de quien queda
+        # libre (cedente en la cesión, acreedor en el pago), así que un turno presente solo
+        # puede venir de algo aprobado DESPUÉS: la última solicitud aprobada del día es la
+        # vigente. Sin esta guarda, un día ya "descansado" quedaba bloqueado para siempre —
+        # p. ej. te pagan una doblada el día X (descansas) y luego tomas la jornada de otro
+        # ese mismo día X como pago de otra doblada: trabajas de verdad y sí puedes cederla.
+        from turnos.models import Turno as _TurnoReal
+        con_turno_real = set(_TurnoReal.objects.filter(
+            explorador=empleado, fecha__range=(ini, fin)).values_list('fecha', flat=True))
+
+        # Un INTERCAMBIO de dobladas es SIEMPRE día completo por los dos lados: ambos tenían
+        # DOBLADA (AM+PM) y se cambian el día entero (`aplicar_intercambio` borra todos los turnos
+        # del día a cada uno). Su `tipo_cesion` es ruido heredado del formulario —puede llegar como
+        # parcial AM/PM— y si se lee, el día se toma por MEDIO y no se atribuye descanso: el día
+        # quedaba sin fila `Turno` y sin motivo, así que `estado_dia` caía al fallback de la jornada
+        # BASE y mostraba trabajando a quien tiene el día libre (arley 06/08/2026, mildrey 12/08).
+        def _full(det):
+            if det is None:
+                return False
+            return bool(getattr(det, 'es_intercambio', False))
+
         # ---------- DOBLADA / D FDS: el SOLICITANTE descansa en la cesión ----------
         # Día libre COMPLETO solo si cedió todo el día: cesión completa / D FDS, o AMBAS
         # medias jornadas (parciales AM y PM). Una sola parcial deja la otra jornada (L1).
@@ -86,13 +109,17 @@ class DescansoPorSolicitudService:
                 if not (ini <= d <= fin):
                     continue
                 e = ced.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
-                if tc == 'cesion_parcial_am':
+                if _full(det):
+                    e['full'] = True
+                elif tc == 'cesion_parcial_am':
                     e['parciales'].add('AM')
                 elif tc == 'cesion_parcial_pm':
                     e['parciales'].add('PM')
                 else:
                     e['full'] = True
         for d, e in ced.items():
+            if d in con_turno_real:
+                continue
             if e['full'] or {'AM', 'PM'} <= e['parciales']:
                 s = e['rep']
                 det = getattr(s, 'doblada', None)
@@ -108,27 +135,53 @@ class DescansoPorSolicitudService:
                 })
 
         # ---------- DOBLADA / D FDS: el RECEPTOR descansa en el pago ----------
+        # Cuánto pierde el ACREEDOR en la fecha de pago: 'FULL' o la mitad 'AM'/'PM'.
+        #
+        # OJO: NO lo dice `tipo_cesion`. Ese campo describe el día de la CESIÓN (cuánto cedió el
+        # deudor), no el de pago; leerlo aquí era un error de categoría. En una cesión parcial el
+        # acreedor igualmente queda LIBRE EL DÍA COMPLETO en el pago —`_aplicar_pago_cesion_parcial`
+        # le borra todos los turnos, porque el deudor cubre la única jornada que él trabajaba—, y
+        # al marcarlo como medio día no se atribuía descanso: sin fila `Turno` y sin motivo,
+        # `estado_dia` caía a la jornada BASE y lo mostraba trabajando (arley el 26/08/2026).
+        #
+        # El orden replica el de `DobladaPagoService.aplicar_doblada_pago`, que es quien decide:
+        #   1. sábado + jornada_pago_sabado: AMBAS → día completo; AM/PM → esa mitad (conserva la otra)
+        #   2. jornada_cubre_en_pago: AMBAS → día completo; AM/PM → esa mitad
+        #   3. resto (cesión parcial sin jcp, cesión completa, fallback) → día completo
+        # D FDS y los INTERCAMBIOS no usan esos campos: siempre liberan el día completo.
+        def _mitad_pago(det, tipo):
+            if det is None or tipo != 'DOBLADA' or getattr(det, 'es_intercambio', False):
+                return 'FULL'
+            fp = det.fecha_pago
+            jps = (getattr(det, 'jornada_pago_sabado', '') or '').strip().upper()
+            if fp and fp.weekday() == 5 and jps in ('AM', 'PM'):
+                return jps
+            jcp = (getattr(det, 'jornada_cubre_en_pago', '') or '').strip().upper()
+            if jcp in ('AM', 'PM'):
+                return jcp
+            return 'FULL'
+
         pago = {}
         for s in _exc(SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_receptor=empleado, doblada__fecha_pago__range=(qini, qfin))
-                .select_related('explorador_solicitante', 'doblada').order_by('-id')):
+                .select_related('explorador_solicitante', 'doblada', 'tipo_cambio').order_by('-id')):
             det = getattr(s, 'doblada', None)
             fp = det.fecha_pago if det else None
             if not fp:
                 continue
-            tc = det.tipo_cesion if det else None
+            mitad = _mitad_pago(det, s.tipo_cambio.nombre if s.tipo_cambio else '')
             for d in _dias_descanso(fp):
                 if not (ini <= d <= fin):
                     continue
                 e = pago.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
-                if tc == 'cesion_parcial_am':
-                    e['parciales'].add('AM')
-                elif tc == 'cesion_parcial_pm':
-                    e['parciales'].add('PM')
-                else:
+                if mitad == 'FULL':
                     e['full'] = True
+                else:
+                    e['parciales'].add(mitad)
         for d, e in pago.items():
+            if d in con_turno_real:
+                continue
             if e['full'] or {'AM', 'PM'} <= e['parciales']:
                 s = e['rep']
                 det = getattr(s, 'doblada', None)
@@ -142,6 +195,33 @@ class DescansoPorSolicitudService:
                     'fecha_solicitud': DateUtils.format_datetime_display(s.fecha_solicitud),
                     'fecha_aprobacion': DateUtils.format_datetime_display(s.fecha_resolucion),
                 })
+
+        # ---------- Pago en sábado AMBAS: el SOLICITANTE descansa el día de la devolución ----------
+        # `fecha_pago_semana` es un TERCER día que muta la doblada: el receptor dobla y el
+        # solicitante descansa la jornada que le devuelven (`aplicar_pago_residual_semana`). Entre
+        # semana esa es su única jornada, así que queda libre el día completo. No lo cubría ninguna
+        # de las dos ramas de arriba (que solo miran fecha de cesión y fecha de pago), así que era
+        # otro día sin fila `Turno` y sin motivo → `estado_dia` volvía a caer a la jornada base.
+        for s in _exc(SolicitudCambio.objects.filter(
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
+                explorador_solicitante=empleado,
+                doblada__fecha_pago_semana__range=(qini, qfin))
+                .select_related('explorador_receptor', 'doblada').order_by('-id')):
+            det = getattr(s, 'doblada', None)
+            fps = getattr(det, 'fecha_pago_semana', None) if det else None
+            if not fps or not (ini <= fps <= fin) or fps in con_turno_real:
+                continue
+            out.setdefault(fps, {
+                # Misma forma que un pago normal: a esta persona le devuelven la jornada.
+                'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
+                'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
+                'fecha_cesion': _fmt(s.fecha_cambio_turno),
+                'fecha_pago': _fmt(fps),
+                'tipo_cesion': det.get_tipo_cesion_display() if det else None,
+                'jornada_cedida': (det.jornada_cedida if det and det.jornada_cedida else None),
+                'fecha_solicitud': DateUtils.format_datetime_display(s.fecha_solicitud),
+                'fecha_aprobacion': DateUtils.format_datetime_display(s.fecha_resolucion),
+            })
 
         # ---------- CAMBIO DESCANSO (intercambio de día): fuente de verdad ----------
         for dcd in CambioDescansoAplicacionService.dias_en_descanso(empleado, ini, fin, excluir_id=excluir_id):
@@ -160,9 +240,6 @@ class DescansoPorSolicitudService:
         # específicas, solo en ESAS fechas; si no (legacy), por patrón de día de la semana.
         # Guarda: si ese día hay un Turno REAL (el empleado trabaja de verdad, p. ej. una
         # doblada), la realidad manda sobre el patrón recurrente y NO se reporta descanso.
-        from turnos.models import Turno as _Turno
-        con_turno_real = set(_Turno.objects.filter(
-            explorador=empleado, fecha__range=(ini, fin)).values_list('fecha', flat=True))
         festivos = set(DiaEspecial.objects.filter(
             fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True))
         for sp in _exc(SolicitudCambio.objects

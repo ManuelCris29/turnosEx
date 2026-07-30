@@ -192,8 +192,19 @@ class DobladaPermanenteAplicacionService:
         # excluyen de las ocurrencias; aquí cubrimos también el sábado.
         if not DeudaCorporativaService.aplica_deuda_doblada(fecha):
             return
-        # IDEMPOTENTE: un día doblado = UNA deuda de 30 min. Si `aplicar()` se ejecuta
-        # dos veces sobre la misma solicitud (reintento, re-aprobación), no se duplica.
+        # Los 30 min se deben por el HECHO de doblar, no por el tipo de solicitud: hay que
+        # confirmar contra el estado REAL del día, igual que hacen DOBLADA, D FDS y cambio de
+        # descanso. Antes se creaba a ciegas sobre las ocurrencias calculadas, así que una
+        # ocurrencia que no acabara en AM+PM (el explorador ya descansaba ese día por otra
+        # solicitud, o `_crear_doblada_dia` no pudo doblarlo) cobraba 30 min igualmente.
+        from turnos.services.turno_service import TurnoService
+        if TurnoService.obtener_jornada_display(explorador, fecha) != 'DOBLADA':
+            logger.info(
+                "Doblada permanente: sin deuda corporativa para %s en %s (%s): el día no quedó "
+                "DOBLADA.", explorador.nombre, fecha, etiqueta,
+            )
+            return
+        # IDEMPOTENTE: un día doblado = UNA deuda de 30 min, venga de la solicitud que venga.
         DeudaCorporativaService.crear_deuda_corporativa_idempotente(
             explorador=explorador,
             minutos=30,
@@ -278,6 +289,10 @@ class DobladaPermanenteAplicacionService:
             DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio='DOBLADA PERM')
             Turno.objects.filter(explorador=solicitante, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(receptor, fecha, solicitud, 'cesión')
+            # El solicitante pierde sus turnos ese día: si venía doblando, deja de doblar y sus
+            # 30 min de esa fecha ya no corresponden.
+            DeudaCorporativaService.sincronizar_deuda_corporativa(
+                solicitante, fecha, motivo=f'cede el día en la doblada permanente {solicitud.id}')
             n_ces += 1
 
         # Devolución: solicitante dobla, receptor descansa
@@ -285,6 +300,8 @@ class DobladaPermanenteAplicacionService:
             DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio='DOBLADA PERM')
             Turno.objects.filter(explorador=receptor, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(solicitante, fecha, solicitud, 'devolución')
+            DeudaCorporativaService.sincronizar_deuda_corporativa(
+                receptor, fecha, motivo=f'descansa en la doblada permanente {solicitud.id}')
             n_dev += 1
 
         DobladaPermanenteAplicacionService._deudas_entre_exploradores(
@@ -393,7 +410,7 @@ class DobladaPermanenteAplicacionService:
         - Cancela las deudas corporativas y los favores entre exploradores generados
           por la solicitud.
         """
-        from solicitudes.models import DeudaCorporativa, DeudaExplorador
+        from solicitudes.models import DeudaExplorador
         from .doblada_aplicacion_service import DobladaAplicacionService
 
         detalle = solicitud.doblada_permanente
@@ -412,7 +429,9 @@ class DobladaPermanenteAplicacionService:
                 for fecha in fechas:
                     Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio='DOBLADA PERM').delete()
 
-        DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.
+        DeudaCorporativaService.cancelar_deudas_de_solicitud(
+            solicitud, motivo='doblada permanente revertida')
         # Un acuerdo deshecho no es un favor: se cancelan igual que en D FDS y en la doblada
         # suelta, o quedarían para siempre en "Mis Favores" de ambos exploradores.
         DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')

@@ -21,6 +21,8 @@
 .badge-festivo { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
 .badge-finde   { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
 .badge-mant    { background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }
+/* Día de finde/festivo sin alternancia publicada: las columnas vacías NO son un descanso. */
+.badge-sinplan { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; margin-left: 6px; }
 
 /* Tres columnas AM / PM / Descanso */
 .rep-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
@@ -55,6 +57,7 @@
 .tag-doblada  { background: #ede9fe; color: #5b21b6; }
 .tag-permiso  { background: #dcfce7; color: #15803d; }
 .tag-motivo   { background: #f1f5f9; color: #475569; }
+.tag-sinplan  { background: #fee2e2; color: #991b1b; }
 
 .rep-empty { text-align: center; color: #94a3b8; font-size: .82rem; padding: 20px 0; }
 

@@ -417,6 +417,15 @@ class CambioDescansoAplicacionService:
         CambioDescansoAplicacionService._descansa_dia(solicitante, fecha_pago)
         CambioDescansoAplicacionService._trabaja_dia(receptor, fecha_pago)
 
+        # Los dos pasan a DESCANSAR un día que antes trabajaban: si en él venían doblando por otra
+        # solicitud, dejan de doblar y sus 30 min de esa fecha ya no corresponden. Este intercambio
+        # no genera deuda nueva (trabajar un día que tenías libre no la genera), así que aquí solo
+        # hay que apagar.
+        CambioDescansoAplicacionService._sincronizar_deuda_corp(
+            solicitante, fecha_pago, solicitud, 'pasa a descansar')
+        CambioDescansoAplicacionService._sincronizar_deuda_corp(
+            receptor, fecha_cesion, solicitud, 'pasa a descansar')
+
         logger.info("Cambio de descanso (entre semana) aplicado: solicitud %s — %s <-> %s",
                     solicitud.id, fecha_cesion, fecha_pago)
 
@@ -511,6 +520,18 @@ class CambioDescansoAplicacionService:
             logger.info("Deuda 30 min (temporada) para %s en %s", explorador.nombre, fecha)
 
     @staticmethod
+    def _sincronizar_deuda_corp(explorador, fecha, solicitud, que_hizo):
+        """
+        Espejo de `_deuda_30_si_doblo`: cancela los 30 min de `fecha` si el explorador DEJÓ de
+        doblar por esta solicitud. Los 30 min los debe quien realmente dobla, así que perder una
+        de las dos mitades del día los extingue. Sin esto la deuda vieja seguía activa sumando en
+        el Consolidado de Horas aunque el día ya no fuera DOBLADA.
+        """
+        from .deuda_corporativa_service import DeudaCorporativaService
+        DeudaCorporativaService.sincronizar_deuda_corporativa(
+            explorador, fecha, motivo=f'{que_hizo} en el cambio de descanso {solicitud.id}')
+
+    @staticmethod
     def _snapshot_idempotente(detalle, solicitante, receptor, fechas):
         if not getattr(detalle, 'snapshot_turnos_previos', None):
             snap = CambioDescansoAplicacionService._capturar_snapshot(solicitante, receptor, fechas)
@@ -600,6 +621,13 @@ class CambioDescansoAplicacionService:
             solicitante, fp, deuda_pre_sol_fp, post_sol_fp, solicitud,
             f'Cobertura temporada: pagó jornada(s) el {fp} teniendo jornada propia')
 
+        # Contrapartida: los dos que PIERDEN jornadas (el solicitante en `fc`, el receptor en `fp`)
+        # pueden dejar de doblar. Si venían con 30 min de esa fecha, ya no corresponden.
+        CambioDescansoAplicacionService._sincronizar_deuda_corp(
+            solicitante, fc, solicitud, 'cede jornada(s)')
+        CambioDescansoAplicacionService._sincronizar_deuda_corp(
+            receptor, fp, solicitud, 'recibe cobertura')
+
         logger.info("Cobertura misma semana aplicada: solicitud %s — cede %s en %s, paga en %s",
                     solicitud.id, sorted(cedidas), fc, fp)
 
@@ -628,6 +656,10 @@ class CambioDescansoAplicacionService:
         CambioDescansoAplicacionService._trabaja_dia(receptor, fc)
         CambioDescansoAplicacionService._descansa_dia(solicitante, fc)
 
+        # A PROPÓSITO no se sincroniza la deuda corporativa aquí. Es un swap: cada uno sigue
+        # doblando UN día de la semana, solo cambia cuál. Cancelar los 30 min del día que sueltan
+        # los borraría sin crear los del día nuevo (esta modalidad no genera deuda), y acabarían
+        # doblando gratis. La deuda se queda con su dueño, que es lo correcto en importe.
         logger.info("Cambio de doblada aplicado: solicitud %s — %s toma %s, %s toma %s",
                     solicitud.id, solicitante.nombre, fp, receptor.nombre, fc)
 
@@ -639,7 +671,6 @@ class CambioDescansoAplicacionService:
         corporativas generadas por esta solicitud (cobertura misma semana).
         """
         from .doblada_aplicacion_service import DobladaAplicacionService
-        from solicitudes.models import DeudaCorporativa
         detalle = solicitud.doblada
         snap = getattr(detalle, 'snapshot_turnos_previos', None)
         if snap:
@@ -659,7 +690,9 @@ class CambioDescansoAplicacionService:
                     "Cambio de descanso %s sin snapshot: turnos 'CAMBIO DESCANSO' borrados en %s.",
                     solicitud.id, fechas,
                 )
-        DeudaCorporativa.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
+        # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.
+        from .deuda_corporativa_service import DeudaCorporativaService as _DCS
+        _DCS.cancelar_deudas_de_solicitud(solicitud, motivo='cambio de descanso revertido')
         # Patrón #22: restaurar el snapshot arrasa el día entero. Reconstruir lo que SIGUE
         # vigente en esas fechas (otra doblada, un CT, un CT permanente…) o se borra en silencio.
         if snap:

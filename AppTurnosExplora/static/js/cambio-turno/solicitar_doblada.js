@@ -80,7 +80,16 @@
     let flatpickrPago = null;
     let tieneDobladaExistente = false;
     let jornadasDobladaExistente = [];
-    let fechaCreacionSolicitud = new Date().toISOString().split('T')[0]; // Fecha de hoy
+    // Fecha de hoy en hora LOCAL. Con `toISOString()` (UTC) se adelantaba un día a partir de las
+    // 19:00 en Colombia (UTC-5), y como esta fecha se compara contra la fecha de pago elegida
+    // (`fecha <= fechaCreacionSolicitud` → se rechaza), cada noche el formulario rechazaba MAÑANA
+    // como fecha de pago aunque el backend la aceptaba.
+    let fechaCreacionSolicitud = (function () {
+        const d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    })();
     let fechasDescanso = []; // Fechas donde el usuario está descansando
     // Indica si el solicitante está descansando en la FECHA DE CESIÓN (según VerificarDobladaExistenteView)
     let solicitanteDescansaCesion = false;
@@ -793,7 +802,10 @@
             return;
         }
         
-        const fechaMinima = fechaCesionInput.getAttribute('data-min-date') || new Date().toISOString().split('T')[0];
+        // Respaldo = MAÑANA: ceder el día en curso lo rechaza el backend, así que el calendario
+        // tampoco debe ofrecerlo si faltara el atributo de la vista.
+        const fechaMinima = fechaCesionInput.getAttribute('data-min-date')
+            || window.DatepickerFestivos.fechaMinimaPorDefecto();
         
         // Cargar fechas de descanso antes de inicializar
         cargarFechasDescanso();
@@ -898,7 +910,8 @@
             return;
         }
         
-        const fechaMinima = fechaPagoInput.getAttribute('data-min-date') || new Date().toISOString().split('T')[0];
+        const fechaMinima = fechaPagoInput.getAttribute('data-min-date')
+            || window.DatepickerFestivos.fechaMinimaPorDefecto();
         
         window.DatepickerFestivos.inicializar({
             input: fechaPagoInput,

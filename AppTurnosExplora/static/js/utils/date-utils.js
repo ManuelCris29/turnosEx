@@ -75,11 +75,20 @@ class DateUtils {
   }
 
   /**
-   * Obtiene la fecha de hoy en formato YYYY-MM-DD
+   * Obtiene la fecha de hoy en formato YYYY-MM-DD, en hora LOCAL.
+   *
+   * No usa `toISOString()`: eso devuelve la fecha en UTC, y en Colombia (UTC-5) a partir de las
+   * 19:00 ya es el día siguiente. Un "hoy" adelantado rompe cualquier comparación contra fechas
+   * que el usuario elige en el calendario (que sí son locales) y contra el `timezone.localdate()`
+   * del backend.
+   *
    * @returns {string} Fecha de hoy
    */
   static getToday() {
-    return new Date().toISOString().split('T')[0];
+    const d = new Date();
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
   }
 
   /**

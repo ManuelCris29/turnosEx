@@ -748,6 +748,24 @@ function marcarTemporadaEnCalendario(instance, temporadaMap) {
  * @param {Object} [config.flatpickrOptions] - Opciones adicionales para Flatpickr
  * @returns {Promise<Object>} Promise que resuelve con la instancia de Flatpickr
  */
+/**
+ * Fecha mínima por defecto de los formularios de solicitud: MAÑANA, en hora local.
+ *
+ * Se usa solo como respaldo cuando falta el atributo `data-min-date` que pone la vista. Dos motivos
+ * para que sea esta y no `new Date().toISOString()`:
+ *   1. Casi todos los formularios rechazan el día EN CURSO en el backend, así que ofrecer hoy
+ *      llevaba a llenar el formulario entero para chocar con el error al enviarlo.
+ *   2. `toISOString()` devuelve la fecha en UTC. En Colombia (UTC-5) eso ya es el día siguiente a
+ *      partir de las 19:00, así que el "hoy" del respaldo saltaba un día cada tarde.
+ */
+function fechaMinimaPorDefecto() {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0');
+}
+
 function inicializarDatepickerFestivos(config) {
     const {
         input,
@@ -769,7 +787,7 @@ function inicializarDatepickerFestivos(config) {
     }
     
     // Obtener fecha mínima del atributo data o del parámetro
-    const fechaMinima = minDate || input.getAttribute('data-min-date') || new Date().toISOString().split('T')[0];
+    const fechaMinima = minDate || input.getAttribute('data-min-date') || fechaMinimaPorDefecto();
     
     // Obtener año para cargar temporadas
     const añoActual = new Date().getFullYear();
@@ -1062,6 +1080,7 @@ function inicializarDatepickerFestivos(config) {
 // pero con prefijo para evitar conflictos
 window.DatepickerFestivos = {
     inicializar: inicializarDatepickerFestivos,
+    fechaMinimaPorDefecto: fechaMinimaPorDefecto,
     cargarDiasFestivos: cargarDiasFestivos,
     cargarDiasMantenimiento: cargarDiasMantenimiento,
     cargarDiasTemporada: cargarDiasTemporada,
