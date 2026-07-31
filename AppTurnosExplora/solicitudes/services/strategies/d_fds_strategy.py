@@ -331,6 +331,10 @@ class DFDSStrategy(SolicitudStrategy):
                 DFDSAplicacionService.aplicar(solicitud, detalle)
                 DFDSAplicacionService.generar_deudas(solicitud, detalle)
 
+                # Estado RESULTANTE: lo que esta D FDS deja en esas fechas. Al cancelar se
+                # compara contra los turnos actuales para no pisar un cambio ajeno posterior.
+                DobladaAplicacionService.capturar_snapshot_resultante(detalle)
+
                 if info_cobertura:
                     self._avisar_traspaso_cobertura(solicitud, info_cobertura)
 

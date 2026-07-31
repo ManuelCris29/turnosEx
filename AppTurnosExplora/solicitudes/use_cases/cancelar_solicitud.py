@@ -176,6 +176,10 @@ class CancelarSolicitudUseCase:
                 if bloqueo:
                     return False, bloqueo
 
+                bloqueo = self.bloqueo_integridad(solicitud)
+                if bloqueo:
+                    return False, bloqueo
+
                 self._revertir_por_tipo(solicitud)
                 try:
                     solicitud.refresh_from_db(fields=['turno_origen', 'turno_destino'])
@@ -209,6 +213,10 @@ class CancelarSolicitudUseCase:
             )
 
         bloqueo = self.bloqueo_lifo(solicitud)
+        if bloqueo:
+            return False, bloqueo
+
+        bloqueo = self.bloqueo_integridad(solicitud)
         if bloqueo:
             return False, bloqueo
 
@@ -266,6 +274,111 @@ class CancelarSolicitudUseCase:
                     f'día ({fmt}). Cancela primero el cambio más reciente.'
                 )
         return None
+
+    def bloqueo_integridad(self, solicitud) -> str | None:
+        """
+        Guardia de integridad: motivo por el que revertir PISARÍA un cambio ajeno, o None.
+
+        Revertir consiste en restaurar `snapshot_turnos_previos`, y eso sólo es correcto si
+        NADIE tocó esos días desde que se aprobó. La guardia LIFO no basta: sólo mira otras
+        `SolicitudCambio` aprobadas después. No ve los permisos especiales, ni las
+        reprogramaciones de doblada, ni las ediciones manuales/admin.
+
+        Caso real que lo motivó: A y B hacen un CT. Antes de que A cancele, B cambia su turno
+        por otra vía. Si A cancela, la restauración escribe sobre B el turno viejo del
+        snapshot —que B ya no tiene— y quedan dos jornadas en conflicto.
+
+        Por eso se compara el estado ACTUAL contra `snapshot_turnos_resultantes` (lo que esta
+        solicitud dejó). Cualquier discrepancia, venga de donde venga, se detecta.
+
+        Cuando bloquea, la solicitud sigue APROBADA y vigente: no hay forzar (ni el explorador
+        ni el supervisor), porque forzar reintroduce exactamente el conflicto que se evita. La
+        salida es solicitar un cambio de turno NUEVO, y el mensaje lo dice.
+        """
+        import logging
+        from datetime import date as _date
+        from turnos.models import Turno
+
+        resultante = (
+            getattr(solicitud, 'snapshot_turnos_resultantes', None)
+            or getattr(getattr(solicitud, 'doblada', None), 'snapshot_turnos_resultantes', None)
+            or getattr(getattr(solicitud, 'doblada_permanente', None), 'snapshot_turnos_resultantes', None)
+            or {}
+        )
+        if not resultante:
+            # Solicitud anterior a este mecanismo, o tipo al que no se le cableó la captura.
+            # NO se bloquea: hacerlo volvería incancelable todo lo preexistente. Se queda con
+            # las guardias antiguas (LIFO + fechas ya cumplidas).
+            #
+            # Es lo contrario del fallback de `_pares_afectados`, que falla CERRADO: allí
+            # sobre-estimar no cuesta nada (bloquea de más), aquí sobre-estimar significaría
+            # bloquear cancelaciones legítimas en masa.
+            logging.getLogger(__name__).warning(
+                'Cancelación de solicitud %s sin snapshot resultante: se omite la guardia de '
+                'integridad.', solicitud.id,
+            )
+            return None
+
+        conflictos = {}
+        for clave, filas in resultante.items():
+            try:
+                emp_str, fecha_str = clave.split(':', 1)
+                emp_id = int(emp_str)
+                fecha = _date.fromisoformat(fecha_str)
+            except (ValueError, TypeError, AttributeError):
+                continue
+
+            esperado = {self._huella_fila(f) for f in (filas or [])}
+            actual = {
+                self._huella_turno(t)
+                for t in Turno.objects.filter(explorador_id=emp_id, fecha=fecha)
+                                      .select_related('jornada')
+            }
+            if esperado != actual:
+                conflictos.setdefault(emp_id, set()).add(fecha)
+
+        if not conflictos:
+            return None
+        return self._mensaje_conflicto(solicitud, conflictos)
+
+    @staticmethod
+    def _huella_fila(fila: dict) -> tuple:
+        """Identidad comparable de una fila de snapshot."""
+        return (
+            str(fila.get('jornada_nombre') or '').upper(),
+            fila.get('sala_id'),
+            fila.get('tipo_cambio') or '',
+        )
+
+    @staticmethod
+    def _huella_turno(turno) -> tuple:
+        """Misma identidad, leída de un Turno real. Debe casar con `_huella_fila`."""
+        return (
+            turno.jornada.nombre.upper(),
+            turno.sala_id,
+            turno.tipo_cambio or '',
+        )
+
+    @staticmethod
+    def _mensaje_conflicto(solicitud, conflictos: dict) -> str:
+        """Mensaje de bloqueo: quién, qué días, y cuál es la salida."""
+        from empleados.models import Empleado
+
+        nombres = {
+            e.id: f"{e.nombre} {e.apellido}".strip()
+            for e in Empleado.objects.filter(id__in=conflictos.keys())
+        }
+        partes = []
+        for emp_id, fechas in sorted(conflictos.items()):
+            dias = ', '.join(f.strftime('%d/%m') for f in sorted(fechas))
+            partes.append(f"{nombres.get(emp_id, f'explorador {emp_id}')} ({dias})")
+        detalle = '; '.join(partes)
+        return (
+            f'No se puede cancelar: el turno de {detalle} ya fue modificado por otro cambio '
+            f'posterior a esta aprobación. Cancelar ahora dejaría un conflicto de jornadas, '
+            f'así que esta solicitud se mantiene vigente. Si necesitas volver a tu turno '
+            f'original, solicita un nuevo cambio de turno.'
+        )
 
     @classmethod
     def fechas_afectadas(cls, solicitud) -> list:

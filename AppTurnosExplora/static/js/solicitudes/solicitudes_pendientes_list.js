@@ -2,6 +2,31 @@
 let accionActual = null;
 let rolActual = null;
 
+/**
+ * Muestra por qué falló una cancelación. (Gemela de la de `mis_solicitudes_list.js`: las dos
+ * pantallas golpean el MISMO endpoint, así que el bloqueo debe leerse igual en ambas.)
+ *
+ * Dos cosas que no eran obvias:
+ * - `json_error` responde el motivo en `error`, NO en `message`. Leer solo `message` dejaba
+ *   `undefined` y el motivo real (guardia LIFO, ventana expirada, conflicto de jornadas)
+ *   nunca llegaba al usuario.
+ * - Los bloqueos por guardia explican qué pasó y qué hacer a continuación. No son un "Error"
+ *   y no pueden autocerrarse por temporizador antes de que dé tiempo a leerlos.
+ */
+function mostrarErrorCancelacion(data, textoPorDefecto) {
+    const esGuardia = data.code === 'conflicto_integridad'
+                   || data.code === 'cambio_mas_reciente'
+                   || data.code === 'ventana_expirada';
+    Swal.fire({
+        icon: esGuardia ? 'warning' : 'error',
+        title: esGuardia ? 'No se puede cancelar' : 'Error',
+        text: data.error || data.message || textoPorDefecto,
+        timer: esGuardia ? undefined : 4000,
+        timerProgressBar: !esGuardia,
+        showConfirmButton: true
+    });
+}
+
 function aprobarSolicitudReceptor(solicitudId) {
     solicitudActual = solicitudId;
     accionActual = 'aprobar';
@@ -136,14 +161,7 @@ function cancelarSolicitud(solicitudId) {
                         location.reload();
                     });
                 } else {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: data.message,
-                        timer: 4000,
-                        timerProgressBar: true,
-                        showConfirmButton: false
-                    });
+                    mostrarErrorCancelacion(data, 'Error al cancelar la solicitud');
                 }
             })
             .catch(error => {

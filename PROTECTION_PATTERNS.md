@@ -1001,6 +1001,77 @@ alimenta Mis Turnos, el calendario, los reportes y las validaciones.
 
 ---
 
+### 30. **Un snapshot solo vale si NADIE tocó el día** (Backend)
+**Qué es:** Restaurar un snapshot no es una operación segura por sí sola. Solo es correcta si el
+estado actual sigue siendo el que dejó la solicitud. Por eso se guarda **también el estado
+RESULTANTE** (lo que la solicitud dejó), y antes de revertir se compara contra la realidad.
+
+**Por qué:** El patrón #13 guarda el estado PREVIO para poder deshacer. Pero deshacer asume algo
+que nadie estaba comprobando: que entre la aprobación y la cancelación **nadie tocó esos días**.
+
+El caso real: A y B hacen un CAMBIO TURNO. Antes de que A cancele, **B modifica su turno por otra
+vía** (un permiso especial, una reprogramación, un ajuste manual). Si A cancela,
+`restaurar_turnos_desde_snapshot` **borra todo el día de B y escribe el turno viejo del snapshot**
+— que B ya no tiene. Resultado: conflicto de jornadas, y el cambio de B desaparecido sin rastro.
+
+**La guardia LIFO (#25) no lo cubre, y es importante entender por qué.** Hace dos cosas que aquí
+se quedan cortas:
+1. Solo consulta `SolicitudCambio` aprobadas después. **No ve** `PermisoEspecial`, ni
+   `ReprogramacionDiaDoblada`, ni el admin de Django, ni un script.
+2. Compara **pares `persona:fecha`**, nunca el CONTENIDO del turno.
+
+Comparar contenido cubre por construcción cualquier origen, incluidos los que aún no existen: no
+hay que enseñarle una fuente nueva cada vez que aparece una.
+
+**Dónde:** cualquier revert que restaure un estado guardado.
+
+**Implementación:**
+```python
+# Al aplicar: guardar TAMBIÉN lo que se deja (mismo serializador que el previo, o divergen)
+DobladaSnapshotService.capturar_snapshot_resultante(detalle)
+
+# Al cancelar: ¿sigue siendo mío lo que hay ahí?
+if esperado != actual:      # tuplas (jornada, sala, tipo_cambio), por conjuntos
+    return 'No se puede cancelar: el turno de {quién} ({día}) ya fue modificado…'
+```
+
+Tres decisiones que no son obvias:
+
+- **Un solo serializador.** Previo y resultante comparten `serializar_pares()`. Si divergieran, la
+  comparación daría conflictos donde no los hay y bloquearía cancelaciones legítimas.
+- **El resultante se REESCRIBE, el previo no.** El previo es snapshot-once (#13). El resultante se
+  refresca tras cada aplicación **y tras la reconciliación** (`refrescar_resultantes`), que
+  reescribe turnos de solicitudes ajenas: sin ese refresco quedarían marcadas como "tocadas por
+  otro" y no se podrían cancelar.
+- **Aquí el fallback va ABIERTO, al revés que el #25.** Sin resultante no se bloquea (solo se
+  registra un warning). No es una excepción caprichosa: en el #25 sobre-estimar no cuesta nada
+  (bloquea de más y el usuario cancela primero el reciente), pero aquí sobre-estimar volvería
+  incancelable de golpe todo lo anterior al mecanismo. **La dirección en que falla una guardia se
+  elige por su coste, no por costumbre.**
+
+**Y no existe "forzar".** Ni el explorador ni el supervisor desde Gestión. Un bypass reintroduce
+exactamente el conflicto que la guardia evita, así que la solicitud se queda **aprobada y
+vigente** y el mensaje señala la salida real: **solicitar un cambio de turno nuevo**. Una guardia
+sin escapatoria necesita decir qué hacer a continuación, o el usuario la vive como un bloqueo.
+
+**Estado:** ✅ **APLICADO** (30/07/2026)
+- Modelos: `snapshot_turnos_resultantes` en `SolicitudCambio`, `DobladaDetalle`,
+  `DobladaPermanenteDetalle` (migración `0031`)
+- `doblada_snapshot_service.py` - `serializar_pares()`, `capturar_snapshot_resultante()`,
+  `refrescar_resultantes()`
+- `cancelar_solicitud.py` - `bloqueo_integridad()`, tras `bloqueo_lifo()` en **los dos** caminos
+  (explorador y supervisor)
+- Captura cableada en los 6 tipos; `test_cancelacion_integridad.py` lo verifica por inspección
+  (si un tipo nuevo no la cablea, la guardia cae al fallback abierto **en silencio**)
+- `reprogramacion_doblada_service._restaurar_turno_previo` - no recrea si esa jornada ya está
+  puesta por otra vía (violaría `turno_unico_activo_por_jornada` y tumbaría la cancelación)
+- El patrón hermano en `permisos`: `PermisoMediaJornadaService.puede_revertir_limpio` — de ahí
+  salió la idea
+- De paso: el JS de cancelación leía `data.message`, pero `json_error` responde en `data.error`.
+  **Ningún** motivo de bloqueo llegaba al usuario (tampoco el de LIFO): se veía el texto genérico.
+
+---
+
 ## 📊 Matriz Completa de Patrones por Flujo
 
 | Flujo | Button Disable | Select-For-Update | Snapshot Guard | Swal Modal | Form Disable | Cache Invalid. | Validación | Autorización | Logging | Notificaciones | Transacción Atómica |

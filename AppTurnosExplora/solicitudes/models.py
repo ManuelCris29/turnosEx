@@ -113,6 +113,14 @@ class SolicitudCambio(models.Model):
             '{jornada_nombre, sala_id, tipo_cambio}. Permite revertir al cancelar dentro de los 30 min.'
         )
     )
+    snapshot_turnos_resultantes = models.JSONField(
+        null=True, blank=True,
+        help_text=(
+            'Turnos que este cambio DEJÓ en las mismas fechas, mismo formato que '
+            'snapshot_turnos_previos. Al cancelar se compara contra los turnos actuales: si no '
+            'coinciden, alguien más tocó esos días y revertir pisaría su cambio.'
+        )
+    )
     historial = HistoricalRecords()
 
     class Meta:
@@ -361,6 +369,12 @@ class DobladaDetalle(models.Model):
         'Clave "explorador_id:YYYY-MM-DD", valor lista de {jornada_nombre, sala_id, tipo_cambio}. '
         'Permite revertir la cancelación en 30 min restaurando CT sencillos u otros turnos previos.'
     )
+    snapshot_turnos_resultantes = models.JSONField(
+        null=True, blank=True,
+        help_text='Turnos que la doblada DEJÓ en esas mismas fechas, mismo formato que '
+        'snapshot_turnos_previos. Al cancelar se compara contra los turnos actuales: si no '
+        'coinciden, alguien más tocó esos días y revertir pisaría su cambio.'
+    )
     empleado_receptor = models.ForeignKey(
         Empleado,
         on_delete=models.CASCADE,
@@ -429,6 +443,12 @@ class DobladaPermanenteDetalle(models.Model):
         null=True, blank=True,
         help_text='Turnos de solicitante/receptor en las fechas afectadas ANTES de aplicar la doblada '
                   'permanente. Permite revertir al cancelar dentro de los 30 min.'
+    )
+    snapshot_turnos_resultantes = models.JSONField(
+        null=True, blank=True,
+        help_text='Turnos que la doblada permanente DEJÓ en esas mismas fechas, mismo formato que '
+                  'snapshot_turnos_previos. Al cancelar se compara contra los turnos actuales: si '
+                  'no coinciden, alguien más tocó esos días y revertir pisaría su cambio.'
     )
     historial = HistoricalRecords()
 

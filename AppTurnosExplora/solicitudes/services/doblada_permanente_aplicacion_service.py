@@ -307,6 +307,11 @@ class DobladaPermanenteAplicacionService:
         DobladaPermanenteAplicacionService._deudas_entre_exploradores(
             solicitud, solicitante, receptor, ocur_ces, ocur_dev, jornadas_cedidas)
 
+        # Estado RESULTANTE: lo que esta doblada permanente deja en esas fechas. Al cancelar se
+        # compara contra los turnos actuales para no pisar un cambio ajeno posterior.
+        from .doblada_snapshot_service import DobladaSnapshotService
+        DobladaSnapshotService.capturar_snapshot_resultante(detalle)
+
         logger.info(
             "Doblada permanente aplicada: solicitud %s — %s ocurrencias cesión (receptor dobla), "
             "%s ocurrencias devolución (solicitante dobla)",

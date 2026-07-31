@@ -1,4 +1,28 @@
-﻿function verDetalleSolicitud(solicitudId) {
+﻿/**
+ * Muestra por qué falló una cancelación.
+ *
+ * Dos cosas que no eran obvias:
+ * - `json_error` responde el motivo en `error`, NO en `message`. Leer solo `message` dejaba
+ *   `undefined` y siempre se veía el texto genérico: el motivo real (guardia LIFO, ventana
+ *   expirada, conflicto de jornadas) nunca llegaba al usuario.
+ * - Los bloqueos por guardia explican qué pasó y qué hacer a continuación. No son un "Error"
+ *   y no pueden autocerrarse por temporizador antes de que dé tiempo a leerlos.
+ */
+function mostrarErrorCancelacion(data, textoPorDefecto) {
+    const esGuardia = data.code === 'conflicto_integridad'
+                   || data.code === 'cambio_mas_reciente'
+                   || data.code === 'ventana_expirada';
+    Swal.fire({
+        icon: esGuardia ? 'warning' : 'error',
+        title: esGuardia ? 'No se puede cancelar' : 'Error',
+        text: data.error || data.message || textoPorDefecto,
+        timer: esGuardia ? undefined : 4000,
+        timerProgressBar: !esGuardia,
+        showConfirmButton: true
+    });
+}
+
+function verDetalleSolicitud(solicitudId) {
     // Mostrar modal con loading
     const modalContent = document.getElementById('detalleSolicitudContent');
     modalContent.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"><span class="sr-only">Cargando...</span></div><p class="mt-3">Cargando detalles de la solicitud...</p></div>';
@@ -516,14 +540,7 @@ function cancelarSolicitud(solicitudId) {
                         location.reload();
                     });
                 } else {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: data.message || 'Error al cancelar la solicitud',
-                        timer: 4000,
-                        timerProgressBar: true,
-                        showConfirmButton: false
-                    });
+                    mostrarErrorCancelacion(data, 'Error al cancelar la solicitud');
                 }
             })
             .catch(error => {
@@ -601,14 +618,7 @@ function cancelarSolicitudAprobada(solicitudId, fechaResolucionIso) {
                         toast: true
                     }).then(() => { location.reload(); });
                 } else {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Error',
-                        text: data.message || 'No se pudo cancelar la solicitud.',
-                        timer: 5000,
-                        timerProgressBar: true,
-                        showConfirmButton: true
-                    });
+                    mostrarErrorCancelacion(data, 'No se pudo cancelar la solicitud.');
                 }
             })
             .catch(() => {

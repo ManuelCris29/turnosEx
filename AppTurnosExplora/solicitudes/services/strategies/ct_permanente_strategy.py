@@ -512,6 +512,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
             solicitud.snapshot_turnos_previos = snapshot_previos
             solicitud.save(update_fields=['turno_origen', 'turno_destino', 'snapshot_turnos_previos'])
 
+            # Estado RESULTANTE: lo que este cambio permanente deja en esas fechas. Al cancelar
+            # se compara contra los turnos actuales para no pisar un cambio ajeno posterior.
+            from ..doblada_snapshot_service import DobladaSnapshotService
+            DobladaSnapshotService.capturar_snapshot_resultante(solicitud, snapshot_previos)
+
             # Invalidar caché de todos los meses realmente afectados.
             from core.services.cache_service import CacheService
             meses_afectados = {(f.year, f.month) for f in fechas_aplicables}
@@ -570,11 +575,17 @@ class CTPermanenteStrategy(SolicitudStrategy):
             if not fechas_a_evaluar:
                 return []
             
-            # 2. Obtener todos los empleados activos (candidatos base)
+            # 2. Candidatos base: TODOS los activos no administradores.
+            #
+            # NO se le pasa `fecha_inicio`: en este modo el servicio IGNORA la fecha (ver su
+            # docstring), así que pasársela sugería un filtro de disponibilidad por día que no
+            # existe. La disponibilidad REAL se evalúa más abajo, fecha a fecha, con
+            # `_razones_exclusion_ct_permanente`.
+            #
+            # El `usuario_actual` sí se pasa: el servicio acepta un Empleado y lo excluye él mismo
+            # (antes se pasaba None "porque espera un User", pero eso dejó de ser cierto).
             servicio_disp = get_empleado_disponibilidad_service()
-            # IMPORTANTE: El servicio espera un User (con atributo empleado), pero recibimos un Empleado
-            # Por lo tanto, pasamos None y filtramos manualmente después
-            candidatos_base = servicio_disp.get_empleados_disponibles(fecha_inicio_str, None)
+            candidatos_base = servicio_disp.get_empleados_disponibles(None, usuario_actual)
             
             # Asegurar que el usuario actual no esté en la lista
             # Convertir a lista si es QuerySet para manejar ambos casos de forma consistente

@@ -65,6 +65,8 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                     return json_error(msg, status=403, code='forbidden')
                 if 'más reciente' in msg:
                     return json_error(msg, status=400, code='cambio_mas_reciente')
+                if 'conflicto de jornadas' in msg:
+                    return json_error(msg, status=400, code='conflicto_integridad')
                 if 'minutos' in msg and 'ventana' not in msg.lower():
                     return json_error(msg, status=400, code='ventana_expirada')
                 return json_error(msg, status=400, code='invalid_state')

@@ -327,6 +327,16 @@ class ReprogramacionDobladaService:
         except Jornada.DoesNotExist:
             logger.warning("No se pudo restaurar el turno previo (jornada %s inexistente)", jornada_previa)
             return
+        # Entre programar y cancelar, otra vía (un CT, un permiso, un ajuste manual) pudo darle
+        # ya esa jornada ese día. Crearla otra vez violaría `turno_unico_activo_por_jornada` y
+        # reventaría la cancelación entera; y aunque no reventara, estaríamos pisando el turno
+        # que esa otra vía dejó puesto. Si ya está, no hay nada que restaurar.
+        if Turno.objects.filter(explorador=reprog.explorador, fecha=fecha, jornada=jornada).exists():
+            logger.info(
+                "Turno previo (%s) NO restaurado para %s el %s: ya tiene esa jornada por otra vía.",
+                jornada_previa, reprog.explorador, fecha,
+            )
+            return
         sala = DobladaTurnoService.obtener_sala_explorador_fecha(reprog.explorador, fecha)
         Turno.objects.create(
             explorador=reprog.explorador, fecha=fecha, jornada=jornada, sala=sala, tipo_cambio=None,

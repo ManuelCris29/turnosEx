@@ -769,6 +769,13 @@ class CambioDescansoStrategy(SolicitudStrategy):
                     else:
                         CambioDescansoAplicacionService.aplicar_entre_semana(solicitud, detalle)
 
+                # Estado RESULTANTE: lo que este cambio de descanso deja en esas fechas. Al
+                # cancelar se compara contra los turnos actuales para no pisar un cambio ajeno
+                # posterior. Va aquí (tras el dispatch) porque cada sub-flujo captura su propio
+                # snapshot previo con fechas distintas.
+                from ..doblada_snapshot_service import DobladaSnapshotService
+                DobladaSnapshotService.capturar_snapshot_resultante(detalle)
+
             for fecha in CambioDescansoAplicacionService.fechas_afectadas(solicitud):
                 CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
                 CacheService.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)

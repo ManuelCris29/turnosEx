@@ -619,9 +619,29 @@ limita al explorador— pero sí las guardas que protegen los datos. La lógica 
 | **Aprobada, todos los días ya pasaron** | Cancela **sin revertir**: la gente ya trabajó esos días y borrar sus turnos sería reescribir el historial. |
 | **Aprobada, cumplida a medias** | **Bloquea.** Revertir borraría lo ya trabajado y no revertir dejaría el horario descuadrado. El mensaje nombra los días cumplidos y los pendientes, y remite a "Reprogramar" en las dobladas. |
 
-Además se aplica la **guardia LIFO** (`bloqueo_lifo`, compartida con la cancelación del
-explorador): si hay un cambio aprobado más reciente sobre alguno de esos días, revertir este
-pisaría aquel, así que se deshace en orden inverso.
+Además se aplican dos guardias, ambas compartidas con la cancelación del explorador:
+
+**1. Guardia LIFO** (`bloqueo_lifo`). Si hay un cambio aprobado más reciente sobre alguno de esos
+días, revertir este pisaría aquel, así que se deshace en orden inverso.
+
+**2. Guardia de integridad** (`bloqueo_integridad`). Revertir restaura el turno de *antes*, y eso
+solo es correcto si **nadie tocó esos días** desde la aprobación. La guardia LIFO no basta: solo
+mira otras solicitudes, así que no ve los permisos especiales, ni las reprogramaciones, ni los
+ajustes manuales.
+
+El caso típico: A y B hacen un cambio de turno; antes de que A cancele, **B cambia su turno por
+otra vía**. Si A cancelara, se le escribiría a B el turno viejo —que ya no tiene— y quedarían dos
+jornadas en conflicto. Por eso se compara el estado actual contra `snapshot_turnos_resultantes`
+(lo que la solicitud dejó) y, si no coincide, **se bloquea**.
+
+> **No se puede forzar** — tampoco desde gestión: forzar reintroduce exactamente el conflicto que
+> se evita. La solicitud **sigue aprobada y vigente**, y la salida es que el explorador **solicite
+> un cambio de turno nuevo** con alguien que le devuelva la jornada que quiere. El mensaje nombra
+> a la persona y los días en conflicto, y lo dice.
+
+Las solicitudes anteriores a este mecanismo no tienen estado resultante guardado: en ese caso la
+guardia **no bloquea** (se queda con las guardias antiguas) y deja un aviso en el log. Bloquear
+ahí las volvería incancelables en bloque.
 
 **Eliminar** hace lo mismo antes de borrar la fila: revierte con idénticas guardas y solo
 entonces elimina. Sin eso, borrar una solicitud aplicada dejaba los turnos puestos y sin ningún

@@ -46,9 +46,28 @@ class DobladaSnapshotService:
             for fecha in dict.fromkeys(f for f in fechas if f)
             for emp_id in (solicitante.id, receptor.id)
         ]
+        return DobladaSnapshotService.serializar_pares(
+            f"{emp_id}:{fecha.isoformat()}" for emp_id, fecha in pairs
+        )
+
+    @staticmethod
+    def serializar_pares(claves) -> dict:
+        """
+        Estado actual de Turno para un iterable de claves 'explorador_id:YYYY-MM-DD'.
+
+        Serializador ÚNICO del formato de snapshot: lo usan tanto la captura del estado previo
+        como la del resultante. Si divergieran, la comparación de integridad al cancelar
+        (`bloqueo_integridad`) daría falsos conflictos.
+        """
         snapshot: dict = {}
-        for emp_id, fecha in pairs:
-            key = f"{emp_id}:{fecha.isoformat()}"
+        for key in claves:
+            try:
+                emp_str, fecha_str = key.split(':', 1)
+                emp_id = int(emp_str)
+                fecha = date.fromisoformat(fecha_str)
+            except (ValueError, TypeError, AttributeError):
+                logger.warning('Snapshot: clave inválida %r', key)
+                continue
             turnos_qs = (
                 Turno.objects.filter(explorador_id=emp_id, fecha=fecha)
                 .select_related('jornada')
@@ -63,6 +82,31 @@ class DobladaSnapshotService:
                 for t in turnos_qs
             ]
         return snapshot
+
+    @staticmethod
+    def capturar_snapshot_resultante(objeto, snapshot_previo: dict = None) -> dict:
+        """
+        Estado que este cambio DEJÓ en las mismas fechas del snapshot previo, y lo guarda en
+        `objeto.snapshot_turnos_resultantes`.
+
+        A diferencia del previo (snapshot-once, idempotente), este se REESCRIBE siempre después
+        de aplicar: `reaplicar_fechas` y `reconciliar_dobladas_aprobadas` vuelven a tocar los
+        turnos y el resultante debe reflejar el estado final, no el de la primera aplicación.
+
+        Llamar SIEMPRE al final de la aplicación, con los turnos ya materializados.
+        """
+        if snapshot_previo is None:
+            snapshot_previo = getattr(objeto, 'snapshot_turnos_previos', None) or {}
+        if not snapshot_previo:
+            return {}
+        resultante = DobladaSnapshotService.serializar_pares(snapshot_previo.keys())
+        objeto.snapshot_turnos_resultantes = resultante
+        try:
+            objeto.save(update_fields=['snapshot_turnos_resultantes'])
+        except ValueError:
+            # Objeto sin pk aún o campo no persistible: el llamador guardará.
+            pass
+        return resultante
 
     @staticmethod
     def restaurar_turnos_desde_snapshot(snapshot: dict) -> None:
@@ -240,6 +284,43 @@ class DobladaSnapshotService:
         # borraba en silencio y la persona volvía a su jornada base sin que nada avisara.
         DobladaSnapshotService._reconciliar_cambios_de_turno(
             fechas, exploradores, excluir_solicitud_id)
+
+        # La reconciliación acaba de reescribir turnos: los `snapshot_turnos_resultantes` de las
+        # solicitudes que siguen vigentes ahí quedaron desactualizados. Si no se refrescan, la
+        # guardia de integridad los vería "modificados por otro" y bloquearía su cancelación
+        # legítima. Se hace al final, con el estado ya estabilizado.
+        DobladaSnapshotService.refrescar_resultantes(
+            afectados, excluir_solicitud_id, fechas, exploradores)
+
+    @staticmethod
+    def refrescar_resultantes(afectados: set, excluir_solicitud_id: int,
+                              fechas: set = None, exploradores: set = None) -> None:
+        """Recalcula `snapshot_turnos_resultantes` de las solicitudes aprobadas que tocan `afectados`."""
+        from django.db.models import Q
+        from solicitudes.models import SolicitudCambio
+
+        if fechas is None:
+            fechas = {f for (_e, f) in afectados}
+        if exploradores is None:
+            exploradores = {e for (e, _f) in afectados}
+        claves_afectadas = {f"{e}:{f.isoformat()}" for (e, f) in afectados}
+
+        vigentes = (
+            SolicitudCambio.objects
+            .filter(estado='aprobada')
+            .filter(Q(explorador_solicitante_id__in=exploradores)
+                    | Q(explorador_receptor_id__in=exploradores))
+            .exclude(id=excluir_solicitud_id)
+            .select_related('doblada', 'doblada_permanente')
+            .distinct()
+        )
+        for s in vigentes:
+            for obj in (s, getattr(s, 'doblada', None), getattr(s, 'doblada_permanente', None)):
+                if obj is None:
+                    continue
+                previo = getattr(obj, 'snapshot_turnos_previos', None) or {}
+                if previo and claves_afectadas & set(previo.keys()):
+                    DobladaSnapshotService.capturar_snapshot_resultante(obj, previo)
 
     @staticmethod
     def _reconciliar_cambios_de_turno(fechas: set, exploradores: set, excluir_solicitud_id: int) -> None:

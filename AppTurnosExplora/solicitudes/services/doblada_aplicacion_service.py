@@ -35,6 +35,10 @@ class DobladaAplicacionService:
         return DobladaSnapshotService.capturar_snapshot_turnos_previos(solicitud, detalle)
 
     @staticmethod
+    def capturar_snapshot_resultante(objeto, snapshot_previo: dict = None) -> dict:
+        return DobladaSnapshotService.capturar_snapshot_resultante(objeto, snapshot_previo)
+
+    @staticmethod
     def restaurar_turnos_desde_snapshot(snapshot: dict) -> None:
         DobladaSnapshotService.restaurar_turnos_desde_snapshot(snapshot)
 

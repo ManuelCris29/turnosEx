@@ -389,15 +389,11 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 # Snapshot de turnos previos (solicitante + receptor en la fecha) ANTES de mutar,
                 # para poder revertir al cancelar dentro de los 30 min. Idempotente: solo la 1ª vez.
                 if not solicitud.snapshot_turnos_previos:
-                    _snap = {}
-                    for _emp in (solicitud.explorador_solicitante, solicitud.explorador_receptor):
-                        _snap[f"{_emp.id}:{fecha_cambio.isoformat()}"] = [
-                            {'jornada_nombre': _t.jornada.nombre.upper(), 'sala_id': _t.sala_id,
-                             'tipo_cambio': _t.tipo_cambio}
-                            for _t in Turno.objects.filter(explorador=_emp, fecha=fecha_cambio)
-                                                   .select_related('jornada').order_by('jornada_id')
-                        ]
-                    solicitud.snapshot_turnos_previos = _snap
+                    from ..doblada_snapshot_service import DobladaSnapshotService
+                    solicitud.snapshot_turnos_previos = DobladaSnapshotService.serializar_pares(
+                        f"{_emp.id}:{fecha_cambio.isoformat()}"
+                        for _emp in (solicitud.explorador_solicitante, solicitud.explorador_receptor)
+                    )
                     solicitud.save(update_fields=['snapshot_turnos_previos'])
 
                 # 1. Obtener jornadas actuales de ambos empleados para esa fecha
@@ -525,7 +521,13 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 solicitud.turno_origen = turno_solicitante  # Turno original del solicitante
                 solicitud.turno_destino = turno_receptor    # Turno resultante del receptor
                 solicitud.save()
-                
+
+                # Estado RESULTANTE: lo que este cambio deja en esas fechas. Al cancelar se
+                # compara contra los turnos actuales para no pisar un cambio ajeno posterior.
+                from ..doblada_snapshot_service import DobladaSnapshotService
+                DobladaSnapshotService.capturar_snapshot_resultante(solicitud)
+
+
                 # FASE 3.5: Invalidar caché de turnos para ambos exploradores usando helper centralizado
                 from core.services.cache_service import CacheService
                 if fecha_cambio:

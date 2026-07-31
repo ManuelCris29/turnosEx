@@ -938,7 +938,11 @@ class DobladaStrategy(SolicitudStrategy):
 
                     # Generar deudas
                     DobladaAplicacionService.generar_deudas_doblada(solicitud, detalle)
-                
+
+                # Estado RESULTANTE: lo que esta doblada deja en esas fechas. Al cancelar se
+                # compara contra los turnos actuales para no pisar un cambio ajeno posterior.
+                DobladaAplicacionService.capturar_snapshot_resultante(detalle)
+
                 logger.info(f"Doblada aplicada: Solicitud {solicitud.id}")
             
             # IMPORTANTE: Limpiar caché DESPUÉS de que la transacción se confirme
