@@ -24,15 +24,19 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
     @staticmethod
     def get_empleados_disponibles(fecha, usuario_actual=None, solo_jornada_contraria=False):
         """
-        Obtiene los empleados disponibles para una fecha específica.
-        
+        Obtiene los empleados candidatos, opcionalmente filtrados por jornada contraria.
+
         Args:
-            fecha: Fecha para la cual buscar empleados (string 'YYYY-MM-DD')
+            fecha: Fecha para la cual buscar empleados (string 'YYYY-MM-DD'). OJO: solo se usa
+                cuando `solo_jornada_contraria=True`. En el caso por defecto la lista es la de
+                todos los activos no administradores, sin ningún filtro por día: quien necesite
+                disponibilidad REAL por fecha debe evaluarla aparte (p. ej. el CT permanente lo
+                hace día a día con `_razones_exclusion_ct_permanente`).
             usuario_actual: Usuario actual (para excluirlo de la lista)
             solo_jornada_contraria: Si True, solo devuelve empleados de jornada contraria
-        
+
         Returns:
-            QuerySet de Empleado disponibles
+            QuerySet de Empleado
         """
         if solo_jornada_contraria:
             return EmpleadoDisponibilidadService.get_empleados_jornada_contraria(fecha, usuario_actual)

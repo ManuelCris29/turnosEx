@@ -99,7 +99,9 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
             dias_hash = hashlib.md5(dias_norm.encode(), usedforsecurity=False).hexdigest()
             cache_params += f"_{fecha_fin}_{dias_hash}"
             
-        cache_key = f"empleados_disp_v4_{cache_params}"  # Incrementado a v4 para invalidar caché anterior
+        # v5: al corregir la aptitud del día (los días ya DOBLADOS ya no cuentan como aplicables)
+        # cambian el denominador y los porcentajes de compatibilidad; las entradas v4 son inválidas.
+        cache_key = f"empleados_disp_v5_{cache_params}"
         
         def obtener_empleados():
             # Obtener empleados según el tipo de solicitud usando el Factory

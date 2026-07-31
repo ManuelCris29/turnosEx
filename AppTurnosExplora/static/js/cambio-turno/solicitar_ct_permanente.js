@@ -885,7 +885,7 @@ function mostrarResumenIntercambio() {
                 advertenciaHtml = `
                     <div class="alert alert-warning mt-2">
                         <h6><i class="fas fa-exclamation-triangle mr-2"></i>Días excluidos automáticamente:</h6>
-                        <small>Este compañero no tiene jornada contraria en las siguientes fechas, por lo que <strong>no se incluirán</strong> en la solicitud:</small>
+                        <small>Este compañero no está disponible o no tiene jornada contraria en las siguientes fechas, por lo que <strong>no se incluirán</strong> en la solicitud:</small>
                         <ul class="mb-0 mt-1 pl-3" style="max-height: 100px; overflow-y: auto;">
                             ${diasIncompatibles.map(d => `<li>${d}</li>`).join('')}
                         </ul>

@@ -19,14 +19,21 @@ _PRIORIDAD_RAZONES_CT_PERMANENTE = [
     'Mantenimiento',
     'Festivo',
     'Temporada',
-    # Día que ya no está en jornada predeterminada (no se puede aplicar el permanente):
+    # Día en el que alguno de los dos no tiene MEDIA JORNADA que intercambiar (ya dobla,
+    # descansa, o el día ya no está en su jornada predeterminada).
+    #
+    # Primero TODAS las razones del SOLICITANTE y luego las del RECEPTOR, no agrupadas por tipo.
+    # Es su formulario: lo que le impide el cambio a ÉL es lo accionable, y así el motivo de una
+    # fecha no cambia al elegir compañero. Con el orden por tipo, un día en que el solicitante
+    # descansaba pasaba de 'Descanso Solicitante' (vista previa sin compañero) a 'Doblada
+    # Receptor' en cuanto escogía a alguien —ambas ciertas, pero el salto desconcierta—.
     'Doblada Solicitante',
-    'Doblada Receptor',
     'Cambio Previo Solicitante',
-    'Cambio Previo Receptor',
     'Día libre Solicitante',
-    'Día libre Receptor',
     'Descanso Solicitante',
+    'Doblada Receptor',
+    'Cambio Previo Receptor',
+    'Día libre Receptor',
     'Descanso Receptor',
     # Ambos trabajan, pero en la MISMA jornada: no hay nada que intercambiar. Va después de
     # los descansos porque, cuando alguien descansa, ese motivo explica mejor el día.
@@ -129,14 +136,47 @@ def jornadas_intercambiables_ct(solicitante: Empleado, receptor: Empleado, fecha
     return None
 
 
-def _jornada_efectiva_ct(explorador: Empleado, fecha: date):
-    """Jornada REAL única ('AM'/'PM') del explorador ese día, o None (descansa o ya dobla)."""
+def _estado_ct(explorador: Empleado, fecha: date) -> dict:
+    """
+    Estado REAL del día según "Mis Turnos" (`TurnoService.estado_dia`), o `{}` si no se pudo
+    resolver. Punto único de acceso para no repetir el try/except ni recalcular el estado varias
+    veces por fecha dentro de la misma evaluación.
+    """
     try:
         from turnos.services.turno_service import TurnoService
-        jornada = TurnoService.estado_dia(explorador, fecha).get('jornada')
-        return jornada if jornada in ('AM', 'PM') else None
+        return TurnoService.estado_dia(explorador, fecha) or {}
     except Exception:
+        return {}
+
+
+def _razon_estado_no_apto(estado: dict, quien: str):
+    """
+    Razón por la que el estado REAL del día impide participar en el intercambio, o None si el
+    explorador tiene MEDIA JORNADA (AM o PM) con la que intercambiar.
+
+    Un CT permanente intercambia media jornada por media jornada: si ese día el explorador ya
+    está DOBLADA (AM+PM) no hay nada que ceder, y si descansa tampoco. Ojo: la doblada puede ser
+    VIRTUAL —la genera la capa de temporada de `estado_dia` y no deja ninguna fila `Turno`—, así
+    que `_tipo_cambio_previo` (que mira `Turno.tipo_cambio`) no la ve. Por eso la aptitud del día
+    se decide aquí, con el estado completo, y no a partir de los turnos en BD.
+
+    `estado` vacío (no se pudo resolver) NO excluye, para mantener el comportamiento permisivo
+    que tenía `_es_dia_descanso` ante un fallo del servicio.
+    """
+    if not estado:
         return None
+    jornada = estado.get('jornada')
+    if jornada in ('AM', 'PM'):
+        return None
+    if jornada == 'DOBLADA':
+        return f'Doblada {quien}'
+    return f'Descanso {quien}'
+
+
+def _jornada_efectiva_ct(explorador: Empleado, fecha: date):
+    """Jornada REAL única ('AM'/'PM') del explorador ese día, o None (descansa o ya dobla)."""
+    jornada = _estado_ct(explorador, fecha).get('jornada')
+    return jornada if jornada in ('AM', 'PM') else None
 
 
 def _razones_exclusion_ct_permanente(
@@ -169,10 +209,20 @@ def _razones_exclusion_ct_permanente(
     if _es_temporada(fecha):
         razones.append('Temporada')
 
-    if _es_dia_descanso(solicitante, fecha):
-        razones.append('Descanso Solicitante')
-    if receptor and _es_dia_descanso(receptor, fecha):
-        razones.append('Descanso Receptor')
+    # APTITUD DEL DÍA según el estado REAL ("Mis Turnos"): hace falta MEDIA JORNADA (AM/PM).
+    # Se evalúa SIEMPRE, también cuando no hay receptor (vista previa antes de elegir compañero).
+    # Antes esto solo miraba `_es_dia_descanso` (que con una doblada da `trabaja=True` y por tanto
+    # NO excluía) y la única comprobación de media jornada —`jornadas_intercambiables_ct`, más
+    # abajo— estaba condicionada a que hubiera receptor: un día ya DOBLADO se colaba como
+    # aplicable en la previsualización sin compañero, y con compañero se excluía pero con el
+    # motivo equivocado ('Sin jornada contraria' en vez de 'Doblada').
+    razon_sol = _razon_estado_no_apto(_estado_ct(solicitante, fecha), 'Solicitante')
+    if razon_sol:
+        razones.append(razon_sol)
+    if receptor:
+        razon_rec = _razon_estado_no_apto(_estado_ct(receptor, fecha), 'Receptor')
+        if razon_rec:
+            razones.append(razon_rec)
 
     # Día LIBRE por otra solicitud aprobada (sin Turno: doblada cedida, cambio de descanso…)
     if _dia_libre_por_solicitud(solicitante, fecha):
@@ -189,7 +239,9 @@ def _razones_exclusion_ct_permanente(
         if tipo_previo_rec:
             razones.append(_razon_cambio_previo(tipo_previo_rec, False))
 
-    # Sin intercambio posible: ambos trabajan la MISMA jornada ese día.
+    # Sin intercambio posible: ambos tienen media jornada, pero es la MISMA. Llegados aquí ya
+    # sabemos que ninguno descansa ni dobla (lo filtra `_razon_estado_no_apto`), así que este
+    # motivo significa de verdad "ambos están en la misma franja".
     if receptor and not razones and not jornadas_intercambiables_ct(solicitante, receptor, fecha):
         razones.append('Sin jornada contraria')
 
@@ -289,12 +341,13 @@ def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
     Las razones de exclusión de grano fino (Festivo / Mantenimiento / Temporada / Día libre /
     Cambio previo) se siguen calculando aparte y tienen PRIORIDAD sobre 'Descanso', así que el
     solape con las capas de `estado_dia` no cambia el texto que ve el usuario.
+
+    OJO: "no descansa" NO implica "puede intercambiar" — con una DOBLADA `trabaja` es True. La
+    aptitud del día para el CT permanente la decide `_razon_estado_no_apto`, no esta función.
     """
-    try:
-        from turnos.services.turno_service import TurnoService
-        return not TurnoService.estado_dia(explorador, fecha).get('trabaja')
-    except Exception:
-        return False
+    # Por defecto `trabaja=True`: si el estado no se pudo resolver, no inventamos un descanso
+    # (mismo comportamiento permisivo que tenía el try/except original).
+    return not _estado_ct(explorador, fecha).get('trabaja', True)
 
 
 def _tipo_cambio_previo(explorador: Empleado, fecha: date):
