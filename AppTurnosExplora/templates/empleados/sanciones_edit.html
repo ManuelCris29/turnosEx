@@ -24,31 +24,39 @@
           <div class="form-group">
             <label for="{{ form.explorador.id_for_label }}"><i class="fas fa-user mr-1"></i> Explorador</label>
             {{ form.explorador }}
+            {% for e in form.explorador.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
           </div>
           <div class="form-group">
-            <label for="{{ form.supervisor.id_for_label }}"><i class="fas fa-user-shield mr-1"></i> Supervisor</label>
-            {{ form.supervisor }}
+            <label><i class="fas fa-user-shield mr-1"></i> Supervisor</label>
+            <p class="form-control-plaintext mb-0">
+              {{ supervisor_actual.nombre }} {{ supervisor_actual.apellido }}
+              <small class="text-muted d-block">Se conserva quien impuso la sanción.</small>
+            </p>
           </div>
           <div class="row">
             <div class="form-group col-md-4">
               <label for="{{ form.fecha_inicio.id_for_label }}"><i class="far fa-calendar-plus mr-1"></i> Inicio</label>
               {{ form.fecha_inicio }}
+              {% for e in form.fecha_inicio.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
             </div>
             <div class="form-group col-md-4">
               <label for="{{ form.duracion.id_for_label }}"><i class="fas fa-hourglass-half mr-1"></i> Duración</label>
               {{ form.duracion }}
+              {% for e in form.duracion.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
             </div>
             <div class="form-group col-md-4" id="grupo-dias-custom" style="display:none;">
               <label for="{{ form.dias_personalizado.id_for_label }}"><i class="fas fa-calendar-day mr-1"></i> Días</label>
               {{ form.dias_personalizado }}
+              {% for e in form.dias_personalizado.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
             </div>
           </div>
           <div id="preview-fin" class="alert" style="display:none; background:#eef2ff; border:none; color:#3730a3; border-radius:10px;">
-            <i class="fas fa-calendar-check mr-1"></i> La sanción terminaría el <strong id="preview-fecha"></strong>.
+            <i class="fas fa-calendar-check mr-1"></i> <span id="preview-texto"></span>
           </div>
           <div class="form-group">
             <label for="{{ form.motivo.id_for_label }}"><i class="fas fa-comment mr-1"></i> Motivo</label>
             {{ form.motivo }}
+            {% for e in form.motivo.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
           </div>
           <div class="d-flex gap-2 mt-3">
             <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-save"></i> Guardar cambios</button>

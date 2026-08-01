@@ -30,9 +30,11 @@
           </div>
 
           <div class="form-group">
-            <label for="{{ form.supervisor.id_for_label }}"><i class="fas fa-user-shield mr-1"></i> Supervisor que sanciona</label>
-            {{ form.supervisor }}
-            {% for e in form.supervisor.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
+            <label><i class="fas fa-user-shield mr-1"></i> Supervisor que sanciona</label>
+            <p class="form-control-plaintext mb-0">
+              {{ supervisor_actual.nombre }} {{ supervisor_actual.apellido }}
+              <small class="text-muted d-block">Queda registrado a tu nombre.</small>
+            </p>
           </div>
 
           <div class="row">
@@ -54,7 +56,7 @@
           </div>
 
           <div id="preview-fin" class="alert" style="display:none; background:#eef2ff; border:none; color:#3730a3; border-radius:10px;">
-            <i class="fas fa-calendar-check mr-1"></i> La sanción terminaría el <strong id="preview-fecha"></strong>.
+            <i class="fas fa-calendar-check mr-1"></i> <span id="preview-texto"></span>
           </div>
 
           <div class="form-group">

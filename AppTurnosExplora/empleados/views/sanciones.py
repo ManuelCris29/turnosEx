@@ -4,9 +4,11 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, UpdateView
 from django.views.generic.edit import CreateView, DeleteView
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
-from core.mixins import AdminRequiredMixin
+from core.mixins import AdminRequiredMixin, es_supervisor
 
 from ..models import Empleado, SancionEmpleado
 from ..forms import SancionEmpleadoForm
@@ -14,31 +16,54 @@ from ..forms import SancionEmpleadoForm
 logger = logging.getLogger(__name__)
 
 
+def _id_valido(valor):
+    """Devuelve el id como int solo si el parámetro es un entero; si no, None."""
+    return int(valor) if valor and str(valor).isdigit() else None
+
+
 # CRUD de Sanciones
 class SancionListView(LoginRequiredMixin, ListView):
     model = SancionEmpleado
     template_name = 'empleados/sanciones_list.html'
     context_object_name = 'sanciones'
+    paginate_by = 25
 
     def _base_queryset(self):
+        """Sanciones visibles para el usuario, ya filtradas por explorador."""
+        if hasattr(self, '_qs_cache'):
+            return self._qs_cache
         qs = (
             SancionEmpleado.objects
             .select_related('explorador', 'supervisor')
             .order_by('-fecha_inicio', '-id')
         )
         user = self.request.user
-        if user.is_staff:
-            eid = self.request.GET.get('explorador')
-            if eid and str(eid).isdigit():
+        if es_supervisor(user):
+            eid = _id_valido(self.request.GET.get('explorador'))
+            if eid:
                 qs = qs.filter(explorador_id=eid)
-            return qs
-        empleado = getattr(user, 'empleado', None)
-        if not empleado:
-            return qs.none()
-        return qs.filter(explorador=empleado)
+        else:
+            empleado = getattr(user, 'empleado', None)
+            qs = qs.filter(explorador=empleado) if empleado else qs.none()
+        self._qs_cache = qs
+        return qs
+
+    def _estado(self):
+        estado = self.request.GET.get('estado')
+        return estado if estado in ('activa', 'finalizada') else 'todos'
 
     def get_queryset(self):
-        return self._base_queryset()
+        from django.db.models import Q
+        # El filtro por estado va en el servidor: si filtrara en el navegador
+        # solo afectaría a la página visible y contradiría los totales.
+        qs = self._base_queryset()
+        hoy = timezone.localdate()
+        estado = self._estado()
+        if estado == 'activa':
+            return qs.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy))
+        if estado == 'finalizada':
+            return qs.filter(fecha_fin__lt=hoy)
+        return qs
 
     def get_context_data(self, **kwargs):
         from django.db.models import Q
@@ -51,19 +76,31 @@ class SancionListView(LoginRequiredMixin, ListView):
         total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
         total_finalizadas = queryset.filter(fecha_fin__lt=hoy).count()
 
+        supervisa = es_supervisor(user)
         context.update({
-            'es_supervisor': user.is_staff,
-            'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
+            'es_supervisor': supervisa,
+            'empleado_actual': getattr(user, 'empleado', None) if not supervisa else None,
             'total_sanciones': total_sanciones,
             'total_activas': total_activas,
             'total_finalizadas': total_finalizadas,
+            'filtro_estado': self._estado(),
             'hoy': hoy
         })
-        if user.is_staff:
-            context['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
-            context['filtro_explorador'] = self.request.GET.get('explorador', '')
+        params = self.request.GET.copy()
+        params.pop('page', None)
+        context['query_params'] = params.urlencode()
+        # Para los enlaces de estado: mismos filtros, sin página ni estado
+        base = self.request.GET.copy()
+        base.pop('page', None)
+        base.pop('estado', None)
+        context['query_sin_estado'] = base.urlencode()
 
-        if not user.is_staff and not getattr(user, 'empleado', None):
+        if supervisa:
+            context['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+            eid = _id_valido(self.request.GET.get('explorador'))
+            context['filtro_explorador'] = str(eid) if eid else ''
+
+        if not supervisa and not getattr(user, 'empleado', None):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
 
         return context
@@ -88,27 +125,45 @@ def _invalidar_turnos_cache_sancion(sancion):
         logger.warning("Error invalidando caché de turnos por sanción (explorador=%s)", sancion.explorador_id, exc_info=True)
 
 
-class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
+class _SancionFormViewMixin:
+    """Fija como supervisor a quien registra la sanción, sin dejarlo elegir."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not getattr(request.user, 'empleado', None):
+            raise PermissionDenied(
+                'Tu usuario no está asociado a un empleado, por lo que no puede '
+                'registrar sanciones. Pide que se vincule tu ficha de empleado.'
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs['supervisor'] = getattr(self.request.user, 'empleado', None)
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['supervisor_actual'] = context['form'].supervisor_actual
+        return context
+
+    def form_valid(self, form):
+        resp = super().form_valid(form)
+        _invalidar_turnos_cache_sancion(self.object)
+        return resp
+
+
+class SancionCreateView(LoginRequiredMixin, AdminRequiredMixin, _SancionFormViewMixin, CreateView):
     model = SancionEmpleado
     form_class = SancionEmpleadoForm
     template_name = 'empleados/sanciones_create.html'
     success_url = '/empleados/sanciones/'
 
-    def form_valid(self, response):
-        resp = super().form_valid(response)
-        _invalidar_turnos_cache_sancion(self.object)
-        return resp
 
-class SancionUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+class SancionUpdateView(LoginRequiredMixin, AdminRequiredMixin, _SancionFormViewMixin, UpdateView):
     model = SancionEmpleado
     form_class = SancionEmpleadoForm
     template_name = 'empleados/sanciones_edit.html'
     success_url = '/empleados/sanciones/'
-
-    def form_valid(self, response):
-        resp = super().form_valid(response)
-        _invalidar_turnos_cache_sancion(self.object)
-        return resp
 
 class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     model = SancionEmpleado
@@ -116,7 +171,7 @@ class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     success_url = '/empleados/sanciones/'
 
     def form_valid(self, form):
-        _invalidar_turnos_cache_sancion(self.get_object())
+        _invalidar_turnos_cache_sancion(self.object)
         return super().form_valid(form)
 
 
@@ -126,6 +181,19 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
     context_object_name = 'sanciones'
     paginate_by = 20
 
+    def _filtros(self):
+        """Filtros ya validados: un parámetro con basura se ignora, no rompe la página."""
+        if hasattr(self, '_filtros_cache'):
+            return self._filtros_cache
+        p = self.request.GET
+        self._filtros_cache = {
+            # El filtro por explorador solo tiene sentido para quien ve a todos
+            'empleado': _id_valido(p.get('empleado')) if es_supervisor(self.request.user) else None,
+            'fecha_desde': parse_date(p.get('fecha_desde') or ''),
+            'fecha_hasta': parse_date(p.get('fecha_hasta') or ''),
+        }
+        return self._filtros_cache
+
     def _base_queryset(self):
         qs = (
             SancionEmpleado.objects
@@ -133,7 +201,7 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
             .order_by('-fecha_inicio', '-id')
         )
         user = self.request.user
-        if user.is_staff:
+        if es_supervisor(user):
             return qs
         empleado = getattr(user, 'empleado', None)
         if not empleado:
@@ -141,31 +209,27 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
         return qs.filter(explorador=empleado)
 
     def get_queryset(self):
-        from django.db.models import Q
+        if hasattr(self, '_qs_cache'):
+            return self._qs_cache
         qs = self._base_queryset()
-        p = self.request.GET
+        f = self._filtros()
 
-        # Filtro por empleado (solo supervisores)
-        emp_id = p.get('empleado')
-        if emp_id and self.request.user.is_staff:
-            qs = qs.filter(explorador_id=emp_id)
+        if f['empleado']:
+            qs = qs.filter(explorador_id=f['empleado'])
+        if f['fecha_desde']:
+            qs = qs.filter(fecha_inicio__gte=f['fecha_desde'])
+        if f['fecha_hasta']:
+            qs = qs.filter(fecha_inicio__lte=f['fecha_hasta'])
 
-        # Filtro por rango de fechas (ambos roles)
-        fecha_desde = p.get('fecha_desde')
-        fecha_hasta = p.get('fecha_hasta')
-        if fecha_desde:
-            qs = qs.filter(fecha_inicio__gte=fecha_desde)
-        if fecha_hasta:
-            qs = qs.filter(fecha_inicio__lte=fecha_hasta)
-
+        self._qs_cache = qs
         return qs
 
     def get_context_data(self, **kwargs):
         from django.db.models import Q
-        from django.utils import timezone
         context = super().get_context_data(**kwargs)
         user = self.request.user
         hoy = timezone.localdate()
+        supervisa = es_supervisor(user)
 
         # Totales sobre el queryset ya filtrado
         qs = self.get_queryset()
@@ -174,30 +238,31 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
 
         # Lista de empleados para el selector del supervisor
         empleados = []
-        if user.is_staff:
+        if supervisa:
             empleados = list(
                 Empleado.objects.filter(activo=True)
                 .order_by('apellido', 'nombre')
                 .values('id', 'nombre', 'apellido')
             )
 
+        f = self._filtros()
         params = self.request.GET.copy()
         params.pop('page', None)
 
         context.update({
-            'es_supervisor': user.is_staff,
-            'empleado_actual': getattr(user, 'empleado', None) if not user.is_staff else None,
+            'es_supervisor': supervisa,
+            'empleado_actual': getattr(user, 'empleado', None) if not supervisa else None,
             'hoy': hoy,
             'total_activas': total_activas,
             'total_finalizadas': total_finalizadas,
             'empleados': empleados,
-            'filtro_empleado': self.request.GET.get('empleado', ''),
-            'filtro_fecha_desde': self.request.GET.get('fecha_desde', ''),
-            'filtro_fecha_hasta': self.request.GET.get('fecha_hasta', ''),
+            'filtro_empleado': str(f['empleado']) if f['empleado'] else '',
+            'filtro_fecha_desde': f['fecha_desde'].isoformat() if f['fecha_desde'] else '',
+            'filtro_fecha_hasta': f['fecha_hasta'].isoformat() if f['fecha_hasta'] else '',
             'query_params': params.urlencode(),
         })
 
-        if not user.is_staff and not getattr(user, 'empleado', None):
+        if not supervisa and not getattr(user, 'empleado', None):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
 
         return context

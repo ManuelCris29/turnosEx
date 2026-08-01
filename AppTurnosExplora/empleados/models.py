@@ -163,9 +163,11 @@ class SancionEmpleado(models.Model):
     
     def clean(self):
         from django.core.exceptions import ValidationError
-        if self.fecha_fin and self.fecha_fin < self.fecha_inicio:
+        if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
             raise ValidationError('La fecha de fin debe ser posterior a la fecha de inicio.')
-        if self.explorador == self.supervisor:
+        # Ambos FK son obligatorios pero pueden no estar asignados todavía
+        # cuando la validación corre desde un formulario que los excluye.
+        if self.explorador_id and self.supervisor_id and self.explorador_id == self.supervisor_id:
             raise ValidationError('Un empleado no puede sancionarse a sí mismo.')
     
     def __str__(self):

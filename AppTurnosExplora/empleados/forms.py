@@ -3,9 +3,18 @@ from django.contrib.auth.models import User
 from .models import SancionEmpleado, Empleado, Role, RestriccionEmpleado, Jornada, Sala
 
 class SancionEmpleadoForm(forms.ModelForm):
+    """
+    El supervisor que sanciona no se elige: es siempre quien registra la sanción
+    (lo fija la vista). Al editar se conserva el supervisor original para no
+    perder la trazabilidad de quién impuso la sanción.
+    """
+    INDEFINIDA = 'indefinida'
+    OTRO = 'otro'
     DURACION_CHOICES = [
         ('15', '15 días'), ('30', '30 días'), ('45', '45 días'),
-        ('60', '60 días'), ('90', '90 días'), ('otro', 'Otro (personalizado)'),
+        ('60', '60 días'), ('90', '90 días'),
+        (OTRO, 'Otro (personalizado)'),
+        (INDEFINIDA, 'Indefinida (sin fecha de fin)'),
     ]
     fecha_inicio = forms.DateField(
         label='Fecha de inicio',
@@ -22,57 +31,100 @@ class SancionEmpleadoForm(forms.ModelForm):
 
     class Meta:
         model = SancionEmpleado
-        fields = ['explorador', 'supervisor', 'fecha_inicio', 'motivo']
+        fields = ['explorador', 'fecha_inicio', 'motivo']
 
     def clean(self):
         from datetime import timedelta
+        from django.db.models import Q
+
         cleaned = super().clean()
         fi = cleaned.get('fecha_inicio')
         dur = cleaned.get('duracion')
-        dias = None
-        if dur == 'otro':
-            dias = cleaned.get('dias_personalizado')
-            if not dias or dias <= 0:
-                self.add_error('dias_personalizado', 'Indica cuántos días dura la sanción.')
-        elif dur:
-            dias = int(dur)
-        if fi and dias:
-            # Inclusivo: 15 días desde el 1 → termina el 15
-            cleaned['_fecha_fin'] = fi + timedelta(days=dias - 1)
+
+        # Una sanción indefinida no tiene fecha de fin; el resto se calcula
+        # de forma inclusiva: 15 días desde el 1 → termina el 15.
+        ff = None
+        if dur == self.INDEFINIDA:
+            cleaned['_fecha_fin'] = None
+        else:
+            dias = None
+            if dur == self.OTRO:
+                dias = cleaned.get('dias_personalizado')
+                if not dias or dias <= 0:
+                    self.add_error('dias_personalizado', 'Indica cuántos días dura la sanción.')
+            elif dur:
+                dias = int(dur)
+            if fi and dias:
+                ff = fi + timedelta(days=dias - 1)
+                cleaned['_fecha_fin'] = ff
+
+        if fi and ff and ff < fi:
+            self.add_error('fecha_inicio', 'La fecha de fin debe ser posterior a la fecha de inicio.')
+
+        explorador = cleaned.get('explorador')
+        if explorador and self.supervisor_actual and explorador == self.supervisor_actual:
+            self.add_error('explorador', 'Un empleado no puede sancionarse a sí mismo.')
+
+        # Sin solapamientos: dos sanciones activas a la vez sobre el mismo
+        # explorador harían que los totales y la vigencia mostrada mintieran.
+        if explorador and fi and not self.errors:
+            otras = SancionEmpleado.objects.filter(explorador=explorador)
+            if self.instance.pk:
+                otras = otras.exclude(pk=self.instance.pk)
+            # Solapan si empiezan antes de que esta acabe y acaban después de que esta empiece.
+            if ff is not None:
+                otras = otras.filter(fecha_inicio__lte=ff)
+            otras = otras.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fi))
+            existente = otras.order_by('-fecha_inicio').first()
+            if existente:
+                fin_txt = existente.fecha_fin.strftime('%d/%m/%Y') if existente.fecha_fin else 'indefinida'
+                self.add_error(None, (
+                    f'Este explorador ya tiene una sanción del '
+                    f'{existente.fecha_inicio.strftime("%d/%m/%Y")} al {fin_txt}, '
+                    'que se solapa con el rango indicado. Edita o elimina la existente.'
+                ))
+
         return cleaned
 
     def save(self, commit=True):
         instancia = super().save(commit=False)
         instancia.fecha_fin = self.cleaned_data.get('_fecha_fin')
+        if not instancia.supervisor_id and self.supervisor_actual:
+            instancia.supervisor = self.supervisor_actual
         if commit:
             instancia.save()
         return instancia
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, supervisor=None, **kwargs):
         super().__init__(*args, **kwargs)
+        inst = self.instance
+        # El supervisor de una sanción ya registrada no cambia al editarla.
+        self.supervisor_actual = inst.supervisor if inst.pk and inst.supervisor_id else supervisor
+
         # Al editar, precargar la duración a partir del rango existente
-        inst = kwargs.get('instance') or getattr(self, 'instance', None)
-        if inst and inst.pk and inst.fecha_inicio and inst.fecha_fin:
-            dias = (inst.fecha_fin - inst.fecha_inicio).days + 1
-            if str(dias) in dict(self.DURACION_CHOICES):
-                self.fields['duracion'].initial = str(dias)
+        if inst.pk and inst.fecha_inicio:
+            if inst.fecha_fin is None:
+                self.fields['duracion'].initial = self.INDEFINIDA
             else:
-                self.fields['duracion'].initial = 'otro'
-                self.fields['dias_personalizado'].initial = dias
-        # Filtrar solo empleados con rol de supervisor
-        supervisor_role = Role.objects.filter(nombre__icontains='supervisor').first()
-        if supervisor_role is not None:
-            self.fields['supervisor'].queryset = Empleado.objects.filter(
-                empleadorole__role=supervisor_role
-            ).distinct()
-        else:
-            self.fields['supervisor'].queryset = Empleado.objects.none()
-        # Filtrar solo empleados con rol de explorador
+                dias = (inst.fecha_fin - inst.fecha_inicio).days + 1
+                if str(dias) in dict(self.DURACION_CHOICES):
+                    self.fields['duracion'].initial = str(dias)
+                else:
+                    self.fields['duracion'].initial = self.OTRO
+                    self.fields['dias_personalizado'].initial = dias
+
+        # Solo exploradores activos; al editar se conserva el ya sancionado
+        # aunque haya sido dado de baja, para que el formulario siga siendo válido.
         explorador_role = Role.objects.filter(nombre__icontains='explorador').first()
         if explorador_role is not None:
-            self.fields['explorador'].queryset = Empleado.objects.filter(
-                empleadorole__role=explorador_role
-            ).distinct()
+            from django.db.models import Q
+            qs = Empleado.objects.filter(empleadorole__role=explorador_role)
+            filtro_activos = Q(activo=True)
+            if inst.pk and inst.explorador_id:
+                filtro_activos |= Q(pk=inst.explorador_id)
+            self.fields['explorador'].queryset = (
+                qs.filter(filtro_activos).distinct().order_by('apellido', 'nombre')
+            )
         else:
             self.fields['explorador'].queryset = Empleado.objects.none()
 
