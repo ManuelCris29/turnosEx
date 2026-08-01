@@ -38,6 +38,75 @@ class Notificacion(models.Model):
     def __str__(self):
         return f"{self.titulo} - {self.destinatario.nombre} {self.destinatario.apellido}"
 
+
+class EmailOutbox(models.Model):
+    """
+    Cola persistente de correos pendientes de envío (patrón *outbox*).
+
+    PROBLEMA QUE RESUELVE: hasta ahora el envío se agendaba con `transaction.on_commit`
+    + un hilo. Eso protege la operación de negocio (si el correo falla, la aprobación no
+    se revierte), pero NO garantiza la entrega: si el proceso muere entre el COMMIT y la
+    ejecución del callback —o si el hilo falla por un SMTP caído— el correo se pierde en
+    silencio, sin rastro ni reintento. Para el supervisor eso es una solicitud que "nunca
+    le llegó" sin forma de saber que existió.
+
+    CÓMO LO RESUELVE: la fila se escribe DENTRO de la misma transacción que el cambio de
+    negocio. O commitan las dos cosas o ninguna — nunca hay una aprobación sin su correo
+    encolado. El envío real ocurre después, y si falla queda registrado con su error para
+    que `procesar_email_outbox` lo reintente.
+
+    IDEMPOTENCIA: `clave_idempotencia` (única) impide encolar dos veces el mismo correo
+    lógico, y el reclamo de filas por UPDATE condicional (ver `EmailOutboxService`) impide
+    que dos procesos envíen la misma fila a la vez. Un correo enviado no se puede
+    "desenviar": aquí la garantía que importa es *como máximo una vez* por clave, además
+    de *al menos una vez* por reintento.
+    """
+    ESTADO_PENDIENTE = 'pendiente'
+    ESTADO_ENVIANDO = 'enviando'
+    ESTADO_ENVIADO = 'enviado'
+    ESTADO_FALLIDO = 'fallido'
+    ESTADO_CHOICES = [
+        (ESTADO_PENDIENTE, 'Pendiente'),
+        (ESTADO_ENVIANDO, 'Enviando'),
+        (ESTADO_ENVIADO, 'Enviado'),
+        (ESTADO_FALLIDO, 'Fallido (agotó reintentos)'),
+    ]
+
+    MAX_INTENTOS = 5
+
+    asunto = models.CharField(max_length=500)
+    cuerpo_texto = models.TextField()
+    cuerpo_html = models.TextField(blank=True, default='')
+    remitente = models.EmailField()
+    reply_to = models.EmailField(blank=True, default='')
+    # Lista de destinatarios ya validada en el momento de encolar.
+    destinatarios = models.JSONField(default=list)
+
+    estado = models.CharField(max_length=12, choices=ESTADO_CHOICES, default=ESTADO_PENDIENTE)
+    intentos = models.PositiveSmallIntegerField(default=0)
+    ultimo_error = models.TextField(blank=True, default='')
+
+    # Nula cuando no hay una identidad lógica clara: entonces no se deduplica y cada
+    # llamada encola su propia fila (comportamiento anterior, sin pérdida).
+    clave_idempotencia = models.CharField(max_length=255, null=True, blank=True, unique=True)
+
+    creado_en = models.DateTimeField(auto_now_add=True)
+    # Ninguna fila se envía antes de esta marca: es lo que implementa el backoff.
+    disponible_en = models.DateTimeField(default=timezone.now)
+    enviado_en = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Correo en cola (outbox)'
+        verbose_name_plural = 'Correos en cola (outbox)'
+        ordering = ['creado_en']
+        indexes = [
+            # El índice que usa el worker para barrer: estado + cuándo toca reintentar.
+            models.Index(fields=['estado', 'disponible_en'], name='outbox_estado_disp_idx'),
+        ]
+
+    def __str__(self):
+        return f"[{self.estado}] {self.asunto} → {', '.join(self.destinatarios or [])}"
+
 class TipoSolicitudCambio(models.Model):
     """Modelo para representar los tipos de solicitudes de cambio de turno."""
     nombre = models.CharField(max_length=50, unique=True)

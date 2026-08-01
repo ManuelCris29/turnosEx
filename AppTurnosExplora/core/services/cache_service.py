@@ -103,6 +103,19 @@ class CacheService:
         logger.debug(f"Cache delete - key: {key}")
     
     @staticmethod
+    def acquire_lock(key: str, ttl: int = 10) -> bool:
+        """
+        Intenta tomar un lock corto y atómico (dedupe de doble-submit/doble-clic).
+
+        Usa `cache.add`, que solo escribe si la clave NO existe — a diferencia de `set`,
+        eso es atómico entre procesos/workers concurrentes. Devuelve True si se tomó el
+        lock (nadie lo tenía), False si ya estaba tomado (hay una operación igual en curso).
+        El lock se libera solo por expiración del TTL; no hace falta (ni conviene) liberarlo
+        a mano, porque el objetivo es bloquear reintentos *inmediatos*, no serializar el uso normal.
+        """
+        return cache.add(key, True, ttl)
+
+    @staticmethod
     def delete_many(keys: list[str]) -> None:
         """
         Elimina múltiples valores del cache.

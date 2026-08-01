@@ -53,6 +53,30 @@ class SolicitudOrchestrator:
         return sancion_activa(empleado)
 
     @staticmethod
+    def _verificar_dedupe(post, tipo_nombre: str, solicitante) -> JsonResponse | None:
+        """
+        Bloquea un reenvío inmediato del MISMO POST (doble-clic, doble-tap, reintento del
+        navegador). La clave incluye el contenido del formulario: dos solicitudes distintas
+        del mismo empleado y tipo (p. ej. dos CAMBIO DESCANSO con compañeros distintos) no
+        chocan entre sí, solo el reenvío idéntico. TTL corto: pasado ese margen, un reenvío
+        ya es una acción deliberada del usuario, no un doble-clic.
+        """
+        import hashlib
+        from core.services.cache_service import CacheService
+
+        datos_relevantes = {k: v for k, v in post.items() if k not in ('csrfmiddlewaretoken',)}
+        huella = hashlib.sha256(
+            json.dumps(datos_relevantes, sort_keys=True, default=str).encode()
+        ).hexdigest()
+        clave = f"solreq_dedupe_{solicitante.id}_{tipo_nombre}_{huella}"
+
+        if not CacheService.acquire_lock(clave, ttl=10):
+            return json_error(
+                'Ya se está procesando esta solicitud. Espera unos segundos antes de reintentar.',
+                status=409, code='duplicate_request')
+        return None
+
+    @staticmethod
     def _fechas_objetivo(post, tipo_nombre: str) -> list:
         """Fechas concretas que la solicitud agenda (para el cierre semanal). CT PERMANENTE expande
         el rango con la MISMA función que usan la validación, la vista previa y la aplicación; el
@@ -562,6 +586,15 @@ class SolicitudOrchestrator:
         """
         tipo_nombre = tipo_solicitud.nombre
         comentario = post.get('comentarios', '')
+
+        # 0. Dedupe de doble-clic/doble-submit: un POST idéntico (mismo solicitante, tipo
+        # y datos) que llega dos veces en un margen de segundos no debe crear dos solicitudes
+        # — cada una dispararía sus propias notificaciones/emails, y si ambas se aprobaran
+        # generaría un segundo "última aprobada gana" espurio. `acquire_lock` es atómico
+        # (cache.add), así que entre dos requests concurrentes solo uno pasa.
+        dedupe_resp = cls._verificar_dedupe(post, tipo_nombre, solicitante)
+        if dedupe_resp:
+            return dedupe_resp
 
         # 1. Sanción
         sancion_resp = cls.verificar_sancion(solicitante)

@@ -144,6 +144,10 @@ aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-ty
 - [ ] **DNS (IT):** `swalp.parqueexplora.org` → **DNS del ALB** (registro **CNAME**, o **Alias** si el dominio está en Route 53).
 - [ ] **SES:** verificar dominio `parqueexplora.org` (DKIM/SPF), **salir del sandbox**. Con el **task role** (`ses:SendEmail`) no hacen falta credenciales.
 
+**Outbox de correos — ⚠️ paso obligatorio:**
+- [ ] Crear una **EventBridge Scheduled Rule** (`rate(5 minutes)`) que lance una tarea ECS con la misma Task Definition, sobrescribiendo el comando a `["python","manage.py","procesar_email_outbox"]`. En Fargate no hay crontab.
+- [ ] **Sin esto, un correo que falle queda guardado pero no se reintenta nunca.** Paso a paso en **[MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md)**.
+
 ---
 
 ## FASE 10 — Verificación

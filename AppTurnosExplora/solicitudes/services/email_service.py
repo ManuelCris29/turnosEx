@@ -7,9 +7,7 @@ Dependencia en un solo sentido: NotificacionService -> EmailService.
 Nota: _configurar_email_backend y _verificar_token se conservan tal cual (sin callers
 actuales) para no cambiar comportamiento; candidatos a limpieza posterior.
 """
-from django.core.mail import EmailMultiAlternatives, get_connection
 from django.conf import settings
-from django.db import transaction
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.core.mail.backends.smtp import EmailBackend
@@ -17,7 +15,6 @@ from solicitudes.models import SolicitudCambio
 import hashlib
 import hmac
 import logging
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -72,21 +69,24 @@ class EmailService:
             return None
     
     @staticmethod
-    def _enviar_seguro(func):
-        """Ejecuta el envío capturando cualquier error (para el hilo en segundo plano)."""
-        try:
-            func()
-        except Exception:
-            logger.exception("❌ Error enviando email en segundo plano")
-
-    @staticmethod
-    def _enviar_email_desde_usuario(subject, message, from_email, recipient_list, html_message=None):
+    def _enviar_email_desde_usuario(subject, message, from_email, recipient_list, html_message=None,
+                                    clave_idempotencia=None):
         """Envía un correo desde el remitente fijo (DEFAULT_FROM_EMAIL), con la
         persona en Reply-To.
 
-        En producción (EMAIL_SEND_ASYNC) el envío se hace fuera del request:
-        tras el commit y en un hilo, para no bloquear la respuesta ~20 s con los
-        handshakes SMTP. En desarrollo/tests el envío es síncrono.
+        CUELLO DE BOTELLA ÚNICO: todos los correos de la app pasan por aquí, así que este
+        es el punto donde se aplica el patrón *outbox*. El correo NO se envía directamente:
+        se escribe en `EmailOutbox` dentro de la transacción en curso (o commita con el
+        cambio de negocio, o no existe ninguno de los dos) y solo después se intenta
+        entregar. Si esa entrega no ocurre —proceso reiniciado, SMTP caído—, la fila queda
+        en la cola y `procesar_email_outbox` la reintenta, en vez de perderse en silencio.
+
+        En producción (EMAIL_SEND_ASYNC) el intento va tras el commit y en un hilo, para no
+        bloquear la respuesta ~20 s con el handshake SMTP. En desarrollo/tests es síncrono,
+        de modo que `mail.outbox` se puebla dentro del propio test.
+
+        Devuelve True cuando el correo quedó ENCOLADO (es decir: su entrega está
+        garantizada por reintentos), no cuando el SMTP ya lo aceptó.
         """
         try:
             # Validaciones antes de enviar
@@ -114,33 +114,25 @@ class EmailService:
 
             logger.info(f"Encolando email: subject='{subject}', from='{remitente}', reply_to={reply_to}, to={recipient_list_validos}")
 
-            def _construir_y_enviar():
-                # get_connection() respeta EMAIL_BACKEND y EMAIL_TIMEOUT.
-                email = EmailMultiAlternatives(
-                    subject=subject,
-                    body=message,
-                    from_email=remitente,
-                    to=recipient_list_validos,
-                    reply_to=reply_to,
-                    connection=get_connection(),
-                )
-                if html_message:
-                    email.attach_alternative(html_message, "text/html")
-                email.send()
-                logger.info(f"✅ Email enviado desde {remitente} a {recipient_list_validos}")
+            from solicitudes.services.email_outbox_service import EmailOutboxService
+
+            fila = EmailOutboxService.encolar(
+                asunto=subject,
+                cuerpo_texto=message,
+                cuerpo_html=html_message or '',
+                remitente=remitente,
+                reply_to=reply_to[0] if reply_to else '',
+                destinatarios=recipient_list_validos,
+                clave_idempotencia=clave_idempotencia,
+            )
 
             if getattr(settings, 'EMAIL_SEND_ASYNC', False):
                 # Fuera del request: tras el commit, en un hilo (no bloquea la respuesta).
                 # Las notificaciones in-app siguen siendo síncronas (instantáneas).
-                transaction.on_commit(
-                    lambda: threading.Thread(
-                        target=EmailService._enviar_seguro,
-                        args=(_construir_y_enviar,),
-                        daemon=True,
-                    ).start()
-                )
+                EmailOutboxService.enviar_tras_commit(fila.id)
             else:
-                _construir_y_enviar()
+                # Dev/tests: entrega inmediata para que `mail.outbox` quede poblado aquí.
+                EmailOutboxService.intentar_enviar(fila.id)
             return True
 
         except Exception as e:
@@ -433,6 +425,9 @@ class EmailService:
                 from_email=supervisor.email,
                 recipient_list=[solicitud.explorador_solicitante.email],
                 html_message=html_message,
+                # Una solicitud solo se aprueba una vez por rol: si el flujo se reintenta,
+                # la clave impide encolar un segundo aviso del mismo hecho.
+                clave_idempotencia=f'aprob_sup_{solicitud.id}',
             )
         except Exception as e:
             print(f"Error enviando email de aprobación del supervisor: {e}")
@@ -463,6 +458,7 @@ class EmailService:
                 from_email=receptor.email,
                 recipient_list=[solicitud.explorador_solicitante.email],
                 html_message=html_message,
+                clave_idempotencia=f'aprob_rec_{solicitud.id}',
             )
         except Exception as e:
             print(f"Error enviando email de aprobación del receptor: {e}")
@@ -493,6 +489,7 @@ class EmailService:
                 from_email=supervisor.email,
                 recipient_list=[solicitud.explorador_solicitante.email],
                 html_message=html_message,
+                clave_idempotencia=f'rech_sup_{solicitud.id}',
             )
         except Exception as e:
             print(f"Error enviando email de rechazo del supervisor: {e}")
@@ -523,6 +520,7 @@ class EmailService:
                 from_email=receptor.email,
                 recipient_list=[solicitud.explorador_solicitante.email],
                 html_message=html_message,
+                clave_idempotencia=f'rech_rec_{solicitud.id}',
             )
         except Exception as e:
             print(f"Error enviando email de rechazo del receptor: {e}") 

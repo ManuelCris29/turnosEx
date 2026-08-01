@@ -27,7 +27,7 @@ Uso:
 from datetime import date, timedelta
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from turnos.models import AsignacionEspecialManual, DiaEspecial, Jornada
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
@@ -106,14 +106,30 @@ class Command(BaseCommand):
 
         # Fila a fila y no bulk_create: `bulk_create` se salta las señales y dejaría el
         # congelado SIN historial, que es justo lo que da trazabilidad a este paso.
-        with transaction.atomic():
-            for fecha, tipo, grupo in nuevos:
-                AsignacionEspecialManual.objects.create(
-                    fecha=fecha, jornada_trabaja=jornadas[grupo], tipo=tipo, activo=True,
-                    descripcion='Congelado desde la alternancia calculada.',
-                )
+        #
+        # Cada fila en su propio savepoint: si dos ejecuciones de este comando corren en
+        # paralelo (dos operadores, o un cron mal configurado), la carrera la resuelve el
+        # `UniqueConstraint(fecha)` del modelo — la segunda escritura choca con IntegrityError.
+        # Sin savepoint por fila, ese choque tumbaría TODA la transacción y perdería incluso
+        # los días que no colisionaron; con savepoint, se omite solo la fecha en conflicto.
+        congeladas, en_conflicto = 0, []
+        for fecha, tipo, grupo in nuevos:
+            try:
+                with transaction.atomic():
+                    AsignacionEspecialManual.objects.create(
+                        fecha=fecha, jornada_trabaja=jornadas[grupo], tipo=tipo, activo=True,
+                        descripcion='Congelado desde la alternancia calculada.',
+                    )
+                congeladas += 1
+            except IntegrityError:
+                en_conflicto.append(fecha)
+
+        if en_conflicto:
+            self.stdout.write(self.style.WARNING(
+                f'{len(en_conflicto)} día(s) ya fueron creados por otra ejecución concurrente, '
+                f'se omitieron: {en_conflicto}'))
 
         self.stdout.write(self.style.SUCCESS(
-            f'{len(nuevos)} día(s) congelados para {anio}. '
+            f'{congeladas} día(s) congelados para {anio}. '
             f'Verifica la equivalencia antes de eliminar la fórmula: '
             f'pytest turnos/tests/test_equivalencia_alternancia.py'))

@@ -244,11 +244,11 @@ class Command(BaseCommand):
         """
         Envía un reporte por email con las inconsistencias detectadas.
         """
-        from django.core.mail import send_mail
         from django.conf import settings
-        
+        from solicitudes.services.email_service import EmailService
+
         asunto = f'⚠️ Reporte de Integridad de Dobladas - {len(inconsistencias)} problema(s)'
-        
+
         mensaje = f"""
 Reporte de Verificación de Integridad de Dobladas
 =================================================
@@ -275,17 +275,32 @@ Acción recomendada:
 Este es un mensaje automático del sistema de monitoreo.
 """
         
+        # Un reporte por día y destinatario: este comando lo lanza un cron diario (3:00 AM),
+        # así que la identidad lógica del correo es la FECHA, no su contenido. Si el cron se
+        # dispara dos veces (solapamiento, reintento), el admin recibe un solo reporte.
+        from solicitudes.models import EmailOutbox
+
+        clave = f'reporte_integridad_{timezone.localdate().isoformat()}_{email_destino}'
+        ya_encolado = EmailOutbox.objects.filter(clave_idempotencia=clave).exists()
+
         try:
-            send_mail(
-                asunto,
-                mensaje,
-                settings.DEFAULT_FROM_EMAIL,
-                [email_destino],
-                fail_silently=False,
+            EmailService._enviar_email_desde_usuario(
+                subject=asunto,
+                message=mensaje,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email_destino],
+                clave_idempotencia=clave,
             )
-            self.stdout.write(self.style.SUCCESS(f"\n📧 Reporte enviado a {email_destino}"))
+            if ya_encolado:
+                # No se puede callar esto: quien re-ejecuta a mano el mismo día debe saber
+                # que NO se envió un segundo reporte, o creerá que recibió datos frescos.
+                self.stdout.write(self.style.WARNING(
+                    f"\n📧 Hoy ya se encoló un reporte para {email_destino}; NO se envía otro. "
+                    f"El reporte de arriba solo se muestra en pantalla."))
+            else:
+                self.stdout.write(self.style.SUCCESS(f"\n📧 Reporte encolado para {email_destino}"))
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f"\n❌ Error enviando email: {e}"))
+            self.stdout.write(self.style.ERROR(f"\n❌ Error encolando email: {e}"))
 
 
 

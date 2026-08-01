@@ -71,7 +71,8 @@ class EnvioAsyncTest(TestCase):
             t.start = lambda: target(*args)
             return t
 
-        with mock.patch('solicitudes.services.email_service.threading.Thread', side_effect=fake_thread):
+        # El hilo lo lanza ahora el outbox, no el EmailService: el envío se movió allí.
+        with mock.patch('threading.Thread', side_effect=fake_thread):
             with self.captureOnCommitCallbacks(execute=True):
                 ok = EmailService._enviar_email_desde_usuario(
                     subject='Async',

@@ -247,7 +247,11 @@ sudo systemctl status certbot.timer     # renovación automática
 - [ ] Crear **credenciales SMTP de SES** → ponerlas en `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` (Fase 4).
 - [ ] Prueba: enviar una solicitud real y revisar cabeceras (`DKIM=pass`, `SPF=pass`) y que no caiga en spam.
 
-**Fase 2 (posterior, mejora) — SES por API + IAM role:** elimina el secreto y baja la latencia; requiere `pip install django-ses boto3`, `EMAIL_BACKEND=django_ses.SESBackend` y un **IAM role** en la EC2. Ver el [plan de correo](./PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA.docx). Junto con el envío **asíncrono** (`transaction.on_commit` + hilo) resuelve los ~20 s de latencia.
+**Fase 2 (posterior, mejora) — SES por API + IAM role:** elimina el secreto y baja la latencia; requiere `pip install django-ses boto3`, `EMAIL_BACKEND=django_ses.SESBackend` y un **IAM role** en la EC2. Ver el [plan de correo](./PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA.docx). Junto con el envío **asíncrono** (outbox + hilo tras el commit) resuelve los ~20 s de latencia.
+
+**Outbox de correos — ⚠️ paso obligatorio:**
+- [ ] Programar el cron `procesar_email_outbox` (cada 5 min). **Sin él, un correo que falle queda guardado pero no se reintenta nunca.**
+- [ ] Ver el paso a paso completo en **[MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md)**.
 
 ---
 

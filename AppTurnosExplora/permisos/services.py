@@ -106,6 +106,7 @@ class PermisoNotificacionService:
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[supervisor.email],
                 html_message=html,
+                clave_idempotencia=f'creacion_permiso_{permiso.id}',
             )
         except Exception:
             logger.exception("Error enviando email de permiso %s al supervisor", permiso.id)
@@ -139,6 +140,7 @@ class PermisoNotificacionService:
                 EmailService._enviar_email_desde_usuario(
                     subject=titulo, message=detalle,
                     from_email=settings.DEFAULT_FROM_EMAIL, recipient_list=[emp.email],
+                    clave_idempotencia=f'resolucion_permiso_{permiso.id}',
                 )
             except Exception:
                 logger.exception("Error enviando email de resolución de permiso %s", permiso.id)

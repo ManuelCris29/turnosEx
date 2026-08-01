@@ -112,15 +112,24 @@ class DiaEspecialService:
         Returns:
             Tupla (éxito, mensaje)
         """
+        from core.services.cache_service import CacheService
+
+        # Guarda contra dos guardados simultáneos del mismo año/tipo (dos pestañas, doble-clic):
+        # el patrón es "borrar todo y recrear", así que sin este lock la segunda escritura no
+        # chocaría con nada — simplemente pisaría en silencio lo que la primera acababa de crear.
+        clave_lock = f"dias_especiales_lock_{tipo}_{anio}"
+        if not CacheService.acquire_lock(clave_lock, ttl=15):
+            return False, f"Ya hay un guardado en curso para {tipo} del año {anio}. Espera unos segundos y reintenta."
+
         try:
             # Validar tipo
             if tipo not in ['festivo', 'mantenimiento']:
                 return False, f"Tipo inválido: {tipo}. Debe ser 'festivo' o 'mantenimiento'."
-            
+
             # Validar año (solo mínimo para evitar años históricos muy antiguos)
             if anio < 2000:
                 return False, f"Año inválido: {anio}. Debe ser mayor o igual a 2000."
-            
+
             # Eliminar todos los días existentes del tipo y año
             DiaEspecialService.eliminar_dias_por_tipo_anio(tipo, anio)
             
@@ -226,10 +235,12 @@ class DiaEspecialService:
             
             mensaje = f"Se guardaron {dias_creados} días de {tipo} para el año {anio}."
             return True, mensaje
-            
+
         except Exception as e:
             logger.error(f"Error al guardar días especiales anual: {e}")
             return False, f"Error al guardar días especiales: {str(e)}"
+        finally:
+            CacheService.delete(clave_lock)
 
     @staticmethod
     @transaction.atomic

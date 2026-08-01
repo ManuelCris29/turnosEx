@@ -5,7 +5,41 @@ from .models import (
     DobladaDetalle, DeudaExplorador, DeudaCorporativa,
     ReprogramacionDiaDoblada,
     CierreSolicitudesConfig, CierreSemanaOverride,
+    EmailOutbox,
 )
+
+
+@admin.register(EmailOutbox)
+class EmailOutboxAdmin(admin.ModelAdmin):
+    """
+    Ventana a la cola de correos. Su razón de ser es el filtro por estado='fallido':
+    esos agotaron los reintentos y nadie los va a recoger ya, así que son los únicos
+    que exigen intervención humana. El resto se resuelve solo.
+    """
+    list_display = ['asunto', 'destinatarios', 'estado', 'intentos', 'creado_en', 'enviado_en']
+    list_filter = ['estado', 'creado_en']
+    search_fields = ['asunto', 'clave_idempotencia']
+    date_hierarchy = 'creado_en'
+    # Todo es de solo lectura: editar a mano una fila de la cola solo puede provocar
+    # un reenvío indebido o dejarla en un estado que el worker no sepa interpretar.
+    readonly_fields = [f.name for f in EmailOutbox._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    @admin.action(description='Reintentar el envío ahora')
+    def reintentar(self, request, queryset):
+        """Reencola los seleccionados: vuelve a 'pendiente' y disponible de inmediato."""
+        from django.utils import timezone
+
+        actualizadas = queryset.exclude(estado=EmailOutbox.ESTADO_ENVIADO).update(
+            estado=EmailOutbox.ESTADO_PENDIENTE, intentos=0, disponible_en=timezone.now())
+        self.message_user(
+            request,
+            f'{actualizadas} correo(s) reencolados; el worker los tomará en la próxima pasada. '
+            f'Los ya enviados se ignoran para no duplicarlos.')
+
+    actions = ['reintentar']
 
 
 @admin.register(CierreSolicitudesConfig)

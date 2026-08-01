@@ -103,11 +103,20 @@ class TemporadaService:
         Returns:
             Tupla (éxito, mensaje)
         """
+        from core.services.cache_service import CacheService
+
+        # Guarda contra dos guardados simultáneos del mismo año (dos pestañas, doble-clic):
+        # el patrón es "borrar todo y recrear", así que sin este lock la segunda escritura
+        # pisaría en silencio lo que la primera acababa de crear.
+        clave_lock = f"temporadas_lock_{anio}"
+        if not CacheService.acquire_lock(clave_lock, ttl=15):
+            return False, f"Ya hay un guardado en curso para las temporadas del año {anio}. Espera unos segundos y reintenta."
+
         try:
             # Validar año
             if anio < 2000 or anio > 2100:
                 return False, f"Año inválido: {anio}. Debe estar entre 2000 y 2100."
-            
+
             # Eliminar todas las temporadas existentes del año
             TemporadaService.eliminar_temporadas_anio(anio)
             
@@ -197,10 +206,12 @@ class TemporadaService:
             
             mensaje = f"Se guardaron {dias_creados} días de temporada para el año {anio}."
             return True, mensaje
-            
+
         except Exception as e:
             logger.error(f"Error al guardar temporadas anual: {e}")
             return False, f"Error al guardar temporadas: {str(e)}"
+        finally:
+            CacheService.delete(clave_lock)
 
     @staticmethod
     @transaction.atomic

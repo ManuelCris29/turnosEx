@@ -166,6 +166,11 @@ class ReenviarNotificacionSolicitudView(_AccionGestionBase):
         if solicitud.estado != 'pendiente':
             messages.warning(request, f'La solicitud #{solicitud.id} no está pendiente; no se reenvía notificación.')
             return self._volver(request)
+
+        from core.services.cache_service import CacheService
+        if not CacheService.acquire_lock(f"reenvio_notif_lock_{solicitud.id}", ttl=30):
+            messages.warning(request, f'Notificación de la solicitud #{solicitud.id} ya reenviada hace un momento; espera antes de reintentar.')
+            return self._volver(request)
         try:
             from ..services.notificacion_service import NotificacionService
             NotificacionService.crear_notificacion_solicitud(solicitud)
