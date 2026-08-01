@@ -4,17 +4,23 @@ ReporteDiaService
 Genera el reporte operacional de un día para supervisores: quién trabaja
 (AM/PM/DOBLADA), quién descansa y por qué, quién tiene permiso especial.
 
-Usa las mismas capas de prioridad que TurnoService.estado_mes pero en batch
-para TODOS los empleados activos en una sola pasada (~10 queries totales).
+Aplica las MISMAS capas de prioridad que `TurnoService.estado_dia`, en el mismo
+orden, pero en batch para TODOS los empleados activos en una sola pasada (número de
+consultas constante: la plantilla real ronda los 400 exploradores y este reporte
+alimenta también la exportación a Excel).
+
+La capa L2 (descanso por solicitud aprobada) NO se reimplementa aquí: se delega en
+`DescansoPorSolicitudService.en_rango_multiple`, la misma fuente única que usa
+`estado_dia`. Reimplementarla fue la causa de que este reporte mostrara datos falsos
+(gente "descansando" que en realidad estaba doblando).
+
+`test_reporte_dia_paridad.py` compara este reporte contra `estado_dia` empleado por
+empleado y día por día: si alguien vuelve a tocar una capa aquí sin tocarla allá, falla.
 """
-import logging
 from datetime import date as _date
-from django.db.models import Q
 from empleados.models import Empleado
 from turnos.models import Turno, AsignarJornadaExplorador, DiaEspecial, DescansoSemanaManual
 from solicitudes.models import SolicitudCambio
-
-logger = logging.getLogger(__name__)
 
 
 def _nombre(emp):
@@ -65,7 +71,6 @@ class ReporteDiaService:
             .order_by('apellido', 'nombre')
         )
         emp_ids = [e.id for e in empleados]
-        emp_ids_set = set(emp_ids)
 
         # ── Jornada base más reciente por empleado ───────────────────────────
         jornada_base_por_emp = {}
@@ -115,61 +120,22 @@ class ReporteDiaService:
                 fecha=fecha, activo=True).select_related('jornada'):
             jornadas_descanso_temporada.add(dsm.jornada.nombre.upper())
 
-        # ── Solicitudes que afectan esta fecha ───────────────────────────────
-        # Quién DESCANSA por haber cedido (DOBLADA / D FDS — solicitante).
-        # Solo descansa el día COMPLETO si cedió todo: cesión completa / D FDS, o AMBAS
-        # medias jornadas por parciales. Una sola cesión parcial deja la otra jornada
-        # (se muestra por su Turno real). Se acumula por empleado para distinguirlo.
-        _ced_acc = {}   # emp_id → {'parciales': set(), 'rep': solicitud, 'full': bool}
-        for s in (SolicitudCambio.objects
-                  .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
-                          estado='aprobada', fecha_cambio_turno=fecha,
-                          explorador_solicitante_id__in=emp_ids)
-                  .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')):
-            _det = getattr(s, 'doblada', None)
-            _tc = getattr(_det, 'tipo_cesion', None) if _det else None
-            e = _ced_acc.setdefault(s.explorador_solicitante_id,
-                                    {'parciales': set(), 'rep': s, 'full': False})
-            if _tc == 'cesion_parcial_am':
-                e['parciales'].add('AM')
-            elif _tc == 'cesion_parcial_pm':
-                e['parciales'].add('PM')
-            else:
-                e['full'] = True
-        descansa_por_cesion = {}   # emp_id → {motivo, companero}
-        for emp_id, e in _ced_acc.items():
-            if e['full'] or {'AM', 'PM'} <= e['parciales']:
-                descansa_por_cesion[emp_id] = {
-                    'motivo': 'cedió su jornada',
-                    'companero': _nombre(e['rep'].explorador_receptor),
-                }
-
-        # Quién DESCANSA por pagar doblada (receptor, en fecha_pago). Solo descansa el día
-        # COMPLETO si el pago cubre todo: cesión completa / D FDS, o ambas medias jornadas.
-        # Un solo pago parcial deja media jornada (se ve por su Turno real).
-        _pago_acc = {}   # emp_id → {'parciales': set(), 'rep': solicitud, 'full': bool}
-        for s in (SolicitudCambio.objects
-                  .filter(tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
-                          estado='aprobada', explorador_receptor_id__in=emp_ids,
-                          doblada__fecha_pago=fecha)
-                  .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')):
-            _det = getattr(s, 'doblada', None)
-            _tc = getattr(_det, 'tipo_cesion', None) if _det else None
-            e = _pago_acc.setdefault(s.explorador_receptor_id,
-                                     {'parciales': set(), 'rep': s, 'full': False})
-            if _tc == 'cesion_parcial_am':
-                e['parciales'].add('AM')
-            elif _tc == 'cesion_parcial_pm':
-                e['parciales'].add('PM')
-            else:
-                e['full'] = True
-        descansa_por_pago = {}   # emp_id → {motivo, companero}
-        for emp_id, e in _pago_acc.items():
-            if e['full'] or {'AM', 'PM'} <= e['parciales']:
-                descansa_por_pago[emp_id] = {
-                    'motivo': 'paga doblada',
-                    'companero': _nombre(e['rep'].explorador_solicitante),
-                }
+        # ── L2: descanso por solicitud aprobada (FUENTE ÚNICA, en batch) ─────
+        # Antes este servicio reimplementaba la atribución de descanso (cesión, pago, cambio de
+        # descanso y doblada permanente) con sus propias consultas. Se desincronizó de la regla
+        # real y mostraba datos falsos: la doblada permanente se resolvía por PATRÓN de día de la
+        # semana en vez de por las FECHAS específicas elegidas, así que marcaba descansando a
+        # gente que ese día estaba doblando; y ninguna rama aplicaba la guarda "L1 manda sobre L2"
+        # (un turno real gana sobre una solicitud vieja: la última aprobada gana por día).
+        #
+        # Ahora delega en el mismo servicio que usan `estado_dia` y Mis Turnos, en su variante
+        # batch: una sola tanda de consultas para toda la plantilla (importa: ~400 exploradores).
+        from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
+        descanso_l2 = {
+            eid: por_fecha.get(fecha)
+            for eid, por_fecha in DescansoPorSolicitudService.en_rango_multiple(
+                empleados, fecha, fecha).items()
+        }
 
         # Quién DOBLÓ (receptor en fecha_cambio_turno) → para mostrar "cubre a X"
         dobla_cubre = {}   # emp_id (receptor) → {id, nombre} del cedente
@@ -179,75 +145,6 @@ class ReporteDiaService:
                           explorador_receptor_id__in=emp_ids)
                   .select_related('explorador_solicitante', 'explorador_receptor')):
             dobla_cubre[s.explorador_receptor_id] = _nombre(s.explorador_solicitante)
-
-        # Quién DESCANSA por CAMBIO DESCANSO
-        descansa_por_cd = {}   # emp_id → {motivo, companero}
-        try:
-            from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
-            from datetime import timedelta
-            # Solo pueden afectar a `fecha` las solicitudes cuya fecha de cambio o de pago
-            # caiga en [fecha-1, fecha+1]: en findes el día del compañero es el contiguo
-            # (ver `_otro`). Sin esta ventana la consulta arrastraba TODO el histórico
-            # aprobado y crecía sin límite con los años de operación.
-            _ventana = (fecha - timedelta(days=1), fecha + timedelta(days=1))
-            for s in (SolicitudCambio.objects
-                      .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
-                      .filter(Q(explorador_solicitante_id__in=emp_ids) |
-                              Q(explorador_receptor_id__in=emp_ids))
-                      .filter(Q(fecha_cambio_turno__range=_ventana) |
-                              Q(doblada__fecha_pago__range=_ventana))
-                      .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')):
-                det = getattr(s, 'doblada', None)
-                fc = s.fecha_cambio_turno
-                fp = det.fecha_pago if det else None
-                es_finde_cd = fc and fc.weekday() in (5, 6)
-                if es_finde_cd:
-                    # Solicitante descansa fc y fp; receptor descansa los contrarios
-                    def _otro(f):
-                        if not f:
-                            return None
-                        return f + timedelta(days=1) if f.weekday() == 5 else f - timedelta(days=1)
-                    days_sol = [fc, fp]
-                    days_rec = [_otro(fc), _otro(fp)]
-                else:
-                    days_sol = [fp]
-                    days_rec = [fc]
-                comp_sol = _nombre(s.explorador_receptor)
-                comp_rec = _nombre(s.explorador_solicitante)
-                if fecha in [d for d in days_sol if d]:
-                    descansa_por_cd[s.explorador_solicitante_id] = {
-                        'motivo': 'cambio de día de descanso', 'companero': comp_sol}
-                if fecha in [d for d in days_rec if d]:
-                    descansa_por_cd[s.explorador_receptor_id] = {
-                        'motivo': 'cambio de día de descanso', 'companero': comp_rec}
-        except Exception:
-            logger.warning("Error resolviendo descansos por cambio de descanso (fecha=%s)", fecha, exc_info=True)
-
-        # Quién DESCANSA por DOBLADA PERMANENTE
-        descansa_por_perm = {}   # emp_id → {motivo, companero}
-        for s in (SolicitudCambio.objects
-                  .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
-                  .filter(Q(explorador_solicitante_id__in=emp_ids) |
-                          Q(explorador_receptor_id__in=emp_ids))
-                  .filter(doblada_permanente__fecha_inicio__lte=fecha,
-                          doblada_permanente__fecha_fin__gte=fecha)
-                  .select_related('doblada_permanente',
-                                  'explorador_solicitante', 'explorador_receptor')):
-            det = getattr(s, 'doblada_permanente', None)
-            if not det or not (det.fecha_inicio <= fecha <= det.fecha_fin):
-                continue
-            for es_sol in (True, False):
-                emp_id = s.explorador_solicitante_id if es_sol else s.explorador_receptor_id
-                if emp_id not in emp_ids_set:
-                    continue
-                dias_txt = det.dias_cesion if es_sol else det.dias_devolucion
-                dias_set = {int(x) for x in (dias_txt or '').split(',') if x.strip().isdigit()}
-                if fecha.weekday() in dias_set and fecha.weekday() != 6 and not es_festivo:
-                    comp = s.explorador_receptor if es_sol else s.explorador_solicitante
-                    descansa_por_perm[emp_id] = {
-                        'motivo': 'doblada permanente',
-                        'companero': _nombre(comp),
-                    }
 
         # ── Permisos especiales ──────────────────────────────────────────────
         from permisos.models import PermisoEspecial
@@ -337,98 +234,98 @@ class ReporteDiaService:
             motivo_descanso = None
             companero_descanso = None
 
-            # — Descanso por solicitud aprobada (prioridad máxima) ————————————
-            # Se evalúa ANTES que los turnos porque una cesión aprobada es la
-            # fuente de verdad del negocio: el empleado cedió su jornada aunque
-            # existan registros residuales en la tabla Turno (p.ej. de un cambio
-            # turno previo sobre ese mismo día).
-            if emp.id in descansa_por_cesion:
-                info = descansa_por_cesion[emp.id]
-                trabaja = False
-                motivo_descanso = info['motivo']
-                companero_descanso = info['companero']
-            elif emp.id in descansa_por_pago:
-                info = descansa_por_pago[emp.id]
-                trabaja = False
-                motivo_descanso = info['motivo']
-                companero_descanso = info['companero']
-            elif emp.id in descansa_por_cd:
-                info = descansa_por_cd[emp.id]
-                trabaja = False
-                motivo_descanso = info['motivo']
-                companero_descanso = info['companero']
-            elif emp.id in descansa_por_perm:
-                info = descansa_por_perm[emp.id]
-                trabaja = False
-                motivo_descanso = info['motivo']
-                companero_descanso = info['companero']
+            # El ORDEN de estas ramas replica exactamente el de `TurnoService.estado_dia`
+            # (L5 festivo → L1 turno real → L2 solicitud → base → L6 finde → L4 temporada →
+            # L3 mantenimiento → L4 lado que dobla → base). Cualquier reordenamiento aquí hace
+            # que el reporte del supervisor y Mis Turnos digan cosas distintas del mismo día;
+            # el test de paridad (`test_reporte_dia_paridad.py`) lo detecta.
+            l2 = descanso_l2.get(emp.id)
 
-            # — FESTIVO entre semana con turno explícito —
-            elif es_festivo and fecha.weekday() < 5 and turnos:
+            def _jornada_de(ts):
+                js = {t.jornada.nombre.upper() for t in ts if t.jornada}
+                return ('DOBLADA' if {'AM', 'PM'} <= js
+                        else ('AM' if 'AM' in js else 'PM' if 'PM' in js else None))
+
+            # — L5 FESTIVO entre semana: la regla del festivo manda sobre el horario base;
+            #   solo un cambio EXPLÍCITO (turno con tipo_cambio) se respeta por encima. —
+            if es_festivo and fecha.weekday() < 5:
                 explicitos = [t for t in turnos if t.tipo_cambio]
                 if explicitos:
-                    js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
-                    jornada_dia = ('DOBLADA' if {'AM', 'PM'} <= js
-                                   else ('AM' if 'AM' in js else 'PM' if 'PM' in js else None))
+                    jornada_dia = _jornada_de(explicitos)
                     trabaja = True
                     tipo = 'cambio'
                     cubre_a = dobla_cubre.get(emp.id)
                     if cubre_a:
                         tipo = 'doblada'
+                elif l2:
+                    # Cedió el festivo por una solicitud aprobada: la rotación no puede
+                    # ponerlo a trabajar igualmente.
+                    trabaja = False
+                    motivo_descanso = l2['motivo']
+                    companero_descanso = l2.get('companero')
+                elif grupo_dobla_festivo is None:
+                    trabaja = False
+                    motivo_descanso = MOTIVO_SIN_PLANIFICAR
+                elif jb and jb == grupo_dobla_festivo:
+                    jornada_dia = 'DOBLADA'
+                    trabaja = True
+                    tipo = 'oficial'
                 else:
-                    # Sin turno explícito en festivo → rotación
-                    if grupo_dobla_festivo and jb == grupo_dobla_festivo:
-                        jornada_dia = 'DOBLADA'
-                        trabaja = True
-                        tipo = 'oficial'
-                    elif grupo_dobla_festivo is None:
-                        trabaja = False
-                        motivo_descanso = MOTIVO_SIN_PLANIFICAR
-                    else:
-                        trabaja = False
-                        motivo_descanso = 'festivo'
+                    trabaja = False
+                    motivo_descanso = 'festivo: descansa el grupo contrario'
 
-            # — Turno registrado (cualquier día no festivo) —
-            elif turnos and not (es_festivo and fecha.weekday() < 5):
-                js = {t.jornada.nombre.upper() for t in turnos if t.jornada}
-                jornada_dia = ('DOBLADA' if {'AM', 'PM'} <= js
-                               else ('AM' if 'AM' in js else 'PM' if 'PM' in js else None))
+            # — L1: turno real (máxima prioridad el resto de días) —
+            elif turnos:
+                jornada_dia = _jornada_de(turnos)
                 trabaja = True
-                tiene_tipo_cambio = any(t.tipo_cambio for t in turnos)
-                tipo = 'cambio' if tiene_tipo_cambio else 'oficial'
+                tipo = 'cambio' if any(t.tipo_cambio for t in turnos) else 'oficial'
                 cubre_a = dobla_cubre.get(emp.id)
                 if cubre_a:
                     tipo = 'doblada'
+
+            # — L2: descanso por solicitud aprobada —
+            elif l2:
+                trabaja = False
+                motivo_descanso = l2['motivo']
+                companero_descanso = l2.get('companero')
 
             # — Sin jornada base —
             elif not jb:
                 trabaja = False
                 motivo_descanso = 'sin jornada asignada'
 
-            # — Fin de semana —
+            # — L6: fin de semana —
             elif es_finde:
-                if grupo_trabaja_finde and jb == grupo_trabaja_finde:
+                if grupo_trabaja_finde is None:
+                    trabaja = False
+                    motivo_descanso = MOTIVO_SIN_PLANIFICAR
+                elif jb == grupo_trabaja_finde:
                     jornada_dia = 'DOBLADA'
                     trabaja = True
                     tipo = 'oficial'
-                elif grupo_trabaja_finde is None:
-                    trabaja = False
-                    motivo_descanso = MOTIVO_SIN_PLANIFICAR
                 else:
                     trabaja = False
                     motivo_descanso = 'descanso de fin de semana'
 
-            # — Temporada (descanso semana manual) —
+            # — L4: temporada (descanso semana manual) —
             elif jb in jornadas_descanso_temporada:
                 trabaja = False
                 motivo_descanso = 'descanso de temporada'
 
-            # — Mantenimiento —
+            # — L3: mantenimiento —
             elif es_mantenimiento:
                 trabaja = False
                 motivo_descanso = 'lunes de mantenimiento'
 
-            # — Día laboral normal —
+            # — L4 (lado que TRABAJA): si el grupo contrario descansa hoy por temporada,
+            #   este grupo cubre el DÍA COMPLETO (AM+PM). Faltaba, y por eso el reporte
+            #   mostraba media jornada a gente que en Mis Turnos figura doblada. —
+            elif ('PM' if jb == 'AM' else 'AM') in jornadas_descanso_temporada:
+                jornada_dia = 'DOBLADA'
+                trabaja = True
+                tipo = 'oficial'
+
+            # — Base: trabaja su jornada —
             else:
                 jornada_dia = jb
                 trabaja = True

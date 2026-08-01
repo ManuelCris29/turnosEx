@@ -226,21 +226,24 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
         reprog.refresh_from_db()
         return reprog, nueva
 
-    def test_cancelar_restaura_turno_previo_y_quita_doblada(self):
-        """Al cancelar una reprogramación 'pagada': se anulan los turnos PAGO REPROGRAMADO,
-        se restaura el turno único original (base AM del receptor) y Mis Turnos ya NO muestra
-        doblada; la deuda de 30 min de ese día queda cancelada."""
+    def test_deshacer_pago_restaura_turno_previo_y_vuelve_a_pendiente(self):
+        """Al deshacer el pago de una reprogramación 'pagada': se anulan los turnos PAGO
+        REPROGRAMADO, se restaura el turno único original (base AM del receptor) y Mis Turnos ya
+        NO muestra doblada; la deuda de 30 min de ese día queda cancelada. Y lo esencial: la
+        reprogramación vuelve a PENDIENTE — la persona sigue debiendo el día y se le puede volver
+        a programar (antes quedaba 'cancelada' y la deuda se perdía)."""
         from django.core.cache import cache
         reprog, nueva = self._llegar_a_pagada()
         # Se guardó la jornada previa (base del receptor = AM) y ese día dobla.
         self.assertEqual(reprog.jornada_pago_previa, 'AM')
         self.assertEqual(TS.estado_dia(self.receptor, nueva).get('jornada'), 'DOBLADA')
 
-        RS.cancelar(reprog)
+        RS.deshacer_pago(reprog)
         cache.clear()
         reprog.refresh_from_db()
 
-        self.assertEqual(reprog.estado, 'cancelada')
+        self.assertEqual(reprog.estado, 'pendiente')
+        self.assertIsNone(reprog.fecha_reprogramada)
         # Los 2 turnos de pago quedan anulados (auditables), y se recrea 1 turno normal (AM).
         activos = Turno.objects.filter(explorador=self.receptor, fecha=nueva)
         self.assertEqual(activos.count(), 1)
@@ -255,30 +258,63 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
         self.assertEqual(DeudaCorporativa.objects.filter(
             explorador=self.receptor, fecha_doblada=nueva, estado='activa').count(), 0)
 
-    def test_cancelar_es_idempotente(self):
-        """Cancelar dos veces no re-procesa ni duplica turnos (guard por estado)."""
+    def test_deshacer_pago_es_idempotente(self):
+        """Deshacer dos veces no re-procesa ni duplica turnos, y sobre todo NO encadena hasta
+        'cancelada': un doble submit del botón no puede perdonar la deuda por accidente."""
         from django.core.cache import cache
         reprog, nueva = self._llegar_a_pagada()
-        RS.cancelar(reprog)
+        RS.deshacer_pago(reprog)
         cache.clear(); reprog.refresh_from_db()
         total_tras_1 = Turno.all_objects.filter(explorador=self.receptor, fecha=nueva).count()
-        RS.cancelar(reprog)  # segunda cancelación: no debe tocar nada
+        RS.deshacer_pago(reprog)  # segunda vez: no-op
         reprog.refresh_from_db()
-        self.assertEqual(reprog.estado, 'cancelada')
+        self.assertEqual(reprog.estado, 'pendiente')
         self.assertEqual(
             Turno.all_objects.filter(explorador=self.receptor, fecha=nueva).count(), total_tras_1)
 
-    def test_cancelar_pendiente_no_toca_turnos(self):
-        """Cancelar una reprogramación aún 'pendiente' (sin día de pago) solo cambia el estado;
-        el día original no cumplido sigue anulado (fue inasistencia real)."""
+    def test_reprogramar_de_nuevo_tras_deshacer_el_pago(self):
+        """El caso que motivó el arreglo: se deshace un pago y la persona SÍ puede volver a
+        tener día de pago programado, porque la reprogramación sigue viva en 'pendiente'."""
+        reprog, nueva = self._llegar_a_pagada()
+        RS.deshacer_pago(reprog)
+        reprog.refresh_from_db()
+        RS.programar(reprog, nueva)
+        reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'pagada')
+        self.assertEqual(reprog.fecha_reprogramada, nueva)
+        # Un solo cargo de 30 min por el día doblado, no dos (deuda idempotente).
+        self.assertEqual(DeudaCorporativa.objects.filter(
+            explorador=self.receptor, fecha_doblada=nueva, estado='activa').count(), 1)
+
+    def test_cerrar_sin_pago_exige_deshacer_el_pago_primero(self):
+        """Desde 'pagada' no se puede perdonar la deuda de un golpe: quedarían turnos de pago
+        vivos de una reprogramación cerrada."""
+        reprog, _ = self._llegar_a_pagada()
+        with self.assertRaises(ValueError):
+            RS.cerrar_sin_pago(reprog)
+
+    def test_cerrar_sin_pago_pendiente_no_toca_turnos(self):
+        """Cerrar sin pago una reprogramación 'pendiente' solo cambia el estado; el día original
+        no cumplido sigue anulado (fue inasistencia real)."""
         sol = self._crear_aplicar_doblada()
         reprog = RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor, motivo='Enf')
         self.assertEqual(reprog.estado, 'pendiente')
-        RS.cancelar(reprog)
+        RS.cerrar_sin_pago(reprog)
         reprog.refresh_from_db()
+        self.assertEqual(reprog.estado, 'cancelada')
+        RS.cerrar_sin_pago(reprog)  # idempotente
         self.assertEqual(reprog.estado, 'cancelada')
         # El día original sigue anulado (no se restaura la doblada no cumplida).
         self.assertEqual(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION).count(), 0)
+
+    def test_dia_ya_anulado_no_vuelve_a_ofrecerse_para_reprogramar(self):
+        """Tras registrar la inasistencia, ese día ya no aparece como candidato: no hay doblada
+        que incumplir. Sin esto, Gestión de Solicitudes seguía ofreciendo 'Reprogramar' sobre un
+        día anulado."""
+        sol = self._crear_aplicar_doblada()
+        RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor)
+        fechas = {rol: f for (rol, _e, f) in RS.participantes_y_dias(sol)}
+        self.assertEqual(fechas['receptor'], [], 'el día anulado no debe seguir siendo reprogramable')
 
 
 class ReprogramacionDFDSTest(DFDSBaseTest):
@@ -441,7 +477,7 @@ class ReprogramacionDFDSTest(DFDSBaseTest):
             self.assertEqual(r.status_code, 200, params)
             self.assertEqual(r.context['mes'], reprog.fecha_original.month, params)
 
-    def test_cancelar_devuelve_el_dia_a_descanso(self):
+    def test_deshacer_pago_devuelve_el_dia_a_descanso(self):
         """Sin jornada previa que restaurar: la persona simplemente vuelve a descansar."""
         sol = self._aplicada()
         nueva = self._otro_dia_libre_mismo_tipo(self.pago)
@@ -449,8 +485,8 @@ class ReprogramacionDFDSTest(DFDSBaseTest):
             self.skipTest('El mes de prueba no ofrece otro día libre del mismo tipo')
         reprog = RS.registrar_inasistencia(sol, self.solicitante)
         RS.programar(reprog, nueva)
-        RS.cancelar(reprog)
+        RS.deshacer_pago(reprog)
         reprog.refresh_from_db()
-        self.assertEqual(reprog.estado, 'cancelada')
+        self.assertEqual(reprog.estado, 'pendiente')
         self.assertEqual(Turno.objects.filter(explorador=self.solicitante, fecha=nueva).count(), 0,
-                         'al cancelar no debe quedar ningún turno activo ese día')
+                         'al deshacer el pago no debe quedar ningún turno activo ese día')

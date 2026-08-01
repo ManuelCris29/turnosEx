@@ -38,13 +38,16 @@
             {% if r.estado == 'pendiente' %}
               <a class="btn btn-sm btn-success" href="{% url 'solicitudes:reprog_programar' r.id %}"><i class="fas fa-calendar-check"></i> Programar</a>
             {% endif %}
-            {% if r.estado != 'cancelada' %}
-              {% if r.estado == 'pendiente' %}
-              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('ATENCIÓN: aún no hay día de pago programado. Al cancelar, el día no cumplido queda ANULADO y esta persona no lo repondrá. ¿Continuar?');">{% csrf_token %}
-              {% else %}
-              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('Se anulará el día de pago y esa fecha volverá a su jornada normal. ¿Cancelar la reprogramación?');">{% csrf_token %}
-              {% endif %}
-                <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fas fa-ban"></i></button>
+            {% if r.estado == 'pagada' %}
+              {# Deshacer el pago NO cierra la deuda: vuelve a 'Pendiente' para poder reprogramarla. #}
+              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('Se anulará el día de pago y esa fecha volverá a su jornada normal. La reprogramación vuelve a PENDIENTE: la persona sigue debiendo el día. ¿Continuar?');">{% csrf_token %}
+                <input type="hidden" name="accion" value="deshacer_pago">
+                <button class="btn btn-sm btn-outline-danger" type="submit" title="Deshacer el día de pago (vuelve a pendiente)"><i class="fas fa-undo"></i> Deshacer pago</button>
+              </form>
+            {% elif r.estado == 'pendiente' %}
+              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('ATENCIÓN: se PERDONA la deuda. El día no cumplido queda ANULADO y esta persona no lo repondrá. ¿Continuar?');">{% csrf_token %}
+                <input type="hidden" name="accion" value="cerrar_sin_pago">
+                <button class="btn btn-sm btn-outline-danger" type="submit" title="Cerrar sin pago (perdona la deuda)"><i class="fas fa-ban"></i></button>
               </form>
             {% endif %}
           </td>

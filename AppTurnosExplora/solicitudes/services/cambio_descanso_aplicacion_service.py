@@ -87,22 +87,41 @@ class CambioDescansoAplicacionService:
         `dentro_ventana=True`: solo considera solicitudes cuya `fecha_resolucion` sigue dentro de
         los 30 min de cancelación (uso: `dia_bloqueado_para_nuevo_cambio`, que necesita saber si el
         descanso todavía puede revertirse; para mostrar info en "Mis Turnos" se usa el default).
+
+        Atajo de un empleado sobre `_mapa_descanso_multi`: hay UNA sola implementación de la regla,
+        así la versión batch (reporte del día) no puede divergir de la individual (Mis Turnos).
+        """
+        return CambioDescansoAplicacionService._mapa_descanso_multi(
+            [empleado], fecha_inicio, fecha_fin, excluir_id, dentro_ventana
+        ).get(getattr(empleado, 'id', empleado), {})
+
+    @staticmethod
+    def _mapa_descanso_multi(empleados, fecha_inicio, fecha_fin, excluir_id=None, dentro_ventana=False):
+        """
+        Versión BATCH de `_mapa_descanso`: { emp_id: { fecha: compañero } } para VARIOS empleados
+        en una sola tanda de consultas, en vez de N×empleado.
+
+        Existe para el reporte operativo del día, que clasifica a toda la plantilla a la vez: con
+        ~400 exploradores, llamar la versión individual costaba miles de consultas. La regla es la
+        misma línea por línea — esta función ES la implementación y la individual la envuelve.
         """
         from django.db.models import Q
         from solicitudes.models import SolicitudCambio
 
         fecha_inicio = _as_date(fecha_inicio)
         fecha_fin = _as_date(fecha_fin)
-        rest = {}
+        emp_ids = {getattr(e, 'id', e) for e in empleados}
+        rest = {eid: {} for eid in emp_ids}
         # Cobertura del solicitante: jornadas cedidas ACUMULADAS por fecha. Una sola parcial
         # deja media jornada real (L1) y NO es descanso; pero dos parciales (AM y PM, a distintos
         # compañeros) o una completa suman el día entero → descansa completo. Sin esta suma, ceder
         # AM y PM por separado dejaba el día "sin turnos" y la temporada lo re-pintaba como DOBLADA.
-        cob_sol_ced = {}
-        cob_sol_comp = {}
+        # (Por empleado: en batch dos personas distintas pueden estar acumulando el mismo día.)
+        cob_sol_ced = {}    # emp_id → {fecha: set(jornadas)}
+        cob_sol_comp = {}   # emp_id → {fecha: compañero}
         qs = (SolicitudCambio.objects
               .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
-              .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
+              .filter(Q(explorador_solicitante_id__in=emp_ids) | Q(explorador_receptor_id__in=emp_ids))
               .select_related('doblada', 'explorador_solicitante', 'explorador_receptor'))
         if excluir_id:
             qs = qs.exclude(id=excluir_id)
@@ -116,38 +135,44 @@ class CambioDescansoAplicacionService:
                 continue
             fc = _as_date(s.fecha_cambio_turno)
             fp = _as_date(det.fecha_pago)
-            es_sol = s.explorador_solicitante_id == empleado.id
-            otro = s.explorador_receptor if es_sol else s.explorador_solicitante
-            comp = {'id': otro.id, 'nombre': f'{otro.nombre} {getattr(otro, "apellido", "")}'.strip()}
-            es_finde = bool(fc) and fc.weekday() in (5, 6)
-            if es_finde:
-                dias = [fc, fp] if es_sol else [_otro_dia(fc), _otro_dia(fp)]
-            else:
-                # Entre semana: el descanso COMPLETO depende de la sub-modalidad.
-                # (Las medias jornadas quedan con Turno real y no pasan por aquí.)
-                sub = getattr(det, 'submodalidad_semana', None) or 'intercambio_dia'
-                if sub == 'intercambio_dia':
-                    dias = [fp] if es_sol else [fc]
-                elif sub == 'cobertura_misma_semana':
-                    dias = []
-                    if es_sol and fc:
-                        ced = ({'AM', 'PM'} if det.tipo_cesion == 'cesion_completa'
-                               else ({(det.jornada_cedida or '').upper()} & {'AM', 'PM'}))
-                        cob_sol_ced.setdefault(fc, set()).update(ced)
-                        cob_sol_comp[fc] = comp
-                    elif not es_sol and det.tipo_cesion == 'cesion_completa':
-                        dias = [fp]  # receptor: solo descansa el pago si le cedieron el día entero
-                elif sub == 'cambio_doblada':
-                    dias = [fc] if es_sol else [fp]  # cada uno descansa el día que cedió
+            # Una misma solicitud puede tener a AMBAS partes dentro del lote: se procesan los dos
+            # lados por separado, igual que dos llamadas individuales.
+            for es_sol in (True, False):
+                emp_id = s.explorador_solicitante_id if es_sol else s.explorador_receptor_id
+                if emp_id not in emp_ids:
+                    continue
+                otro = s.explorador_receptor if es_sol else s.explorador_solicitante
+                comp = {'id': otro.id, 'nombre': f'{otro.nombre} {getattr(otro, "apellido", "")}'.strip()}
+                es_finde = bool(fc) and fc.weekday() in (5, 6)
+                if es_finde:
+                    dias = [fc, fp] if es_sol else [_otro_dia(fc), _otro_dia(fp)]
                 else:
-                    dias = []  # jornadas_partidas: ambos trabajan media en ambos días (L1)
-            for d in dias:
-                if d and fecha_inicio <= d <= fecha_fin:
-                    rest[d] = comp
+                    # Entre semana: el descanso COMPLETO depende de la sub-modalidad.
+                    # (Las medias jornadas quedan con Turno real y no pasan por aquí.)
+                    sub = getattr(det, 'submodalidad_semana', None) or 'intercambio_dia'
+                    if sub == 'intercambio_dia':
+                        dias = [fp] if es_sol else [fc]
+                    elif sub == 'cobertura_misma_semana':
+                        dias = []
+                        if es_sol and fc:
+                            ced = ({'AM', 'PM'} if det.tipo_cesion == 'cesion_completa'
+                                   else ({(det.jornada_cedida or '').upper()} & {'AM', 'PM'}))
+                            cob_sol_ced.setdefault(emp_id, {}).setdefault(fc, set()).update(ced)
+                            cob_sol_comp.setdefault(emp_id, {})[fc] = comp
+                        elif not es_sol and det.tipo_cesion == 'cesion_completa':
+                            dias = [fp]  # receptor: solo descansa el pago si le cedieron el día entero
+                    elif sub == 'cambio_doblada':
+                        dias = [fc] if es_sol else [fp]  # cada uno descansa el día que cedió
+                    else:
+                        dias = []  # jornadas_partidas: ambos trabajan media en ambos días (L1)
+                for d in dias:
+                    if d and fecha_inicio <= d <= fecha_fin:
+                        rest[emp_id][d] = comp
         # Días donde el solicitante cedió el día COMPLETO por cobertura (parciales que suman AM+PM).
-        for f_ced, js in cob_sol_ced.items():
-            if js >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin:
-                rest[f_ced] = cob_sol_comp.get(f_ced)
+        for emp_id, por_fecha in cob_sol_ced.items():
+            for f_ced, js in por_fecha.items():
+                if js >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin:
+                    rest[emp_id][f_ced] = cob_sol_comp.get(emp_id, {}).get(f_ced)
         return rest
 
     @staticmethod

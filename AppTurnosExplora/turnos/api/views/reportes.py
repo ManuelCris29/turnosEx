@@ -301,11 +301,12 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
 
         ws.row_dimensions[4].height = 8  # separador
 
-        # Contadores
-        headers_res = ['', 'Trabajan AM', 'Trabajan PM', 'Descansan']
-        colores_res = [BLANCO, AZUL_CLARO, NARANJA_CL, GRIS_CLARO]
-        fuentes_res = [BLANCO, AZUL_MEDIO, NARANJA_OSC, GRIS_OSC]
-        valores_res = ['', len(am), len(pm), len(desc)]
+        # Contadores. La 1ª columna es el total de empleados activos (todos los que
+        # aparecen en el reporte, trabajando o descansando); las otras 3 son el desglose.
+        headers_res = ['Total empleados', 'Trabajan AM', 'Trabajan PM', 'Descansan']
+        colores_res = [GRIS_CLARO, AZUL_CLARO, NARANJA_CL, GRIS_CLARO]
+        fuentes_res = [GRIS_OSC, AZUL_MEDIO, NARANJA_OSC, GRIS_OSC]
+        valores_res = [len(trabajando) + len(descansando), len(am), len(pm), len(desc)]
 
         for col, (h, bg, fg, v) in enumerate(
                 zip(headers_res, colores_res, fuentes_res, valores_res), 1):
@@ -317,16 +318,12 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             lbl.border = borde_fino()
             ws.row_dimensions[5].height = 20
             # Número
-            num = ws.cell(row=6, column=col, value=v if col > 1 else 'Total empleados')
-            num.font = fuente(bold=True, color=fg, size=16 if col > 1 else 10)
+            num = ws.cell(row=6, column=col, value=v)
+            num.font = fuente(bold=True, color=fg, size=16)
             num.fill = fill(bg)
             num.alignment = centrado()
             num.border = borde_fino()
             ws.row_dimensions[6].height = 36
-
-        ws.cell(row=6, column=1).value = len(trabajando) + len(descansando)
-        ws.cell(row=6, column=1).font = fuente(bold=True, size=16)
-        ws.cell(row=6, column=1).fill = fill('F8FAFC')
 
         # Separador
         ws.row_dimensions[7].height = 8

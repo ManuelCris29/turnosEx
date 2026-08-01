@@ -5,7 +5,7 @@ from simple_history.models import HistoricalRecords
 
 
 class PDH(models.Model):
-    """Modelo para representar Permisos de Día de Horas (PDH)."""
+    """Pago de Horas (PDH): descuento de horas del consolidado autorizado por un supervisor."""
     explorador=models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='permisos_explorador')
     # Opcional: un Pago de Horas no necesariamente se ata a una solicitud puntual.
     solicitud=models.ForeignKey(SolicitudCambio, on_delete=models.CASCADE, related_name='permisos_solicitud', null=True, blank=True)

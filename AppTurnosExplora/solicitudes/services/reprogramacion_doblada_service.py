@@ -67,6 +67,23 @@ class ReprogramacionDobladaService:
         return sorted(f for f in fechas if f in activas)
 
     @staticmethod
+    def _fechas_activas_sencilla(explorador, fechas: list) -> list:
+        """De las fechas en que `explorador` se dobla en una DOBLADA / D FDS sencilla, deja solo
+        las que SIGUEN VIVAS (turno de doblada activo).
+
+        Un día ya anulado —porque su inasistencia ya se registró, o porque otra solicitud aprobada
+        después le quitó la doblada— no se puede volver a reprogramar: no hay doblada que incumplir.
+        Sin este filtro el supervisor veía el día en 'Reprogramar' y registraba una inasistencia
+        fantasma sobre un día que ya no debía nada. (Mismo criterio que `_fechas_activas_perm`;
+        `Turno.objects` ya excluye los anulados.)"""
+        from turnos.models import Turno
+        activas = set(Turno.objects.filter(
+            explorador=explorador, fecha__in=fechas,
+            tipo_cambio__in=['DOBLADA', 'D FDS', 'PAGO REPROGRAMADO'],
+        ).values_list('fecha', flat=True))
+        return [f for f in fechas if f in activas]
+
+    @staticmethod
     def participantes_y_dias(solicitud: SolicitudCambio) -> list:
         """[(rol, explorador, [fechas de doblada reprogramables])] para DOBLADA, D FDS o DOBLADA
         PERMANENTE. En las sencillas cada uno tiene 1 día; en permanente, varias fechas específicas.
@@ -78,9 +95,12 @@ class ReprogramacionDobladaService:
         tipo = solicitud.tipo_cambio.nombre
         if tipo in ('DOBLADA', 'D FDS'):
             det = solicitud.doblada
+            _act = ReprogramacionDobladaService._fechas_activas_sencilla
             return [
-                ('receptor', solicitud.explorador_receptor, [solicitud.fecha_cambio_turno]),
-                ('solicitante', solicitud.explorador_solicitante, [det.fecha_pago]),
+                ('receptor', solicitud.explorador_receptor,
+                 _act(solicitud.explorador_receptor, [solicitud.fecha_cambio_turno])),
+                ('solicitante', solicitud.explorador_solicitante,
+                 _act(solicitud.explorador_solicitante, [det.fecha_pago])),
             ]
         if tipo == 'DOBLADA PERMANENTE':
             det = solicitud.doblada_permanente
@@ -286,30 +306,55 @@ class ReprogramacionDobladaService:
 
     @staticmethod
     @transaction.atomic
-    def cancelar(reprog: ReprogramacionDiaDoblada) -> ReprogramacionDiaDoblada:
-        """Cancela la reprogramación. Si el día nuevo ya se aplicó, anula esos turnos de doblada
-        (soft-delete + resta esos 30 min) y RESTAURA el turno único que la persona tenía ese día
-        antes de doblar. El día original no cumplido queda como estaba (anulado)."""
+    def deshacer_pago(reprog: ReprogramacionDiaDoblada) -> ReprogramacionDiaDoblada:
+        """Deshace SOLO el día de pago programado y devuelve la reprogramación a 'pendiente'.
+
+        Es la acción correcta cuando el día de pago ya no sirve (se programó mal, la persona
+        volvió a faltar, cambió el cuadro): la DEUDA SIGUE VIVA. Cerrar la reprogramación aquí
+        —lo que hacía antes el botón de cancelar— la sacaba de los pendientes y la persona se
+        quedaba sin pagar la doblada y sin forma de que se la volvieran a programar: en Gestión de
+        Solicitudes aparecía 'Reprogramar', pero ese día ya no tenía doblada que incumplir.
+
+        Idempotente: si ya está en 'pendiente' sin día de pago, no hace nada (patrón #21).
+        Para perdonar la deuda se usa `cerrar_sin_pago` desde 'pendiente' — dos pasos deliberados,
+        para que un doble submit no borre una deuda real.
+        """
         from core.services.cache_service import CacheService
 
-        if reprog.estado == 'cancelada':
-            # Idempotencia: no re-procesar ni tocar turnos si ya estaba cancelada.
+        if reprog.estado == 'pendiente' and not reprog.fecha_reprogramada:
             return reprog
+        if reprog.estado != 'pagada' or not reprog.fecha_reprogramada:
+            raise ValueError('Esta reprogramación no tiene un día de pago programado que deshacer.')
 
-        if reprog.estado == 'pagada' and reprog.fecha_reprogramada:
-            fecha_pago = reprog.fecha_reprogramada
-            DobladaAplicacionService.anular_doblada_de_un_dia(
-                reprog.doblada_origen, reprog.explorador, fecha_pago,
-                motivo='Anulado: reprogramación cancelada',
-            )
-            # Restaurar el turno único que tenía ese día antes de doblar (si se guardó).
-            ReprogramacionDobladaService._restaurar_turno_previo(reprog, fecha_pago)
-            CacheService.invalidar_cache_turnos_empleado(
-                reprog.explorador_id, fecha_pago.month, fecha_pago.year)
+        fecha_pago = reprog.fecha_reprogramada
+        DobladaAplicacionService.anular_doblada_de_un_dia(
+            reprog.doblada_origen, reprog.explorador, fecha_pago,
+            motivo='Anulado: día de pago deshecho (vuelve a pendiente)',
+        )
+        ReprogramacionDobladaService._restaurar_turno_previo(reprog, fecha_pago)
+        CacheService.invalidar_cache_turnos_empleado(
+            reprog.explorador_id, fecha_pago.month, fecha_pago.year)
 
+        reprog.estado = 'pendiente'
+        reprog.fecha_reprogramada = None
+        reprog.jornada_pago_previa = None
+        reprog.save(update_fields=['estado', 'fecha_reprogramada', 'jornada_pago_previa', 'actualizado_en'])
+        logger.info("Reprogramación %s: pago del %s deshecho, vuelve a PENDIENTE.", reprog.id, fecha_pago)
+        return reprog
+
+    @staticmethod
+    @transaction.atomic
+    def cerrar_sin_pago(reprog: ReprogramacionDiaDoblada) -> ReprogramacionDiaDoblada:
+        """Cierra una reprogramación PENDIENTE sin que la persona pague: el día no cumplido queda
+        anulado y nadie lo repone. Solo desde 'pendiente' — si hay un día de pago aplicado hay que
+        deshacerlo primero (`deshacer_pago`), para no dejar turnos vivos de un pago cancelado."""
+        if reprog.estado == 'cancelada':
+            return reprog  # idempotente
+        if reprog.estado != 'pendiente':
+            raise ValueError('Primero deshaz el día de pago programado; luego puedes cerrarla sin pago.')
         reprog.estado = 'cancelada'
         reprog.save(update_fields=['estado', 'actualizado_en'])
-        logger.info("Reprogramación %s cancelada.", reprog.id)
+        logger.info("Reprogramación %s cerrada sin pago.", reprog.id)
         return reprog
 
     @staticmethod

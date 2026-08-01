@@ -237,36 +237,64 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
 
 
 class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
+    """Dos acciones distintas sobre una reprogramación, según el estado en que esté:
+
+    - 'pagada'   → `deshacer_pago`: se quita el día de pago y VUELVE A PENDIENTE (la deuda sigue
+      viva y el supervisor puede volver a programarle el día). Antes esto la cerraba y la persona
+      quedaba sin pagar y sin poder ser reprogramada.
+    - 'pendiente' → `cerrar_sin_pago`: se perdona la deuda (queda 'cancelada').
+
+    El POST trae `accion` y el servicio valida el estado, así que un doble submit —o un botón
+    viejo en pantalla— no puede encadenar "deshacer pago" con "cerrar sin pago" y borrar en
+    silencio una deuda real: la segunda petición falla o es no-op (patrón #21).
+    """
+
     def post(self, request, reprog_id):
         reprog = get_object_or_404(ReprogramacionDiaDoblada, id=reprog_id)
+        accion = request.POST.get('accion') or ('deshacer_pago' if reprog.estado == 'pagada' else 'cerrar_sin_pago')
+
+        if accion == 'deshacer_pago':
+            fecha_pago = reprog.fecha_reprogramada  # capturar antes de deshacer
+            try:
+                RS.deshacer_pago(reprog)
+            except ValueError as e:
+                messages.error(request, str(e))
+                return redirect('solicitudes:reprog_list')
+            if fecha_pago:
+                _notificar(
+                    reprog.explorador,
+                    'Pago de doblada cancelado (sigues debiendo el día)',
+                    f"Tu supervisor canceló el pago de doblada que tenías el {fecha_pago.strftime('%d/%m/%Y')}: "
+                    f"ese día vuelve a tu jornada normal en Mis Turnos. Tu día de doblada del "
+                    f"{reprog.fecha_original.strftime('%d/%m/%Y')} sigue pendiente de pago y tu supervisor "
+                    f"te programará otro día.",
+                )
+                messages.success(
+                    request,
+                    f'Día de pago deshecho: volvió a su jornada normal y la reprogramación de '
+                    f'{reprog.explorador.nombre} quedó PENDIENTE de programar otra vez.')
+            else:
+                messages.info(request, 'Esta reprogramación ya estaba pendiente de programar.')
+            return redirect('solicitudes:reprog_list')
+
+        # cerrar_sin_pago: el día no cumplido queda anulado y nadie lo repone.
         if reprog.estado == 'cancelada':
             messages.info(request, 'Esta reprogramación ya estaba cancelada.')
             return redirect('solicitudes:reprog_list')
-
-        fecha_pago = reprog.fecha_reprogramada  # capturar antes de cancelar
-        RS.cancelar(reprog)
-
-        if fecha_pago:
-            # Ya se había programado: ese día vuelve a su jornada normal.
-            _notificar(
-                reprog.explorador,
-                'Pago de doblada cancelado',
-                f"Tu supervisor canceló el pago de doblada que tenías el {fecha_pago.strftime('%d/%m/%Y')}. "
-                f"Ese día vuelve a tu jornada normal en Mis Turnos.",
-            )
-            messages.success(request, 'Reprogramación cancelada: el día de pago volvió a su jornada normal.')
-        else:
-            # Estaba PENDIENTE: no había día de pago que deshacer. El día no cumplido sigue anulado
-            # y sus 30 min cancelados — la doblada queda sin compensar, así que se avisa a ambos.
-            _notificar(
-                reprog.explorador,
-                'Reprogramación de doblada cerrada sin pago',
-                f"Tu supervisor cerró la reprogramación de tu día de doblada del "
-                f"{reprog.fecha_original.strftime('%d/%m/%Y')} sin programar un día de pago. "
-                f"Ese día queda anulado y no tienes que doblarlo.",
-            )
-            messages.warning(
-                request,
-                f'Reprogramación cancelada sin pago: el día {reprog.fecha_original.strftime("%d/%m/%Y")} '
-                f'queda anulado y {reprog.explorador.nombre} no lo repondrá.')
+        try:
+            RS.cerrar_sin_pago(reprog)
+        except ValueError as e:
+            messages.error(request, str(e))
+            return redirect('solicitudes:reprog_list')
+        _notificar(
+            reprog.explorador,
+            'Reprogramación de doblada cerrada sin pago',
+            f"Tu supervisor cerró la reprogramación de tu día de doblada del "
+            f"{reprog.fecha_original.strftime('%d/%m/%Y')} sin programar un día de pago. "
+            f"Ese día queda anulado y no tienes que doblarlo.",
+        )
+        messages.warning(
+            request,
+            f'Reprogramación cerrada sin pago: el día {reprog.fecha_original.strftime("%d/%m/%Y")} '
+            f'queda anulado y {reprog.explorador.nombre} no lo repondrá.')
         return redirect('solicitudes:reprog_list')

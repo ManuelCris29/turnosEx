@@ -1,9 +1,24 @@
-﻿(function(){
+(function(){
   const sel = document.getElementById('explorador');
   const cont = document.getElementById('deudas_container');
   const totalBox = document.getElementById('pdh_total_box');
   const btn = document.getElementById('btn_pagar');
   const URL_DEUDAS = cont.dataset.url;
+
+  // Si el POST volvió con error, el servidor nos devuelve lo que ya estaba marcado.
+  let preseleccion = [];
+  const preNode = document.getElementById('pdh_preseleccion');
+  if (preNode) {
+    try { preseleccion = JSON.parse(preNode.textContent) || []; } catch(e) { preseleccion = []; }
+  }
+
+  function mensaje(texto, extraClass){
+    cont.textContent = '';
+    const div = document.createElement('div');
+    div.className = 'pdh-empty' + (extraClass ? ' ' + extraClass : '');
+    div.textContent = texto;
+    cont.appendChild(div);
+  }
 
   function recalcular(){
     let total = 0, n = 0;
@@ -14,33 +29,56 @@
     btn.disabled = (n === 0);
   }
 
-  function render(deudas){
+  function span(className, texto){
+    const s = document.createElement('span');
+    if (className) s.className = className;
+    s.textContent = texto;
+    return s;
+  }
+
+  function render(deudas, marcar){
     if(!deudas || deudas.length === 0){
-      cont.innerHTML = '<div class="pdh-empty">Este explorador no tiene deudas pendientes. 🎉</div>';
+      mensaje('Este explorador no tiene deudas pendientes. 🎉');
       recalcular();
       return;
     }
-    cont.innerHTML = deudas.map(d => {
-      const badge = d.tipo === 'doblada' ? 'badge-doblada' : 'badge-permiso';
-      const tipoTxt = d.tipo === 'doblada' ? 'Doblada' : 'Permiso';
-      return `<label class="deuda-item">
-        <input type="checkbox" name="deudas" value="${d.key}" data-horas="${d.horas}">
-        <span class="badge-tipo ${badge}">${tipoTxt}</span>
-        <span>${d.descripcion}</span>
-        <span class="deuda-horas">${d.horas} h</span>
-      </label>`;
-    }).join('');
-    cont.querySelectorAll('input[name="deudas"]').forEach(ch => ch.addEventListener('change', recalcular));
+    // Nodos en vez de innerHTML: la descripción viene de datos de BD y no debe interpretarse como HTML.
+    cont.textContent = '';
+    deudas.forEach(d => {
+      const esDoblada = d.tipo === 'doblada';
+      const label = document.createElement('label');
+      label.className = 'deuda-item';
+
+      const ch = document.createElement('input');
+      ch.type = 'checkbox';
+      ch.name = 'deudas';
+      ch.value = d.key;
+      ch.dataset.horas = d.horas;
+      ch.checked = (marcar || []).indexOf(d.key) !== -1;
+      ch.addEventListener('change', recalcular);
+
+      label.appendChild(ch);
+      label.appendChild(span('badge-tipo ' + (esDoblada ? 'badge-doblada' : 'badge-permiso'),
+                             esDoblada ? 'Doblada' : 'Permiso'));
+      label.appendChild(span('', d.descripcion));
+      label.appendChild(span('deuda-horas', d.horas + ' h'));
+      cont.appendChild(label);
+    });
     recalcular();
   }
 
-  sel.addEventListener('change', function(){
-    const id = sel.value;
-    if(!id){ cont.innerHTML = '<div class="pdh-empty">Selecciona un explorador para ver sus deudas pendientes.</div>'; recalcular(); return; }
-    cont.innerHTML = '<div class="pdh-empty"><i class="fas fa-spinner fa-spin"></i> Cargando deudas…</div>';
-    fetch(`${URL_DEUDAS}?explorador_id=${id}`, {headers:{'X-Requested-With':'XMLHttpRequest'}})
+  function cargar(id, marcar){
+    if(!id){ mensaje('Selecciona un explorador para ver sus deudas pendientes.'); recalcular(); return; }
+    mensaje('Cargando deudas…');
+    fetch(`${URL_DEUDAS}?explorador_id=${encodeURIComponent(id)}`, {headers:{'X-Requested-With':'XMLHttpRequest'}})
       .then(r => r.json())
-      .then(data => render(data.deudas))
-      .catch(() => { cont.innerHTML = '<div class="pdh-empty text-danger">Error al cargar las deudas.</div>'; recalcular(); });
-  });
+      .then(data => render(data.deudas, marcar))
+      .catch(() => { mensaje('Error al cargar las deudas.', 'text-danger'); recalcular(); });
+  }
+
+  sel.addEventListener('change', function(){ cargar(sel.value, []); });
+
+  if (sel.value) {
+    cargar(sel.value, preseleccion);
+  }
 })();

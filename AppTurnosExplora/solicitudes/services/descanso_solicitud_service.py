@@ -41,6 +41,25 @@ class DescansoPorSolicitudService:
     # histórico de `_descanso_por_solicitud` y `estado_mes`.
     @staticmethod
     def en_rango(empleado, ini, fin, excluir_id=None):
+        """Atribución de descanso de UN empleado en un rango: { fecha: info }.
+
+        Atajo sobre `en_rango_multiple`, que es la implementación real. Así el reporte del día
+        (que necesita la plantilla entera en pocas consultas) y Mis Turnos comparten literalmente
+        el mismo código, no dos copias que se desincronizan.
+        """
+        return DescansoPorSolicitudService.en_rango_multiple(
+            [empleado], ini, fin, excluir_id=excluir_id
+        ).get(getattr(empleado, 'id', empleado), {})
+
+    @staticmethod
+    def en_rango_multiple(empleados, ini, fin, excluir_id=None):
+        """
+        Versión BATCH: { emp_id: { fecha: info } } para VARIOS empleados con un número de consultas
+        constante (no N×empleado). La usa el reporte operativo del día, que clasifica a toda la
+        plantilla a la vez — con ~400 exploradores la versión individual costaba miles de consultas.
+
+        Mismas reglas, mismo orden de prioridad y misma guarda L1-sobre-L2 que la individual.
+        """
         from django.db.models import Q
         from solicitudes.models import SolicitudCambio
         from turnos.models import DiaEspecial
@@ -51,7 +70,9 @@ class DescansoPorSolicitudService:
         if isinstance(fin, str):
             fin = date.fromisoformat(fin)
 
-        out = {}
+        emp_by_id = {getattr(e, 'id', e): e for e in empleados}
+        emp_ids = set(emp_by_id)
+        salida = {eid: {} for eid in emp_ids}
 
         def _comp(emp):
             return {'id': emp.id, 'nombre': f'{emp.nombre} {emp.apellido}'}
@@ -81,8 +102,11 @@ class DescansoPorSolicitudService:
         # p. ej. te pagan una doblada el día X (descansas) y luego tomas la jornada de otro
         # ese mismo día X como pago de otra doblada: trabajas de verdad y sí puedes cederla.
         from turnos.models import Turno as _TurnoReal
-        con_turno_real = set(_TurnoReal.objects.filter(
-            explorador=empleado, fecha__range=(ini, fin)).values_list('fecha', flat=True))
+        con_turno_real = {eid: set() for eid in emp_ids}
+        for _eid, _f in _TurnoReal.objects.filter(
+                explorador_id__in=emp_ids, fecha__range=(ini, fin)
+        ).values_list('explorador_id', 'fecha'):
+            con_turno_real[_eid].add(_f)
 
         # Un INTERCAMBIO de dobladas es SIEMPRE día completo por los dos lados: ambos tenían
         # DOBLADA (AM+PM) y se cambian el día entero (`aplicar_intercambio` borra todos los turnos
@@ -98,17 +122,18 @@ class DescansoPorSolicitudService:
         # ---------- DOBLADA / D FDS: el SOLICITANTE descansa en la cesión ----------
         # Día libre COMPLETO solo si cedió todo el día: cesión completa / D FDS, o AMBAS
         # medias jornadas (parciales AM y PM). Una sola parcial deja la otra jornada (L1).
-        ced = {}  # fecha -> {'parciales': set, 'rep': solicitud, 'full': bool}
+        ced = {}  # (emp_id, fecha) -> {'parciales': set, 'rep': solicitud, 'full': bool}
         for s in _exc(SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                explorador_solicitante=empleado, fecha_cambio_turno__range=(qini, qfin))
+                explorador_solicitante_id__in=emp_ids, fecha_cambio_turno__range=(qini, qfin))
                 .select_related('explorador_receptor', 'doblada').order_by('-id')):
             det = getattr(s, 'doblada', None)
             tc = getattr(det, 'tipo_cesion', None) if det else None
             for d in _dias_descanso(s.fecha_cambio_turno):
                 if not (ini <= d <= fin):
                     continue
-                e = ced.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
+                e = ced.setdefault((s.explorador_solicitante_id, d),
+                                   {'parciales': set(), 'rep': s, 'full': False})
                 if _full(det):
                     e['full'] = True
                 elif tc == 'cesion_parcial_am':
@@ -117,13 +142,13 @@ class DescansoPorSolicitudService:
                     e['parciales'].add('PM')
                 else:
                     e['full'] = True
-        for d, e in ced.items():
-            if d in con_turno_real:
+        for (emp_id, d), e in ced.items():
+            if d in con_turno_real[emp_id]:
                 continue
             if e['full'] or {'AM', 'PM'} <= e['parciales']:
                 s = e['rep']
                 det = getattr(s, 'doblada', None)
-                out.setdefault(d, {
+                salida[emp_id].setdefault(d, {
                     'motivo': 'cedió su jornada', 'origen': None, 'tipo': 'cedio',
                     'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
                     'fecha_cesion': _fmt(s.fecha_cambio_turno),
@@ -164,7 +189,7 @@ class DescansoPorSolicitudService:
         pago = {}
         for s in _exc(SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                explorador_receptor=empleado, doblada__fecha_pago__range=(qini, qfin))
+                explorador_receptor_id__in=emp_ids, doblada__fecha_pago__range=(qini, qfin))
                 .select_related('explorador_solicitante', 'doblada', 'tipo_cambio').order_by('-id')):
             det = getattr(s, 'doblada', None)
             fp = det.fecha_pago if det else None
@@ -174,18 +199,19 @@ class DescansoPorSolicitudService:
             for d in _dias_descanso(fp):
                 if not (ini <= d <= fin):
                     continue
-                e = pago.setdefault(d, {'parciales': set(), 'rep': s, 'full': False})
+                e = pago.setdefault((s.explorador_receptor_id, d),
+                                    {'parciales': set(), 'rep': s, 'full': False})
                 if mitad == 'FULL':
                     e['full'] = True
                 else:
                     e['parciales'].add(mitad)
-        for d, e in pago.items():
-            if d in con_turno_real:
+        for (emp_id, d), e in pago.items():
+            if d in con_turno_real[emp_id]:
                 continue
             if e['full'] or {'AM', 'PM'} <= e['parciales']:
                 s = e['rep']
                 det = getattr(s, 'doblada', None)
-                out.setdefault(d, {
+                salida[emp_id].setdefault(d, {
                     'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
                     'companero': _comp(s.explorador_solicitante), 'solicitud_id': s.id,
                     'fecha_cesion': _fmt(s.fecha_cambio_turno),
@@ -204,14 +230,15 @@ class DescansoPorSolicitudService:
         # otro día sin fila `Turno` y sin motivo → `estado_dia` volvía a caer a la jornada base.
         for s in _exc(SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
-                explorador_solicitante=empleado,
+                explorador_solicitante_id__in=emp_ids,
                 doblada__fecha_pago_semana__range=(qini, qfin))
                 .select_related('explorador_receptor', 'doblada').order_by('-id')):
             det = getattr(s, 'doblada', None)
             fps = getattr(det, 'fecha_pago_semana', None) if det else None
-            if not fps or not (ini <= fps <= fin) or fps in con_turno_real:
+            emp_id = s.explorador_solicitante_id
+            if not fps or not (ini <= fps <= fin) or fps in con_turno_real[emp_id]:
                 continue
-            out.setdefault(fps, {
+            salida[emp_id].setdefault(fps, {
                 # Misma forma que un pago normal: a esta persona le devuelven la jornada.
                 'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
                 'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
@@ -224,16 +251,19 @@ class DescansoPorSolicitudService:
             })
 
         # ---------- CAMBIO DESCANSO (intercambio de día): fuente de verdad ----------
-        for dcd in CambioDescansoAplicacionService.dias_en_descanso(empleado, ini, fin, excluir_id=excluir_id):
-            if not (ini <= dcd <= fin):
-                continue
-            comp = CambioDescansoAplicacionService.companero_descanso(empleado, dcd, excluir_id=excluir_id)
-            out.setdefault(dcd, {
-                'motivo': 'cambio de día de descanso', 'origen': 'cambio_descanso', 'tipo': 'cedio',
-                'companero': comp, 'solicitud_id': None,
-                'fecha_cesion': None, 'fecha_pago': None,
-                'tipo_cesion': None, 'jornada_cedida': None,
-            })
+        # Una sola pasada para todo el lote: el mapa ya trae fecha → compañero por empleado.
+        mapa_cd = CambioDescansoAplicacionService._mapa_descanso_multi(
+            list(emp_by_id.values()), ini, fin, excluir_id=excluir_id)
+        for emp_id, por_fecha in mapa_cd.items():
+            for dcd, comp in por_fecha.items():
+                if not (ini <= dcd <= fin):
+                    continue
+                salida[emp_id].setdefault(dcd, {
+                    'motivo': 'cambio de día de descanso', 'origen': 'cambio_descanso', 'tipo': 'cedio',
+                    'companero': comp, 'solicitud_id': None,
+                    'fecha_cesion': None, 'fecha_pago': None,
+                    'tipo_cesion': None, 'jornada_cedida': None,
+                })
 
         # ---------- DOBLADA PERMANENTE (recurrente; nunca domingo ni festivo) ----------
         # El compromiso se decide EXACTAMENTE como se aplicó: si el detalle trae FECHAS
@@ -244,50 +274,56 @@ class DescansoPorSolicitudService:
             fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True))
         for sp in _exc(SolicitudCambio.objects
                        .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
-                       .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
+                       .filter(Q(explorador_solicitante_id__in=emp_ids) | Q(explorador_receptor_id__in=emp_ids))
                        .select_related('doblada_permanente', 'explorador_solicitante', 'explorador_receptor')):
             det = getattr(sp, 'doblada_permanente', None)
             if not det:
                 continue
-            es_sol = sp.explorador_solicitante_id == empleado.id
-            companero = sp.explorador_receptor if es_sol else sp.explorador_solicitante
-            info = {
-                'motivo': 'doblada permanente', 'origen': None,
-                'tipo': 'cedio' if es_sol else 'pago',
-                'companero': _comp(companero), 'solicitud_id': sp.id,
-                'fecha_cesion': None, 'fecha_pago': None,
-                'tipo_cesion': None, 'jornada_cedida': None,
-            }
-
-            def _marca(d):
-                if (ini <= d <= fin and det.fecha_inicio <= d <= det.fecha_fin
-                        and d.weekday() != 6 and d not in festivos and d not in con_turno_real):
-                    out.setdefault(d, info)
-
-            usa_fechas = bool(det.fechas_cesion or det.fechas_devolucion)
-            if usa_fechas:
-                fechas_txt = det.fechas_cesion if es_sol else det.fechas_devolucion
-                for x in (fechas_txt or '').split(','):
-                    x = x.strip()
-                    if not x:
-                        continue
-                    try:
-                        _marca(date.fromisoformat(x))
-                    except ValueError:
-                        continue
-            else:
-                dias_set = {int(x) for x in ((det.dias_cesion if es_sol else det.dias_devolucion) or '').split(',')
-                            if x.strip().isdigit()}
-                if not dias_set:
+            # Los dos lados por separado: el solicitante descansa en sus fechas de cesión y el
+            # receptor en las de devolución. En batch ambos pueden estar en el lote.
+            for es_sol in (True, False):
+                emp_id = sp.explorador_solicitante_id if es_sol else sp.explorador_receptor_id
+                if emp_id not in emp_ids:
                     continue
-                d = max(det.fecha_inicio, ini)
-                dlast = min(det.fecha_fin, fin)
-                while d <= dlast:
-                    if d.weekday() in dias_set:
-                        _marca(d)
-                    d += timedelta(days=1)
+                companero = sp.explorador_receptor if es_sol else sp.explorador_solicitante
+                info = {
+                    'motivo': 'doblada permanente', 'origen': None,
+                    'tipo': 'cedio' if es_sol else 'pago',
+                    'companero': _comp(companero), 'solicitud_id': sp.id,
+                    'fecha_cesion': None, 'fecha_pago': None,
+                    'tipo_cesion': None, 'jornada_cedida': None,
+                }
 
-        return out
+                def _marca(d, _emp_id=emp_id, _info=info):
+                    if (ini <= d <= fin and det.fecha_inicio <= d <= det.fecha_fin
+                            and d.weekday() != 6 and d not in festivos
+                            and d not in con_turno_real[_emp_id]):
+                        salida[_emp_id].setdefault(d, _info)
+
+                usa_fechas = bool(det.fechas_cesion or det.fechas_devolucion)
+                if usa_fechas:
+                    fechas_txt = det.fechas_cesion if es_sol else det.fechas_devolucion
+                    for x in (fechas_txt or '').split(','):
+                        x = x.strip()
+                        if not x:
+                            continue
+                        try:
+                            _marca(date.fromisoformat(x))
+                        except ValueError:
+                            continue
+                else:
+                    dias_set = {int(x) for x in ((det.dias_cesion if es_sol else det.dias_devolucion) or '').split(',')
+                                if x.strip().isdigit()}
+                    if not dias_set:
+                        continue
+                    d = max(det.fecha_inicio, ini)
+                    dlast = min(det.fecha_fin, fin)
+                    while d <= dlast:
+                        if d.weekday() in dias_set:
+                            _marca(d)
+                        d += timedelta(days=1)
+
+        return salida
 
     @staticmethod
     def en_fecha(empleado, fecha, excluir_id=None):

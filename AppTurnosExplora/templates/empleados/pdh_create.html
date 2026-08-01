@@ -15,6 +15,12 @@
       <h1 class="pg-title"><i class="fas fa-coins"></i> Registrar Pago de Horas</h1>
       <p class="pg-subtitle">Elige el explorador, marca las deudas que está pagando y se descuentan de su consolidado</p>
     </div>
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert {% if 'error' in m.tags %}alert-danger{% elif 'warning' in m.tags %}alert-warning{% else %}alert-success{% endif %} shadow-sm">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
     <div class="pg-card">
       <div class="pg-card-head amber"><h3><i class="fas fa-plus-circle"></i> Nuevo pago</h3></div>
       <div class="pg-card-body">
@@ -25,18 +31,19 @@
             <select name="explorador" id="explorador" class="form-control" required>
               <option value="">Selecciona un explorador…</option>
               {% for e in exploradores %}
-                <option value="{{ e.id }}">{{ e.nombre }} {{ e.apellido }}</option>
+                <option value="{{ e.id }}" {% if datos.explorador == e.id|stringformat:"s" %}selected{% endif %}>{{ e.nombre }} {{ e.apellido }}</option>
               {% endfor %}
             </select>
           </div>
 
           <div class="form-group">
             <label for="fecha">Fecha de pago</label>
-            <input type="date" name="fecha" id="fecha" class="form-control" required>
+            <input type="date" name="fecha" id="fecha" class="form-control" value="{{ datos.fecha }}" required>
           </div>
 
           <div class="form-group">
             <label>Deudas a pagar</label>
+            {{ datos.deudas|json_script:"pdh_preseleccion" }}
             <div id="deudas_container" data-url="{% url 'pdh_deudas_pendientes' %}">
               <div class="pdh-empty">Selecciona un explorador para ver sus deudas pendientes.</div>
             </div>
@@ -49,7 +56,7 @@
 
           <div class="form-group">
             <label for="comentario">Nota (opcional)</label>
-            <textarea name="comentario" id="comentario" class="form-control" rows="2" placeholder="Nota opcional"></textarea>
+            <textarea name="comentario" id="comentario" class="form-control" rows="2" placeholder="Nota opcional">{{ datos.comentario }}</textarea>
           </div>
 
           <div class="d-flex gap-2 mt-3">
