@@ -1091,6 +1091,140 @@ sin escapatoria necesita decir qué hacer a continuación, o el usuario la vive 
 
 ---
 
+### 31. **Un catálogo que gobierna permisos se compara EXACTO y se protege** (Backend)
+**Qué es:** Cuando el código resuelve una decisión buscando una fila de catálogo **por nombre**
+(el rol "Supervisor", las jornadas "AM"/"PM"), esa fila deja de ser un dato editable y pasa a ser
+configuración estructural. Tres obligaciones, juntas o ninguna:
+
+1. **Comparar exacto** (`iexact`), nunca por coincidencia parcial (`icontains`).
+2. **Proteger la fila**: no se renombra ni se borra desde el CRUD.
+3. **Impedir nombres que se confundan con ella**, y hacer el nombre único.
+
+**Por qué:** `es_supervisor()` resolvía el permiso con `role__nombre__icontains='supervisor'`.
+El CRUD de roles no validaba nada, así que **crear un rol llamado "Supervisor de sala" y
+asignárselo a alguien concedía acceso total a la operación**: la pantalla de gestión de roles era
+una vía de escalada de privilegios, sin explotar ningún bug — usándola como estaba diseñada.
+
+La segunda mitad es simétrica y no se ve en la primera: `EmpleadoRole.role` era `CASCADE`, así que
+**borrar el rol "Supervisor" borraba en silencio todas sus asignaciones** y dejaba la operación sin
+supervisores. Quien lo borrara se autobloqueaba. Renombrarlo hacía lo mismo por otra puerta: el
+permiso lo busca por nombre, así que "Supervisor" → "Coordinador" desactiva el acceso de todos sin
+un solo error en el log.
+
+⚠️ **La comparación exacta tiene que ser case-insensitive y la protección también.** En la base de
+datos los roles están guardados como `'SUPERVISOR'` y `'EXPLORADOR'`, no en capitalización de
+título. Un `nombre == 'Supervisor'` habría dejado a todos los supervisores sin acceso, y un
+`es_protegido` exacto habría dejado desprotegida justo la fila que concede permisos. Comprobar el
+dato real antes de elegir el operador, no asumir la forma canónica.
+
+**Dónde:** Todo catálogo cuyo `nombre` se consulte desde código (`Role`, `Jornada`).
+
+**Implementación:**
+```python
+class Role(models.Model):
+    SUPERVISOR = 'Supervisor'
+    NOMBRES_PROTEGIDOS = (SUPERVISOR, EXPLORADOR)
+    nombre = models.CharField(max_length=50, unique=True)
+
+    @property
+    def es_protegido(self):
+        return (self.nombre or '').strip().lower() in {n.lower() for n in self.NOMBRES_PROTEGIDOS}
+
+class EmpleadoRole(models.Model):
+    role = models.ForeignKey(Role, on_delete=models.PROTECT)   # nunca CASCADE
+
+# El permiso, en un único sitio:
+user.empleado.empleadorole_set.filter(role__nombre__iexact=Role.SUPERVISOR).exists()
+```
+Y el form rechaza cualquier nombre que **contenga** un protegido sin serlo, para que no vuelva a
+existir un "Supervisor de sala" ambiguo.
+
+**Una sola definición del permiso.** La regla estaba copiada en cinco sitios (`core/mixins.py`,
+`core/middleware.py`, `empleados/admin.py`, `empleados/forms.py` ×2,
+`empleado_repository.py`); arreglar uno solo habría dejado la escalada viva en los otros cuatro.
+`middleware._es_admin()` ahora delega en `es_supervisor()`.
+
+**Estado:** ✅ **APLICADO** (2026-08-01)
+- `empleados/models.py` - `Role.NOMBRES_PROTEGIDOS`, `nombre` único, `EmpleadoRole.role` PROTECT
+- `empleados/forms.py` - `RoleForm` (normaliza, unicidad case-insensitive, bloquea ambiguos y renombrado)
+- `empleados/views/roles.py` - bloqueo de borrado de protegidos + `ProtectedError` con mensaje
+- `core/mixins.py`, `core/middleware.py`, `empleados/admin.py`, `empleado_repository.py` - `iexact`
+- `empleados/migrations/0006_role_nombre_unico_y_empleadorole_protect.py`
+- Test: `empleados/tests/test_roles.py` - `RolePermisoTest.test_rol_parecido_no_concede_permisos`,
+  `RoleBorradoTest.test_borrado_no_arrastra_asignaciones` (25 tests)
+- Mismo patrón ya aplicado en `Jornada` (AM/PM): si tocas uno, mira el otro
+
+---
+
+### 32. **Un hecho que se registra no se borra, y su fin previsto no es su fin real** (Backend)
+**Qué es:** Cuando una fila registra un **hecho** (una sanción, una amonestación, un pago), dos
+reglas van juntas:
+
+1. **No se borra**: se cierra con un estado propio que dice quién, cuándo y por qué.
+2. **El fin PREVISTO y el fin REAL son campos distintos.** Nunca se pisa uno con el otro.
+
+**Por qué:** La sanción tenía solo `fecha_fin`, haciendo los dos trabajos. Levantarla consistía en
+moverla a `hoy - 1 día`. Eso rompía tres cosas a la vez:
+
+- **Perdía la duración original.** Después ya no se podía distinguir "era de 15 días y se levantó a
+  los 4" de "siempre fue de 4 días".
+- **Producía rangos imposibles.** La sanción automática por deuda nace el día en que el explorador
+  intenta solicitar algo, así que su `fecha_inicio` es siempre hoy. Si pagaba **ese mismo día**,
+  `fecha_fin` quedaba en *ayer*: un día **antes** del inicio. El `clean()` del propio modelo ya
+  prohibía ese rango — pero `save()` directo no lo ejecuta, así que el servicio se lo saltaba.
+- **Castigaba justo la conducta que se quería premiar.** El contador de reincidencias buscaba
+  sanciones con `fecha_fin < hoy` para agravar la siguiente. Una levantada por pago cumplía ese
+  filtro, así que **quien pagaba empezaba la siguiente sanción en 30 días en vez de 15**. Nadie lo
+  habría notado: no hay error, solo un número más grande.
+
+⚠️ **El borrado no es solo el botón.** Quitar la vista y la URL deja abierto el admin de Django, y
+`has_delete_permission` no cubre la acción masiva `delete_selected`. Hay que cerrar las tres.
+
+⚠️ **Un "estado calculado" no se guarda: se deriva.** El último día que la sanción tuvo efecto
+(`fecha_fin_efectiva`) puede quedar antes de `fecha_inicio` cuando se levanta el mismo día. Eso es
+correcto como *cálculo* ("no rigió ni un día") y corrupto como *dato en la BD*.
+
+**Dónde:** Todo modelo que registre un hecho con vigencia y pueda terminarse antes de tiempo:
+`SancionEmpleado`, y el mismo criterio aplica a `RestriccionEmpleado` si algún día se levanta.
+
+**Implementación:**
+```python
+class SancionEmpleado(models.Model):
+    fecha_fin = models.DateField(null=True, blank=True)      # PREVISTO: no se toca nunca
+    levantada_en = models.DateField(null=True, blank=True)   # REAL
+    levantada_por = models.ForeignKey(Empleado, on_delete=models.PROTECT, null=True)
+    levantada_motivo = models.TextField(blank=True, default='')
+
+    def levantar(self, motivo, supervisor=None, fecha=None):
+        if self.levantada_en:      # idempotente: un doble clic no reescribe quién la levantó
+            return self
+        ...
+
+# Un ÚNICO filtro de "está vigente", reutilizado por todos los consumidores:
+def vigentes_en(fecha=None):
+    return (Q(fecha_inicio__lte=f)
+            & (Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=f))
+            & (Q(levantada_en__isnull=True) | Q(levantada_en__gt=f)))
+```
+
+**Un solo filtro, no la condición copiada.** El criterio estaba reescrito a mano en el reporte del
+día, en Mis Turnos, en el listado y en el servicio de deuda. Añadir el levantamiento a uno solo
+habría dejado a los otros mostrando como sancionado a alguien que ya no lo está.
+
+**Estado:** ✅ **APLICADO** (2026-08-02)
+- `empleados/models.py` - `levantada_en/_por/_motivo`, `levantar()`, `estado`, `fecha_fin_efectiva`
+- `empleados/sancion_utils.py` - `vigentes_en()` como filtro único
+- `solicitudes/services/deuda_corporativa_service.py` - levanta en vez de recortar; el contador de
+  reincidencias excluye las levantadas
+- `empleados/views/sanciones.py` - `SancionLevantarView` sustituye a `SancionDeleteView`
+- `empleados/admin.py` - `has_delete_permission` + `delete_selected` fuera
+- `turnos/services/reporte_dia_service.py`, `turnos/api/views/turnos_mes.py` - usan `vigentes_en`
+- `empleados/migrations/0007_historicalsancionempleado_levantada_en_and_more.py`
+- Tests: `empleados/tests/test_sanciones.py` (`SancionLevantarTest`),
+  `solicitudes/tests/test_sancion_automatica_deuda.py` (7 tests, incluye la reincidencia)
+
+---
+
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
 
 Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
@@ -1128,6 +1262,9 @@ Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
       (#25) - sin el dato, bloquear; nunca dejar pasar en silencio
 - [ ] **¿La regla es estructural (unicidad, exclusión) y depende de la disciplina del código?** →
       **Invariante en la BD** (#26) - declararla como restricción
+- [ ] **¿Alguna decisión (sobre todo de permisos) se resuelve buscando una fila de catálogo por
+      nombre?** → **Catálogo que gobierna permisos** (#31) - comparar exacto, proteger la fila,
+      impedir nombres ambiguos y FK `PROTECT`
 - [ ] **¿Puede haber errores?** → **Error Handling** (#19) - try/except + logging
 
 ---
@@ -1240,14 +1377,21 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | Restricción de unicidad de turno activo en la BD | #26 (nuevo) | La migración encontró un duplicado real: la disciplina ya había fallado |
 | **2026-07-29** | Agregado patrón #28 (el turno real L1 manda sobre el descanso L2) | #28 (nuevo) | Un descanso viejo bloqueaba para siempre un día en el que ya se recuperó jornada real (Marco, 30/07/2026) |
 | | Agregado patrón #29 (un hueco en L2 no da error: da un dato falso) | #29 (nuevo) | El intercambio de dobladas no se atribuía como día completo: `estado_dia` caía a la jornada base y mostraba trabajando a quien tenía el día libre (mildrey ↔ arley, #565) |
+| **2026-08-02** | Agregado patrón #32 (un hecho registrado no se borra; fin previsto ≠ fin real) | #32 (nuevo) | Levantar una sanción movía `fecha_fin` a ayer: perdía la duración original y, si se pagaba el mismo día en que nacía, dejaba `fecha_fin` ANTES de `fecha_inicio` (Mariana, Vanesa, jeison) |
+| | Las sanciones ya no se pueden eliminar: se levantan con motivo obligatorio | #32 | Borrar destruía el registro del hecho disciplinario; editar la `fecha_fin` a mano dejaba el levantamiento indistinguible de una sanción corta |
+| | El contador de reincidencias excluye las sanciones levantadas | #32 | Pagar agravaba la siguiente sanción (30 días en vez de 15): la levantada cumplía el filtro `fecha_fin < hoy` |
+| | `vigentes_en()` como filtro único de sanción vigente (4 consumidores) | #32 | El criterio estaba reescrito a mano en el reporte del día, Mis Turnos, el listado y el servicio de deuda |
 | | El intercambio se guarda con `tipo_cesion='cesion_completa'` (normalizado al crear) | #29 | El formulario arrastraba `cesion_parcial_am`, que contradice lo que `aplicar_intercambio` hace de verdad |
 | | #29: la reconciliación post-revert despacha el intercambio a `aplicar_intercambio` (igual en `reaplicar_doblada`) | #29 | Al cancelar otra doblada, el swap vigente se re-aplicaba como cesión/pago y cada uno perdía su DOBLADA |
 | | #29: el reparto de la fecha de PAGO se lee de `jornada_pago_sabado`/`jornada_cubre_en_pago`, no de `tipo_cesion` | #29 | `tipo_cesion` describe la cesión: en una parcial el acreedor queda libre el día COMPLETO y se atribuía medio (arley 26/08/2026) |
 | | #29: atribución del tercer día, `fecha_pago_semana` (pago en sábado AMBAS) | #29 | Ese día lo muta `aplicar_pago_residual_semana` y no lo cubría ninguna rama: quedaba sin motivo |
+| **2026-08-01** | Agregado patrón #31 (catálogo que gobierna permisos) tras auditar el CRUD de roles | #31 (nuevo) | Crear un rol "Supervisor de sala" concedía acceso total: el permiso se resolvía con `icontains` y el CRUD no validaba nada |
+| | `EmpleadoRole.role` pasa de CASCADE a PROTECT + bloqueo de roles base | #31 | Borrar el rol "Supervisor" arrastraba en silencio todas las asignaciones y dejaba la operación sin supervisores |
+| | La definición del permiso se unifica en `es_supervisor()` (el middleware la duplicaba) | #9, #31 | Estaba copiada en cinco sitios: arreglar uno dejaba la escalada viva en los otros cuatro |
 
 ---
 
-**Última actualización:** 2026-07-29  
+**Última actualización:** 2026-08-01  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 
