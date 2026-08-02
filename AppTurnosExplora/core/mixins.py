@@ -14,17 +14,23 @@ def es_supervisor(user) -> bool:
     True si el usuario puede ver la operación completa: staff o rol Supervisor.
 
     Única definición del permiso: la usan tanto las vistas HTML
-    (`AdminRequiredMixin`) como las de API (`SupervisorApiRequiredMixin`).
-    Falla cerrado y deja rastro en el log para poder diagnosticar por qué un
-    supervisor legítimo pudo quedar sin acceso.
+    (`AdminRequiredMixin`) como las de API (`SupervisorApiRequiredMixin`) y el
+    middleware. Falla cerrado y deja rastro en el log para poder diagnosticar
+    por qué un supervisor legítimo pudo quedar sin acceso.
+
+    El rol se compara EXACTO contra `Role.SUPERVISOR`: con la coincidencia
+    parcial anterior, cualquier rol creado desde /empleados/roles/ que
+    contuviera "supervisor" concedía acceso total.
     """
+    from empleados.models import Role
+
     if not getattr(user, 'is_authenticated', False):
         return False
     if user.is_staff:
         return True
     try:
         return user.empleado.empleadorole_set.filter(
-            role__nombre__icontains='supervisor'
+            role__nombre__iexact=Role.SUPERVISOR
         ).exists()
     except Exception:
         logger.warning(

@@ -30,10 +30,10 @@ class EmpleadoRepository:
 
     @staticmethod
     def supervisores_activos() -> QuerySet:
-        from empleados.models import Empleado
+        from empleados.models import Empleado, Role
         return (
             Empleado.objects
-            .filter(activo=True, empleadorole__role__nombre__icontains='supervisor')
+            .filter(activo=True, empleadorole__role__nombre__iexact=Role.SUPERVISOR)
             .distinct()
         )
 

@@ -1,5 +1,4 @@
-﻿{% extends 'base.html' %}
-{% load widget_tweaks %}
+{% extends 'base.html' %}
 {% load static static_version %}
 
 {% block title %}Crear Rol{% endblock %}
@@ -21,17 +20,7 @@
         <h3><i class="fas fa-user-tag"></i> Nuevo rol</h3>
       </div>
       <div class="pg-card-body">
-        <form method="post" class="pg-form">
-          {% csrf_token %}
-          <div class="form-group">
-            <label for="id_nombre"><i class="fas fa-id-badge"></i> Nombre del rol</label>
-            {{ form.nombre|add_class:'form-control' }}
-          </div>
-          <div class="d-flex justify-content-end" style="gap:.5rem; margin-top:1.25rem;">
-            <a href="{% url 'roles_list' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
-            <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar</button>
-          </div>
-        </form>
+        {% include 'empleados/_role_form.html' with submit_label='Guardar' %}
       </div>
     </div>
   </div>

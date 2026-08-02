@@ -13,6 +13,22 @@
                 </div>
                 <div class="card-body text-center">
                     <p class="lead">¿Estás seguro de que deseas eliminar el rol <strong>{{ object.nombre }}</strong>?</p>
+
+                    {% if num_empleados %}
+                    <div class="alert alert-danger text-left">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Este rol está asignado a <strong>{{ num_empleados }} empleado(s)</strong>.
+                        La eliminación será rechazada: quítaselo primero desde la ficha de cada
+                        empleado.
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning text-left">
+                        <i class="fas fa-info-circle"></i>
+                        Este rol no está asignado a ningún empleado, así que se puede eliminar
+                        sin afectar a nadie.
+                    </div>
+                    {% endif %}
+
                     <form method="post">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-danger px-4">
@@ -27,4 +43,4 @@
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}

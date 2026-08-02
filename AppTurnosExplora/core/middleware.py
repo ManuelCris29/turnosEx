@@ -68,10 +68,6 @@ class AperturaAnioMiddleware:
 
     @staticmethod
     def _es_admin(user) -> bool:
-        if user.is_staff:
-            return True
-        try:
-            return user.empleado.empleadorole_set.filter(
-                role__nombre__icontains='supervisor').exists()
-        except Exception:
-            return False
+        # Delega en la única definición del permiso para no duplicar la regla.
+        from core.mixins import es_supervisor
+        return es_supervisor(user)

@@ -1,0 +1,34 @@
+{% load widget_tweaks %}
+{# Campos compartidos por roles_create.html y roles_edit.html. #}
+<form method="post" class="pg-form">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    {% if form.instance.es_protegido %}
+    <div class="alert alert-warning">
+        <i class="fas fa-lock"></i>
+        <strong>{{ form.instance.nombre }}</strong> es un rol base del sistema: los permisos
+        de la aplicación se resuelven por su nombre, así que no se puede renombrar.
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+        <label for="{{ form.nombre.id_for_label }}"><i class="fas fa-id-badge"></i> <strong>Nombre del rol</strong></label>
+        {{ form.nombre|add_class:'form-control' }}
+        {% for error in form.nombre.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        <small class="form-text text-muted">
+            No puede repetirse ni contener "Supervisor" o "Explorador": son los roles base
+            que conceden permisos.
+        </small>
+    </div>
+
+    <div class="d-flex justify-content-end" style="gap:.5rem; margin-top:1.25rem;">
+        <a href="{% url 'roles_list' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
+        <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> {{ submit_label|default:'Guardar' }}</button>
+    </div>
+</form>
