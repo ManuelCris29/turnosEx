@@ -140,7 +140,7 @@
                         
                         
                         <!-- Admin Section -->
-                        {% if user.is_staff %}
+                        {% if puede_administrar %}
                         <li class="nav-header">ADMINISTRACIÓN</li>
                         <li class="nav-item">
                             <a href="{% url 'indicadores' %}" class="nav-link">

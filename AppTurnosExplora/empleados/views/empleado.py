@@ -13,7 +13,7 @@ from django.urls import reverse_lazy
 from django.utils import timezone
 
 from turnos.models import AsignarJornadaExplorador
-from core.mixins import AdminRequiredMixin
+from core.mixins import AdminRequiredMixin, es_supervisor
 
 from ..services.empleado_service import EmpleadoService
 from ..models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada
@@ -28,16 +28,8 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        # Función para verificar si el usuario es administrador
-        def is_admin_user(user):
-            if user.is_staff:
-                return True
-            try:
-                empleado = user.empleado
-                return empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists()
-            except:
-                return False
-        context['is_admin_user'] = is_admin_user(self.request.user)
+        # Misma definición que el resto del sistema: staff o rol Supervisor exacto.
+        context['is_admin_user'] = es_supervisor(self.request.user)
         # Si el usuario no tiene empleado, mostrar advertencia
         try:
             _ = self.request.user.empleado
@@ -89,27 +81,21 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
             )
         )
 
-        if user.is_superuser or user.is_staff:
-            return base_queryset.all()
-
-        if user.is_supervisor:
-            return base_queryset.filter(
-                empleadorole_set__role__nombre__icontains='supervisor'
-            ).distinct()
-
-
-        try:
-            empleado = self.request.user.empleado
-        except Exception:
-            return Empleado.objects.none()
-
-        # Mostrar todos los empleados si es admin o supervisor
-        if self.request.user.is_staff or empleado.empleadorole_set.filter(role__nombre__icontains='supervisor').exists():
+        # Staff y rol Supervisor ven la plantilla completa. Antes había aquí una
+        # rama `user.is_supervisor`, atributo que el User de Django no tiene: al
+        # entrar un supervisor sin `is_staff` reventaba antes de llegar al
+        # criterio correcto de más abajo.
+        if es_supervisor(user):
             query = self.request.GET.get('q', '')
             if query:
                 # El servicio ya retorna queryset optimizado
                 return EmpleadoService.buscar_empleados(query)
             return base_queryset.all()
+
+        try:
+            empleado = self.request.user.empleado
+        except Exception:
+            return Empleado.objects.none()
 
         # Si no es admin/supervisor, filtrar por sala o mostrar ninguno
         sala_id = self.request.GET.get('sala')

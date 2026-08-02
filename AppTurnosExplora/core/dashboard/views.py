@@ -17,7 +17,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         context['user'] = self.request.user
 
         anio = timezone.localdate().year
-        es_admin = self.request.user.is_staff
+        from core.mixins import es_supervisor
+
+        # Mismo criterio que el menú y las vistas de administración: el rol
+        # Supervisor debe ver las métricas globales aunque no sea `is_staff`.
+        es_admin = es_supervisor(self.request.user)
         empleado = getattr(self.request.user, 'empleado', None)
 
         # FUENTE ÚNICA DE VERDAD: las tarjetas "Cambios realizados" y "Tasa de
