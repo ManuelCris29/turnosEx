@@ -107,6 +107,23 @@ que la imagen funciona.
 
 Archivo: **`docker-compose.local.yml`**.
 
+> ### ⚠️ Aquí NO puedes entrar con tu usuario de siempre
+>
+> Esta base **está vacía: tiene cero usuarios**. Tu `manuel.moreno` vive en tu
+> MySQL local (puerto 3306), y este contenedor levanta **otra** MySQL distinta
+> (puerto 3307) que ni la ve.
+>
+> Si lo intentas, el mensaje será **«usuario o contraseña incorrectos»** — y es
+> engañoso: la contraseña está bien, el usuario simplemente no existe ahí. Por eso
+> el paso «crear un superusuario» de abajo **no es opcional**.
+>
+> 🚨 **Y ojo con insistir:** `django-axes` bloquea por **5 intentos fallidos**
+> durante **una hora**. Si pruebas varias veces, acabarás bloqueado y seguirás
+> viendo el mismo mensaje aunque ya hayas creado el usuario. Se arregla con
+> `docker compose -f docker-compose.local.yml exec web python manage.py axes_reset`.
+>
+> ¿Quieres entrar con tus usuarios reales? Ese es el caso de la **Opción B** (§3).
+
 ```bash
 cd AppTurnosExplora
 
@@ -213,7 +230,10 @@ docker compose -f docker-compose.hostdb.yml exec web sh
 | `Can't connect to MySQL ... host.docker.internal` | Tu MySQL no escucha en todas las interfaces (`bind_address`) o un firewall bloquea el 3306. |
 | El navegador redirige a `https://localhost` y no carga | Falta `SECURE_HTTPS=False` (ya está en los compose de local). |
 | `Port 8000 already in use` | Ya hay un stack arriba. Bájalo con `down` antes de levantar el otro. |
-| Admin: error de zona horaria | Solo en la opción A recién creada: carga las tablas TZ (ver §2). Tu MySQL real ya las tiene. |
+| Admin: error de zona horaria | Solo en la opción A recién creada: carga las tablas TZ (ver §2). Tu MySQL real ya las tiene. *(Nota: la imagen `mysql:8.0` suele traerlas pobladas; comprueba antes con `SELECT COUNT(*) FROM mysql.time_zone_name;` — si devuelve ~1795, no hace falta.)* |
+| **«Usuario o contraseña incorrectos» con mi usuario real** | **Opción A: esa base está vacía, tu usuario no existe ahí.** Crea el superusuario (§2) o usa la Opción B contra tu MySQL real. |
+| Sigue sin dejarme entrar aunque el usuario exista | `django-axes` te bloqueó (5 fallos → 1 hora). Ejecuta `docker compose -f docker-compose.local.yml exec web python manage.py axes_reset`. |
+| `/health/` da 404 | Imagen antigua. Reconstruye con `--build`. |
 
 ---
 

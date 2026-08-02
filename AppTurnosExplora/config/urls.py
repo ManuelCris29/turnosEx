@@ -18,7 +18,14 @@ from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings
 
+from core.health import health, readiness
+
 urlpatterns = [
+    # Salud para el balanceador. Va primero y fuera de cualquier app: debe
+    # responder aunque el resto del enrutado cambie. Ver core/health.py.
+    path('health/', health, name='health'),
+    path('health/ready/', readiness, name='health_ready'),
+
     path('admin/', admin.site.urls),
     path('', include('core.login.urls')),
     path('dashboard/', include('core.dashboard.urls')),

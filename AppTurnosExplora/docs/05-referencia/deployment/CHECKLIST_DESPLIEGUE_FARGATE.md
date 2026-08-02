@@ -16,8 +16,14 @@ Lo necesario para contenedor **ya se hizo**; solo repásalo:
 - [x] **Dockerfile** + **.dockerignore** (`AppTurnosExplora/`). Imagen validada.
 - [x] **WhiteNoise** sirve los estáticos dentro del contenedor (no hay Nginx).
 - [x] **SECURE_PROXY_SSL_HEADER** + **CSRF_TRUSTED_ORIGINS** (para HTTPS tras el ALB).
-- [x] `requirements.txt` completo (incluye `django-environ`, `gunicorn`, `whitenoise`).
-- [ ] *(Opcional, recomendado)* endpoint de salud sin login para el health check del ALB (ver Fase 6).
+- [x] `requirements.txt` completo (incluye `django-environ`, `gunicorn`, `whitenoise`, `redis`).
+- [x] **Endpoints de salud** `/health/` y `/health/ready/` sin login (`core/health.py`), **exentos de la redirección a HTTPS** — sin esa exención el ALB entra en bucle de arranque. Ver Fase 6.
+- [x] **Caché configurable** por `CACHE_URL` y **TLS a RDS** por `DB_SSL_CA` (el certificado de Amazon ya viaja en la imagen).
+- [x] **Conexiones persistentes** (`CONN_MAX_AGE=60` + `CONN_HEALTH_CHECKS`) automáticas en producción.
+
+> 📖 **Antes de seguir, lee [CONFIGURACION_PRODUCCION.md](./CONFIGURACION_PRODUCCION.md).**
+> Explica qué vale cada variable, **qué se rompe si falta**, y las trampas del ALB.
+> Este checklist es el "cómo"; ese documento es el "por qué".
 
 ---
 
@@ -29,6 +35,34 @@ Lo necesario para contenedor **ya se hizo**; solo repásalo:
 - El Security Group de RDS se ajusta en la Fase 4 (permitir el SG de los tasks).
 
 > ✅ RDS ya trae las tablas de zona horaria pobladas (sin el error del admin visto en local).
+
+---
+
+## FASE 1.5 — Caché compartida ⚠️ **obligatoria, no la saltes**
+
+La app cachea el estado de **Mis Turnos** una hora y lo invalida cuando cambia.
+Gunicorn corre con **3 workers**: con la caché en memoria (la de desarrollo) cada
+worker tendría la suya, la invalidación limpiaría solo uno, y **los exploradores
+verían turnos desactualizados de forma intermitente**. Detalle completo en
+[CONFIGURACION_PRODUCCION.md §3, trampa nº 1](./CONFIGURACION_PRODUCCION.md#-trampa-1--la-caché-en-memoria-sirve-datos-viejos).
+
+Elige **una** de las dos:
+
+**Opción A — ElastiCache Redis** (recomendada, ~$12/mes)
+- [ ] Clúster **Redis**, `cache.t4g.micro`, 1 nodo, en las mismas subredes que los tasks.
+- [ ] **SG de ElastiCache**: entrada `6379` **solo desde `swalp-task-sg`**.
+- [ ] Anotar el endpoint → `CACHE_URL=redis://<endpoint>:6379/1` (usa `rediss://` si activas cifrado en tránsito).
+
+**Opción B — Tabla en la propia RDS** (sin infraestructura nueva, $0)
+- [ ] `CACHE_URL=db://cache_appturnos`
+- [ ] Crear la tabla **una sola vez** (igual que las migraciones de la Fase 8):
+  ```bash
+  aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-type FARGATE \
+    --network-configuration "awsvpcConfiguration={subnets=[<subnet-pub-1>],securityGroups=[<swalp-task-sg>],assignPublicIp=ENABLED}" \
+    --overrides '{"containerOverrides":[{"name":"web","command":["python","manage.py","createcachetable"]}]}'
+  ```
+
+> `manage.py check --deploy` **falla** (`core.E001`) si despliegas sin `CACHE_URL`. Es a propósito.
 
 ---
 
@@ -90,7 +124,10 @@ Usando la **VPC por defecto** y **subredes públicas** (evita el NAT gateway ~$3
 
 - [ ] **ACM:** solicitar/validar certificado para `swalp.parqueexplora.org` (validación DNS; IT agrega el registro).
 - [ ] **Target Group** (`swalp-tg`): tipo **IP**, protocolo HTTP, puerto **8000**.
-  - **Health check:** path `/` con **códigos de éxito `200-399`** (la app redirige a HTTPS y devuelve 301; el 3xx cuenta como sano). *Mejor aún:* un endpoint `/healthz/` sin login exento de redirección.
+  - **Health check:** path **`/health/`**, códigos de éxito **`200`**, intervalo 30 s, umbral sano 2 / insano 3.
+  - ⚠️ **No uses `/`**: los health checks del ALB llegan sin `X-Forwarded-Proto`, así que la app les respondería **301** hacia HTTPS. `/health/` está exento de esa redirección precisamente por eso.
+  - ⚠️ **No uses `/health/ready/`**: consulta la base. Si RDS tuviera un problema pasajero, el ALB daría por muertas *todas* las tareas a la vez y convertiría un incidente recuperable en una caída total. `/health/ready/` es para verificar a mano.
+  - ⚠️ **`ALLOWED_HOSTS`:** el ALB manda sus health checks con la **IP privada de la tarea** como cabecera `Host`, y Django la rechazaría con **400 DisallowedHost**. Decide antes cómo resolverlo → [trampa nº 3](./CONFIGURACION_PRODUCCION.md#-trampa-3--allowed_hosts-rechaza-al-propio-alb-decisión-pendiente).
 - [ ] **ALB** (`swalp-alb`): internet-facing, en las **subredes públicas**, SG `swalp-alb-sg`.
   - Listener **443** (HTTPS, cert ACM) → reenvía a `swalp-tg`.
   - Listener **80** → **redirige a 443**.
@@ -109,7 +146,13 @@ Registrar una task definition con:
 - **Launch type:** Fargate · **CPU/mem:** `0.5 vCPU` / `1 GB` (`cpu: 512`, `memory: 1024`).
 - **Execution role:** `swalp-exec-role` · **Task role:** `swalp-task-role`.
 - **Contenedor** `web`: imagen `<ECR>/swalp-app:latest`, puerto **8000**.
-  - **environment:** `ENVIRONMENT=production`, `DEBUG=False`, `ALLOWED_HOSTS=swalp.parqueexplora.org`, `CSRF_TRUSTED_ORIGINS=https://swalp.parqueexplora.org`, `CORS_ALLOWED_ORIGINS=https://swalp.parqueexplora.org`, `SITE_URL=https://swalp.parqueexplora.org`, `DB_HOST=<endpoint-rds>`, `DB_NAME=bdturnosex`, `DB_USER=admin`, `DB_PORT=3306`. Para correo por API: `EMAIL_BACKEND=django_ses.SESBackend`, `AWS_SES_REGION_NAME=us-east-1`.
+  - **environment:** `ENVIRONMENT=production`, `DEBUG=False`, `ALLOWED_HOSTS=swalp.parqueexplora.org`, `CSRF_TRUSTED_ORIGINS=https://swalp.parqueexplora.org`, `CORS_ALLOWED_ORIGINS=https://swalp.parqueexplora.org`, `SITE_URL=https://swalp.parqueexplora.org`, `DB_HOST=<endpoint-rds>`, `DB_NAME=bdturnosex`, `DB_USER=admin`, `DB_PORT=3306`.
+    - ⚠️ **`CACHE_URL=redis://<endpoint>:6379/1`** (o `db://cache_appturnos`) — **sin esto el despliegue falla el check**. Ver Fase 1.5.
+    - ⚠️ **`DB_SSL_CA=/app/certs/rds-ca-global.pem`** — cifra y **verifica** la conexión a RDS. La imagen ya trae el certificado de Amazon.
+    - Para correo por API: `EMAIL_BACKEND=django_ses.SESBackend`, `AWS_SES_REGION_NAME=us-east-1`.
+    - No hace falta tocar `CONN_MAX_AGE`: en producción vale 60 s automáticamente, con comprobación de conexión.
+
+> 📋 Bloque completo de variables listo para copiar: [CONFIGURACION_PRODUCCION.md §6](./CONFIGURACION_PRODUCCION.md#6-resumen-para-el-día-del-despliegue).
   - **secrets:** `SECRET_KEY` y `DB_PASSWORD` desde Secrets Manager.
   - **logConfiguration:** `awslogs` → grupo `/ecs/swalp` en CloudWatch.
 
@@ -152,8 +195,22 @@ aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-ty
 
 ## FASE 10 — Verificación
 
+**Antes de dar por buena la salida (comprobación automática):**
+```bash
+# Dentro de la tarea, con ECS Exec. Debe decir "no issues".
+aws ecs execute-command --cluster swalp-cluster --task <task-id> \
+  --container web --interactive --command "python manage.py check --deploy"
+```
+- [ ] Sale **`System check identified no issues`**.
+  - Si sale **`core.E001`** → falta `CACHE_URL` (Fase 1.5). **No lo ignores:** significa que los usuarios verán turnos desactualizados.
+  - Si sale **`core.W002`** → falta `DB_SSL_CA`: el tráfico a RDS va sin cifrar.
+- [ ] `curl https://swalp.parqueexplora.org/health/` → `{"status": "ok"}`.
+- [ ] `curl https://swalp.parqueexplora.org/health/ready/` → `{"status": "ok", "database": "ok"}`.
+
+**Funcional:**
 - [ ] `https://swalp.parqueexplora.org` carga desde **fuera de la red** (celular con datos) con candado.
 - [ ] Target group **healthy**; ALB enruta al task.
+- [ ] **Prueba de la caché compartida** (la que valida la trampa nº 1): con **≥2 tasks**, aprobar una solicitud y refrescar Mis Turnos varias veces. El resultado debe ser **siempre el mismo**; si alterna entre el dato viejo y el nuevo, la caché no es compartida.
 - [ ] Login (django-axes activo), dashboard, crear solicitud, aceptar pendiente (emisor y receptor) → OK.
 - [ ] Llega el correo desde `no-reply@parqueexplora.org` (DKIM=pass, SPF=pass).
 - [ ] `/admin/` sin el error de zona horaria (RDS ya trae las tablas TZ).

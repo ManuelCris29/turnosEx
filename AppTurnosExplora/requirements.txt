@@ -13,6 +13,10 @@ openpyxl==3.1.5
 pycparser==2.23
 PyMySQL==1.1.2
 python-dateutil==2.9.0.post0
+# Cliente de Redis para el backend de caché nativo de Django 5 (no hace falta
+# django-redis). Solo se usa si CACHE_URL apunta a redis://; en desarrollo,
+# con LocMemCache, queda instalado pero inactivo. Ver config/settings.py.
+redis==5.2.1
 six==1.17.0
 sqlparse==0.5.3
 tzdata==2025.2

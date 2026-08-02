@@ -123,6 +123,19 @@ DB_PASSWORD=<password-del-maestro-rds>
 DB_HOST=<ENDPOINT_RDS>
 DB_PORT=3306
 
+# TLS hacia RDS: cifra Y verifica la identidad del servidor.
+# En EC2 (a diferencia del contenedor) hay que bajar el certificado a la máquina:
+#   sudo mkdir -p /etc/ssl/rds && sudo curl -o /etc/ssl/rds/global-bundle.pem \
+#     https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+DB_SSL_CA=/etc/ssl/rds/global-bundle.pem
+
+# Caché — OBLIGATORIA. Gunicorn corre con varios workers y con la caché en
+# memoria cada uno tendría la suya: los exploradores verían turnos
+# desactualizados de forma intermitente. Sin Redis, la tabla en RDS sirve
+# (crearla una vez con: python manage.py createcachetable).
+CACHE_URL=db://cache_appturnos
+# CACHE_URL=redis://127.0.0.1:6379/1   # si instalas Redis en la propia EC2
+
 # Correo — Fase 1: SES por SMTP (solo variables, sin cambio de código)
 EMAIL_HOST=email-smtp.us-east-1.amazonaws.com
 EMAIL_PORT=587
@@ -133,6 +146,14 @@ DEFAULT_FROM_EMAIL=SWALP <no-reply@parqueexplora.org>
 ```
 
 > Generar `SECRET_KEY`: `python -c "from django.core.management.utils import get_random_secret_key as g; print(g())"`
+
+> 📖 **Qué hace cada variable y qué se rompe si falta:** [CONFIGURACION_PRODUCCION.md](./CONFIGURACION_PRODUCCION.md).
+> Antes de dar por terminado el despliegue, ejecuta `python manage.py check --deploy`:
+> debe decir *"no issues"*. Si sale `core.E001`, falta `CACHE_URL` y los usuarios
+> verán turnos desactualizados.
+>
+> En EC2, Nginx puede comprobar la salud de la app en **`/health/`** (responde sin
+> tocar la base). `/health/ready/` sí consulta la base y sirve para verificar a mano.
 
 ---
 

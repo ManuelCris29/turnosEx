@@ -15,6 +15,20 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Certificados de las autoridades de RDS/Aurora (todas las regiones).
+# Necesarios para que la conexión a la base no solo vaya cifrada, sino
+# VERIFICADA: sin el CA no se puede comprobar que el servidor al otro lado es
+# de verdad tu RDS. Se activa apuntando DB_SSL_CA a esta ruta (ver settings.py):
+#     DB_SSL_CA=/app/certs/rds-ca-global.pem
+# Si la variable no se define, el fichero simplemente no se usa.
+#
+# OJO: esta línea hace que el build necesite acceso a Internet. El bundle es
+# público y lo publica Amazon; si algún día quieres un build hermético, baja el
+# .pem al repositorio y cámbialo por un COPY.
+ADD https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
+    /app/certs/rds-ca-global.pem
+RUN chmod 644 /app/certs/rds-ca-global.pem
+
 # Código de la app.
 COPY . .
 

@@ -117,6 +117,47 @@ except ImportError:
     import pymysql
     pymysql.install_as_MySQLdb()
 
+# --- Conexiones persistentes -----------------------------------------------
+# Por defecto Django abre y cierra una conexión a la base EN CADA petición. Con
+# RDS al otro lado de la red (y más aún con TLS, que añade su propio handshake)
+# eso son decenas de milisegundos regalados por petición y presión innecesaria
+# sobre `max_connections`. CONN_MAX_AGE reutiliza la conexión durante N segundos.
+#
+# En desarrollo el valor por defecto es 0 (comportamiento de siempre: runserver
+# recarga código constantemente y las conexiones vivas estorban más que ayudan).
+# En producción, 60 s.
+#
+# CONN_HEALTH_CHECKS es el acompañante OBLIGATORIO de lo anterior: una conexión
+# reutilizada puede haber muerto por su cuenta (timeout de MySQL, failover de
+# RDS, reinicio). Sin esta bandera, Django la usaría igualmente y la petición
+# reventaría con un error de conexión; con ella la comprueba y la reabre si hace
+# falta. Activar CONN_MAX_AGE sin esto cambia un coste de rendimiento por
+# errores 500 intermitentes.
+DB_CONN_MAX_AGE = env.int('DB_CONN_MAX_AGE', default=60 if IS_PRODUCTION else 0)
+
+# --- TLS hacia la base de datos ---------------------------------------------
+# Sin esto, el tráfico entre la aplicación y RDS viaja EN CLARO por la VPC:
+# credenciales, turnos, datos personales de los empleados. Estar dentro de una
+# VPC no es cifrado, solo aislamiento.
+#
+# Se activa indicando la ruta del certificado de la autoridad de Amazon:
+#     DB_SSL_CA=/app/certs/rds-ca-global.pem
+# El Dockerfile ya deja ese bundle en la imagen. Vacío (desarrollo) = sin TLS.
+#
+# `ssl_verify_cert` + `ssl_verify_identity` son lo que separa "cifrado" de
+# "cifrado Y verificado": sin ellos se cifraría la conexión pero se aceptaría
+# cualquier servidor que se hiciera pasar por la base. Parámetros de PyMySQL,
+# que es el driver del proyecto.
+DB_SSL_CA = env('DB_SSL_CA', default='')
+
+DB_OPTIONS = {}
+if DB_SSL_CA:
+    DB_OPTIONS = {
+        'ssl_ca': DB_SSL_CA,
+        'ssl_verify_cert': True,
+        'ssl_verify_identity': True,
+    }
+
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
@@ -125,6 +166,9 @@ DATABASES = {
         'PASSWORD': env('DB_PASSWORD'),
         'HOST': env('DB_HOST', default='localhost'),
         'PORT': env('DB_PORT', default='3306'),
+        'CONN_MAX_AGE': DB_CONN_MAX_AGE,
+        'CONN_HEALTH_CHECKS': True,
+        'OPTIONS': DB_OPTIONS,
         # Nombre de la base de TEST, configurable.
         #
         # Por defecto Django usa 'test_' + NAME, un nombre FIJO y compartido por toda corrida.
@@ -208,19 +252,67 @@ EMAIL_SEND_ASYNC = env.bool('EMAIL_SEND_ASYNC', default=IS_PRODUCTION)
 SITE_URL = env('SITE_URL', default='http://127.0.0.1:8000')
 
 # ---------------------------------------------------------------------------
-# Caché — LocMemCache en dev, Redis en prod (configurar CACHE_URL en .env)
+# Caché — se elige con CACHE_URL
+#
+# POR QUÉ ESTO IMPORTA MÁS DE LO QUE PARECE
+# LocMemCache vive en la memoria de UN proceso. Gunicorn arranca varios workers
+# (--workers 3) y cada uno tendría su propia caché, invisible para los demás.
+# Como aquí la caché no guarda adornos sino el estado de Mis Turnos
+# (turnos/api/views/turnos_mes.py cachea `turnos_mes_<emp>_<año>_<mes>` 1 hora)
+# y ese estado se invalida al aprobar solicitudes, levantar sanciones, etc.
+# (CacheService.invalidar_cache_turnos_empleado), con varios procesos la
+# invalidación solo limpiaría el worker que atendió esa petición. Los otros
+# seguirían sirviendo el mes viejo hasta una hora: el explorador vería su turno
+# corregido o sin corregir según a qué worker lo mande el balanceador, y al
+# refrescar cambiaría. Con varias tareas en ECS, peor.
+#
+# Regla: en producción con más de un worker, la caché DEBE ser compartida.
+#
+# Valores de CACHE_URL:
+#   (vacío)                     → LocMemCache. Solo desarrollo (runserver, 1 proceso).
+#   redis://host:6379/1         → ElastiCache/Redis. Opción recomendada en AWS.
+#   rediss://host:6379/1        → igual, con TLS (ElastiCache con cifrado en tránsito).
+#   db://cache_appturnos        → tabla en la propia MySQL/RDS. Sin infraestructura
+#                                 extra, pero exige crear la tabla una vez:
+#                                     python manage.py createcachetable
+#
+# El backend de Redis es el nativo de Django 5 (no hace falta django-redis),
+# pero sí el cliente `redis` — ya está en requirements.txt.
 # ---------------------------------------------------------------------------
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'appturnos',
-        'TIMEOUT': 3600,
-        'OPTIONS': {
-            'MAX_ENTRIES': 10000,
-            'CULL_FREQUENCY': 3,
-        },
+CACHE_URL = env('CACHE_URL', default='')
+
+if CACHE_URL.startswith(('redis://', 'rediss://')):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': CACHE_URL,
+            'TIMEOUT': 3600,
+        }
     }
-}
+elif CACHE_URL.startswith('db://'):
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+            'LOCATION': CACHE_URL[len('db://'):] or 'cache_appturnos',
+            'TIMEOUT': 3600,
+            'OPTIONS': {
+                'MAX_ENTRIES': 10000,
+                'CULL_FREQUENCY': 3,
+            },
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'appturnos',
+            'TIMEOUT': 3600,
+            'OPTIONS': {
+                'MAX_ENTRIES': 10000,
+                'CULL_FREQUENCY': 3,
+            },
+        }
+    }
 
 # ---------------------------------------------------------------------------
 # CORS
@@ -347,6 +439,14 @@ if SECURE_HTTPS:
     # SECURE_SSL_REDIRECT provoca un bucle de redirección infinito.
     SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
     SECURE_SSL_REDIRECT = True
+
+    # Los health checks del ALB NO son tráfico de navegador: llegan por HTTP
+    # directo al contenedor y sin la cabecera X-Forwarded-Proto. Sin esta
+    # exención, SECURE_SSL_REDIRECT les responde 301 hacia https, el ALB lo lee
+    # como "unhealthy", mata la tarea, arranca otra, y así indefinidamente: la
+    # aplicación nunca llega a estar arriba. El patrón se compara contra la ruta
+    # SIN la barra inicial. Ver core/health.py.
+    SECURE_REDIRECT_EXEMPT = [r'^health/$', r'^health/ready/$']
     SECURE_HSTS_SECONDS = 31536000          # 1 año
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True

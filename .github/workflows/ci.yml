@@ -76,5 +76,21 @@ jobs:
       - name: Django system check
         run: python manage.py check
 
+      # Valida la FORMA de la configuración de producción, no la de CI: HSTS,
+      # cookies seguras y la caché compartida (core.E001). Sin este paso, un
+      # despliegue con LocMemCache y varios workers de Gunicorn pasaría el CI
+      # sin ruido y serviría Mis Turnos desactualizado en producción.
+      # Los valores son ficticios; el único propósito es que las comprobaciones
+      # de --deploy se ejecuten en modo producción.
+      - name: Django check --deploy (configuración de producción)
+        env:
+          ENVIRONMENT: production
+          DEBUG: "False"
+          SECRET_KEY: ci-deploy-check-clave-larga-y-unica-no-produccion-0123456789
+          ALLOWED_HOSTS: ejemplo.com
+          CSRF_TRUSTED_ORIGINS: https://ejemplo.com
+          CACHE_URL: redis://localhost:6379/1   # no se conecta: solo se valida el backend
+        run: python manage.py check --deploy
+
       - name: Ejecutar tests (pytest)
         run: pytest
