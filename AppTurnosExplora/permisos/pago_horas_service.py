@@ -121,13 +121,9 @@ class PagoHorasService:
         if len(dobladas) != len(dob_ids) or len(permisos) != len(per_ids):
             return None, 'Alguna deuda seleccionada ya no está pendiente. Recarga la lista e intenta de nuevo.'
 
-        if fecha > date.today():
-            return None, 'La fecha de pago no puede ser futura.'
-        fechas_deuda = [d.fecha_doblada for d in dobladas] + [p.fecha_inicio for p in permisos]
-        fechas_deuda = [f for f in fechas_deuda if f]
-        if fechas_deuda and fecha < max(fechas_deuda):
-            return None, (f'La fecha de pago no puede ser anterior a la deuda más reciente '
-                          f'que estás saldando ({_fmt(max(fechas_deuda))}).')
+        # La fecha de pago no se valida contra hoy ni contra la fecha de la deuda: el pago se
+        # acuerda entre supervisor y explorador (normalmente dentro del mes de la deuda, pero el
+        # supervisor le da manejo). Deudas con fecha futura, de hecho, solo se pueden pagar así.
 
         total_horas = round(sum(d.minutos for d in dobladas) / 60
                             + sum(p.horas_totales() for p in permisos), 2)

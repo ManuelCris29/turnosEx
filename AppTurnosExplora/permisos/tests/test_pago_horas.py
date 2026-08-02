@@ -85,23 +85,25 @@ class AplicarPagoTest(PagoHorasBase):
         self.assertEqual(PDH.objects.count(), 0)
         self.assertEqual(DeudaCorporativa.objects.filter(estado='activa').count(), 50)
 
-    def test_fecha_futura_rechazada(self):
+    def test_fecha_futura_permitida(self):
+        # El pago se acuerda con el explorador: el supervisor puede fecharlo a futuro.
         d = self._deuda()
         pdh, error = PagoHorasService.aplicar_pago(
             supervisor=self.supervisor, explorador=self.explorador,
             fecha=date.today() + timedelta(days=3), keys=[f'doblada:{d.id}'],
         )
-        self.assertIsNone(pdh)
-        self.assertIn('futura', error)
+        self.assertIsNone(error)
+        self.assertEqual(pdh.fecha, date.today() + timedelta(days=3))
 
-    def test_fecha_anterior_a_la_deuda_rechazada(self):
+    def test_fecha_anterior_a_la_deuda_permitida(self):
         d = self._deuda(fecha=date.today() - timedelta(days=2))
         pdh, error = PagoHorasService.aplicar_pago(
             supervisor=self.supervisor, explorador=self.explorador,
             fecha=date.today() - timedelta(days=5), keys=[f'doblada:{d.id}'],
         )
-        self.assertIsNone(pdh)
-        self.assertIn('anterior', error)
+        self.assertIsNone(error)
+        d.refresh_from_db()
+        self.assertEqual(d.estado, 'pagada')
 
     def test_permiso_pagado_y_revertido(self):
         p = PermisoEspecial.objects.create(
