@@ -20,7 +20,7 @@
     <div class="pg-card">
       <div class="pg-card-head" style="background:linear-gradient(135deg,#2563eb,#3b82f6);">
         <h3><i class="fas fa-calendar-day"></i> Lista de días especiales</h3>
-        {% if user.is_staff %}
+        {% if es_supervisor %}
         <div class="pg-actions">
           <a href="{% url 'dias_especiales_temporadas_anual' %}" class="pg-btn pg-btn-light"><i class="fas fa-calendar-alt"></i> Temporadas anuales</a>
           <a href="{% url 'dias_especiales_festivos_mantenimiento_anual' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nuevo festivo/mantenimiento</a>
@@ -62,7 +62,7 @@
               <tr>
                 <th>ID</th><th>Fecha</th><th>Tipo</th><th>Descripción</th>
                 <th>Año planif.</th><th>Recurrente</th><th>Activo</th>
-                {% if user.is_staff %}<th style="text-align:right;">Acciones</th>{% endif %}
+                {% if es_supervisor %}<th style="text-align:right;">Acciones</th>{% endif %}
               </tr>
             </thead>
             <tbody>
@@ -75,7 +75,7 @@
                 <td>{% if dia.año_planificacion %}{{ dia.año_planificacion }}{% else %}—{% endif %}</td>
                 <td>{% if dia.recurrente %}<span class="pg-chip pg-chip-info">Sí</span>{% else %}<span class="pg-chip pg-chip-gray">No</span>{% endif %}</td>
                 <td>{% if dia.activo %}<span class="pg-chip pg-chip-ok">Sí</span>{% else %}<span class="pg-chip pg-chip-no">No</span>{% endif %}</td>
-                {% if user.is_staff %}
+                {% if es_supervisor %}
                 <td style="text-align:right; white-space:nowrap;">
                   {% if not dia.es_temporada %}
                     <a href="{% url 'dias_especiales_edit' dia.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
@@ -87,7 +87,7 @@
                 {% endif %}
               </tr>
               {% empty %}
-              <tr><td colspan="{% if user.is_staff %}8{% else %}7{% endif %}">
+              <tr><td colspan="{% if es_supervisor %}8{% else %}7{% endif %}">
                 <div class="pg-empty">No hay días especiales registrados.</div>
               </td></tr>
               {% endfor %}

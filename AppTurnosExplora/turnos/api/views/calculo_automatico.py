@@ -3,8 +3,37 @@ from django.views.generic import View
 from django.http import JsonResponse
 from datetime import date
 
+from core.mixins import SupervisorApiRequiredMixin
+from turnos.models import DiaEspecial
 
-class CalcularMantenimientoAutomaticoView(LoginRequiredMixin, View):
+
+def _parsear_anio(request):
+    """
+    Lee y valida `anio` de la query string.
+
+    Devuelve (anio, None) si es válido o (None, JsonResponse) con el error. El rango
+    se acota porque el cálculo recorre el año semana a semana: sin tope, un año
+    absurdo convierte una petición en un bucle de decenas de miles de iteraciones.
+    """
+    anio = request.GET.get('anio')
+
+    if not anio:
+        return None, JsonResponse({'error': 'El parámetro "anio" es requerido'}, status=400)
+
+    try:
+        anio = int(anio)
+    except ValueError:
+        return None, JsonResponse({'error': 'El año debe ser un número válido'}, status=400)
+
+    if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+        return None, JsonResponse({
+            'error': f'El año debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}. Año proporcionado: {anio}'
+        }, status=400)
+
+    return anio, None
+
+
+class CalcularMantenimientoAutomaticoView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
     """
     Endpoint API para calcular automáticamente los días de mantenimiento para un año.
 
@@ -16,15 +45,9 @@ class CalcularMantenimientoAutomaticoView(LoginRequiredMixin, View):
 
     def get(self, request):
         try:
-            anio = request.GET.get('anio')
-
-            if not anio:
-                return JsonResponse({'error': 'El parámetro "anio" es requerido'}, status=400)
-
-            try:
-                anio = int(anio)
-            except ValueError:
-                return JsonResponse({'error': 'El año debe ser un número válido'}, status=400)
+            anio, error = _parsear_anio(request)
+            if error:
+                return error
 
             from turnos.services.dia_especial_service import DiaEspecialService
 
@@ -58,7 +81,7 @@ class CalcularMantenimientoAutomaticoView(LoginRequiredMixin, View):
             return JsonResponse({'error': f'Error al calcular días de mantenimiento: {str(e)}'}, status=500)
 
 
-class CalcularFestivosAutomaticoView(LoginRequiredMixin, View):
+class CalcularFestivosAutomaticoView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
     """
     Endpoint API para generar y obtener automáticamente los días festivos para un año.
 
@@ -70,21 +93,9 @@ class CalcularFestivosAutomaticoView(LoginRequiredMixin, View):
 
     def get(self, request):
         try:
-            anio = request.GET.get('anio')
-
-            if not anio:
-                return JsonResponse({'error': 'El parámetro \"anio\" es requerido'}, status=400)
-
-            try:
-                anio = int(anio)
-            except ValueError:
-                return JsonResponse({'error': 'El año debe ser un número válido'}, status=400)
-
-            # Validar año mínimo (solo para evitar años históricos muy antiguos)
-            if anio < 2000:
-                return JsonResponse({
-                    'error': f'El año debe ser mayor o igual a 2000. Año proporcionado: {anio}'
-                }, status=400)
+            anio, error = _parsear_anio(request)
+            if error:
+                return error
 
             from turnos.services.dia_especial_service import DiaEspecialService
 

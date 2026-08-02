@@ -4,6 +4,8 @@ Formularios para la gestión de días especiales y temporadas.
 from django import forms
 from datetime import date
 
+from turnos.models import DiaEspecial
+
 
 class TemporadasAnualForm(forms.Form):
     """
@@ -12,8 +14,8 @@ class TemporadasAnualForm(forms.Form):
     """
     anio = forms.IntegerField(
         label='Año',
-        min_value=2000,
-        max_value=2100,
+        min_value=DiaEspecial.ANIO_MIN,
+        max_value=DiaEspecial.ANIO_MAX,
         widget=forms.NumberInput(attrs={
             'class': 'form-control',
             'id': 'id_anio',
@@ -30,8 +32,8 @@ class TemporadasAnualForm(forms.Form):
     def clean_anio(self):
         """Valida que el año sea válido"""
         anio = self.cleaned_data.get('anio')
-        if anio and (anio < 2000 or anio > 2100):
-            raise forms.ValidationError('El año debe estar entre 2000 y 2100.')
+        if anio and (anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX):
+            raise forms.ValidationError(f'El año debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}.')
         return anio
     
     def clean_dias_seleccionados(self):
@@ -87,8 +89,8 @@ class DiasEspecialesAnualForm(forms.Form):
     
     anio = forms.IntegerField(
         label='Año',
-        min_value=2000,
-        max_value=2100,
+        min_value=DiaEspecial.ANIO_MIN,
+        max_value=DiaEspecial.ANIO_MAX,
         widget=forms.NumberInput(attrs={
             'class': 'form-control',
             'id': 'id_anio',
@@ -112,8 +114,8 @@ class DiasEspecialesAnualForm(forms.Form):
     def clean_anio(self):
         """Valida que el año sea válido"""
         anio = self.cleaned_data.get('anio')
-        if anio and (anio < 2000 or anio > 2100):
-            raise forms.ValidationError('El año debe estar entre 2000 y 2100.')
+        if anio and (anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX):
+            raise forms.ValidationError(f'El año debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}.')
         return anio
     
     def clean_dias_seleccionados(self):

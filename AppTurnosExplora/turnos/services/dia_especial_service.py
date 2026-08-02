@@ -89,13 +89,13 @@ class DiaEspecialService:
         return resultado
 
     @staticmethod
-    @transaction.atomic
     def guardar_dias_especiales_anual(
         tipo: str,
         anio: int,
         dias_seleccionados: Dict[int, List[int]],
         descripcion: str = "",
-        usuario=None
+        usuario=None,
+        permitir_vacio: bool = False
     ) -> tuple[bool, str]:
         """
         Guarda los días especiales para un tipo y año específicos.
@@ -108,139 +108,116 @@ class DiaEspecialService:
                                Ejemplo: {1: [15, 16, 20], 2: [10, 14]}
             descripcion: Descripción general para todos los días
             usuario: Usuario que realiza la operación (opcional, para historial)
-            
+            permitir_vacio: Si es True, una selección vacía significa "dejar el año sin
+                            días de este tipo" (borrado explícito). Si es False (por
+                            defecto), una selección vacía se rechaza SIN tocar la BD.
+
         Returns:
             Tupla (éxito, mensaje)
         """
         from core.services.cache_service import CacheService
 
+        # Todas las validaciones ocurren ANTES de tomar el lock y de escribir nada:
+        # el patrón de guardado es "borrar el año y recrear", así que un rechazo
+        # posterior al borrado dejaría el año vacío mientras se reporta un error.
+        if tipo not in ['festivo', 'mantenimiento']:
+            return False, f"Tipo inválido: {tipo}. Debe ser 'festivo' o 'mantenimiento'."
+
+        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+            return False, f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
+
+        if not dias_seleccionados and not permitir_vacio:
+            logger.warning("No hay días seleccionados para guardar")
+            return False, f"No se seleccionaron días de {tipo}."
+
         # Guarda contra dos guardados simultáneos del mismo año/tipo (dos pestañas, doble-clic):
-        # el patrón es "borrar todo y recrear", así que sin este lock la segunda escritura no
-        # chocaría con nada — simplemente pisaría en silencio lo que la primera acababa de crear.
+        # sin este lock la segunda escritura pisaría en silencio lo que la primera acababa de crear.
         clave_lock = f"dias_especiales_lock_{tipo}_{anio}"
         if not CacheService.acquire_lock(clave_lock, ttl=15):
             return False, f"Ya hay un guardado en curso para {tipo} del año {anio}. Espera unos segundos y reintenta."
 
         try:
-            # Validar tipo
-            if tipo not in ['festivo', 'mantenimiento']:
-                return False, f"Tipo inválido: {tipo}. Debe ser 'festivo' o 'mantenimiento'."
-
-            # Validar año (solo mínimo para evitar años históricos muy antiguos)
-            if anio < 2000:
-                return False, f"Año inválido: {anio}. Debe ser mayor o igual a 2000."
-
-            # Eliminar todos los días existentes del tipo y año
-            DiaEspecialService.eliminar_dias_por_tipo_anio(tipo, anio)
-            
-            # Crear nuevos registros
-            dias_creados = 0
-            
-            logger.info(f"Guardando días {tipo} para año {anio}. Días seleccionados: {dias_seleccionados}")
-            
-            if not dias_seleccionados:
-                logger.warning("No hay días seleccionados para guardar")
-                return False, f"No se seleccionaron días de {tipo}."
-            
-            # Usar descripción por defecto si no se proporciona
-            if not descripcion:
-                descripcion = f"Día de {tipo}"
-            
-            for mes, dias in dias_seleccionados.items():
-                if not dias:  # Si no hay días seleccionados para este mes, continuar
-                    continue
-                
-                # Convertir mes a int si viene como string (del JSON)
-                try:
-                    mes = int(mes)
-                except (ValueError, TypeError):
-                    logger.warning(f"Mes inválido (no es número): {mes}")
-                    continue
-                
-                # Validar mes
-                if mes < 1 or mes > 12:
-                    logger.warning(f"Mes inválido ignorado: {mes}")
-                    continue
-                
-                for dia in dias:
-                    # Convertir día a int si viene como string
-                    try:
-                        dia = int(dia)
-                    except (ValueError, TypeError):
-                        logger.warning(f"Día inválido (no es número): {dia}")
-                        continue
-                    
-                    # Validar día según el mes
-                    if not DiaEspecialService._validar_dia_mes(anio, mes, dia):
-                        logger.warning(f"Día inválido ignorado: {anio}-{mes:02d}-{dia:02d}")
-                        continue
-                    
-                    try:
-                        fecha = date(anio, mes, dia)
-                        
-                        # Verificar si ya existe un registro para esta fecha (otro tipo o temporada)
-                        dia_existente = DiaEspecial.objects.filter(fecha=fecha).first()
-                        
-                        if dia_existente and dia_existente.es_temporada:
-                            # Si existe y es temporada, crear uno nuevo (no sobrescribir temporadas)
-                            DiaEspecial.objects.create(
-                                fecha=fecha,
-                                tipo=tipo,
-                                descripcion=descripcion,
-                                es_temporada=False,
-                                año_planificacion=anio,
-                                mes=mes,
-                                activo=True,
-                                recurrente=False
-                            )
-                            dias_creados += 1
-                        elif dia_existente and dia_existente.tipo != tipo:
-                            # Si existe pero es otro tipo, crear uno nuevo
-                            DiaEspecial.objects.create(
-                                fecha=fecha,
-                                tipo=tipo,
-                                descripcion=descripcion,
-                                es_temporada=False,
-                                año_planificacion=anio,
-                                mes=mes,
-                                activo=True,
-                                recurrente=False
-                            )
-                            dias_creados += 1
-                        elif not dia_existente:
-                            # Si no existe, crear nuevo
-                            DiaEspecial.objects.create(
-                                fecha=fecha,
-                                tipo=tipo,
-                                descripcion=descripcion,
-                                es_temporada=False,
-                                año_planificacion=anio,
-                                mes=mes,
-                                activo=True,
-                                recurrente=False
-                            )
-                            dias_creados += 1
-                        else:
-                            # Ya existe y es del mismo tipo, actualizar
-                            dia_existente.descripcion = descripcion
-                            dia_existente.año_planificacion = anio
-                            dia_existente.mes = mes
-                            dia_existente.activo = True
-                            dia_existente.save()
-                            dias_creados += 1
-                            
-                    except ValueError as e:
-                        logger.error(f"Error al crear fecha {anio}-{mes:02d}-{dia:02d}: {e}")
-                        continue
-            
-            mensaje = f"Se guardaron {dias_creados} días de {tipo} para el año {anio}."
-            return True, mensaje
-
+            return DiaEspecialService._escribir_dias_especiales_anual(
+                tipo, anio, dias_seleccionados, descripcion or f"Día de {tipo}"
+            )
         except Exception as e:
-            logger.error(f"Error al guardar días especiales anual: {e}")
+            # El rollback ya lo hizo `_escribir_dias_especiales_anual` al propagar la
+            # excepción fuera de su bloque atómico: aquí solo se traduce a mensaje.
+            logger.error(f"Error al guardar días especiales anual: {e}", exc_info=True)
             return False, f"Error al guardar días especiales: {str(e)}"
         finally:
+            # Se libera fuera del bloque atómico, ya con los datos confirmados en BD.
             CacheService.delete(clave_lock)
+
+    @staticmethod
+    @transaction.atomic
+    def _escribir_dias_especiales_anual(
+        tipo: str,
+        anio: int,
+        dias_seleccionados: Dict[int, List[int]],
+        descripcion: str
+    ) -> tuple[bool, str]:
+        """
+        Borra y recrea los días del tipo/año dentro de una única transacción.
+
+        Cualquier excepción se propaga a propósito para que el `atomic` revierta:
+        capturarla aquí dentro confirmaría un año a medio escribir.
+        """
+        eliminados = DiaEspecialService.eliminar_dias_por_tipo_anio(tipo, anio)
+
+        logger.info(f"Guardando días {tipo} para año {anio}. Días seleccionados: {dias_seleccionados}")
+
+        if not dias_seleccionados:
+            return True, f"Se eliminaron los {eliminados} días de {tipo} del año {anio}. El año queda sin {tipo}s."
+
+        dias_creados = 0
+
+        for mes, dias in dias_seleccionados.items():
+            if not dias:  # Si no hay días seleccionados para este mes, continuar
+                continue
+
+            # Convertir mes a int si viene como string (del JSON)
+            try:
+                mes = int(mes)
+            except (ValueError, TypeError):
+                logger.warning(f"Mes inválido (no es número): {mes}")
+                continue
+
+            # Validar mes
+            if mes < 1 or mes > 12:
+                logger.warning(f"Mes inválido ignorado: {mes}")
+                continue
+
+            for dia in dias:
+                # Convertir día a int si viene como string
+                try:
+                    dia = int(dia)
+                except (ValueError, TypeError):
+                    logger.warning(f"Día inválido (no es número): {dia}")
+                    continue
+
+                # Validar día según el mes
+                if not DiaEspecialService._validar_dia_mes(anio, mes, dia):
+                    logger.warning(f"Día inválido ignorado: {anio}-{mes:02d}-{dia:02d}")
+                    continue
+
+                fecha = date(anio, mes, dia)
+
+                # Se busca por (fecha, tipo): la misma fecha puede tener además una
+                # temporada o un día del otro tipo, y esos no se tocan aquí.
+                DiaEspecial.objects.update_or_create(
+                    fecha=fecha,
+                    tipo=tipo,
+                    defaults={
+                        'descripcion': descripcion,
+                        'es_temporada': False,
+                        'activo': True,
+                        'recurrente': False,
+                    }
+                )
+                dias_creados += 1
+
+        return True, f"Se guardaron {dias_creados} días de {tipo} para el año {anio}."
 
     @staticmethod
     @transaction.atomic
@@ -255,9 +232,11 @@ class DiaEspecialService:
         Returns:
             Número de registros eliminados
         """
+        # Se filtra por `fecha__year` y no por `año_planificacion`: la fecha es el dato
+        # autoritativo, así que un registro antiguo con el año desincronizado igual se limpia.
         eliminados = DiaEspecial.objects.filter(
             tipo=tipo,
-            año_planificacion=anio,
+            fecha__year=anio,
             es_temporada=False
         ).delete()[0]
         
@@ -280,9 +259,9 @@ class DiaEspecialService:
         if tipo not in ['festivo', 'mantenimiento']:
             return False, f"Tipo inválido: {tipo}. Debe ser 'festivo' o 'mantenimiento'."
         
-        if anio < 2000 or anio > 2100:
-            return False, f"Año inválido: {anio}. Debe estar entre 2000 y 2100."
-        
+        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+            return False, f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
+
         for mes, dias in dias_seleccionados.items():
             if mes < 1 or mes > 12:
                 return False, f"Mes inválido: {mes}. Debe estar entre 1 y 12."
@@ -366,9 +345,8 @@ class DiaEspecialService:
         Returns:
             Diccionario {mes: [dias]} para pintar en el calendario.
         """
-        # Validar año mínimo (solo para evitar años históricos muy antiguos)
-        if anio < 2000:
-            error_msg = f"Año inválido: {anio}. Debe ser mayor o igual a 2000."
+        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+            error_msg = f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
             logger.error(error_msg)
             raise ValueError(error_msg)
 
@@ -409,10 +387,27 @@ class DiaEspecialService:
             Diccionario con mes como clave y lista de días como valor
             Ejemplo: {1: [6, 13, 20, 27], 2: [2, 9, 16, 23]}
         """
+        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+            error_msg = f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
         # Obtener todos los festivos del año
         festivos = DiaEspecialService.obtener_dias_por_tipo_anio('festivo', anio)
         fechas_festivos: Set[date] = {f.fecha for f in festivos}
-        
+
+        # La página de mantenimiento suele visitarse para el año siguiente, cuando los
+        # festivos todavía no se han guardado. Sin este respaldo el cálculo trataría el
+        # año como si no tuviera festivos y propondría mantenimientos encima de ellos.
+        if not fechas_festivos:
+            logger.info(f"El año {anio} no tiene festivos guardados; se usan los festivos calculados para el cálculo de mantenimiento.")
+            festivos_calculados = DiaEspecialService.calcular_festivos_automaticos(anio)
+            fechas_festivos = {
+                date(anio, mes, dia)
+                for mes, dias in festivos_calculados.items()
+                for dia in dias
+            }
+
         # Obtener todos los días de temporada del año
         temporadas = TemporadaService.obtener_dias_temporada_anio(anio)
         fechas_temporadas: Set[date] = {t.fecha for t in temporadas}

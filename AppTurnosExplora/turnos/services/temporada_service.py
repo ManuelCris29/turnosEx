@@ -84,134 +84,121 @@ class TemporadaService:
         return resultado
 
     @staticmethod
-    @transaction.atomic
     def guardar_temporadas_anual(
-        anio: int, 
-        dias_seleccionados: Dict[int, List[int]], 
-        usuario=None
+        anio: int,
+        dias_seleccionados: Dict[int, List[int]],
+        usuario=None,
+        permitir_vacio: bool = False
     ) -> tuple[bool, str]:
         """
         Guarda los días de temporada para un año específico.
         IMPORTANTE: Reemplaza todas las temporadas existentes del año.
-        
+
         Args:
             anio: Año para el cual se guardan las temporadas
             dias_seleccionados: Diccionario con mes como clave y lista de días como valor
                                Ejemplo: {1: [15, 16, 20], 2: [10, 14]}
             usuario: Usuario que realiza la operación (opcional, para historial)
-            
+            permitir_vacio: Si es True, una selección vacía significa "dejar el año sin
+                            temporadas" (borrado explícito). Si es False (por defecto),
+                            una selección vacía se rechaza SIN tocar la BD.
+
         Returns:
             Tupla (éxito, mensaje)
         """
         from core.services.cache_service import CacheService
 
+        # Todas las validaciones ocurren ANTES de tomar el lock y de escribir nada:
+        # el patrón de guardado es "borrar el año y recrear", así que un rechazo
+        # posterior al borrado dejaría el año vacío mientras se reporta un error.
+        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+            return False, f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
+
+        if not dias_seleccionados and not permitir_vacio:
+            logger.warning("No hay días seleccionados para guardar")
+            return False, "No se seleccionaron días de temporada."
+
         # Guarda contra dos guardados simultáneos del mismo año (dos pestañas, doble-clic):
-        # el patrón es "borrar todo y recrear", así que sin este lock la segunda escritura
-        # pisaría en silencio lo que la primera acababa de crear.
+        # sin este lock la segunda escritura pisaría en silencio lo que la primera acababa de crear.
         clave_lock = f"temporadas_lock_{anio}"
         if not CacheService.acquire_lock(clave_lock, ttl=15):
             return False, f"Ya hay un guardado en curso para las temporadas del año {anio}. Espera unos segundos y reintenta."
 
         try:
-            # Validar año
-            if anio < 2000 or anio > 2100:
-                return False, f"Año inválido: {anio}. Debe estar entre 2000 y 2100."
-
-            # Eliminar todas las temporadas existentes del año
-            TemporadaService.eliminar_temporadas_anio(anio)
-            
-            # Crear nuevos registros
-            dias_creados = 0
-            
-            # Debug: Log de días seleccionados recibidos
-            logger.info(f"Guardando temporadas para año {anio}. Días seleccionados: {dias_seleccionados}")
-            
-            if not dias_seleccionados:
-                logger.warning("No hay días seleccionados para guardar")
-                return False, "No se seleccionaron días de temporada."
-            
-            for mes, dias in dias_seleccionados.items():
-                if not dias:  # Si no hay días seleccionados para este mes, continuar
-                    continue
-                
-                # Convertir mes a int si viene como string (del JSON)
-                try:
-                    mes = int(mes)
-                except (ValueError, TypeError):
-                    logger.warning(f"Mes inválido (no es número): {mes}")
-                    continue
-                
-                # Validar mes
-                if mes < 1 or mes > 12:
-                    logger.warning(f"Mes inválido ignorado: {mes}")
-                    continue
-                
-                for dia in dias:
-                    # Convertir día a int si viene como string
-                    try:
-                        dia = int(dia)
-                    except (ValueError, TypeError):
-                        logger.warning(f"Día inválido (no es número): {dia}")
-                        continue
-                    
-                    # Validar día según el mes
-                    if not TemporadaService._validar_dia_mes(anio, mes, dia):
-                        logger.warning(f"Día inválido ignorado: {anio}-{mes:02d}-{dia:02d}")
-                        continue
-                    
-                    try:
-                        fecha = date(anio, mes, dia)
-                        
-                        # Verificar si ya existe un registro para esta fecha (festivo/mantenimiento)
-                        # Si existe, no lo sobrescribimos, solo creamos si no existe
-                        dia_existente = DiaEspecial.objects.filter(fecha=fecha).first()
-                        
-                        if dia_existente and not dia_existente.es_temporada:
-                            # Si existe pero no es temporada, crear uno nuevo
-                            DiaEspecial.objects.create(
-                                fecha=fecha,
-                                tipo='temporada',
-                                descripcion='Día de temporada',
-                                es_temporada=True,
-                                año_planificacion=anio,
-                                mes=mes,
-                                activo=True,
-                                recurrente=False
-                            )
-                            dias_creados += 1
-                        elif not dia_existente:
-                            # Si no existe, crear nuevo
-                            DiaEspecial.objects.create(
-                                fecha=fecha,
-                                tipo='temporada',
-                                descripcion='Día de temporada',
-                                es_temporada=True,
-                                año_planificacion=anio,
-                                mes=mes,
-                                activo=True,
-                                recurrente=False
-                            )
-                            dias_creados += 1
-                        else:
-                            # Ya existe y es temporada, actualizar
-                            dia_existente.año_planificacion = anio
-                            dia_existente.mes = mes
-                            dia_existente.activo = True
-                            dia_existente.save()
-                            dias_creados += 1
-                            
-                    except ValueError as e:
-                        logger.error(f"Error al crear fecha {anio}-{mes:02d}-{dia:02d}: {e}")
-                        continue
-            
-            mensaje = f"Se guardaron {dias_creados} días de temporada para el año {anio}."
-            return True, mensaje
-
+            return TemporadaService._escribir_temporadas_anual(anio, dias_seleccionados)
         except Exception as e:
-            logger.error(f"Error al guardar temporadas anual: {e}")
+            # El rollback ya lo hizo `_escribir_temporadas_anual` al propagar la excepción
+            # fuera de su bloque atómico: aquí solo se traduce a mensaje de usuario.
+            logger.error(f"Error al guardar temporadas anual: {e}", exc_info=True)
             return False, f"Error al guardar temporadas: {str(e)}"
         finally:
+            # Se libera fuera del bloque atómico, ya con los datos confirmados en BD.
             CacheService.delete(clave_lock)
+
+    @staticmethod
+    @transaction.atomic
+    def _escribir_temporadas_anual(anio: int, dias_seleccionados: Dict[int, List[int]]) -> tuple[bool, str]:
+        """
+        Borra y recrea las temporadas del año dentro de una única transacción.
+
+        Cualquier excepción se propaga a propósito para que el `atomic` revierta:
+        capturarla aquí dentro confirmaría un año a medio escribir.
+        """
+        eliminados = TemporadaService.eliminar_temporadas_anio(anio)
+
+        logger.info(f"Guardando temporadas para año {anio}. Días seleccionados: {dias_seleccionados}")
+
+        if not dias_seleccionados:
+            return True, f"Se eliminaron los {eliminados} días de temporada del año {anio}. El año queda sin temporadas."
+
+        dias_creados = 0
+
+        for mes, dias in dias_seleccionados.items():
+            if not dias:  # Si no hay días seleccionados para este mes, continuar
+                continue
+
+            # Convertir mes a int si viene como string (del JSON)
+            try:
+                mes = int(mes)
+            except (ValueError, TypeError):
+                logger.warning(f"Mes inválido (no es número): {mes}")
+                continue
+
+            # Validar mes
+            if mes < 1 or mes > 12:
+                logger.warning(f"Mes inválido ignorado: {mes}")
+                continue
+
+            for dia in dias:
+                # Convertir día a int si viene como string
+                try:
+                    dia = int(dia)
+                except (ValueError, TypeError):
+                    logger.warning(f"Día inválido (no es número): {dia}")
+                    continue
+
+                # Validar día según el mes
+                if not TemporadaService._validar_dia_mes(anio, mes, dia):
+                    logger.warning(f"Día inválido ignorado: {anio}-{mes:02d}-{dia:02d}")
+                    continue
+
+                fecha = date(anio, mes, dia)
+
+                # Se busca por (fecha, tipo): una fecha puede tener además un festivo
+                # o un mantenimiento, y esos no se tocan aquí.
+                DiaEspecial.objects.update_or_create(
+                    fecha=fecha,
+                    tipo=DiaEspecial.TIPO_TEMPORADA,
+                    defaults={
+                        'descripcion': 'Día de temporada',
+                        'es_temporada': True,
+                        'activo': True,
+                        'recurrente': False,
+                    }
+                )
+                dias_creados += 1
+
+        return True, f"Se guardaron {dias_creados} días de temporada para el año {anio}."
 
     @staticmethod
     @transaction.atomic
@@ -225,8 +212,10 @@ class TemporadaService:
         Returns:
             Número de registros eliminados
         """
+        # Se filtra por `fecha__year` y no por `año_planificacion`: la fecha es el dato
+        # autoritativo, así que un registro antiguo con el año desincronizado igual se limpia.
         eliminados = DiaEspecial.objects.filter(
-            año_planificacion=anio,
+            fecha__year=anio,
             es_temporada=True
         ).delete()[0]
         
@@ -245,9 +234,9 @@ class TemporadaService:
         Returns:
             Tupla (válido, mensaje_error)
         """
-        if anio < 2000 or anio > 2100:
-            return False, f"Año inválido: {anio}. Debe estar entre 2000 y 2100."
-        
+        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
+            return False, f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
+
         for mes, dias in dias_seleccionados.items():
             if mes < 1 or mes > 12:
                 return False, f"Mes inválido: {mes}. Debe estar entre 1 y 12."

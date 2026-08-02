@@ -77,27 +77,34 @@
                                     </div>
                                 </div>
                                 <small class="form-text text-muted">
-                                    Seleccione el año para el cual desea configurar las temporadas (rango: {{ anio_actual }} - {{ anio_actual|add:10 }})
+                                    Seleccione el año para el cual desea configurar las temporadas (rango: {{ anio_min }} - {{ anio_max }})
                                 </small>
-                                <input type="number" 
-                                       id="anio-personalizado-input" 
-                                       class="form-control mt-2" 
-                                       placeholder="O ingrese un año personalizado (mínimo 2000)" 
-                                       min="2000" 
-                                       max="9999" 
+                                <input type="number"
+                                       id="anio-personalizado-input"
+                                       class="form-control mt-2"
+                                       placeholder="O ingrese un año entre {{ anio_min }} y {{ anio_max }}"
+                                       min="{{ anio_min }}"
+                                       max="{{ anio_max }}"
                                        style="display: none;">
                             </div>
                             <div class="col-12 col-md-8 text-center text-md-right mt-3 mt-md-4">
                                 <button type="button" class="pg-btn pg-btn-secondary mb-2 mb-md-0 mr-md-2" id="btn-cargar-anio">
                                     <i class="fas fa-sync"></i> Cargar Año
                                 </button>
+                                {% if tiene_temporadas %}
+                                <button type="button" class="pg-btn pg-btn-danger mb-2 mb-md-0 mr-md-2" id="btn-limpiar-anio">
+                                    <i class="fas fa-eraser"></i> Dejar Año Sin Temporadas
+                                </button>
+                                {% endif %}
                                 <button type="submit" class="pg-btn pg-btn-success" id="btn-guardar">
                                     <i class="fas fa-save"></i> Guardar Temporadas
                                 </button>
                             </div>
                         </div>
-                        
+
                         <input type="hidden" name="dias_seleccionados" id="id_dias_seleccionados" value="">
+                        {# Marca el envío como "borrado explícito": sin él, el servidor rechaza una selección vacía. #}
+                        <input type="hidden" name="limpiar_anio" id="id_limpiar_anio" value="">
                         
                         <div class="row" id="calendarios-meses" style="margin-left: -7.5px; margin-right: -7.5px;">
                             {% for mes_data in meses_data %}

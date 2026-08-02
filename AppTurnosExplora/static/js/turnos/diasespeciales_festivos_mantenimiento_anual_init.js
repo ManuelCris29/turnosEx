@@ -55,10 +55,11 @@
         });
         function irAnioPersonalizado() {
             const anio = parseInt(inputAnioPersonalizado.value);
-            if (anio >= 2000) {
+            const min = parseInt(inputAnioPersonalizado.min), max = parseInt(inputAnioPersonalizado.max);
+            if (anio >= min && anio <= max) {
                 navegarUrl({ tipo: document.getElementById('id_tipo').value, anio });
             } else if (inputAnioPersonalizado.value) {
-                alert('Por favor, ingrese un año mayor o igual a 2000');
+                alert(`Por favor, ingrese un año entre ${min} y ${max}`);
                 inputAnioPersonalizado.value = '';
             }
         }
@@ -66,22 +67,43 @@
         inputAnioPersonalizado.addEventListener('blur', irAnioPersonalizado);
     }
 
-    document.getElementById('form-dias-especiales').addEventListener('submit', function(e) {
+    const form = document.getElementById('form-dias-especiales');
+    const campoLimpiar = document.getElementById('id_limpiar_anio');
+
+    form.addEventListener('submit', function(e) {
         const diasSeleccionados = obtenerDiasSeleccionados();
         const totalDias = Object.values(diasSeleccionados).reduce((sum, dias) => sum + dias.length, 0);
         const tipo = document.getElementById('id_tipo').value;
         const tipoTexto = tipo === 'festivo' ? 'festivo' : 'de mantenimiento';
-        if (totalDias === 0) {
+        // El envío con `limpiar_anio` lo dispara el botón de limpiar, que ya confirmó
+        // con el usuario: aquí solo se deja pasar sin exigir días seleccionados.
+        const esLimpieza = campoLimpiar && campoLimpiar.value === '1';
+
+        if (totalDias === 0 && !esLimpieza) {
             e.preventDefault();
             alert('Por favor, seleccione al menos un día ' + tipoTexto + '.');
             return;
         }
-        if (cfg.tieneDias && !confirm(`¿Está seguro de reemplazar los ${tipo}s existentes de este año?`)) {
+        if (!esLimpieza && cfg.tieneDias && !confirm(`¿Está seguro de reemplazar los ${tipo}s existentes de este año?`)) {
             e.preventDefault();
             return;
         }
-        document.getElementById('id_dias_seleccionados').value = JSON.stringify(diasSeleccionados);
+        document.getElementById('id_dias_seleccionados').value = esLimpieza ? '{}' : JSON.stringify(diasSeleccionados);
     });
+
+    const btnLimpiar = document.getElementById('btn-limpiar-anio');
+    if (btnLimpiar) {
+        btnLimpiar.addEventListener('click', function() {
+            const tipo = document.getElementById('id_tipo').value;
+            const anio = document.getElementById('id_anio').value;
+            if (!confirm(`¿Seguro que quieres dejar el año ${anio} SIN ningún día de ${tipo}? Se eliminarán todos los ya guardados.`)) return;
+            campoLimpiar.value = '1';
+            // form.submit() NO dispara el handler de 'submit', así que los campos
+            // ocultos se rellenan aquí explícitamente.
+            document.getElementById('id_dias_seleccionados').value = '{}';
+            form.submit();
+        });
+    }
 
     const btnRegenMant = document.getElementById('btn-regenerar-mantenimiento');
     if (btnRegenMant) {

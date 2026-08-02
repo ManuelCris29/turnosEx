@@ -5,7 +5,8 @@ from simple_history.models import HistoricalRecords
 
 class AsignarJornadaExplorador(models.Model):
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
-    jornada = models.ForeignKey(Jornada, on_delete=models.CASCADE)
+    # PROTECT: borrar una jornada no debe arrastrar el historial de asignaciones.
+    jornada = models.ForeignKey(Jornada, on_delete=models.PROTECT)
     fecha_inicio = models.DateField()
     # fecha_fin removido - las jornadas son indefinidas por defecto
     historial = HistoricalRecords()
@@ -36,7 +37,7 @@ class TurnoActivoManager(models.Manager):
 class Turno(models.Model):
     explorador= models.ForeignKey(Empleado, on_delete=models.CASCADE)
     fecha= models.DateField()
-    jornada= models.ForeignKey(Jornada, on_delete=models.CASCADE)
+    jornada= models.ForeignKey(Jornada, on_delete=models.PROTECT)
     sala= models.ForeignKey(Sala, on_delete=models.CASCADE)
     tipo_cambio= models.CharField(max_length=50, null=True, blank=True)
     # Soft-delete auditable: un turno anulado NO se borra físicamente (queda para el
@@ -87,8 +88,24 @@ class Turno(models.Model):
         return f"{self.explorador.user.username} - {self.fecha}" #type:ignore
     
 class DiaEspecial(models.Model):
+    # Año mínimo/máximo aceptado en toda la gestión de días especiales.
+    # Fuente única: formularios, servicios y endpoints API validan contra estos límites.
+    ANIO_MIN = 2000
+    ANIO_MAX = 2100
+
+    TIPO_FESTIVO = 'festivo'
+    TIPO_MANTENIMIENTO = 'mantenimiento'
+    TIPO_TEMPORADA = 'temporada'
+    # `tipo` se compara por igualdad exacta en `es_festivo`/`es_mantenimiento_efectivo`,
+    # así que un valor escrito a mano ("Festivo") dejaría el día sin efecto en silencio.
+    TIPO_CHOICES = [
+        (TIPO_FESTIVO, 'Festivo'),
+        (TIPO_MANTENIMIENTO, 'Mantenimiento'),
+        (TIPO_TEMPORADA, 'Temporada'),
+    ]
+
     fecha= models.DateField()
-    tipo = models.CharField(max_length=50)
+    tipo = models.CharField(max_length=50, choices=TIPO_CHOICES)
     descripcion = models.TextField(null=True, blank=True)
     recurrente = models.BooleanField(default=False) #type:ignore
     activo = models.BooleanField(default=True) #type:ignore
@@ -105,14 +122,26 @@ class DiaEspecial(models.Model):
             models.Index(fields=['año_planificacion', 'mes', 'es_temporada'], name='dia_esp_anio_mes_temp_idx'),
             models.Index(fields=['fecha', 'tipo', 'activo'], name='dia_esp_fecha_tipo_activo_idx'),
         ]
+        constraints = [
+            # Un mismo día no puede estar registrado dos veces con el mismo tipo.
+            # Sin esto, el borrado por `año_planificacion` puede dejar restos que
+            # luego se duplican al volver a guardar el año.
+            models.UniqueConstraint(fields=['fecha', 'tipo'], name='dia_esp_fecha_tipo_uniq'),
+        ]
         ordering = ['fecha']
-    
+
     def save(self, *args, **kwargs):
-        # Calcular mes y año de planificación automáticamente desde la fecha
+        # `mes` y `año_planificacion` son siempre derivados de `fecha`: se recalculan
+        # en cada save. Si solo se rellenaran cuando están vacíos, editar la fecha a
+        # otro año dejaría el registro apuntando al año viejo — invisible en el listado
+        # de su año real y borrable al regenerar el año anterior.
         if self.fecha:
             self.mes = self.fecha.month
-            if not self.año_planificacion:
-                self.año_planificacion = self.fecha.year
+            self.año_planificacion = self.fecha.year
+        # `es_temporada` es redundante con `tipo`; se deriva para que no puedan
+        # contradecirse (p. ej. un día creado desde el CRUD con tipo "temporada"
+        # pero la bandera en False sería invisible para TemporadaService).
+        self.es_temporada = (self.tipo == self.TIPO_TEMPORADA)
         super().save(*args, **kwargs)
     
     def get_mes(self):
@@ -165,7 +194,7 @@ class TurnoArchivo(models.Model):
     """
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
     fecha = models.DateField()
-    jornada = models.ForeignKey(Jornada, on_delete=models.CASCADE)
+    jornada = models.ForeignKey(Jornada, on_delete=models.PROTECT)
     sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
     tipo_cambio = models.CharField(max_length=50, null=True, blank=True)
     fecha_archivado = models.DateTimeField(auto_now_add=True)
@@ -201,7 +230,7 @@ class DescansoSemanaManual(models.Model):
         ('otro', 'Otro'),
     ]
     fecha = models.DateField(help_text='Día (lunes a viernes) en que descansa la jornada indicada')
-    jornada = models.ForeignKey(Jornada, on_delete=models.CASCADE, related_name='descansos_semana_manual')
+    jornada = models.ForeignKey(Jornada, on_delete=models.PROTECT, related_name='descansos_semana_manual')
     motivo = models.CharField(max_length=20, choices=MOTIVO_CHOICES, default='temporada',
                               help_text='Por qué esta semana el descanso es manual (temporada/festivo)')
     descripcion = models.CharField(max_length=200, blank=True, default='')
@@ -250,7 +279,7 @@ class AsignacionEspecialManual(models.Model):
     ]
     fecha = models.DateField(help_text='Fin de semana (sáb/dom) o festivo entre semana a fijar manualmente')
     jornada_trabaja = models.ForeignKey(
-        Jornada, on_delete=models.CASCADE, related_name='asignaciones_especiales_manual',
+        Jornada, on_delete=models.PROTECT, related_name='asignaciones_especiales_manual',
         help_text='Grupo (AM/PM) que TRABAJA el día completo (dobla). El otro grupo descansa.'
     )
     tipo = models.CharField(max_length=10, choices=TIPO_CHOICES, default='finde')

@@ -96,14 +96,14 @@
                                     </div>
                                 </div>
                                 <small class="form-text text-muted">
-                                    Seleccione el año (rango: {{ anio_actual }} - {{ anio_actual|add:10 }})
+                                    Seleccione el año (rango: {{ anio_min }} - {{ anio_max }})
                                 </small>
-                                <input type="number" 
-                                       id="anio-personalizado-input" 
-                                       class="form-control mt-2" 
-                                       placeholder="O ingrese un año personalizado (mínimo 2000)" 
-                                       min="2000" 
-                                       max="9999" 
+                                <input type="number"
+                                       id="anio-personalizado-input"
+                                       class="form-control mt-2"
+                                       placeholder="O ingrese un año entre {{ anio_min }} y {{ anio_max }}"
+                                       min="{{ anio_min }}"
+                                       max="{{ anio_max }}"
                                        style="display: none;">
                             </div>
                             <div class="col-12 col-md-6 text-center text-md-right mt-3 mt-md-4">
@@ -119,12 +119,17 @@
                                     <i class="fas fa-magic"></i> Regenerar Festivos
                                 </button>
                                 {% endif %}
+                                {% if tiene_dias %}
+                                <button type="button" class="pg-btn pg-btn-danger mb-2 mb-md-0 mr-md-2" id="btn-limpiar-anio">
+                                    <i class="fas fa-eraser"></i> Dejar Año Sin {{ tipo_seleccionado|capfirst }}s
+                                </button>
+                                {% endif %}
                                 <button type="submit" class="pg-btn pg-btn-success" id="btn-guardar">
                                     <i class="fas fa-save"></i> Guardar
                                 </button>
                             </div>
                         </div>
-                        
+
                         {% if tipo_seleccionado == 'mantenimiento' %}
                         <div class="alert alert-info mb-4" id="panel-festivos">
                             <h5 class="alert-heading">
@@ -133,6 +138,12 @@
                             <p class="mb-2">
                                 <small>Los días de mantenimiento se calculan automáticamente como el primer día hábil de cada semana, evitando festivos y temporadas.</small>
                             </p>
+                            {% if festivos_son_estimados %}
+                            <p class="mb-2">
+                                <small><strong>Ojo:</strong> este año todavía no tiene festivos guardados, así que se están usando los
+                                festivos oficiales calculados. Si vas a ajustar los festivos a mano, guárdalos primero y vuelve aquí.</small>
+                            </p>
+                            {% endif %}
                             <div id="festivos-lista" class="mt-2">
                                 <span class="badge badge-secondary mr-1 mb-1" id="festivos-badges"></span>
                             </div>
@@ -140,6 +151,8 @@
                         {% endif %}
                         
                         <input type="hidden" name="dias_seleccionados" id="id_dias_seleccionados" value="">
+                        {# Marca el envío como "borrado explícito": sin él, el servidor rechaza una selección vacía. #}
+                        <input type="hidden" name="limpiar_anio" id="id_limpiar_anio" value="">
                         
                         <div class="row" id="calendarios-meses" style="margin-left: -7.5px; margin-right: -7.5px;">
                             {% for mes_data in meses_data %}
