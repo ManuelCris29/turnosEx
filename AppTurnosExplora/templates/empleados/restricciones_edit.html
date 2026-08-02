@@ -31,8 +31,12 @@
               {{ form.fecha_inicio }}
             </div>
             <div class="form-group col-md-6">
-              <label for="{{ form.fecha_fin.id_for_label }}"><i class="far fa-calendar-minus mr-1"></i> Fecha fin <span class="text-danger">*</span></label>
+              <label for="{{ form.fecha_fin.id_for_label }}"><i class="far fa-calendar-minus mr-1"></i> Fecha fin</label>
               {{ form.fecha_fin }}
+              <div class="form-check mt-2">
+                {{ form.indefinida }}
+                <label class="form-check-label small" for="{{ form.indefinida.id_for_label }}">{{ form.indefinida.label }}</label>
+              </div>
               {% for e in form.fecha_fin.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
             </div>
           </div>

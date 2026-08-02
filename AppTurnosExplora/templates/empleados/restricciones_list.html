@@ -43,6 +43,7 @@
       </div>
       <div class="pg-card-body">
         <form method="get" class="d-flex flex-wrap align-items-end" style="gap:.75rem; margin-bottom:1rem;">
+          {% if filtro_estado != 'todos' %}<input type="hidden" name="estado" value="{{ filtro_estado }}">{% endif %}
           {% if es_supervisor %}
           <div>
             <label class="mb-1 small font-weight-bold d-block">Explorador</label>
@@ -55,9 +56,9 @@
           {% if filtro_explorador %}<a href="{% url 'restricciones_list' %}" class="pg-btn pg-btn-secondary">Limpiar</a>{% endif %}
           {% endif %}
           <div class="ml-auto btn-group btn-group-sm" role="group" style="align-self:center;">
-            <button type="button" class="btn btn-outline-secondary filter-pill active" data-filter="todos">Todas</button>
-            <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="activa">Activas</button>
-            <button type="button" class="btn btn-outline-secondary filter-pill" data-filter="finalizada">Finalizadas</button>
+            <a href="?{% if query_sin_estado %}{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'todos' %} active{% endif %}">Todas</a>
+            <a href="?estado=activa{% if query_sin_estado %}&{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'activa' %} active{% endif %}">Activas</a>
+            <a href="?estado=finalizada{% if query_sin_estado %}&{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'finalizada' %} active{% endif %}">Finalizadas</a>
           </div>
         </form>
 
@@ -99,13 +100,36 @@
             </tbody>
           </table>
         </div>
+
+        {% if is_paginated %}
+        <div class="pg-pagination">
+          {% if page_obj.has_previous %}
+            <a href="?page=1{% if query_params %}&{{ query_params }}{% endif %}"><i class="fas fa-angle-double-left"></i></a>
+            <a href="?page={{ page_obj.previous_page_number }}{% if query_params %}&{{ query_params }}{% endif %}"><i class="fas fa-angle-left"></i></a>
+          {% else %}
+            <span class="disabled"><i class="fas fa-angle-double-left"></i></span>
+            <span class="disabled"><i class="fas fa-angle-left"></i></span>
+          {% endif %}
+          {% for num in page_obj.paginator.page_range %}
+            {% if page_obj.number == num %}
+              <span class="current">{{ num }}</span>
+            {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+              <a href="?page={{ num }}{% if query_params %}&{{ query_params }}{% endif %}">{{ num }}</a>
+            {% endif %}
+          {% endfor %}
+          {% if page_obj.has_next %}
+            <a href="?page={{ page_obj.next_page_number }}{% if query_params %}&{{ query_params }}{% endif %}"><i class="fas fa-angle-right"></i></a>
+            <a href="?page={{ page_obj.paginator.num_pages }}{% if query_params %}&{{ query_params }}{% endif %}"><i class="fas fa-angle-double-right"></i></a>
+          {% else %}
+            <span class="disabled"><i class="fas fa-angle-right"></i></span>
+            <span class="disabled"><i class="fas fa-angle-double-right"></i></span>
+          {% endif %}
+        </div>
+        <p class="pg-count">Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }} registros</p>
+        {% endif %}
       </div>
     </div>
   </div>
 </div>
-{% endblock %}
-
-{% block extra_js %}
-<script src="{% static_v 'js/empleados/filter_pills.js' %}"></script>
 {% endblock %}
 

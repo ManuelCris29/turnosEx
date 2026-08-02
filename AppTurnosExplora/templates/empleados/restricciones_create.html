@@ -41,8 +41,12 @@
                   {% for e in form.fecha_inicio.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
                 </div>
                 <div class="form-group col-md-6">
-                  <label for="{{ form.fecha_fin.id_for_label }}"><i class="far fa-calendar-minus mr-1"></i> Fecha fin <span class="text-danger">*</span></label>
+                  <label for="{{ form.fecha_fin.id_for_label }}"><i class="far fa-calendar-minus mr-1"></i> Fecha fin</label>
                   {{ form.fecha_fin }}
+                  <div class="form-check mt-2">
+                    {{ form.indefinida }}
+                    <label class="form-check-label small" for="{{ form.indefinida.id_for_label }}">{{ form.indefinida.label }}</label>
+                  </div>
                   {% for e in form.fecha_fin.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
                 </div>
               </div>
@@ -76,7 +80,8 @@
           <div class="pg-card-body">
             <ul class="list-unstyled text-muted small mb-0">
               <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Registra solo información respaldada por actas o certificados médicos.</li>
-              <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Indica siempre la fecha de fin: define cuándo deja de aplicar la restricción.</li>
+              <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Indica la fecha de fin, o márcala como indefinida si aún no se sabe cuándo termina.</li>
+              <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Un explorador no puede tener dos restricciones que se solapen: edita la vigente en lugar de crear otra.</li>
               <li class="mb-2"><i class="fas fa-check text-success mr-2"></i>Usa la recomendación para detallar el alcance de la restricción.</li>
               <li><i class="fas fa-check text-success mr-2"></i>La restricción se mostrará en <strong>Mis Turnos</strong> del explorador durante su vigencia.</li>
             </ul>
