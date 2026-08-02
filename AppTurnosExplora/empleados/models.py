@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.db import models
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -6,19 +8,37 @@ from simple_history.models import HistoricalRecords
 
 
 class Jornada(models.Model):
-    """Modelo para representar las jornadas de trabajo (AM, PM)."""
-    nombre = models.CharField(max_length=5)
+    """Modelo para representar las jornadas de trabajo (AM, PM).
+
+    Catálogo ESTRUCTURAL: el motor de turnos asume exactamente estas dos
+    jornadas y las busca por nombre literal (``Jornada.objects.get(nombre='AM')``),
+    además de derivar la "jornada contraria" de forma binaria. Por eso el
+    nombre está restringido a AM/PM, es único, y las dos filas base no se
+    pueden eliminar (ver JornadaDeleteView).
+    """
+    AM = 'AM'
+    PM = 'PM'
+    NOMBRE_CHOICES = [(AM, 'AM'), (PM, 'PM')]
+    #: Jornadas que el motor de turnos requiere y que no se pueden eliminar.
+    NOMBRES_PROTEGIDOS = (AM, PM)
+
+    nombre = models.CharField(max_length=5, unique=True, choices=NOMBRE_CHOICES)
     hora_inicio = models.TimeField()
     hora_fin = models.TimeField()
     historial = HistoricalRecords()
-    
+
     class Meta:
         verbose_name = 'Jornada'
         verbose_name_plural = 'Jornadas'
         ordering = ['nombre']
-    
+
     def __str__(self):
         return str(self.nombre)
+
+    @property
+    def es_protegida(self):
+        """True si es una de las jornadas base que el sistema requiere."""
+        return self.nombre in self.NOMBRES_PROTEGIDOS
 
 class Empleado(models.Model):
     """Modelo principal para representar empleados/exploradores del sistema."""
@@ -48,22 +68,50 @@ class Empleado(models.Model):
         return self.notificaciones.filter(leida=False).count()
 
 class Role(models.Model):
-    """Modelo para representar roles de empleados (ej: supervisor, explorador)."""
-    nombre = models.CharField(max_length=50)
+    """Modelo para representar roles de empleados (ej: supervisor, explorador).
+
+    Catálogo ESTRUCTURAL: "Supervisor" y "Explorador" no son etiquetas libres.
+    El permiso de administración (``core.mixins.es_supervisor``) y el conjunto
+    de exploradores sancionables se resuelven buscando el rol **por nombre**,
+    así que renombrarlos o borrarlos dejaría a la aplicación sin supervisores
+    o sin exploradores. Por eso el nombre es único, esos dos están protegidos
+    y RoleForm rechaza nombres que se confundan con ellos: un rol llamado
+    "Supervisor de sala" antes concedía acceso total (la búsqueda era
+    ``icontains``), lo que convertía este CRUD en una vía de escalada.
+    """
+    SUPERVISOR = 'Supervisor'
+    EXPLORADOR = 'Explorador'
+    #: Roles que el sistema requiere y que no se pueden renombrar ni eliminar.
+    NOMBRES_PROTEGIDOS = (SUPERVISOR, EXPLORADOR)
+
+    nombre = models.CharField(max_length=50, unique=True)
     historial = HistoricalRecords()
-    
+
     class Meta:
         verbose_name = 'Rol'
         verbose_name_plural = 'Roles'
         ordering = ['nombre']
-    
+
     def __str__(self):
         return str(self.nombre)
+
+    @property
+    def es_protegido(self):
+        """True si es uno de los roles base que el sistema requiere.
+
+        Sin distinguir mayúsculas, igual que la búsqueda del permiso: un rol
+        guardado como "supervisor" concede acceso, así que también hay que
+        protegerlo de renombrados y borrados.
+        """
+        nombre = (self.nombre or '').strip().lower()
+        return nombre in {n.lower() for n in self.NOMBRES_PROTEGIDOS}
 
 class EmpleadoRole(models.Model):
     """Modelo intermedio para la relación muchos a muchos entre Empleado y Role."""
     empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)
-    role = models.ForeignKey(Role, on_delete=models.CASCADE)
+    # PROTECT y no CASCADE: borrar el rol "Supervisor" arrastraba en silencio
+    # todas sus asignaciones y dejaba a la operación sin supervisores.
+    role = models.ForeignKey(Role, on_delete=models.PROTECT)
     historial = HistoricalRecords()
     
     class Meta:
@@ -142,7 +190,22 @@ class RestriccionEmpleado(models.Model):
         return f"{self.empleado.nombre} {self.empleado.apellido} - {self.tipo_restriccion}"
 
 class SancionEmpleado(models.Model):
-    """Modelo para representar sanciones aplicadas a empleados."""
+    """
+    Sanción aplicada a un explorador: durante su vigencia no puede participar en
+    ninguna solicitud (ni como solicitante ni como compañero).
+
+    Una sanción NO se borra: es un hecho disciplinario y su registro debe sobrevivir.
+    Para terminarla antes de tiempo se LEVANTA (`levantar`), que deja constancia de
+    quién, cuándo y por qué. Los errores ("se la puse a quien no era") también se
+    corrigen levantándola con ese motivo, no haciéndola desaparecer.
+
+    `fecha_fin` es el fin PLANEADO y no se toca nunca después de crearla. El fin REAL
+    lo da `levantada_en` cuando existe. Antes ambos vivían en `fecha_fin`: levantar
+    consistía en moverla a `hoy - 1 día`, lo que borraba la duración original y, si la
+    sanción se levantaba el mismo día en que nacía, dejaba `fecha_fin < fecha_inicio`
+    —un rango imposible que el propio `clean()` de este modelo prohíbe—. Ver
+    PROTECTION_PATTERNS.md.
+    """
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='sanciones_explorador')
     fecha_inicio = models.DateField()
     fecha_fin = models.DateField(null=True, blank=True)
@@ -150,8 +213,16 @@ class SancionEmpleado(models.Model):
     creado_en=models.DateTimeField(auto_now_add=True)
     actualizado_en=models.DateTimeField(auto_now=True)
     supervisor = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='sanciones_supervisor')
+    levantada_en = models.DateField(
+        null=True, blank=True,
+        help_text='Fecha en que se levantó la sanción. Vacío = sigue su curso normal.')
+    levantada_por = models.ForeignKey(
+        Empleado, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='sanciones_levantadas',
+        help_text='Supervisor que la levantó (vacío si la levantó el sistema por pago de deuda).')
+    levantada_motivo = models.TextField(blank=True, default='')
     historial = HistoricalRecords()
-    
+
     class Meta:
         verbose_name = 'Sanción de Empleado'
         verbose_name_plural = 'Sanciones de Empleados'
@@ -160,7 +231,7 @@ class SancionEmpleado(models.Model):
             models.Index(fields=['explorador', 'fecha_inicio'], name='sanc_exp_fecha_idx'),
             models.Index(fields=['supervisor'], name='sanc_supervisor_idx'),
         ]
-    
+
     def clean(self):
         from django.core.exceptions import ValidationError
         if self.fecha_inicio and self.fecha_fin and self.fecha_fin < self.fecha_inicio:
@@ -169,7 +240,64 @@ class SancionEmpleado(models.Model):
         # cuando la validación corre desde un formulario que los excluye.
         if self.explorador_id and self.supervisor_id and self.explorador_id == self.supervisor_id:
             raise ValidationError('Un empleado no puede sancionarse a sí mismo.')
-    
+
+    # ------------------------------------------------------------------ estado
+    @property
+    def esta_levantada(self) -> bool:
+        return self.levantada_en is not None
+
+    @property
+    def fecha_fin_efectiva(self):
+        """
+        Último día en que la sanción tuvo efecto real. Al levantarla deja de aplicar
+        DESDE ese mismo día, así que el último día sancionado es el anterior. Puede
+        quedar antes que `fecha_inicio` (levantada el día que empezó): eso significa
+        que no llegó a surtir efecto ningún día, y por eso se calcula en vez de
+        guardarse — un rango invertido en la BD sería un dato corrupto.
+        """
+        if self.levantada_en:
+            return self.levantada_en - timedelta(days=1)
+        return self.fecha_fin
+
+    @property
+    def estado(self) -> str:
+        """
+        'levantada' | 'finalizada' | 'activa', para pintar en las listas. Vive aquí y no
+        en las plantillas porque antes cada tabla lo recalculaba a mano y ninguna sabía
+        de los levantamientos. Debe coincidir con `_FILTROS_ESTADO` de la vista.
+        """
+        from django.utils import timezone
+        if self.levantada_en:
+            return 'levantada'
+        if self.fecha_fin and self.fecha_fin < timezone.localdate():
+            return 'finalizada'
+        return 'activa'
+
+    def esta_vigente(self, fecha=None) -> bool:
+        """¿Bloquea a este explorador en la fecha dada (hoy por defecto)?"""
+        from django.utils import timezone
+        f = fecha or timezone.localdate()
+        if self.levantada_en and f >= self.levantada_en:
+            return False
+        if f < self.fecha_inicio:
+            return False
+        return self.fecha_fin is None or f <= self.fecha_fin
+
+    def levantar(self, motivo: str, supervisor=None, fecha=None):
+        """
+        Termina la sanción a partir de `fecha` (hoy por defecto) dejando constancia.
+        Idempotente: levantar una ya levantada no cambia nada, para que un doble clic
+        o un reintento del proceso automático no reescriba quién la levantó.
+        """
+        from django.utils import timezone
+        if self.levantada_en:
+            return self
+        self.levantada_en = fecha or timezone.localdate()
+        self.levantada_por = supervisor
+        self.levantada_motivo = (motivo or '').strip()
+        self.save(update_fields=['levantada_en', 'levantada_por', 'levantada_motivo', 'actualizado_en'])
+        return self
+
     def __str__(self):
         return f"{self.explorador.nombre} {self.explorador.apellido} - {self.fecha_inicio} supervisado por {self.supervisor.nombre} {self.supervisor.apellido}"
 

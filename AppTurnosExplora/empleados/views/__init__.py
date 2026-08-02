@@ -48,7 +48,7 @@ from .sanciones import (
     SancionListView,
     SancionCreateView,
     SancionUpdateView,
-    SancionDeleteView,
+    SancionLevantarView,
     SancionVisualizarListView,
     _invalidar_turnos_cache_sancion,
 )
@@ -82,7 +82,7 @@ __all__ = [
     'RestriccionDeleteView', 'RestriccionVisualizarListView',
     '_invalidar_turnos_cache_restriccion',
     # sanciones
-    'SancionListView', 'SancionCreateView', 'SancionUpdateView', 'SancionDeleteView',
+    'SancionListView', 'SancionCreateView', 'SancionUpdateView', 'SancionLevantarView',
     'SancionVisualizarListView', '_invalidar_turnos_cache_sancion',
     # indicadores
     'IndicadoresView', 'MisIndicadoresView',

@@ -78,28 +78,31 @@ class DeudaCorporativaService:
         - Cada nueva sanción genera una notificación in-app al explorador.
         """
         from empleados.models import SancionEmpleado
-        from django.db.models import Q as _Q
+        from empleados.sancion_utils import vigentes_en
         if not explorador:
             return
         hoy = timezone.localdate()
         info = DeudaCorporativaService._deuda_vencida_info(explorador)
 
-        # Sanción AUTO activa en este momento
+        # Sanción AUTO vigente en este momento (una ya levantada no cuenta)
         auto_activa = (
             SancionEmpleado.objects
-            .filter(explorador=explorador,
-                    motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
-                    fecha_inicio__lte=hoy,
-                    fecha_fin__gte=hoy)
+            .filter(vigentes_en(hoy),
+                    explorador=explorador,
+                    motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO)
             .order_by('-fecha_inicio')
             .first()
         )
 
         if not info:
-            # Deuda pagada → levantar sanción activa si la hay
+            # Deuda pagada → levantar la sanción vigente si la hay.
+            # Se LEVANTA (queda el registro de por qué terminó antes) en vez de recortarle
+            # la fecha_fin: eso perdía la duración original y, si el pago llegaba el mismo
+            # día en que nació la sanción, dejaba fecha_fin un día ANTES de fecha_inicio.
             if auto_activa:
-                auto_activa.fecha_fin = hoy - timedelta(days=1)
-                auto_activa.save(update_fields=['fecha_fin', 'actualizado_en'])
+                auto_activa.levantar(
+                    motivo='Deuda de horas pagada: la sanción automática se levanta sola.',
+                    supervisor=None, fecha=hoy)
                 DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(auto_activa)
             return
 
@@ -115,11 +118,16 @@ class DeudaCorporativaService:
         else:
             deuda_vencio_desde = date(fecha_doblada.year, fecha_doblada.month + 1, 1)
 
+        # Solo cuentan las que EXPIRARON sin pagar. Una levantada se levantó porque el
+        # explorador pagó, así que no es reincidencia: agravar por ella castigaría
+        # justo la conducta que se quiere premiar. Antes se colaban, porque levantar
+        # consistía en dejarles la fecha_fin en el pasado y aquí parecían vencidas.
         vencidas_count = SancionEmpleado.objects.filter(
             explorador=explorador,
             motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
             fecha_inicio__gte=deuda_vencio_desde,
             fecha_fin__lt=hoy,
+            levantada_en__isnull=True,
         ).count()
 
         duracion = DeudaCorporativaService.DURACION_BASE_DIAS * (vencidas_count + 1)

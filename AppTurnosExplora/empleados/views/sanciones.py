@@ -2,16 +2,17 @@ import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import ListView, UpdateView
-from django.views.generic.edit import CreateView, DeleteView
+from django.views.generic.edit import CreateView, FormView
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
 from core.mixins import AdminRequiredMixin, es_supervisor
 
 from ..models import Empleado, SancionEmpleado
-from ..forms import SancionEmpleadoForm
+from ..forms import SancionEmpleadoForm, SancionLevantarForm
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,35 @@ logger = logging.getLogger(__name__)
 def _id_valido(valor):
     """Devuelve el id como int solo si el parámetro es un entero; si no, None."""
     return int(valor) if valor and str(valor).isdigit() else None
+
+
+def _estados_sancion():
+    """
+    Los tres estados posibles, como filtros de BD. Están aquí y no repartidos por las
+    vistas para que los totales y la lista filtrada no puedan discrepar: son el mismo
+    criterio evaluado dos veces.
+
+    - activa:     sigue contando (vigente hoy o programada para empezar más adelante).
+                  Incluir las futuras es deliberado: una sanción que empieza mañana no
+                  está ni terminada ni levantada, y dejarla fuera de los tres totales la
+                  haría desaparecer del resumen.
+    - levantada:  terminada a mano o por pago antes de su fecha de fin.
+    - finalizada: llegó a su fecha de fin sin que nadie la levantara.
+
+    Ojo: 'activa' aquí es para MOSTRAR. Quien decide si alguien está bloqueado es
+    siempre `sancion_activa()`; no sustituyas una por la otra.
+    """
+    from django.db.models import Q
+    return {
+        'activa': lambda hoy: (
+            Q(levantada_en__isnull=True) & (Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy))
+        ),
+        'levantada': lambda hoy: Q(levantada_en__isnull=False),
+        'finalizada': lambda hoy: Q(levantada_en__isnull=True) & Q(fecha_fin__lt=hoy),
+    }
+
+
+_FILTROS_ESTADO = _estados_sancion()
 
 
 # CRUD de Sanciones
@@ -50,31 +80,27 @@ class SancionListView(LoginRequiredMixin, ListView):
 
     def _estado(self):
         estado = self.request.GET.get('estado')
-        return estado if estado in ('activa', 'finalizada') else 'todos'
+        return estado if estado in ('activa', 'finalizada', 'levantada') else 'todos'
 
     def get_queryset(self):
-        from django.db.models import Q
         # El filtro por estado va en el servidor: si filtrara en el navegador
         # solo afectaría a la página visible y contradiría los totales.
         qs = self._base_queryset()
-        hoy = timezone.localdate()
         estado = self._estado()
-        if estado == 'activa':
-            return qs.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy))
-        if estado == 'finalizada':
-            return qs.filter(fecha_fin__lt=hoy)
+        if estado in _FILTROS_ESTADO:
+            return qs.filter(_FILTROS_ESTADO[estado](timezone.localdate()))
         return qs
 
     def get_context_data(self, **kwargs):
-        from django.db.models import Q
         context = super().get_context_data(**kwargs)
         queryset = self._base_queryset()
         user = self.request.user
         hoy = timezone.localdate()
 
         total_sanciones = queryset.count()
-        total_activas = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
-        total_finalizadas = queryset.filter(fecha_fin__lt=hoy).count()
+        total_activas = queryset.filter(_FILTROS_ESTADO['activa'](hoy)).count()
+        total_finalizadas = queryset.filter(_FILTROS_ESTADO['finalizada'](hoy)).count()
+        total_levantadas = queryset.filter(_FILTROS_ESTADO['levantada'](hoy)).count()
 
         supervisa = es_supervisor(user)
         context.update({
@@ -83,6 +109,7 @@ class SancionListView(LoginRequiredMixin, ListView):
             'total_sanciones': total_sanciones,
             'total_activas': total_activas,
             'total_finalizadas': total_finalizadas,
+            'total_levantadas': total_levantadas,
             'filtro_estado': self._estado(),
             'hoy': hoy
         })
@@ -165,14 +192,68 @@ class SancionUpdateView(LoginRequiredMixin, AdminRequiredMixin, _SancionFormView
     template_name = 'empleados/sanciones_edit.html'
     success_url = '/empleados/sanciones/'
 
-class SancionDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
-    model = SancionEmpleado
-    template_name = 'empleados/sanciones_confirm_delete.html'
+class SancionLevantarView(LoginRequiredMixin, AdminRequiredMixin, FormView):
+    """
+    Levanta una sanción vigente dejando constancia de quién, cuándo y por qué.
+
+    Sustituye al borrado, que ya no existe: una sanción es un hecho disciplinario y
+    su registro tiene que sobrevivir, también cuando se puso por error (en ese caso
+    se levanta indicándolo como motivo). Y sustituye al apaño de editar la fecha_fin
+    a mano, que dejaba el levantamiento indistinguible de una sanción que siempre fue
+    corta y podía producir rangos invertidos.
+    """
+    form_class = SancionLevantarForm
+    template_name = 'empleados/sanciones_levantar.html'
     success_url = '/empleados/sanciones/'
 
+    def get_sancion(self):
+        if not hasattr(self, '_sancion'):
+            self._sancion = get_object_or_404(
+                SancionEmpleado.objects.select_related('explorador', 'supervisor'),
+                pk=self.kwargs['pk'],
+            )
+        return self._sancion
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and not getattr(request.user, 'empleado', None):
+            raise PermissionDenied(
+                'Tu usuario no está asociado a un empleado, por lo que no puede '
+                'levantar sanciones. Pide que se vincule tu ficha de empleado.'
+            )
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['sancion'] = self.get_sancion()
+        context['hoy'] = timezone.localdate()
+        return context
+
     def form_valid(self, form):
-        _invalidar_turnos_cache_sancion(self.object)
-        return super().form_valid(form)
+        sancion = self.get_sancion()
+        # Comprobado aquí y no en dispatch: entre que se abre el formulario y se envía,
+        # el pago de la deuda puede haberla levantado sola. Avisar es mejor que
+        # sobrescribir en silencio quién la levantó.
+        if sancion.esta_levantada:
+            messages.info(
+                self.request,
+                f'La sanción de {sancion.explorador.nombre} ya estaba levantada '
+                f'({sancion.levantada_en.strftime("%d/%m/%Y")}). No se hizo ningún cambio.'
+            )
+            return redirect(self.success_url)
+
+        sancion.levantar(
+            motivo=form.cleaned_data['motivo'],
+            supervisor=getattr(self.request.user, 'empleado', None),
+        )
+        _invalidar_turnos_cache_sancion(sancion)
+        logger.info('Sanción %s de %s levantada por %s', sancion.id,
+                    sancion.explorador_id, getattr(self.request.user, 'username', '?'))
+        messages.success(
+            self.request,
+            f'Sanción de {sancion.explorador.nombre} {sancion.explorador.apellido} levantada. '
+            'Ya puede volver a realizar solicitudes.'
+        )
+        return redirect(self.success_url)
 
 
 class SancionVisualizarListView(LoginRequiredMixin, ListView):
@@ -225,7 +306,6 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
         return qs
 
     def get_context_data(self, **kwargs):
-        from django.db.models import Q
         context = super().get_context_data(**kwargs)
         user = self.request.user
         hoy = timezone.localdate()
@@ -233,8 +313,9 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
 
         # Totales sobre el queryset ya filtrado
         qs = self.get_queryset()
-        total_activas = qs.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
-        total_finalizadas = qs.filter(fecha_fin__lt=hoy).count()
+        total_activas = qs.filter(_FILTROS_ESTADO['activa'](hoy)).count()
+        total_finalizadas = qs.filter(_FILTROS_ESTADO['finalizada'](hoy)).count()
+        total_levantadas = qs.filter(_FILTROS_ESTADO['levantada'](hoy)).count()
 
         # Lista de empleados para el selector del supervisor
         empleados = []
@@ -255,6 +336,7 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
             'hoy': hoy,
             'total_activas': total_activas,
             'total_finalizadas': total_finalizadas,
+            'total_levantadas': total_levantadas,
             'empleados': empleados,
             'filtro_empleado': str(f['empleado']) if f['empleado'] else '',
             'filtro_fecha_desde': f['fecha_desde'].isoformat() if f['fecha_desde'] else '',

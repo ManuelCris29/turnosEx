@@ -196,3 +196,117 @@ class SancionFormularioTest(SancionesBaseTest):
         form = SancionEmpleadoForm(supervisor=self.sup)
         self.assertNotIn(self.otro_exp, form.fields['explorador'].queryset)
         self.assertIn(self.exp, form.fields['explorador'].queryset)
+
+    def test_sancion_levantada_no_bloquea_una_nueva(self):
+        """Una levantada ya no rige: no puede impedir sancionar por un hecho nuevo."""
+        vieja = self._sancion(self.exp, dias=30)
+        vieja.levantar(motivo='Perdonada')
+        form = SancionEmpleadoForm(data=self._datos(), supervisor=self.sup)
+        self.assertTrue(form.is_valid(), form.errors)
+
+
+class SancionLevantarTest(SancionesBaseTest):
+    """
+    Levantar es lo que sustituye al borrado: la sanción deja de regir pero su
+    registro (y su duración original) sobreviven.
+    """
+
+    def setUp(self):
+        self.client.force_login(self.staff.user)
+
+    def _levantar(self, sancion, motivo='Pagó la deuda pendiente'):
+        return self.client.post(reverse('sanciones_levantar', args=[sancion.id]),
+                                {'motivo': motivo})
+
+    def test_levantar_deja_constancia_y_conserva_la_duracion(self):
+        sancion = self._sancion(self.exp, dias=15)
+        fin_original = sancion.fecha_fin
+
+        self._levantar(sancion)
+
+        sancion.refresh_from_db()
+        self.assertEqual(sancion.levantada_en, self.hoy)
+        self.assertEqual(sancion.levantada_por, self.staff)
+        self.assertEqual(sancion.levantada_motivo, 'Pagó la deuda pendiente')
+        # La fecha de fin planeada NO se toca: es el dato que antes se perdía.
+        self.assertEqual(sancion.fecha_fin, fin_original)
+        self.assertEqual(sancion.estado, 'levantada')
+
+    def test_levantada_deja_de_bloquear(self):
+        from empleados.sancion_utils import sancion_activa
+        sancion = self._sancion(self.exp, dias=15)
+        self.assertIsNotNone(sancion_activa(self.exp))
+
+        self._levantar(sancion)
+
+        self.assertIsNone(sancion_activa(self.exp))
+
+    def test_levantar_el_mismo_dia_no_produce_rango_invertido(self):
+        """
+        El caso que rompía el modelo anterior: la sanción nace y se levanta hoy.
+        Antes quedaba fecha_fin = ayer, o sea ANTES de fecha_inicio, un rango que
+        el propio clean() del modelo prohíbe.
+        """
+        sancion = self._sancion(self.exp, inicio_offset=0, dias=15)
+
+        self._levantar(sancion)
+
+        sancion.refresh_from_db()
+        self.assertGreaterEqual(sancion.fecha_fin, sancion.fecha_inicio)
+        sancion.full_clean(exclude=['explorador', 'supervisor'])  # no lanza
+        # No llegó a surtir efecto ni un día, y eso se calcula, no se guarda.
+        self.assertLess(sancion.fecha_fin_efectiva, sancion.fecha_inicio)
+        self.assertFalse(sancion.esta_vigente())
+
+    def test_motivo_obligatorio(self):
+        sancion = self._sancion(self.exp)
+        resp = self._levantar(sancion, motivo='   ')
+        self.assertEqual(resp.status_code, 200)   # vuelve al formulario
+        sancion.refresh_from_db()
+        self.assertIsNone(sancion.levantada_en)
+
+    def test_motivo_demasiado_corto_se_rechaza(self):
+        sancion = self._sancion(self.exp)
+        self._levantar(sancion, motivo='ok')
+        sancion.refresh_from_db()
+        self.assertIsNone(sancion.levantada_en)
+
+    def test_levantar_dos_veces_no_reescribe_quien_la_levanto(self):
+        sancion = self._sancion(self.exp)
+        self._levantar(sancion, motivo='Primer levantamiento')
+
+        self.client.force_login(self.sup.user)
+        self._levantar(sancion, motivo='Segundo intento del mismo día')
+
+        sancion.refresh_from_db()
+        self.assertEqual(sancion.levantada_por, self.staff)
+        self.assertEqual(sancion.levantada_motivo, 'Primer levantamiento')
+
+    def test_explorador_no_puede_levantar(self):
+        sancion = self._sancion(self.exp)
+        self.client.force_login(self.exp.user)
+        self.assertEqual(
+            self.client.get(reverse('sanciones_levantar', args=[sancion.id])).status_code, 403)
+
+    def test_no_existe_ruta_de_borrado(self):
+        """Una sanción no se elimina: si vuelve a aparecer una URL de borrado, esto falla."""
+        from django.urls import NoReverseMatch
+        with self.assertRaises(NoReverseMatch):
+            reverse('sanciones_delete', args=[1])
+
+    def test_admin_no_permite_borrar(self):
+        from django.contrib.admin.sites import site
+        from empleados.models import SancionEmpleado as _S
+        admin_sancion = site._registry[_S]
+        self.assertFalse(admin_sancion.has_delete_permission(None))
+
+    def test_listado_separa_levantadas_de_finalizadas(self):
+        levantada = self._sancion(self.exp, dias=15)
+        levantada.levantar(motivo='Pagó lo que debía')
+        self._sancion(self.otro_exp, inicio_offset=-60, dias=15)   # finalizada sola
+
+        resp = self.client.get(reverse('sanciones_list'), {'estado': 'levantada'})
+        self.assertEqual([s.id for s in resp.context['sanciones']], [levantada.id])
+
+        resp = self.client.get(reverse('sanciones_list'), {'estado': 'finalizada'})
+        self.assertNotIn(levantada.id, [s.id for s in resp.context['sanciones']])

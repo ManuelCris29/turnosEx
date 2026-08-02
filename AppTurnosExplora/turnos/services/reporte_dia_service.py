@@ -180,11 +180,13 @@ class ReporteDiaService:
                 'fecha_fin': r.fecha_fin.isoformat() if r.fecha_fin else None,
             })
 
-        # ── Sanciones activas en la fecha (batch) ────────────────────────────
+        # ── Sanciones vigentes en la fecha (batch) ───────────────────────────
+        # Vía `vigentes_en`, el mismo criterio que decide si alguien está bloqueado:
+        # rearmarlo aquí a mano ya dejó fuera los levantamientos una vez.
+        from empleados.sancion_utils import vigentes_en
         sanciones_por_emp = {}
         for s in (SancionEmpleado.objects
-                  .filter(explorador_id__in=emp_ids, fecha_inicio__lte=fecha)
-                  .filter(_Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=fecha))
+                  .filter(vigentes_en(fecha), explorador_id__in=emp_ids)
                   .order_by('explorador_id', '-fecha_inicio')):
             sanciones_por_emp.setdefault(s.explorador_id, {
                 'motivo': s.motivo or '',

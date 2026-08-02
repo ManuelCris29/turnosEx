@@ -54,6 +54,7 @@
     <div class="pg-stats">
       <div class="pg-stat"><div class="lbl">Activas</div><div class="num" style="color:#dc2626;">{{ total_activas|default:0 }}</div></div>
       <div class="pg-stat"><div class="lbl">Finalizadas</div><div class="num" style="color:#6b7280;">{{ total_finalizadas|default:0 }}</div></div>
+      <div class="pg-stat"><div class="lbl">Levantadas</div><div class="num" style="color:#059669;">{{ total_levantadas|default:0 }}</div></div>
     </div>
 
     <div class="pg-card">
@@ -76,7 +77,9 @@
                 </div>
               </div>
               <div>
-                {% if sancion.fecha_fin and sancion.fecha_fin < hoy %}
+                {% if sancion.estado == 'levantada' %}
+                  <span class="pg-chip pg-chip-ok"><i class="fas fa-unlock mr-1"></i> Levantada</span>
+                {% elif sancion.estado == 'finalizada' %}
                   <span class="pg-chip pg-chip-gray"><i class="fas fa-check-circle mr-1"></i> Finalizada</span>
                 {% else %}
                   <span class="pg-chip pg-chip-no"><i class="fas fa-exclamation-circle mr-1"></i> Activa</span>
@@ -97,7 +100,16 @@
               <div class="col-md-6 mb-2">
                 <div class="d-flex align-items-center">
                   <i class="fas fa-calendar-check text-secondary mr-2"></i>
-                  <div><small class="text-muted d-block">Fecha fin</small><strong>{% if sancion.fecha_fin %}{{ sancion.fecha_fin|date:"d/m/Y" }}{% else %}<span class="text-muted">Sin fecha fin</span>{% endif %}</strong></div>
+                  <div>
+                    <small class="text-muted d-block">Fecha fin</small>
+                    <strong>{% if sancion.fecha_fin %}{{ sancion.fecha_fin|date:"d/m/Y" }}{% else %}<span class="text-muted">Sin fecha fin</span>{% endif %}</strong>
+                    {% if sancion.estado == 'levantada' %}
+                    <small class="d-block text-success">
+                      Levantada el {{ sancion.levantada_en|date:"d/m/Y" }}{% if sancion.levantada_por %} por {{ sancion.levantada_por.nombre }} {{ sancion.levantada_por.apellido }}{% else %} por el sistema{% endif %}
+                      {% if sancion.levantada_motivo %}<br><em>{{ sancion.levantada_motivo }}</em>{% endif %}
+                    </small>
+                    {% endif %}
+                  </div>
                 </div>
               </div>
             </div>

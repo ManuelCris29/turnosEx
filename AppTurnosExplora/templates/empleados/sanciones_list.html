@@ -24,6 +24,7 @@
       <div class="sanc-stat"><div class="lbl">Total</div><div class="num">{{ total_sanciones }}</div></div>
       <div class="sanc-stat"><div class="lbl">Activas</div><div class="num" style="color:#dc2626;">{{ total_activas|default:0 }}</div></div>
       <div class="sanc-stat"><div class="lbl">Finalizadas</div><div class="num" style="color:#6b7280;">{{ total_finalizadas|default:0 }}</div></div>
+      <div class="sanc-stat"><div class="lbl">Levantadas</div><div class="num" style="color:#059669;">{{ total_levantadas|default:0 }}</div></div>
     </div>
 
     <div class="pg-card">
@@ -53,6 +54,7 @@
             <a href="?{% if query_sin_estado %}{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'todos' %} active{% endif %}">Todas</a>
             <a href="?estado=activa{% if query_sin_estado %}&{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'activa' %} active{% endif %}">Activas</a>
             <a href="?estado=finalizada{% if query_sin_estado %}&{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'finalizada' %} active{% endif %}">Finalizadas</a>
+            <a href="?estado=levantada{% if query_sin_estado %}&{{ query_sin_estado }}{% endif %}" class="btn btn-outline-secondary{% if filtro_estado == 'levantada' %} active{% endif %}">Levantadas</a>
           </div>
         </form>
 
@@ -70,7 +72,7 @@
             </thead>
             <tbody>
               {% for s in sanciones %}
-              <tr data-estado="{% if s.fecha_fin and s.fecha_fin < hoy %}finalizada{% else %}activa{% endif %}">
+              <tr data-estado="{{ s.estado }}">
                 {% if es_supervisor %}<td>{{ s.explorador.nombre }} {{ s.explorador.apellido }}</td>{% endif %}
                 <td>{{ s.motivo|default:'—' }}</td>
                 <td>
@@ -78,13 +80,26 @@
                   <i class="far fa-stop-circle text-danger mr-1"></i>{% if s.fecha_fin %}{{ s.fecha_fin|date:'d/m/Y' }}{% else %}<em>Indefinida</em>{% endif %}
                 </td>
                 <td>
-                  {% if s.fecha_fin and s.fecha_fin < hoy %}<span class="pg-chip pg-chip-gray">Finalizada</span>{% else %}<span class="pg-chip pg-chip-no">Activa</span>{% endif %}
+                  {% if s.estado == 'levantada' %}
+                    <span class="pg-chip pg-chip-ok">Levantada</span>
+                    <div class="small text-muted mt-1">
+                      El {{ s.levantada_en|date:'d/m/Y' }}{% if s.levantada_por %} por {{ s.levantada_por.nombre }} {{ s.levantada_por.apellido }}{% else %} por el sistema{% endif %}
+                      {% if s.levantada_motivo %}<br><em>{{ s.levantada_motivo }}</em>{% endif %}
+                    </div>
+                  {% elif s.estado == 'finalizada' %}
+                    <span class="pg-chip pg-chip-gray">Finalizada</span>
+                  {% else %}
+                    <span class="pg-chip pg-chip-no">Activa</span>
+                  {% endif %}
                 </td>
                 <td>{% if s.supervisor %}{{ s.supervisor.nombre }} {{ s.supervisor.apellido }}{% else %}—{% endif %}</td>
                 {% if es_supervisor %}
                 <td style="white-space:nowrap;">
                   <a href="{% url 'sanciones_edit' s.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
-                  <a href="{% url 'sanciones_delete' s.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar"><i class="fas fa-trash-alt"></i></a>
+                  {# Sin botón de eliminar a propósito: una sanción no se borra, se levanta. #}
+                  {% if s.estado == 'activa' %}
+                  <a href="{% url 'sanciones_levantar' s.id %}" class="pg-btn pg-btn-warning pg-btn-sm" title="Levantar sanción"><i class="fas fa-unlock"></i></a>
+                  {% endif %}
                 </td>
                 {% endif %}
               </tr>

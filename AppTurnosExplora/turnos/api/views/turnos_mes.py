@@ -457,20 +457,29 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
 
     @staticmethod
     def _sanciones_por_fecha(empleado, fecha_inicio, fecha_fin):
-        # SANCIONES del empleado vigentes en el mes (no puede solicitar nada esos días)
+        """
+        Días del mes marcados como sancionados (el explorador no puede solicitar nada).
+
+        Una sanción LEVANTADA solo pinta hasta el día anterior al levantamiento: a partir
+        de ahí ya no bloquea, y seguir marcando el calendario haría creer al explorador
+        que sigue castigado cuando el formulario ya le deja pedir.
+        """
         from empleados.models import SancionEmpleado
         sanciones_por_fecha = {}
         sanc_qs = SancionEmpleado.objects.filter(
             explorador=empleado, fecha_inicio__lte=fecha_fin
         ).filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
         for s in sanc_qs:
+            # Fin REAL: el levantamiento manda sobre la fecha de fin planeada.
+            fin_real = s.fecha_fin_efectiva
             s_info = {
                 'motivo': s.motivo or '',
                 'desde': s.fecha_inicio.strftime('%d/%m/%Y'),
-                'hasta': s.fecha_fin.strftime('%d/%m/%Y') if s.fecha_fin else None,
+                'hasta': fin_real.strftime('%d/%m/%Y') if fin_real else None,
+                'levantada': s.esta_levantada,
             }
             ini = max(s.fecha_inicio, fecha_inicio)
-            fin = min(s.fecha_fin, fecha_fin) if s.fecha_fin else fecha_fin
+            fin = min(fin_real, fecha_fin) if fin_real else fecha_fin
             di = ini
             while di <= fin:
                 sanciones_por_fecha[di.strftime('%Y-%m-%d')] = s_info

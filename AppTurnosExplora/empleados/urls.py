@@ -6,7 +6,7 @@ from .views import (
     SalaListView, SalaCreateView, SalaUpdateView, SalaDeleteView,
     JornadaListView, JornadaCreateView, JornadaUpdateView, JornadaDeleteView,
     RestriccionListView, RestriccionCreateView, RestriccionUpdateView, RestriccionDeleteView,
-    SancionListView, SancionCreateView, SancionUpdateView, SancionDeleteView,
+    SancionListView, SancionCreateView, SancionUpdateView, SancionLevantarView,
     PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView, DeudasPendientesExploradorView,
     ChangePasswordView, RoleUpdateView, RoleDeleteView,
     PDHVisualizarListView, SancionVisualizarListView, RestriccionVisualizarListView,
@@ -43,7 +43,8 @@ urlpatterns = [
     path('sanciones/', SancionListView.as_view(), name='sanciones_list'),
     path('sanciones/create/', SancionCreateView.as_view(), name='sanciones_create'),
     path('sanciones/edit/<int:pk>/', SancionUpdateView.as_view(), name='sanciones_edit'),
-    path('sanciones/delete/<int:pk>/', SancionDeleteView.as_view(), name='sanciones_delete'),
+    # Sin ruta de borrado a propósito: una sanción no se elimina, se levanta.
+    path('sanciones/levantar/<int:pk>/', SancionLevantarView.as_view(), name='sanciones_levantar'),
     path('pdh/', PDHListView.as_view(), name='pdh_list'),
     path('pdh/create/', PDHCreateView.as_view(), name='pdh_create'),
     path('pdh/deudas-pendientes/', DeudasPendientesExploradorView.as_view(), name='pdh_deudas_pendientes'),

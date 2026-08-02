@@ -14,14 +14,14 @@ class EmpleadoAdmin(admin.ModelAdmin):
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "supervisor":
             kwargs["queryset"] = Empleado.objects.filter(
-                activo=True, 
-                empleadorole__role__nombre__icontains='supervisor'
+                activo=True,
+                empleadorole__role__nombre__iexact=Role.SUPERVISOR
             ).distinct()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ['nombre']
+    list_display = ['nombre', 'es_protegido']
 
 @admin.register(Sala)
 class SalaAdmin(admin.ModelAdmin):
@@ -48,5 +48,21 @@ class RestriccionEmpleadoAdmin(admin.ModelAdmin):
 
 @admin.register(SancionEmpleado)
 class SancionEmpleadoAdmin(admin.ModelAdmin):
-    list_display = ['explorador', 'supervisor', 'fecha_inicio', 'fecha_fin']
-    list_filter = ['fecha_inicio']
+    list_display = ['explorador', 'supervisor', 'fecha_inicio', 'fecha_fin', 'levantada_en']
+    list_filter = ['fecha_inicio', 'levantada_en']
+    readonly_fields = ['levantada_en', 'levantada_por', 'levantada_motivo']
+
+    def has_delete_permission(self, request, obj=None):
+        """
+        Una sanción no se borra: es un hecho disciplinario y su registro debe
+        sobrevivir, también cuando se puso por error (ahí se levanta indicándolo
+        como motivo). Bloqueado también aquí porque si no el admin sería la puerta
+        de atrás que deja sin efecto la regla en el resto de la aplicación.
+        """
+        return False
+
+    def get_actions(self, request):
+        # La acción masiva de borrado no pasa por has_delete_permission de cada objeto.
+        actions = super().get_actions(request)
+        actions.pop('delete_selected', None)
+        return actions

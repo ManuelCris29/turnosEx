@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Levantar Sanción{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:560px;">
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#f59e0b,#f97316);">
+        <h3><i class="fas fa-unlock"></i> Levantar sanción</h3>
+      </div>
+      <div class="pg-card-body">
+        <p>
+          Vas a levantar la sanción de
+          <strong>{{ sancion.explorador.nombre }} {{ sancion.explorador.apellido }}</strong>.
+          A partir de hoy podrá volver a solicitar cambios de turno y permisos.
+        </p>
+
+        <div class="alert alert-warning">
+          <ul class="list-unstyled mb-0">
+            <li><i class="far fa-calendar-plus mr-2"></i><strong>Inicio:</strong> {{ sancion.fecha_inicio|date:'d/m/Y' }}</li>
+            <li><i class="far fa-calendar-minus mr-2"></i><strong>Fin previsto:</strong> {% if sancion.fecha_fin %}{{ sancion.fecha_fin|date:'d/m/Y' }}{% else %}Indefinida{% endif %}</li>
+            <li><i class="fas fa-comment mr-2"></i><strong>Motivo:</strong> {{ sancion.motivo|default:'—' }}</li>
+          </ul>
+        </div>
+
+        <div class="alert alert-info">
+          <i class="fas fa-info-circle mr-2"></i>
+          La sanción <strong>no se borra</strong>: queda en el historial con su duración original,
+          marcada como levantada el {{ hoy|date:'d/m/Y' }} y con el motivo que escribas aquí.
+          Si la sanción se creó por error, indícalo en el motivo.
+        </div>
+
+        <form method="post" novalidate>
+          {% csrf_token %}
+          {% if form.non_field_errors %}
+          <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+          {% endif %}
+          <div class="form-group">
+            <label for="{{ form.motivo.id_for_label }}" class="font-weight-bold">
+              {{ form.motivo.label }} <span class="text-danger">*</span>
+            </label>
+            {{ form.motivo }}
+            {% if form.motivo.errors %}
+            <div class="text-danger small mt-1">{{ form.motivo.errors|striptags }}</div>
+            {% endif %}
+          </div>
+          <div class="d-flex mt-3" style="gap:.5rem;">
+            <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-unlock"></i> Levantar sanción</button>
+            <a href="{% url 'sanciones_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
