@@ -11,6 +11,12 @@
                 </div>
                 <div class="card-body text-center">
                     <p class="lead">¿Estás seguro de que deseas eliminar la jornada <strong>{{ object.nombre }}</strong>?</p>
+                    <div class="alert alert-warning text-left">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        Las jornadas son parte de la configuración base del sistema de turnos.
+                        Si esta jornada tiene turnos, asignaciones o descansos asociados, la
+                        eliminación será rechazada para no perder ese historial.
+                    </div>
                     <form method="post">
                         {% csrf_token %}
                         <button type="submit" class="btn btn-danger px-4">

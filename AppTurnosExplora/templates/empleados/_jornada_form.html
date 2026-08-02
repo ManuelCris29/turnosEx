@@ -1,0 +1,42 @@
+{% load widget_tweaks %}
+{# Campos compartidos por jornadas_create.html y jornadas_edit.html. #}
+<form method="post">
+    {% csrf_token %}
+
+    {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+        {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="form-group">
+        <label for="{{ form.nombre.id_for_label }}"><i class="fas fa-id-badge"></i> <strong>Nombre:</strong></label>
+        {{ form.nombre|add_class:'form-control' }}
+        {% for error in form.nombre.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        <small class="form-text text-muted">
+            El sistema de turnos requiere exactamente las jornadas AM y PM.
+        </small>
+    </div>
+
+    <div class="form-row">
+        <div class="form-group col-md-6">
+            <label for="{{ form.hora_inicio.id_for_label }}"><i class="fas fa-clock"></i> <strong>Hora Inicio:</strong></label>
+            {{ form.hora_inicio|add_class:'form-control' }}
+            {% for error in form.hora_inicio.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+        <div class="form-group col-md-6">
+            <label for="{{ form.hora_fin.id_for_label }}"><i class="fas fa-clock"></i> <strong>Hora Fin:</strong></label>
+            {{ form.hora_fin|add_class:'form-control' }}
+            {% for error in form.hora_fin.errors %}<div class="invalid-feedback d-block">{{ error }}</div>{% endfor %}
+        </div>
+    </div>
+
+    <div class="form-group text-center mt-4">
+        <button type="submit" class="btn btn-info px-4">
+            <i class="fas fa-save"></i> {{ submit_label|default:'Guardar' }}
+        </button>
+        <a href="{% url 'jornadas_list' %}" class="btn btn-secondary px-4">
+            <i class="fas fa-arrow-left"></i> Cancelar
+        </a>
+    </div>
+</form>
