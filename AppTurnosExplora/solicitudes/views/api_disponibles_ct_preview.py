@@ -415,7 +415,9 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         import json
         from datetime import datetime, timedelta
         from empleados.models import Empleado
-        from ..services.ct_permanente_helper import _jornada_doblada_perm
+        from ..services.ct_permanente_helper import (
+            _jornada_doblada_perm, _motivo_no_cubre_companero,
+        )
 
         fi_s = request.GET.get('fecha_inicio')
         ff_s = request.GET.get('fecha_fin')
@@ -468,18 +470,20 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
                 return None
             return _jornada_doblada_perm(solicitante, d)
 
-        def _comp_jornada_contraria(comp, d, js):
-            """Jornada real del compañero ese día si puede doblar y es CONTRARIA a la del solicitante."""
-            jr = _jornada_doblada_perm(comp, d) if comp else None
-            return jr if (jr and jr != js) else None
-
         # por_dia["wd"]: por cada día de semana, las fechas del SOLICITANTE con SU jornada real
         # {f: fecha, ys: 'AM'/'PM'} — para que el formulario indique, ANTES de elegir compañero, en
         # qué fechas estás AM y en cuáles PM (y así saber si necesitas un compañero PM o AM). El
         # contador del selector usa la longitud. por_par["wd|comp"]: por cada fecha válida del par,
         # {f, ys, yc} (jornada de ambos) — para la mini-tabla.
+        #
+        # no_cubre["wd|comp"]: las fechas del solicitante que ese compañero NO puede cubrir, con el
+        # MOTIVO real ({f, ys, tipo, razon}). Sin esto el formulario tenía que adivinar la causa a
+        # partir de la jornada del solicitante y siempre concluía "necesitas un compañero de la
+        # jornada contraria" — falso cuando el compañero sí es contrario pero ya está doblado o
+        # descansa por otro acuerdo, que es el caso que hacía ilegible la advertencia.
         por_dia = {w: [] for w in range(5)}
         por_par = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
+        no_cubre = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
         if ff >= fi:
             d = fi
             while d <= ff:
@@ -489,11 +493,18 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
                     ds = d.strftime('%Y-%m-%d')
                     por_dia[w].append({'f': ds, 'ys': js})
                     for (wd, cid), comp in pares_norm.items():
-                        if wd == w:
-                            yc = _comp_jornada_contraria(comp, d, js)
-                            if yc:
-                                por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': yc})
+                        if wd != w:
+                            continue
+                        jr = _jornada_doblada_perm(comp, d) if comp else None
+                        if jr and jr != js:
+                            por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': jr})
+                        else:
+                            # Solo aquí se paga el costo de reconstruir el estado del compañero.
+                            motivo = _motivo_no_cubre_companero(comp, d, js)
+                            no_cubre[f"{wd}|{cid}"].append(
+                                {'f': ds, 'ys': js, 'tipo': motivo['tipo'], 'razon': motivo['razon']}
+                            )
                 d += timedelta(days=1)
-        return json_ok({'por_dia': por_dia, 'por_par': por_par})
+        return json_ok({'por_dia': por_dia, 'por_par': por_par, 'no_cubre': no_cubre})
 
 

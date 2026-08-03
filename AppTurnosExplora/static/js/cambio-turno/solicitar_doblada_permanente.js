@@ -15,6 +15,7 @@
     const URL_DIAS_DISP = '/solicitudes/dias-disponibles-doblada-permanente/';
     let dispDias = null;  // {0:[fechas],...} fechas válidas del SOLICITANTE por weekday en el rango
     let dispPar = {};     // {"weekday|compId":[fechas]} fechas válidas por PAR (día+compañero)
+    let dispNoCubre = {}; // {"weekday|compId":[{f, ys, tipo, razon}]} fechas que ESE compañero NO cubre, con motivo
     let checkState = {};  // `${rid}|${weekday}|${comp}` -> Set de fechas ISO marcadas (si no existe: todas)
     let rowSeq = 0;       // id incremental por fila (permite el MISMO día de semana con varios compañeros)
     let _hayExcl = false, _hayBal = false;  // control de visibilidad del recuadro de preview
@@ -240,20 +241,43 @@
                             `<td class="col-quepasa">${quePasa()}</td>` +
                             `</tr>`;
                     }).join('');
-                    // Fechas de este día que ESTE compañero no cubre (jornada no contraria) → aviso claro.
-                    const cubiertas = new Set(items.map((o) => o.f));
-                    const faltan = misFechas.filter((o) => !cubiertas.has(o.f));
-                    // El consejo correcto difiere por lado: en CESIÓN basta agregar un compañero
-                    // contrario que te cubra; en DEVOLUCIÓN NO basta —ese compañero además debe
-                    // haberte cubierto en la cesión, o crearías un desbalance (evita el callejón
-                    // sin salida de "agrega un compañero PM" que en realidad no equilibra).
-                    const faltanFechas = faltan.map((o) => `${fmtFechaCorta(o.f)} (estás ${o.ys})`).join(', ');
-                    const cierre = (tipo === 'cesion')
-                        ? `Necesitas un compañero <strong>${contraria(faltan.length ? faltan[0].ys : 'AM')}</strong> que te cubra esos días: agrega otra fila de este mismo día con un compañero de esa jornada.`
-                        : `Esos días tú te doblas, así que solo puedes devolvérselos a un compañero <strong>${contraria(faltan.length ? faltan[0].ys : 'AM')}</strong> que <strong>además te haya cubierto</strong> en la cesión. Si no lo hay, quítalos o reduce tu cesión para equilibrar.`;
-                    const faltanHtml = faltan.length
-                        ? `<div class="perm-faltan"><i class="fas fa-info-circle mr-1"></i>Falta por cubrir: ${faltanFechas}. ${cierre}</div>`
-                        : '';
+                    // Fechas de este día que ESTE compañero no cubre, con el MOTIVO REAL que da el
+                    // backend. Antes se infería del lado del solicitante y siempre se concluía
+                    // "necesitas un compañero de la jornada contraria": mentira cuando el compañero
+                    // sí es contrario pero ya está doblado o descansa por otro acuerdo. Solo el
+                    // tipo 'misma_jornada' se arregla eligiendo a otro de la jornada opuesta.
+                    const faltan = dispNoCubre[`${actual}|${comp}`] || [];
+                    const faltanHtml = faltan.length ? (function () {
+                        const detalle = faltan
+                            .map((o) => `<li><strong>${fmtFechaCorta(o.f)}</strong> (tú ${o.ys}) — ${o.razon}</li>`)
+                            .join('');
+                        // El consejo se agrupa por CAUSA, y las de misma jornada por la jornada que
+                        // realmente hace falta (un rango puede tener fechas tuyas AM y PM: tomar la
+                        // de la primera fecha daría la recomendación equivocada para el resto).
+                        const consejos = [];
+                        const mismos = faltan.filter((o) => o.tipo === 'misma_jornada');
+                        const jornadasFaltantes = Array.from(new Set(mismos.map((o) => contraria(o.ys)))).sort();
+                        if (jornadasFaltantes.length) {
+                            const cuales = jornadasFaltantes.map((j) => `<strong>${j}</strong>`).join(' y ');
+                            // El consejo difiere por lado: en CESIÓN basta agregar un compañero
+                            // contrario; en DEVOLUCIÓN ese compañero además debe haberte cubierto en
+                            // la cesión, o el acuerdo queda desbalanceado igual.
+                            consejos.push(tipo === 'cesion'
+                                ? `Para esas fechas necesitas un compañero ${cuales}: agrega otra fila de este mismo día con alguien de esa jornada.`
+                                : `Esas fechas tú te doblas, así que solo puedes devolvérselas a un compañero ${cuales} que <strong>además te haya cubierto</strong> en la cesión.`);
+                        }
+                        if (faltan.some((o) => o.tipo !== 'misma_jornada')) {
+                            // Aquí cambiar de jornada NO sirve: ese compañero no está disponible.
+                            consejos.push('En las fechas restantes tu compañero no está disponible (ya dobla, descansa o cedió el día en otro acuerdo). Cambiar de jornada no las arregla: usa otro compañero para esas fechas, otro día de la semana, o ajusta el rango.');
+                        }
+                        consejos.push(tipo === 'cesion'
+                            ? 'Si no consigues cubrirlas, simplemente déjalas sin marcar.'
+                            : 'Si no consigues equilibrarlas, reduce tu cesión para que ambos lados queden iguales.');
+                        return `<div class="perm-faltan"><i class="fas fa-info-circle mr-1"></i>` +
+                            `<strong>${compNom} no puede cubrirte ${faltan.length} fecha(s):</strong>` +
+                            `<ul class="perm-faltan-lista">${detalle}</ul>` +
+                            consejos.join(' ') + `</div>`;
+                    })() : '';
                     cont.innerHTML = tusFechasHtml +
                         `<div class="perm-tabla-wrap"><table class="perm-tabla">` +
                         `<thead><tr><th class="col-check">✓</th><th>Fecha</th><th>Tú</th><th>${compNom}</th><th>Qué pasa ese día</th></tr></thead>` +
@@ -289,9 +313,10 @@
                 const d = (res && res.data) ? res.data : res;
                 dispDias = (d && d.por_dia) || null;
                 dispPar = (d && d.por_par) || {};
+                dispNoCubre = (d && d.no_cubre) || {};
                 refreshDias();
             })
-            .catch(() => { dispDias = null; dispPar = {}; refreshDias(); });
+            .catch(() => { dispDias = null; dispPar = {}; dispNoCubre = {}; refreshDias(); });
     }
 
     function _syncBox() {
@@ -412,12 +437,11 @@
         const fi = inputInicio.value, ff = inputFin.value;
         const dias = Array.from(diasUsados(null));  // unión de días de cesión y devolución
         if (!fi || !ff || ff < fi || !dias.length) { _hayExcl = false; _syncBox(); return; }
-        // Mapa día_semana -> compañero (para revisar también los turnos del compañero de cada día).
-        const mapa = {};
-        filas(cesionRows, 'cesion').forEach((r) => { if (r.dia && r.comp) mapa[r.dia] = r.comp; });
-        filas(devolucionRows, 'devolucion').forEach((r) => { if (r.dia && r.comp) mapa[r.dia] = r.comp; });
-        const qComp = `&dias_companeros=${encodeURIComponent(JSON.stringify(mapa))}`;
-        fetch(`${URL_PREVIEW}?fecha_inicio=${encodeURIComponent(fi)}&fecha_fin=${encodeURIComponent(ff)}&dias=${dias.join(',')}${qComp}`,
+        // Solo weekdays: este preview es del SOLICITANTE. Antes se enviaba también un mapa
+        // día→compañero que el backend ignoraba y que además colapsaba a un solo compañero por
+        // día (el último gana), sugiriendo una cobertura por compañero que no existía aquí. Lo
+        // del compañero se resuelve por fila con `no_cubre`.
+        fetch(`${URL_PREVIEW}?fecha_inicio=${encodeURIComponent(fi)}&fecha_fin=${encodeURIComponent(ff)}&dias=${dias.join(',')}`,
               { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
             .then((r) => r.json())
             .then((res) => {

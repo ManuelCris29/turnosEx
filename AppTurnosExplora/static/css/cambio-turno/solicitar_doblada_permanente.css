@@ -43,6 +43,9 @@
 .perm-tus-fechas .tf-item { display: inline-flex; align-items: center; gap: .25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: .1rem .4rem; }
 /* Aviso de fechas que el compañero elegido NO cubre */
 .perm-faltan { font-size: .78rem; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: .3rem .5rem; margin-top: .35rem; }
+/* Detalle fecha a fecha del motivo por el que ese compañero no cubre (lista corta, sin bullets grandes) */
+.perm-faltan-lista { margin: .3rem 0 .35rem; padding-left: 1.1rem; }
+.perm-faltan-lista li { margin-bottom: .1rem; }
 
 /* Fecha ya asignada a OTRO compañero (una fecha = un solo compañero) → deshabilitada */
 .perm-tabla tr.perm-fecha-tomada { opacity: .6; }

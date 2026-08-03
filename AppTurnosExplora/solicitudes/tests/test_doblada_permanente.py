@@ -437,3 +437,87 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
             SolicitudCambio.objects.filter(tipo_cambio=self.tipo).count(), 0,
             'La primera solicitud debió deshacerse con el rollback')
         self.assertEqual(DobladaPermanenteDetalle.objects.count(), 0)
+
+
+class DobladaPermanenteNoCubreTest(DobladaPermanenteBaseTest):
+    """
+    El endpoint de disponibilidad debe decir POR QUÉ un compañero no cubre una fecha.
+
+    Sin esto el formulario adivinaba la causa desde la jornada del solicitante y siempre
+    concluía "necesitas un compañero de la jornada contraria", consejo FALSO cuando el
+    compañero sí es contrario pero ese día ya está doblado o descansa por otro acuerdo.
+    """
+
+    URL = '/solicitudes/dias-disponibles-doblada-permanente/'
+
+    def setUp(self):
+        super().setUp()
+        # Rango de 3 lunes: el compañero cubre el 1º, ya está doblado el 2º y no trabaja el 3º.
+        self.l1 = self.lunes
+        self.l2 = self.lunes + timedelta(days=7)
+        self.l3 = self.lunes + timedelta(days=14)
+        self.client.force_login(self.solicitante.user)
+
+    def _pedir(self, fi, ff):
+        import json
+        resp = self.client.get(self.URL, {
+            'fecha_inicio': fi.strftime('%Y-%m-%d'),
+            'fecha_fin': ff.strftime('%Y-%m-%d'),
+            'pares': json.dumps([{'dia': 0, 'comp': str(self.receptor.id)}]),
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        d = resp.json()
+        d = d.get('data', d)
+        clave = f'0|{self.receptor.id}'
+        return d['por_par'][clave], d['no_cubre'][clave]
+
+    def test_companero_ya_doblado_se_reporta_como_no_disponible(self):
+        """Doblada real del compañero: no es un problema de jornada, es que ya dobla."""
+        Turno.objects.create(explorador=self.receptor, fecha=self.l2, jornada=self.am, sala=self.sala)
+        Turno.objects.create(explorador=self.receptor, fecha=self.l2, jornada=self.pm, sala=self.sala)
+
+        cubre, no_cubre = self._pedir(self.l1, self.l2)
+
+        self.assertEqual([x['f'] for x in cubre], [self.l1.strftime('%Y-%m-%d')])
+        self.assertEqual(len(no_cubre), 1)
+        self.assertEqual(no_cubre[0]['f'], self.l2.strftime('%Y-%m-%d'))
+        self.assertEqual(no_cubre[0]['tipo'], 'no_disponible')
+        self.assertIn('doblada', no_cubre[0]['razon'].lower())
+
+    def test_misma_jornada_se_distingue_de_no_disponible(self):
+        """Ese sí se arregla eligiendo otro compañero: el tipo debe permitir distinguirlo."""
+        otro = self._empleado('igual.dp', '333', self.pm)  # misma jornada que el solicitante
+        import json
+        resp = self.client.get(self.URL, {
+            'fecha_inicio': self.l1.strftime('%Y-%m-%d'),
+            'fecha_fin': self.l1.strftime('%Y-%m-%d'),
+            'pares': json.dumps([{'dia': 0, 'comp': str(otro.id)}]),
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        d = resp.json()
+        d = d.get('data', d)
+        no_cubre = d['no_cubre'][f'0|{otro.id}']
+
+        self.assertEqual(len(no_cubre), 1)
+        self.assertEqual(no_cubre[0]['tipo'], 'misma_jornada')
+        self.assertEqual(no_cubre[0]['ys'], 'PM')
+
+    def test_fechas_cubiertas_y_no_cubiertas_suman_las_del_solicitante(self):
+        """Ninguna fecha válida del solicitante puede desaparecer sin explicación."""
+        Turno.objects.create(explorador=self.receptor, fecha=self.l2, jornada=self.am, sala=self.sala)
+        Turno.objects.create(explorador=self.receptor, fecha=self.l2, jornada=self.pm, sala=self.sala)
+
+        import json
+        resp = self.client.get(self.URL, {
+            'fecha_inicio': self.l1.strftime('%Y-%m-%d'),
+            'fecha_fin': self.l3.strftime('%Y-%m-%d'),
+            'pares': json.dumps([{'dia': 0, 'comp': str(self.receptor.id)}]),
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        d = resp.json()
+        d = d.get('data', d)
+        clave = f'0|{self.receptor.id}'
+        mis_lunes = {x['f'] for x in d['por_dia']['0']}
+        cubiertas = {x['f'] for x in d['por_par'][clave]}
+        sin_cubrir = {x['f'] for x in d['no_cubre'][clave]}
+
+        self.assertEqual(cubiertas | sin_cubrir, mis_lunes)
+        self.assertFalse(cubiertas & sin_cubrir, 'Una fecha no puede estar en ambos lados')

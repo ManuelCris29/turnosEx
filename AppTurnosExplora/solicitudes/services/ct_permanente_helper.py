@@ -508,6 +508,55 @@ def _motivo_no_doblada_perm(explorador: Empleado, fecha: date):
         return 'No se pudo determinar tu turno ese día'
 
 
+def _motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicitante: str):
+    """
+    Razón corta, en TERCERA persona, por la que `companero` NO puede cubrir/doblar con el
+    solicitante en `fecha`; None si sí puede (jornada única y contraria).
+
+    Existe porque "no aparece la casilla" tiene causas muy distintas y el formulario las
+    colapsaba en una sola ("necesitas un compañero de la jornada contraria"), que es FALSA
+    cuando el compañero sí es contrario pero ya está doblado o descansa por otro acuerdo. Se
+    devuelve además `tipo` para que el front agrupe el consejo: solo 'misma_jornada' se
+    arregla eligiendo otro compañero de la jornada opuesta.
+
+    Returns:
+        None, o {'tipo': 'misma_jornada'|'no_disponible', 'razon': str}
+    """
+    if companero is None:
+        return {'tipo': 'no_disponible', 'razon': 'compañero no encontrado'}
+    jr = _jornada_doblada_perm(companero, fecha)
+    if jr and jr != jornada_solicitante:
+        return None
+    nombre = getattr(companero, 'nombre', '') or 'El compañero'
+    if jr:
+        # Contrario a lo que sugería el mensaje genérico, aquí sí hay jornada: el choque es
+        # que ambos están en la MISMA (nadie puede cubrir a nadie).
+        return {'tipo': 'misma_jornada', 'razon': f'{nombre} también está {jr}'}
+    try:
+        from turnos.services.turno_service import TurnoService
+        st = TurnoService.estado_dia(companero, fecha)
+        if st.get('jornada') == 'DOBLADA':
+            return {'tipo': 'no_disponible', 'razon': f'{nombre} ya está doblada ese día (AM+PM)'}
+        fuente = st.get('fuente')
+        motivo = st.get('motivo')
+        etiquetas = {
+            'festivo': f'{nombre} no trabaja: festivo',
+            'temporada': f'{nombre} está en descanso de temporada',
+            'mantenimiento': f'{nombre} está en mantenimiento',
+            'alternancia': f'{nombre} descansa ese fin de semana',
+            'manual': f'{nombre} descansa ese fin de semana',
+        }
+        if fuente in etiquetas:
+            return {'tipo': 'no_disponible', 'razon': etiquetas[fuente]}
+        if fuente == 'solicitud':
+            otro = (st.get('companero') or {}).get('nombre')
+            detalle = f' ({motivo} con {otro})' if (motivo and otro) else (f' ({motivo})' if motivo else '')
+            return {'tipo': 'no_disponible', 'razon': f'{nombre} ya cedió ese día en otro acuerdo{detalle}'}
+        return {'tipo': 'no_disponible', 'razon': motivo or f'{nombre} no tiene turno ese día'}
+    except Exception:
+        return {'tipo': 'no_disponible', 'razon': f'no se pudo determinar el turno de {nombre}'}
+
+
 def _razon_cambio_previo(tipo: str, es_solicitante: bool) -> str:
     """Etiqueta corta (para la vista previa) según el cambio que ya existe ese día."""
     quien = 'Solicitante' if es_solicitante else 'Receptor'
