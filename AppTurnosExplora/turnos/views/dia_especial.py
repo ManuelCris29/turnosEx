@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from django.views.generic import TemplateView, ListView, CreateView, UpdateView
 from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
@@ -87,10 +87,10 @@ class DiaEspecialUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     fields = ['fecha', 'tipo', 'descripcion', 'recurrente', 'activo']
     success_url = '/turnos/dias-especiales-admin/'
 
-class DiaEspecialDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
-    model = DiaEspecial
-    template_name = 'turnos/diasespeciales_confirm_delete.html'
-    success_url = '/turnos/dias-especiales-admin/'
+# El listado admin NO da de alta ni de baja días especiales. Eso se hace desde las
+# páginas anuales, donde se ve el año completo y el guardado está protegido contra
+# ediciones concurrentes. Aquí solo se edita un día existente (incluido su `activo`,
+# con la advertencia correspondiente en el formulario).
 
 # ---------------------------------------------------------------------------
 # Descanso de semana (manual) — para semanas con temporada/festivo
@@ -234,6 +234,7 @@ class DiaEspecialTemporadasAnualView(LoginRequiredMixin, AdminRequiredMixin, Tem
             'anios_disponibles': anios_disponibles,  # Lista completa de años para el selector
             'anio_min': DiaEspecial.ANIO_MIN,
             'anio_max': DiaEspecial.ANIO_MAX,
+            'token_estado': TemporadaService.token_estado(anio_seleccionado),
             'form': TemporadasAnualForm(initial={'anio': anio_seleccionado})
         })
         
@@ -259,7 +260,8 @@ class DiaEspecialTemporadasAnualView(LoginRequiredMixin, AdminRequiredMixin, Tem
                 anio=anio,
                 dias_seleccionados=dias_seleccionados,
                 usuario=request.user,
-                permitir_vacio=limpiar
+                permitir_vacio=limpiar,
+                token_esperado=form.cleaned_data.get('token_estado') or None
             )
 
             logger.info(f"Resultado guardar temporadas: éxito={exito}, mensaje={mensaje}")
@@ -386,6 +388,7 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
             'anios_disponibles': anios_disponibles,  # Lista completa de años para el selector
             'anio_min': DiaEspecial.ANIO_MIN,
             'anio_max': DiaEspecial.ANIO_MAX,
+            'token_estado': DiaEspecialService.token_estado(tipo_seleccionado, anio_seleccionado),
             'form': DiasEspecialesAnualForm(initial={
                 'tipo': tipo_seleccionado,
                 'anio': anio_seleccionado
@@ -416,7 +419,8 @@ class DiaEspecialFestivosMantenimientoAnualView(LoginRequiredMixin, AdminRequire
                 anio=anio,
                 dias_seleccionados=dias_seleccionados,
                 usuario=request.user,
-                permitir_vacio=limpiar
+                permitir_vacio=limpiar,
+                token_esperado=form.cleaned_data.get('token_estado') or None
             )
 
             logger.info(f"Resultado guardar días especiales: éxito={exito}, mensaje={mensaje}")

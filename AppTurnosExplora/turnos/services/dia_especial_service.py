@@ -3,7 +3,7 @@ Servicio para gestionar días especiales (festivos y mantenimiento) por año.
 Responsabilidad única: Gestión de festivos y mantenimiento por año y mes.
 """
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count, Max
 from turnos.models import DiaEspecial
 from datetime import date, timedelta
 from typing import List, Dict, Optional, Set
@@ -19,6 +19,26 @@ class DiaEspecialService:
     Servicio para gestionar días especiales (festivos y mantenimiento).
     Permite crear, consultar y eliminar días especiales por año y tipo.
     """
+
+    @staticmethod
+    def token_estado(tipo: str, anio: int) -> str:
+        """
+        Huella del estado guardado de un tipo/año, para detectar ediciones concurrentes.
+
+        Guardar un año es "borrar todo y recrear" a partir de lo que el navegador envía,
+        así que dos personas con la página abierta se pisan: la última en guardar borra
+        lo que hizo la primera, sin aviso. La página lleva esta huella en un campo oculto
+        y el guardado la rechaza si ya no coincide.
+
+        Cuenta TODAS las filas del tipo/año (incluidas las inactivas), porque el borrado
+        previo al guardado también se las lleva.
+        """
+        datos = DiaEspecial.objects.filter(
+            tipo=tipo, fecha__year=anio, es_temporada=False
+        ).aggregate(n=Count('id'), ultimo=Max('actualizado_en'))
+
+        ultimo = datos['ultimo'].isoformat() if datos['ultimo'] else '-'
+        return f"{datos['n']}:{ultimo}"
 
     @staticmethod
     def obtener_dias_por_tipo_anio(tipo: str, anio: int) -> List[DiaEspecial]:
@@ -95,7 +115,8 @@ class DiaEspecialService:
         dias_seleccionados: Dict[int, List[int]],
         descripcion: str = "",
         usuario=None,
-        permitir_vacio: bool = False
+        permitir_vacio: bool = False,
+        token_esperado: str = None
     ) -> tuple[bool, str]:
         """
         Guarda los días especiales para un tipo y año específicos.
@@ -111,6 +132,9 @@ class DiaEspecialService:
             permitir_vacio: Si es True, una selección vacía significa "dejar el año sin
                             días de este tipo" (borrado explícito). Si es False (por
                             defecto), una selección vacía se rechaza SIN tocar la BD.
+            token_esperado: Huella del estado que tenía el año cuando se cargó la página
+                            (ver `token_estado`). Si se pasa y ya no coincide, el guardado
+                            se rechaza para no pisar el trabajo de otra persona.
 
         Returns:
             Tupla (éxito, mensaje)
@@ -129,6 +153,13 @@ class DiaEspecialService:
         if not dias_seleccionados and not permitir_vacio:
             logger.warning("No hay días seleccionados para guardar")
             return False, f"No se seleccionaron días de {tipo}."
+
+        if token_esperado is not None and token_esperado != DiaEspecialService.token_estado(tipo, anio):
+            logger.warning(f"Guardado rechazado por edición concurrente en {tipo} {anio}")
+            return False, (
+                f"Otra persona modificó los {tipo}s de {anio} mientras tenías esta página abierta. "
+                "Se recargaron los datos actuales: revisa el calendario y vuelve a aplicar tu cambio."
+            )
 
         # Guarda contra dos guardados simultáneos del mismo año/tipo (dos pestañas, doble-clic):
         # sin este lock la segunda escritura pisaría en silencio lo que la primera acababa de crear.

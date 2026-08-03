@@ -72,8 +72,10 @@
                 <td>{{ dia.id }}</td>
                 <td>{{ dia.fecha }}</td>
                 <td>
-                  {{ dia.tipo }}
-                  {% if dia.es_temporada %}<span class="pg-chip pg-chip-pend">Temporada</span>{% endif %}
+                  {% if dia.tipo == 'temporada' %}<span class="pg-chip pg-chip-pend">Temporada</span>
+                  {% elif dia.tipo == 'festivo' %}<span class="pg-chip pg-chip-info">Festivo</span>
+                  {% elif dia.tipo == 'mantenimiento' %}<span class="pg-chip pg-chip-gray">Mantenimiento</span>
+                  {% else %}{{ dia.get_tipo_display }}{% endif %}
                 </td>
                 <td>{{ dia.descripcion }}</td>
                 <td>{% if dia.año_planificacion %}{{ dia.año_planificacion }}{% else %}—{% endif %}</td>

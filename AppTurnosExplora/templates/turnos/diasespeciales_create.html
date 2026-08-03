@@ -1,5 +1,5 @@
 ﻿{% extends 'base.html' %}
-{% load widget_tweaks %}
+{% load widget_tweaks static_version %}
 {% block title %}Nuevo Día Especial{% endblock %}
 {% block page_title %}Nuevo Día Especial{% endblock %}
 {% block content %}
@@ -58,6 +58,5 @@
 {% endblock %}
 
 {% block extra_js %}
-<!-- Si usas FontAwesome desde CDN, asegúrate de tenerlo en tu base.html -->
-<script src="{% static 'js/turnos/diasespeciales_create.js' %}"></script>
+<script src="{% static_v 'js/turnos/diasespeciales_create.js' %}"></script>
 {% endblock %} 

@@ -19,7 +19,6 @@ __all__ = [
     "DiaEspecialListView",
     "DiaEspecialCreateView",
     "DiaEspecialUpdateView",
-    "DiaEspecialDeleteView",
     "DiaEspecialVisualizarListView",
     "DiaEspecialTemporadasAnualView",
     "DiaEspecialFestivosMantenimientoAnualView",

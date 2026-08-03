@@ -70,16 +70,25 @@
               <tr>
                 <td>{{ dia.id }}</td>
                 <td>{{ dia.fecha }}</td>
-                <td>{{ dia.tipo }}{% if dia.es_temporada %} <span class="pg-chip pg-chip-pend">Temporada</span>{% endif %}</td>
+                <td>
+                  {% if dia.tipo == 'temporada' %}<span class="pg-chip pg-chip-pend">Temporada</span>
+                  {% elif dia.tipo == 'festivo' %}<span class="pg-chip pg-chip-info">Festivo</span>
+                  {% elif dia.tipo == 'mantenimiento' %}<span class="pg-chip pg-chip-gray">Mantenimiento</span>
+                  {% else %}{{ dia.get_tipo_display }}{% endif %}
+                </td>
                 <td>{{ dia.descripcion }}</td>
                 <td>{% if dia.año_planificacion %}{{ dia.año_planificacion }}{% else %}—{% endif %}</td>
                 <td>{% if dia.recurrente %}<span class="pg-chip pg-chip-info">Sí</span>{% else %}<span class="pg-chip pg-chip-gray">No</span>{% endif %}</td>
                 <td>{% if dia.activo %}<span class="pg-chip pg-chip-ok">Sí</span>{% else %}<span class="pg-chip pg-chip-no">No</span>{% endif %}</td>
                 {% if es_supervisor %}
                 <td style="text-align:right; white-space:nowrap;">
+                  {% comment %}
+                  Las altas y bajas se hacen SIEMPRE desde las páginas anuales, viendo el año
+                  completo. Aquí solo se edita un día ya existente: quitarlo desde una fila
+                  suelta, sin contexto, es como se borraban por error días ya trabajados.
+                  {% endcomment %}
                   {% if not dia.es_temporada %}
                     <a href="{% url 'dias_especiales_edit' dia.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
-                    <a href="{% url 'dias_especiales_delete' dia.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este día especial?');"><i class="fas fa-trash-alt"></i></a>
                   {% else %}
                     <span class="text-muted small">Gestionar desde Temporadas Anuales</span>
                   {% endif %}

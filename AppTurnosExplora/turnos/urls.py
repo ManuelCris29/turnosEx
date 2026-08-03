@@ -3,7 +3,7 @@ from .views import (
     MisTurnosView, CambiosTurnoView, ConsolidadoHorasView, DiasEspecialesView,
     TurnosCalendarioView,
     TurnoCreateView, TurnoUpdateView, TurnoDeleteView,
-    DiaEspecialListView, DiaEspecialCreateView, DiaEspecialUpdateView, DiaEspecialDeleteView,
+    DiaEspecialListView, DiaEspecialCreateView, DiaEspecialUpdateView,
     DiaEspecialVisualizarListView, DiaEspecialTemporadasAnualView, DiaEspecialFestivosMantenimientoAnualView,
     DescansoSemanaListView, DescansoSemanaCreateView, DescansoSemanaUpdateView, DescansoSemanaDeleteView,
     DescansoSemanaAnualView, AsignacionEspecialAnualView, AsignacionEspecialSiembraView,
@@ -21,7 +21,8 @@ urlpatterns = [
     path('dias-especiales-admin/', DiaEspecialListView.as_view(), name='dias_especiales_list'),
     path('dias-especiales-admin/create/', DiaEspecialCreateView.as_view(), name='dias_especiales_create'),
     path('dias-especiales-admin/edit/<int:pk>/', DiaEspecialUpdateView.as_view(), name='dias_especiales_edit'),
-    path('dias-especiales-admin/delete/<int:pk>/', DiaEspecialDeleteView.as_view(), name='dias_especiales_delete'),
+    # No hay ruta de baja: las altas y bajas se hacen desde las páginas anuales, que ven
+    # el año completo y protegen contra ediciones concurrentes.
 
     # Descanso de semana (manual) para semanas con temporada/festivo
     path('descanso-semana/', DescansoSemanaListView.as_view(), name='descanso_semana_list'),

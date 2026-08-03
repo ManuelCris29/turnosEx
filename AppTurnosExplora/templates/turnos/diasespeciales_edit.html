@@ -41,7 +41,24 @@
                                     {{ form.activo|add_class:'form-check-input' }}
                                     <label class="form-check-label" for="id_activo"><i class="fas fa-check-circle"></i> Activo</label>
                                 </div>
+                                <small class="form-text text-muted">
+                                    Al desmarcarlo el día deja de aplicar en turnos, reportes e indicadores,
+                                    <strong>incluso en fechas ya pasadas</strong>.
+                                </small>
                             </div>
+                        </div>
+
+                        {% comment %}
+                        El guardado anual borra el año y lo recrea, así que se lleva por delante
+                        las filas inactivas: la desactivación NO sobrevive a esa regeneración.
+                        {% endcomment %}
+                        <div class="alert alert-warning" role="alert" style="border-left:4px solid #f59e0b;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <strong>Ojo con desactivar:</strong> es reversible desde aquí, pero no es permanente.
+                            La próxima vez que alguien guarde
+                            {% if object.es_temporada %}Temporadas Anuales{% else %}Festivos y Mantenimiento{% endif %}
+                            para {{ object.fecha.year }}, este registro se eliminará definitivamente.
+                            Si quieres que el día deje de aplicar de forma estable, quítalo desde esa página.
                         </div>
                         <div class="form-group text-center mt-4">
                             <button type="submit" class="btn btn-primary px-4">

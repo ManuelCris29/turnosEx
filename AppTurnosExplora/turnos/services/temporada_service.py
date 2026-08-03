@@ -3,7 +3,7 @@ Servicio para gestionar días de temporada.
 Responsabilidad única: Gestión de temporadas por año y mes.
 """
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, Count, Max
 from turnos.models import DiaEspecial
 from datetime import date
 from typing import List, Dict, Optional
@@ -17,6 +17,19 @@ class TemporadaService:
     Servicio para gestionar días de temporada.
     Permite crear, consultar y eliminar temporadas por año.
     """
+
+    @staticmethod
+    def token_estado(anio: int) -> str:
+        """
+        Huella del estado guardado de las temporadas del año, para detectar ediciones
+        concurrentes. Ver `DiaEspecialService.token_estado` para el porqué.
+        """
+        datos = DiaEspecial.objects.filter(
+            fecha__year=anio, es_temporada=True
+        ).aggregate(n=Count('id'), ultimo=Max('actualizado_en'))
+
+        ultimo = datos['ultimo'].isoformat() if datos['ultimo'] else '-'
+        return f"{datos['n']}:{ultimo}"
 
     @staticmethod
     def obtener_dias_temporada_anio(anio: int) -> List[DiaEspecial]:
@@ -88,7 +101,8 @@ class TemporadaService:
         anio: int,
         dias_seleccionados: Dict[int, List[int]],
         usuario=None,
-        permitir_vacio: bool = False
+        permitir_vacio: bool = False,
+        token_esperado: str = None
     ) -> tuple[bool, str]:
         """
         Guarda los días de temporada para un año específico.
@@ -102,6 +116,9 @@ class TemporadaService:
             permitir_vacio: Si es True, una selección vacía significa "dejar el año sin
                             temporadas" (borrado explícito). Si es False (por defecto),
                             una selección vacía se rechaza SIN tocar la BD.
+            token_esperado: Huella del estado que tenían las temporadas cuando se cargó la
+                            página (ver `token_estado`). Si se pasa y ya no coincide, el
+                            guardado se rechaza para no pisar el trabajo de otra persona.
 
         Returns:
             Tupla (éxito, mensaje)
@@ -117,6 +134,13 @@ class TemporadaService:
         if not dias_seleccionados and not permitir_vacio:
             logger.warning("No hay días seleccionados para guardar")
             return False, "No se seleccionaron días de temporada."
+
+        if token_esperado is not None and token_esperado != TemporadaService.token_estado(anio):
+            logger.warning(f"Guardado rechazado por edición concurrente en temporadas {anio}")
+            return False, (
+                f"Otra persona modificó las temporadas de {anio} mientras tenías esta página abierta. "
+                "Se recargaron los datos actuales: revisa el calendario y vuelve a aplicar tu cambio."
+            )
 
         # Guarda contra dos guardados simultáneos del mismo año (dos pestañas, doble-clic):
         # sin este lock la segunda escritura pisaría en silencio lo que la primera acababa de crear.

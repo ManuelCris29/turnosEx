@@ -21,6 +21,19 @@
         <h3><i class="fas fa-calendar-alt"></i> Configurar festivos y mantenimiento por año</h3>
       </div>
       <div class="pg-card-body">
+                    {% comment %}
+                    Sin esto los errores del guardado (edición concurrente, lock, año inválido)
+                    se encolan pero no se ven: el usuario cree que guardó.
+                    {% endcomment %}
+                    {% if messages %}{% for m in messages %}
+                    <div class="alert alert-{{ m.tags }} alert-dismissible fade show" role="alert">
+                        {{ m }}
+                        <button type="button" class="close" data-dismiss="alert" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    {% endfor %}{% endif %}
+
                     {% if tiene_dias %}
                     <div class="alert alert-warning alert-dismissible fade show" role="alert">
                         <i class="fas fa-exclamation-triangle"></i>
@@ -153,6 +166,11 @@
                         <input type="hidden" name="dias_seleccionados" id="id_dias_seleccionados" value="">
                         {# Marca el envío como "borrado explícito": sin él, el servidor rechaza una selección vacía. #}
                         <input type="hidden" name="limpiar_anio" id="id_limpiar_anio" value="">
+                        {% comment %}
+                        Estado del tipo/año al cargar la página: si cambió, el guardado se rechaza
+                        en vez de pisar lo que otra persona guardó mientras tanto.
+                        {% endcomment %}
+                        <input type="hidden" name="token_estado" value="{{ token_estado }}">
                         
                         <div class="row" id="calendarios-meses" style="margin-left: -7.5px; margin-right: -7.5px;">
                             {% for mes_data in meses_data %}

@@ -229,6 +229,230 @@ class AccesoVistasTest(TestCase):
             self.assertEqual(self.client.get(url).status_code, 200, url)
 
 
+class EdicionConcurrenteTest(TestCase):
+    """
+    Dos personas editando el mismo año no pueden pisarse en silencio.
+
+    Guardar un año es "borrar y recrear" a partir de lo que envía el navegador. Sin
+    protección, quien guarda segundo borra el día que acababa de añadir el primero,
+    porque su formulario se cargó antes de que existiera.
+    """
+
+    def setUp(self):
+        cache.clear()
+        DiaEspecialService.guardar_dias_especiales_anual('festivo', ANIO, {1: [1]})
+        cache.clear()
+
+    def test_el_token_cambia_cuando_cambia_el_anio(self):
+        antes = DiaEspecialService.token_estado('festivo', ANIO)
+
+        DiaEspecialService.guardar_dias_especiales_anual('festivo', ANIO, {1: [1], 3: [24]})
+
+        self.assertNotEqual(antes, DiaEspecialService.token_estado('festivo', ANIO))
+
+    def test_el_token_no_confunde_tipos_ni_anios(self):
+        self.assertNotEqual(DiaEspecialService.token_estado('festivo', ANIO),
+                            DiaEspecialService.token_estado('mantenimiento', ANIO))
+        self.assertNotEqual(DiaEspecialService.token_estado('festivo', ANIO),
+                            DiaEspecialService.token_estado('festivo', ANIO + 1))
+
+    def test_un_guardado_con_token_viejo_se_rechaza(self):
+        # A y B cargan la página: ambos se llevan el mismo token.
+        token_de_b = DiaEspecialService.token_estado('festivo', ANIO)
+
+        # A agrega el 24 de marzo y guarda.
+        exito_a, _ = DiaEspecialService.guardar_dias_especiales_anual(
+            'festivo', ANIO, {1: [1], 3: [24]},
+            token_esperado=token_de_b
+        )
+        self.assertTrue(exito_a)
+        cache.clear()
+
+        # B, que no vio ese cambio, guarda su versión: no debe borrar el 24 de marzo.
+        exito_b, mensaje = DiaEspecialService.guardar_dias_especiales_anual(
+            'festivo', ANIO, {1: [1], 7: [20]},
+            token_esperado=token_de_b
+        )
+
+        self.assertFalse(exito_b)
+        self.assertIn('Otra persona modificó', mensaje)
+        self.assertTrue(DiaEspecial.es_festivo(date(ANIO, 3, 24)),
+                        'el día que agregó A debe seguir ahí')
+        self.assertFalse(DiaEspecial.es_festivo(date(ANIO, 7, 20)),
+                         'el guardado rechazado no debe escribir nada')
+
+    def test_reintentar_con_el_token_fresco_funciona(self):
+        token_viejo = DiaEspecialService.token_estado('festivo', ANIO)
+        DiaEspecialService.guardar_dias_especiales_anual('festivo', ANIO, {1: [1], 3: [24]})
+        cache.clear()
+
+        rechazado, _ = DiaEspecialService.guardar_dias_especiales_anual(
+            'festivo', ANIO, {1: [1], 3: [24], 7: [20]}, token_esperado=token_viejo)
+        self.assertFalse(rechazado)
+        cache.clear()
+
+        # Al recargar la página el token es el actual y el guardado pasa.
+        exito, _ = DiaEspecialService.guardar_dias_especiales_anual(
+            'festivo', ANIO, {1: [1], 3: [24], 7: [20]},
+            token_esperado=DiaEspecialService.token_estado('festivo', ANIO))
+
+        self.assertTrue(exito)
+        self.assertTrue(DiaEspecial.es_festivo(date(ANIO, 7, 20)))
+
+    def test_sin_token_se_guarda_igual(self):
+        """Los llamadores internos (comandos, tests) no están obligados a pasarlo."""
+        exito, _ = DiaEspecialService.guardar_dias_especiales_anual('festivo', ANIO, {1: [1], 7: [20]})
+
+        self.assertTrue(exito)
+
+    def test_temporadas_tambien_estan_protegidas(self):
+        cache.clear()
+        TemporadaService.guardar_temporadas_anual(ANIO, {3: [3]})
+        token_viejo = TemporadaService.token_estado(ANIO)
+        cache.clear()
+        TemporadaService.guardar_temporadas_anual(ANIO, {3: [3], 4: [4]})
+        cache.clear()
+
+        exito, mensaje = TemporadaService.guardar_temporadas_anual(
+            ANIO, {3: [3], 5: [5]}, token_esperado=token_viejo)
+
+        self.assertFalse(exito)
+        self.assertIn('Otra persona modificó', mensaje)
+        self.assertTrue(DiaEspecial.es_temporada_en(date(ANIO, 4, 4)))
+
+
+class EdicionConcurrenteEnLaPaginaTest(TestCase):
+    """El token tiene que viajar de verdad: vista → campo oculto → POST → servicio."""
+
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_user('admin5', password='x', is_staff=True)
+        self.client.force_login(self.admin)
+        DiaEspecialService.guardar_dias_especiales_anual('festivo', ANIO, {1: [1]})
+        cache.clear()
+
+    def test_la_pagina_publica_el_token_actual(self):
+        respuesta = self.client.get(f'/turnos/dias-especiales/festivos-mantenimiento-anual/?tipo=festivo&anio={ANIO}')
+
+        token = DiaEspecialService.token_estado('festivo', ANIO)
+        self.assertEqual(respuesta.context['token_estado'], token)
+        self.assertIn(f'name="token_estado" value="{token}"', respuesta.content.decode())
+
+    def test_el_post_con_token_viejo_no_pisa_el_cambio_ajeno(self):
+        # B carga la página.
+        pagina_b = self.client.get(f'/turnos/dias-especiales/festivos-mantenimiento-anual/?tipo=festivo&anio={ANIO}')
+        token_de_b = pagina_b.context['token_estado']
+
+        # A guarda entretanto y agrega el 24 de marzo.
+        DiaEspecialService.guardar_dias_especiales_anual('festivo', ANIO, {1: [1], 3: [24]})
+        cache.clear()
+
+        # B envía su formulario, que no incluye el 24 de marzo.
+        respuesta = self.client.post('/turnos/dias-especiales/festivos-mantenimiento-anual/', {
+            'tipo': 'festivo',
+            'anio': ANIO,
+            'dias_seleccionados': '{"1": [1], "7": [20]}',
+            'token_estado': token_de_b,
+        }, follow=True)
+
+        self.assertTrue(DiaEspecial.es_festivo(date(ANIO, 3, 24)))
+        self.assertFalse(DiaEspecial.es_festivo(date(ANIO, 7, 20)))
+        self.assertContains(respuesta, 'Otra persona modificó')
+
+    def test_el_post_con_token_fresco_guarda(self):
+        pagina = self.client.get(f'/turnos/dias-especiales/festivos-mantenimiento-anual/?tipo=festivo&anio={ANIO}')
+
+        self.client.post('/turnos/dias-especiales/festivos-mantenimiento-anual/', {
+            'tipo': 'festivo',
+            'anio': ANIO,
+            'dias_seleccionados': '{"1": [1], "7": [20]}',
+            'token_estado': pagina.context['token_estado'],
+        })
+
+        self.assertTrue(DiaEspecial.es_festivo(date(ANIO, 7, 20)))
+
+    def test_temporadas_publican_su_propio_token(self):
+        respuesta = self.client.get(f'/turnos/dias-especiales/temporadas-anual/?anio={ANIO}')
+
+        self.assertEqual(respuesta.context['token_estado'], TemporadaService.token_estado(ANIO))
+
+
+class ListadoAdminSinAltasNiBajasTest(TestCase):
+    """
+    El listado admin solo consulta y edita: dar de baja un día desde una fila suelta,
+    sin ver el año, es como se borraban por error días ya trabajados.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_user('admin4', password='x', is_staff=True)
+        self.client.force_login(self.admin)
+        self.festivo = DiaEspecial.objects.create(fecha=date(ANIO, 1, 6), tipo='festivo')
+
+    def test_no_existe_ruta_de_baja(self):
+        from django.urls import NoReverseMatch, reverse
+
+        for nombre in ('dias_especiales_delete', 'dias_especiales_toggle_activo'):
+            with self.assertRaises(NoReverseMatch):
+                reverse(nombre, args=[self.festivo.pk])
+
+    def test_el_listado_no_ofrece_botones_de_baja(self):
+        respuesta = self.client.get(f'/turnos/dias-especiales-admin/?anio={ANIO}')
+        html = respuesta.content.decode()
+
+        # Sin la fila en pantalla las aserciones negativas pasarían en vacío.
+        self.assertIn(self.festivo, respuesta.context['dias_especiales'])
+        self.assertIn('Editar', html)
+        self.assertNotIn('toggle-activo', html)
+        self.assertNotIn('Eliminar', html)
+
+    def test_desactivar_sigue_siendo_posible_desde_la_edicion(self):
+        self.client.post(f'/turnos/dias-especiales-admin/edit/{self.festivo.pk}/', {
+            'fecha': self.festivo.fecha.isoformat(),
+            'tipo': 'festivo',
+            'descripcion': 'x',
+        })  # 'activo' ausente = checkbox desmarcado
+
+        self.festivo.refresh_from_db()
+        self.assertFalse(self.festivo.activo)
+        self.assertFalse(DiaEspecial.es_festivo(self.festivo.fecha))
+
+    def test_la_edicion_avisa_de_que_la_desactivacion_no_es_permanente(self):
+        html = self.client.get(f'/turnos/dias-especiales-admin/edit/{self.festivo.pk}/').content.decode()
+
+        self.assertIn('se eliminará definitivamente', html)
+
+
+class PlantillasSinComentariosFiltradosTest(TestCase):
+    """
+    Ninguna página puede escupir comentarios de plantilla al usuario.
+
+    `{# ... #}` en Django SOLO vale para una línea: si abarca varias, se renderiza como
+    texto. Pasó de verdad — se veían los comentarios en la tabla de días especiales.
+    """
+
+    def setUp(self):
+        cache.clear()
+        self.admin = User.objects.create_user('admin6', password='x', is_staff=True)
+        self.client.force_login(self.admin)
+        self.festivo = DiaEspecial.objects.create(fecha=date(ANIO, 1, 6), tipo='festivo')
+
+    def test_ninguna_pagina_muestra_marcas_de_comentario(self):
+        urls = (
+            f'/turnos/dias-especiales-admin/?anio={ANIO}',
+            f'/turnos/dias-especiales-admin/edit/{self.festivo.pk}/',
+            '/turnos/dias-especiales-admin/create/',
+            f'/turnos/dias-especiales/visualizar/?anio={ANIO}',
+            f'/turnos/dias-especiales/temporadas-anual/?anio={ANIO}',
+            f'/turnos/dias-especiales/festivos-mantenimiento-anual/?anio={ANIO}',
+            f'/turnos/dias-especiales/festivos-mantenimiento-anual/?tipo=mantenimiento&anio={ANIO}',
+        )
+        for url in urls:
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('{#', html, f'comentario de plantilla visible en {url}')
+            self.assertNotIn('{%', html, f'etiqueta de plantilla sin procesar en {url}')
+
+
 class AnioFueraDeRangoEnVistasTest(TestCase):
     """Un año imposible en la URL debe degradar al año por defecto, no reventar."""
 

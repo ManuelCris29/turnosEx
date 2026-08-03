@@ -28,7 +28,14 @@ class TemporadasAnualForm(forms.Form):
         widget=forms.HiddenInput(),
         required=False
     )
-    
+
+    # Huella del estado que tenía el año al cargar la página. El guardado la compara
+    # con la actual para no pisar en silencio lo que otra persona guardó entretanto.
+    token_estado = forms.CharField(
+        widget=forms.HiddenInput(),
+        required=False
+    )
+
     def clean_anio(self):
         """Valida que el año sea válido"""
         anio = self.cleaned_data.get('anio')
@@ -103,7 +110,14 @@ class DiasEspecialesAnualForm(forms.Form):
         widget=forms.HiddenInput(),
         required=False
     )
-    
+
+    # Huella del estado que tenía el año al cargar la página. El guardado la compara
+    # con la actual para no pisar en silencio lo que otra persona guardó entretanto.
+    token_estado = forms.CharField(
+        widget=forms.HiddenInput(),
+        required=False
+    )
+
     def clean_tipo(self):
         """Valida que el tipo sea válido"""
         tipo = self.cleaned_data.get('tipo')
