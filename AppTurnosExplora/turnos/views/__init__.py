@@ -1,7 +1,6 @@
 """Vistas de la app turnos (divididas por dominio)."""
 
 from .paginas import *  # noqa: F401,F403
-from .turno_crud import *  # noqa: F401,F403
 from .dia_especial import *  # noqa: F401,F403
 from .descanso_semana import *  # noqa: F401,F403
 from .apertura_anio import *  # noqa: F401,F403
@@ -12,10 +11,6 @@ __all__ = [
     "ConsolidadoHorasView",
     "DiasEspecialesView",
     "TurnosCalendarioView",
-    "TurnoListView",
-    "TurnoCreateView",
-    "TurnoUpdateView",
-    "TurnoDeleteView",
     "DiaEspecialListView",
     "DiaEspecialCreateView",
     "DiaEspecialUpdateView",
