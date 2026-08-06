@@ -8,7 +8,7 @@ from .views import (
     SancionListView, SancionCreateView, SancionUpdateView, SancionLevantarView,
     PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView, DeudasPendientesExploradorView,
     ChangePasswordView, RoleUpdateView, RoleDeleteView,
-    PDHVisualizarListView, SancionVisualizarListView, RestriccionVisualizarListView,
+    SancionVisualizarListView, RestriccionVisualizarListView,
     IndicadoresView, MisIndicadoresView,
 )
 
@@ -48,7 +48,6 @@ urlpatterns = [
     path('pdh/deudas-pendientes/', DeudasPendientesExploradorView.as_view(), name='pdh_deudas_pendientes'),
     path('pdh/edit/<int:pk>/', PDHUpdateView.as_view(), name='pdh_edit'),
     path('pdh/delete/<int:pk>/', PDHDeleteView.as_view(), name='pdh_delete'),
-    path('pdh/visualizar/', PDHVisualizarListView.as_view(), name='pdh_visualizar'),
     path('sanciones/visualizar/', SancionVisualizarListView.as_view(), name='sanciones_visualizar'),
     path('restricciones/visualizar/', RestriccionVisualizarListView.as_view(), name='restricciones_visualizar'),
     path('change-password/<int:user_id>/', ChangePasswordView.as_view(), name='change_password'),

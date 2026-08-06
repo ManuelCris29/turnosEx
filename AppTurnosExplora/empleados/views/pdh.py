@@ -200,28 +200,3 @@ class PDHDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
         return resp
 
 
-# Vistas solo visualización para Consultas Rápidas
-class PDHVisualizarListView(LoginRequiredMixin, ListView):
-    """Consulta: admin/supervisor ve todos los pagos; el explorador solo los suyos."""
-    model = PDH
-    template_name = 'empleados/pdh_visualizar_list.html'
-    context_object_name = 'pdhs'
-
-    def get_queryset(self):
-        from turnos.services.consolidado_horas_service import ConsolidadoHorasService
-        qs = (
-            PDH.objects.filter(tipo_registro='pago_horas')
-            .select_related('explorador', 'supervisor')
-            .order_by('-fecha', '-id')
-        )
-        user = self.request.user
-        if ConsolidadoHorasService.es_supervisor(user):
-            return qs
-        empleado = getattr(user, 'empleado', None)
-        return qs.filter(explorador=empleado) if empleado else qs.none()
-
-    def get_context_data(self, **kwargs):
-        from turnos.services.consolidado_horas_service import ConsolidadoHorasService
-        context = super().get_context_data(**kwargs)
-        context['es_supervisor'] = ConsolidadoHorasService.es_supervisor(self.request.user)
-        return context

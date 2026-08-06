@@ -59,7 +59,6 @@ from .pdh import (
     PDHCreateView,
     PDHUpdateView,
     PDHDeleteView,
-    PDHVisualizarListView,
 )
 
 __all__ = [
@@ -85,5 +84,5 @@ __all__ = [
     'IndicadoresView', 'MisIndicadoresView',
     # pdh
     'PDHListView', 'DeudasPendientesExploradorView', 'PDHCreateView', 'PDHUpdateView',
-    'PDHDeleteView', 'PDHVisualizarListView',
+    'PDHDeleteView',
 ]
