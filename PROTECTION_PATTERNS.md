@@ -1049,6 +1049,10 @@ Tres decisiones que no son obvias:
   incancelable de golpe todo lo anterior al mecanismo. **La dirección en que falla una guardia se
   elige por su coste, no por costumbre.**
 
+**Esta guardia solo cubre los días de LA solicitud que se cancela**, y ahí tiene un punto ciego: no
+ve lo que la reconciliación posterior rompe **fuera** de esos días. Ese es el patrón #33, y el
+comando `verificar_efecto_aplicado` es la auditoría que encuentra lo que se le escape.
+
 **Y no existe "forzar".** Ni el explorador ni el supervisor desde Gestión. Un bypass reintroduce
 exactamente el conflicto que la guardia evita, así que la solicitud se queda **aprobada y
 vigente** y el mensaje señala la salida real: **solicitar un cambio de turno nuevo**. Una guardia
@@ -1225,6 +1229,121 @@ habría dejado a los otros mostrando como sancionado a alguien que ya no lo est�
 
 ---
 
+### 33. **Al re-aplicar, el conjunto de días afectados se CIERRA antes de escribir** (Backend)
+**Qué es:** Restaurar un snapshot arrasa el día entero, así que después hay que re-materializar lo
+que sigue vigente ahí (#22). Pero **un re-aplicador no escribe solo el día por el que fue
+seleccionado**: escribe TODO su efecto. Antes de re-aplicar nada, el conjunto de pares
+`(persona, día)` se amplía con lo que esas re-aplicaciones van a escribir, hasta que deja de
+crecer. Solo entonces se re-aplica, todo de una vez y en orden de `fecha_resolucion`.
+
+**Por qué:** los días que un re-aplicador toca "de paso" quedaban fuera del conjunto, así que las
+solicitudes que vivían en ellos —**vigentes, y posteriores**— se borraban sin que nada avisara.
+
+El caso real (D FDS #584, agosto 2026): se cancela una D FDS que toca el 15/08 y el 08/08. La
+reconciliación re-aplica un CAMBIO DESCANSO cuya cesión cae el 15/08 — correcto—, pero ese
+re-aplicador **reescribe los dos findes completos** (sáb↔dom de cesión y de devolución), y de paso
+pisó el 09/08 y el 16/08, donde vivía una D FDS **aprobada después** y aún vigente. Como esos dos
+días nunca entraron en `afectados`, nadie la re-materializó: quedó aprobada, con su deuda viva y su
+mensaje visible en Mis Turnos ("Mariana trabaja por ti, pagarás el 16/08"), pero **sin un solo turno
+que la respaldara**. Los turnos decían justo lo contrario que las capas.
+
+**Ninguna guardia lo detecta**, y por eso es un patrón y no un bug puntual: la de integridad (#30)
+compara solo los días de la solicitud que se cancela, y la LIFO (#25) solo mira si hay algo más
+reciente sobre esos mismos días. La víctima está **fuera del radar de ambas**.
+
+**Dónde:** cualquier reconciliación o re-aplicación masiva posterior a un revert.
+
+**Implementación:**
+```python
+# Cierre ANTES de escribir: recorrido de grafo sobre pares (persona, día).
+for _ in range(MAX_VUELTAS_CIERRE):          # tope = red de seguridad, no límite de corrección
+    nuevos = set()
+    for s in _solicitudes_que_tocan(fechas, exploradores, excluir_id):
+        nuevos |= _pares_que_reescribe(s, fechas)   # lo que ESA solicitud va a escribir
+    if nuevos <= afectados:
+        return afectados                     # convergió: nadie aporta días nuevos
+    afectados |= nuevos                      # una vuelta más: puede haber descubierto solicitudes
+                                             # alcanzables solo por los días recién añadidos
+```
+
+Cuatro decisiones que no son obvias:
+
+- **Se cierra ANTES de aplicar, no en pasadas sucesivas de aplicación.** Si se aplicara en cada
+  vuelta, una solicitud descubierta en la vuelta 2 se escribiría después de una de la vuelta 1
+  aunque fuera **más antigua**, y ganaría el día quien no debe. Con el cierre primero, todas las
+  vigentes se re-aplican **una vez** y en orden global de `fecha_resolucion`: sigue ganando el día
+  la última aprobada, que es el principio del sistema.
+- **Se pregunta qué se va a escribir REALMENTE, no todas las fechas de la solicitud.** Añadir un día
+  que nadie va a tocar es igual de dañino por el otro lado: la reconciliación lo re-aplicaría y
+  pisaría cambios ajenos en un día que estaba bien. De ahí que `_pares_que_reescribe` distinga por
+  tipo: CAMBIO DESCANSO de finde → sus cuatro días; D FDS e intercambio → cesión **y** pago siempre;
+  DOBLADA normal → **solo** el lado que coincide; CT y permanentes → nada (sus `reaplicar_fechas`
+  ya vienen acotados a las fechas dadas y nunca escriben fuera).
+- **`_pares_que_reescribe` es ESPEJO del dispatch de la reconciliación.** Son dos listas de casos
+  por tipo que tienen que decir lo mismo. Si cambia lo que se re-aplica y no se cambia aquí, vuelve
+  la pérdida silenciosa. Van comentadas la una a la otra.
+- **UN solo orden global, no tres bloques.** Las candidatas viven en modelos distintos (`doblada`,
+  `doblada_permanente`, snapshot en la propia solicitud) y por eso se consultan por separado — pero
+  eso es un detalle de persistencia, **no un orden de aplicación**. Re-aplicarlas en tres bloques
+  consecutivos hacía que una doblada permanente aprobada en junio se re-materializara **después**
+  de una D FDS aprobada en julio y le ganara el día. Y la colisión es real: ceder un sábado que se
+  trabaja por una permanente es legítimo, así que dos solicitudes vigentes pueden reclamar el mismo
+  (persona, día); quien escribe última gana. Con el orden invertido, la persona volvía a trabajar el
+  día que había cedido **mientras su sustituto también lo tenía asignado**: dos personas en un
+  turno. Se juntan todas y se ordenan una sola vez por `fecha_resolucion`. *Regla general: cuando
+  varias fuentes escriben el mismo dato, el orden lo decide el negocio, nunca el modelo de datos.*
+- **El resultante solo se refresca a quien SÍ se re-aplicó.** `refrescar_resultantes` recorría todas
+  las vigentes que compartían un día con el conjunto afectado. Para las re-aplicadas es correcto
+  (su resultante es nuevo de verdad), pero para una que **no** se re-materializó es un desastre
+  silencioso: su efecto está roto y refrescar graba el estado ROTO como "lo que esta solicitud
+  dejó". Desde ese momento la discrepancia **deja de existir para el sistema**: `bloqueo_integridad`
+  no la ve y la auditoría dice que todo está bien. Pasó con la D FDS #554, cuyo resultante acabó
+  afirmando que había dejado un turno `CAMBIO DESCANSO` en el día que su dueño cedió — algo que una
+  D FDS no puede dejar jamás. *Un mecanismo que "pone al día" un valor de referencia solo debe
+  tocar lo que él mismo acaba de construir; si adopta lo que encuentra, deja de ser referencia.*
+- **Re-aplicar reconstruye TURNOS, no estados.** `CambioDescansoAplicacionService.aplicar` marcaba
+  como `reemplazada` la solicitud previa del día — correcto al aplicar de verdad, veneno al
+  reconstruir: convertía en reemplazada una solicitud vigente. La reconciliación la llama con
+  `marcar_reemplazos=False`. **Todo re-aplicador debe ser puro en turnos**; cualquier efecto
+  secundario (estados, deudas, notificaciones) va fuera.
+
+**El tope de vueltas.** La convergencia ya está garantizada por construcción (cada vuelta solo
+**añade** pares y el universo es finito), así que el tope no es lo que hace terminar el bucle: es
+protección contra un futuro `_pares_que_reescribe` no determinista o una cadena patológica. Sin él,
+el bucle colgaría **dentro de la transacción y con los locks de `bloquear_partes` tomados**,
+bloqueando las aprobaciones de todos — peor que un resultado incompleto. Al agotarse, se reconcilia
+con lo alcanzado y queda un `WARNING` con el id de la solicitud, que es la señal para investigar. El
+tope va holgado (8) porque las cadenas reales son de 2-3 saltos y una vuelta cuesta **dos consultas
+de solo lectura**: las escrituras ocurren una sola vez, después del cierre.
+
+**Corolario de auditoría:** que el sistema pueda perder el efecto de algo aprobado sin avisar es en
+sí mismo un agujero. `verificar_efecto_aplicado` compara el `snapshot_turnos_resultantes` de **toda**
+solicitud aprobada contra los turnos reales y lo repara vía reconciliación. Una guardia protege el
+momento; una auditoría encuentra lo que ya se escapó.
+
+Con un límite que conviene tener presente: **la auditoría se apoya en el resultante, así que un
+resultante ya corrompido la deja ciega**. El origen de esa corrupción está cerrado (el punto del
+refresco, arriba), pero lo grabado antes no se cura solo: por eso
+`verificar_efecto_aplicado --solicitud N --reparar` reconcilia esa solicitud **aunque no detecte
+nada**. Toda referencia que se compara contra la realidad necesita una vía de reparación que no
+dependa de esa misma referencia.
+
+**Estado:** ✅ **APLICADO** (2026-08-06)
+- `doblada_snapshot_service.py` - `_cerrar_afectados()`, `_solicitudes_que_tocan()`,
+  `_pares_que_reescribe()`, `MAX_VUELTAS_CIERRE`; llamado al entrar en
+  `reconciliar_dobladas_aprobadas()`
+- `doblada_snapshot_service.py` - `_candidatas_ordenadas()` + `_reaplicar_una()`: los tres bloques
+  de re-aplicación pasan a ser **una pasada ordenada**. Sustituyen a `_reconciliar_cambios_de_turno()`
+- `cambio_descanso_aplicacion_service.py` - `aplicar(..., marcar_reemplazos=True)`; la
+  reconciliación lo pasa en `False`
+- `solicitudes/management/commands/verificar_efecto_aplicado.py` - auditoría y `--reparar`
+- Tests: `solicitudes/tests/test_reconciliacion_colateral.py` (8 tests: la regresión, el cierre, el
+  no-reemplazo, que la DOBLADA normal **no** arrastre su otro lado, y que una permanente antigua no
+  le gane el día a una D FDS reciente). Los tres que cubren un fallo real se verificaron **en rojo
+  primero**, desactivando el arreglo
+
+---
+
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
 
 Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
@@ -1382,6 +1501,15 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | El contador de reincidencias excluye las sanciones levantadas | #32 | Pagar agravaba la siguiente sanción (30 días en vez de 15): la levantada cumplía el filtro `fecha_fin < hoy` |
 | | `vigentes_en()` como filtro único de sanción vigente (4 consumidores) | #32 | El criterio estaba reescrito a mano en el reporte del día, Mis Turnos, el listado y el servicio de deuda |
 | | El intercambio se guarda con `tipo_cesion='cesion_completa'` (normalizado al crear) | #29 | El formulario arrastraba `cesion_parcial_am`, que contradice lo que `aplicar_intercambio` hace de verdad |
+| **2026-08-06** | Agregado patrón #33 (la reconciliación cierra los días colaterales antes de re-aplicar) | #33 (nuevo), #22, #30 | Cancelar la D FDS #584 (15/08 + 08/08) re-aplicaba un CAMBIO DESCANSO de finde que reescribe los dos findes completos, y borró la D FDS #554 —aprobada después y vigente— del 09/08 y 16/08. Ninguna guardia lo veía: quedó aprobada, con deuda viva y mensaje en Mis Turnos, sin un turno que la respaldara |
+| | Re-aplicar un CAMBIO DESCANSO ya no marca reemplazos (`marcar_reemplazos=False`) | #33 | La reconciliación convertía en 'reemplazada' una solicitud vigente: un re-aplicador debe ser puro en turnos |
+| | Nuevo comando `verificar_efecto_aplicado` (auditoría + `--reparar`) | #33, #30 | Una guardia protege el momento; hacía falta encontrar lo que ya se escapó. Detectó y reparó la #554 |
+| | La reconciliación re-aplica en UNA pasada ordenada por `fecha_resolucion`, no en tres bloques por modelo | #33 | Una doblada permanente aprobada en junio se re-materializaba después de una D FDS aprobada en julio y le ganaba el día cedido: la persona volvía a trabajarlo mientras su sustituto también lo tenía asignado |
+| | `refrescar_resultantes` solo refresca las solicitudes que la reconciliación acaba de re-aplicar | #33, #30 | Refrescaba a toda vigente que compartiera un día: si su efecto estaba roto, grababa el estado roto como propio y cegaba a la guardia de integridad Y a la auditoría (la #554 llegó a afirmar que una D FDS había dejado un turno `CAMBIO DESCANSO`) |
+| | `verificar_efecto_aplicado --solicitud N --reparar` repara aunque no detecte desajuste | #33 | Un resultante ya corrompido vuelve invisible el daño; la reparación no puede depender de la misma referencia que está mal |
+| | En Mis Turnos, un día de FINDE trabajado dice `DÍA COMPLETO (AM + PM)`, no `DOBLADA` | — | En finde el día es AM+PM por definición: "doblada" afirmaba un esfuerzo extra inexistente, con deuda de 30 min asociada en la cabeza del explorador. Mismo vocabulario que el formulario de D FDS |
+| | El detalle del día nombra el acuerdo real, el compañero y el papel de cada uno | — | Decía "Cambio de turno" para todos los tipos, y la rama que explicaba bien el caso era inalcanzable en findes por comparar `'DESCANSO'` contra el `'Descanso'` que devuelve `calcular_jornada_dia`. Además el compañero no se resolvía en un CAMBIO DESCANSO de finde (geometría distinta: el receptor trabaja la cesión, el solicitante los días opuestos) ni en una D FDS |
+| | El formulario de D FDS deja de etiquetar los días con la alternancia teórica | — | Un día trabajado completo (AM+PM) salía como "AM" mientras Mis Turnos lo mostraba DOBLADA; y los textos hablaban de "doblarse" cuando las reglas 8/9 exigen que ambos tengan el día libre (por eso no hay 30 min) |
 | | #29: la reconciliación post-revert despacha el intercambio a `aplicar_intercambio` (igual en `reaplicar_doblada`) | #29 | Al cancelar otra doblada, el swap vigente se re-aplicaba como cesión/pago y cada uno perdía su DOBLADA |
 | | #29: el reparto de la fecha de PAGO se lee de `jornada_pago_sabado`/`jornada_cubre_en_pago`, no de `tipo_cesion` | #29 | `tipo_cesion` describe la cesión: en una parcial el acreedor queda libre el día COMPLETO y se atribuía medio (arley 26/08/2026) |
 | | #29: atribución del tercer día, `fecha_pago_semana` (pago en sábado AMBAS) | #29 | Ese día lo muta `aplicar_pago_residual_semana` y no lo cubría ninguna rama: quedaba sin motivo |
