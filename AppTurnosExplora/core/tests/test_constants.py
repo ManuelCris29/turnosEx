@@ -56,6 +56,13 @@ class CoherenciaConLosModelosTest(TestCase):
         campo = SolicitudCambio._meta.get_field('estado')
         self.assertEqual(list(campo.choices), EstadoSolicitud.CHOICES)
 
+    def test_tipo_cambio_turno_coincide_con_los_choices_del_modelo(self):
+        from turnos.models import Turno, TurnoArchivo
+        for modelo in (Turno, TurnoArchivo):
+            with self.subTest(modelo=modelo.__name__):
+                campo = modelo._meta.get_field('tipo_cambio')
+                self.assertEqual(list(campo.choices), TipoCambioTurno.CHOICES)
+
     def test_el_factory_resuelve_una_estrategia_para_cada_tipo(self):
         """
         `SolicitudFactory` despacha leyendo la maestra en runtime. Un `nombre` que

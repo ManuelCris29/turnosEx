@@ -2,6 +2,8 @@ from django.db import models
 from empleados.models import Empleado, Jornada, Sala, CompetenciaEmpleado, RestriccionEmpleado, SancionEmpleado
 from simple_history.models import HistoricalRecords
 
+from core.constants import TipoCambioTurno
+
 
 class AsignarJornadaExplorador(models.Model):
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
@@ -39,7 +41,13 @@ class Turno(models.Model):
     fecha= models.DateField()
     jornada= models.ForeignKey(Jornada, on_delete=models.PROTECT)
     sala= models.ForeignKey(Sala, on_delete=models.CASCADE)
-    tipo_cambio= models.CharField(max_length=50, null=True, blank=True)
+    # De dónde viene este turno. NULL = turno normal, sin cambio de por medio.
+    # Los `choices` documentan y validan en formularios/admin, pero Django solo los
+    # comprueba en `full_clean()`: la garantía real de que no entre un valor inventado
+    # es la CheckConstraint de más abajo. Ver `core.constants` para por qué este
+    # vocabulario NO es el mismo que el de `TipoSolicitudCambio.nombre`.
+    tipo_cambio= models.CharField(max_length=50, null=True, blank=True,
+                                  choices=TipoCambioTurno.CHOICES)
     # Soft-delete auditable: un turno anulado NO se borra físicamente (queda para el
     # historial/estadística), pero no cuenta como turno activo (ni como falta, ni genera deuda).
     anulado = models.BooleanField(default=False)
@@ -72,6 +80,17 @@ class Turno(models.Model):
             models.UniqueConstraint(
                 fields=['explorador', 'fecha', 'jornada', 'activo_key'],
                 name='turno_unico_activo_por_jornada',
+            ),
+            # `tipo_cambio` fue un CharField(50) libre durante toda la vida del proyecto: en esa
+            # única columna llegaron a convivir el `nombre` de la maestra ('DOBLADA'), su
+            # `codigo_estrategia` ('CT'), una abreviatura propia ('DOBLADA PERM') y valores sin
+            # tipo de solicitud ('PAGO REPROGRAMADO', 'PERMISO'). Nada validaba lo que se
+            # escribía, así que un typo entraba en silencio y solo se notaba cuando el turno
+            # dejaba de contarse en los filtros que buscan el texto exacto.
+            models.CheckConstraint(
+                condition=models.Q(tipo_cambio__isnull=True)
+                | models.Q(tipo_cambio__in=TipoCambioTurno.TODOS),
+                name='turno_tipo_cambio_valido',
             ),
         ]
         ordering = ['fecha', 'explorador']
@@ -196,7 +215,10 @@ class TurnoArchivo(models.Model):
     fecha = models.DateField()
     jornada = models.ForeignKey(Jornada, on_delete=models.PROTECT)
     sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
-    tipo_cambio = models.CharField(max_length=50, null=True, blank=True)
+    # Espejo del campo en `Turno` (ver allí). Sin CheckConstraint a propósito: esta tabla es
+    # historial y solo recibe copias de filas que ya pasaron la validación del original.
+    tipo_cambio = models.CharField(max_length=50, null=True, blank=True,
+                                   choices=TipoCambioTurno.CHOICES)
     fecha_archivado = models.DateTimeField(auto_now_add=True)
     # Mantener referencia al ID original para trazabilidad
     turno_original_id = models.IntegerField(null=True, blank=True, help_text='ID del turno original antes de archivar')

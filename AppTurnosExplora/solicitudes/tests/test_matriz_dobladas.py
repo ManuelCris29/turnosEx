@@ -28,6 +28,7 @@ from solicitudes.models import TipoSolicitudCambio, SolicitudCambio, DobladaDeta
 from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from django.utils import timezone
+from core.constants import TipoCambioTurno
 
 
 # ---------------------------------------------------------------------------
@@ -138,20 +139,31 @@ class MatrizDobladasTestCase(TestCase):
             fecha_inicio=desde or date(2026, 1, 1)
         )
 
-    def _crear_turno(self, empleado, fecha, jornada):
-        """Crea un Turno específico para la fecha."""
+    def _crear_turno(self, empleado, fecha, jornada, tipo_cambio=None):
+        """Crea un Turno específico para la fecha.
+
+        Por defecto `tipo_cambio=None`: turno normal, el estado de partida sobre el
+        que después se aplica la doblada. Antes ponía 'TEST', un marcador inventado
+        que no existe en el dominio y que hacía que estos turnos base contaran como
+        "turno con un cambio aplicado" en los filtros que excluyen `tipo_cambio`
+        nulo o vacío.
+        """
         return Turno.objects.create(
             explorador=empleado,
             fecha=fecha,
             jornada=jornada,
             sala=self.sala,
-            tipo_cambio='TEST'
+            tipo_cambio=tipo_cambio
         )
 
     def _crear_doblada_turnos(self, empleado, fecha):
-        """Crea AM + PM para simular estado DOBLADA."""
-        self._crear_turno(empleado, fecha, self.jornada_am)
-        self._crear_turno(empleado, fecha, self.jornada_pm)
+        """Crea AM + PM para simular estado DOBLADA.
+
+        Marcados como DOBLADA a propósito: la validación del intercambio no cuenta
+        dos turnos sueltos como una doblada, exige que vengan de una.
+        """
+        self._crear_turno(empleado, fecha, self.jornada_am, TipoCambioTurno.DOBLADA)
+        self._crear_turno(empleado, fecha, self.jornada_pm, TipoCambioTurno.DOBLADA)
 
     def _limpiar_turnos(self, empleado, fecha):
         """Elimina todos los turnos del empleado en esa fecha."""

@@ -92,3 +92,53 @@ class AsignarJornadaExploradorModelTest(TestCase):
         self.assertEqual(self.asignacion.jornada, self.jornada)
 
 
+
+
+class TurnoTipoCambioConstraintTest(TestCase):
+    """
+    La CheckConstraint `turno_tipo_cambio_valido` es la unica garantia real de que
+    no entre un valor inventado en `Turno.tipo_cambio`: los `choices` de Django
+    solo se comprueban en `full_clean()`, y ningun servicio del proyecto lo llama
+    antes de guardar.
+    """
+
+    def setUp(self):
+        self.jornada = Jornada.objects.create(
+            nombre='AM', hora_inicio='06:00:00', hora_fin='14:00:00')
+        self.sala = Sala.objects.create(nombre='Sala Test', activo=True)
+        user = User.objects.create_user(username='tc_test', password='test123')
+        self.empleado = Empleado.objects.create(
+            user=user, nombre='Test', apellido='User', cedula='9876543210', activo=True)
+
+    def _crear(self, tipo_cambio, dia_offset=0):
+        return Turno.objects.create(
+            explorador=self.empleado, jornada=self.jornada, sala=self.sala,
+            fecha=timezone.localdate() + timedelta(days=dia_offset),
+            tipo_cambio=tipo_cambio,
+        )
+
+    def test_acepta_todos_los_valores_del_vocabulario(self):
+        from core.constants import TipoCambioTurno
+        for i, valor in enumerate(TipoCambioTurno.TODOS):
+            with self.subTest(tipo_cambio=valor):
+                self.assertIsNotNone(self._crear(valor, dia_offset=i).id)
+
+    def test_acepta_null(self):
+        """Un turno normal, sin cambio de por medio."""
+        self.assertIsNotNone(self._crear(None, dia_offset=50).id)
+
+    def test_rechaza_un_valor_inventado(self):
+        from django.db import IntegrityError, transaction
+        # 'DOBLADA PERMANENTE' es el `nombre` de la maestra; en Turno se escribe
+        # 'DOBLADA PERM'. Confundirlos era exactamente el fallo silencioso de antes.
+        #
+        # No se prueba con 'doblada' en minuscula: la colacion por defecto de MySQL
+        # es case-insensitive, asi que la constraint lo acepta como 'DOBLADA'. Los
+        # filtros del ORM comparan con esa misma colacion y tampoco lo notarian; lo
+        # que si distinguiria mayusculas es un `t.tipo_cambio == 'DOBLADA'` en
+        # Python. La constraint no cubre ese caso.
+        for invalido in ('DOBLADA PERMANENTE', 'CAMBIO TURNO', 'TYPO', 'DOBLADA PERMA'):
+            with self.subTest(tipo_cambio=invalido):
+                with self.assertRaises(IntegrityError):
+                    with transaction.atomic():
+                        self._crear(invalido, dia_offset=60)

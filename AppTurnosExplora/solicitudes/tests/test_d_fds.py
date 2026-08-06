@@ -514,7 +514,7 @@ class DFDSElegibilidadPorEstadoRealTest(DFDSBaseTest):
         candidato = self._nuevo_empleado('media.fds', '666', self.am)
         # Media jornada real (solo AM) el otro día del finde, por un cambio previo.
         Turno.objects.create(explorador=candidato, fecha=otro, jornada=self.am,
-                             sala=self.sala, tipo_cambio='CAMBIO TURNO')
+                             sala=self.sala, tipo_cambio='CT')
         disp, motivo = self.strat.disponibilidad_companero(candidato, self.ces)
         self.assertFalse(disp)
         self.assertIn('media jornada', motivo)

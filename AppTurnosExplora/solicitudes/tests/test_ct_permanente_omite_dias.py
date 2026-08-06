@@ -155,7 +155,7 @@ class CTPermanenteOmiteDiasTest(TestCase):
     # --- turno real que cambia la jornada (CT sencillo) → cambio previo ------
     def test_cambio_previo_se_omite(self):
         m = self._martes()[0]
-        Turno.objects.create(explorador=self.rec, fecha=m, jornada=self.am, sala=self.sala, tipo_cambio='CAMBIO TURNO')
+        Turno.objects.create(explorador=self.rec, fecha=m, jornada=self.am, sala=self.sala, tipo_cambio='CT')
         self.assertNotIn(m, self._aplicables(), 'un día ya cambiado no está en jornada predeterminada')
         self.assertEqual(self._razon(m), 'Cambio Previo Receptor')
 
