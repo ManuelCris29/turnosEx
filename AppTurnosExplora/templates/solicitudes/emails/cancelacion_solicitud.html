@@ -35,7 +35,9 @@
                     <li><strong>Solicitante:</strong> {{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</li>
                     <li><strong>Tipo de Solicitud:</strong> {{ solicitud.tipo_cambio.nombre }}</li>
                     <li><strong>Fecha de Solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</li>
-                    <li><strong>Fecha de Cancelación:</strong> {{ solicitud.fecha_resolucion|date:"d/m/Y H:i" }}</li>
+                    {# `fecha_resolucion` es la hora de APROBACIÓN y no se sobrescribe al cancelar:
+                       ponerla aquí informaba una hora hasta 30 minutos anterior a la real. #}
+                    <li><strong>Fecha de Cancelación:</strong> {{ solicitud.fecha_cancelacion|date:"d/m/Y H:i"|default:"—" }}</li>
                     {% if solicitud.comentario %}
                     <li><strong>Comentario Original:</strong> {{ solicitud.comentario }}</li>
                     {% endif %}

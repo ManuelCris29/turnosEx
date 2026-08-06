@@ -89,6 +89,9 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 'estado': solicitud.estado,
                 'comentario': solicitud.comentario or 'Sin comentario',
                 'fecha_resolucion': DateUtils.format_datetime_display(solicitud.fecha_resolucion),
+                # Hora REAL de la cancelación. No es la de resolución: esa es la de la aprobación y
+                # se conserva (de ella dependen la ventana de 30 min y la guardia LIFO).
+                'fecha_cancelacion': DateUtils.format_datetime_display(solicitud.fecha_cancelacion),
                 'solicitante': {
                     'id': solicitud.explorador_solicitante.id,
                     'nombre': f"{solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido}",

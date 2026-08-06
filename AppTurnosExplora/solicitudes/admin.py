@@ -85,7 +85,8 @@ class SolicitudCambioAdmin(admin.ModelAdmin):
         'comentario'
     ]
     date_hierarchy = 'fecha_solicitud'
-    readonly_fields = ['fecha_solicitud', 'fecha_resolucion']
+    # Las tres marcas de tiempo son un registro de auditoría: se muestran, no se editan.
+    readonly_fields = ['fecha_solicitud', 'fecha_resolucion', 'fecha_cancelacion']
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related(

@@ -148,7 +148,21 @@ class SolicitudCambio(models.Model):
     )
     fecha_solicitud = models.DateTimeField(auto_now_add=True)
     fecha_cambio_turno = models.DateField(null=True, blank=True, help_text='Fecha para la cual se solicita el cambio de turno')
-    fecha_resolucion = models.DateTimeField(null=True, blank=True)
+    fecha_resolucion = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Instante en que la solicitud quedó RESUELTA (aprobada o rechazada). De este '
+                  'campo dependen la ventana de cancelación de 30 min y el orden de la guardia '
+                  'LIFO, así que NO se sobrescribe al cancelar: para eso está fecha_cancelacion.'
+    )
+    # Antes la cancelación no dejaba hora en ninguna parte: `fecha_resolucion` conservaba la de la
+    # aprobación y el email de cancelación la mostraba rotulada como "Fecha de Cancelación", así que
+    # informaba una hora anterior a la real (hasta 30 min antes, el tamaño de la ventana). El único
+    # rastro del instante verdadero quedaba de rebote en la notificación generada.
+    fecha_cancelacion = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Instante en que se canceló la solicitud (por el explorador dentro de su ventana '
+                  'de 30 min, o por gestión). Null si nunca se canceló.'
+    )
     comentario = models.TextField(null=True, blank=True)
     aprobado_receptor = models.BooleanField(default=False)
     fecha_aprobacion_receptor = models.DateTimeField(null=True, blank=True)

@@ -62,7 +62,9 @@ class CancelarSolicitudUseCase:
 
                 if solicitud.estado == 'pendiente':
                     transicionar(solicitud, 'cancelada', save=False)
+                    # Una pendiente se resuelve Y se cancela en el mismo instante.
                     solicitud.fecha_resolucion = timezone.now()
+                    solicitud.fecha_cancelacion = solicitud.fecha_resolucion
                     solicitud.comentario = f"{solicitud.comentario or ''}\n\nCancelada por el solicitante"
                     solicitud.save()
                     return True, 'Solicitud cancelada correctamente'
@@ -134,6 +136,7 @@ class CancelarSolicitudUseCase:
                 if solicitud.estado == 'pendiente':
                     transicionar(solicitud, 'cancelada', save=False)
                     solicitud.fecha_resolucion = timezone.now()
+                    solicitud.fecha_cancelacion = solicitud.fecha_resolucion
                     solicitud.comentario = f"{solicitud.comentario or ''}{nota}"
                     solicitud.save()
                     return True, 'Solicitud cancelada.'
@@ -167,6 +170,7 @@ class CancelarSolicitudUseCase:
                         )
                     # Todo ocurrió ya: se cierra el registro sin tocar el historial de turnos.
                     transicionar(solicitud, 'cancelada', save=False)
+                    solicitud.fecha_cancelacion = timezone.now()
                     solicitud.comentario = (
                         f"{solicitud.comentario or ''}{nota} Los días ya transcurridos "
                         f"se conservan tal cual (no se reescribe el historial)."
@@ -191,6 +195,7 @@ class CancelarSolicitudUseCase:
                     solicitud.turno_destino = None
 
                 transicionar(solicitud, 'cancelada', save=False)
+                solicitud.fecha_cancelacion = timezone.now()
                 solicitud.comentario = f"{solicitud.comentario or ''}{nota}"
                 solicitud.save()
                 return True, 'Solicitud cancelada y turnos restaurados.'
@@ -236,6 +241,9 @@ class CancelarSolicitudUseCase:
             solicitud.turno_destino = None
 
         transicionar(solicitud, 'cancelada', save=False)
+        # `fecha_resolucion` se queda con la hora de APROBACIÓN (la ventana de 30 min y la guardia
+        # LIFO se miden desde ahí); la hora de la cancelación va en su propio campo.
+        solicitud.fecha_cancelacion = timezone.now()
         solicitud.comentario = (
             f"{solicitud.comentario or ''}\n\n"
             f"Cancelada por el solicitante dentro de la ventana de {VENTANA_CANCELACION_MINUTOS} minutos."

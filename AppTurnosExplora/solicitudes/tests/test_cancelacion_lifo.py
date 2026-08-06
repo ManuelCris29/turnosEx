@@ -79,6 +79,29 @@ class CancelacionLIFOTest(TestCase):
         resp = CancelarSolicitudView.as_view()(req, solicitud_id=solicitud.id)
         return resp.status_code, json.loads(resp.content)
 
+    def test_la_cancelacion_registra_su_propia_hora(self):
+        """
+        Cancelar debe dejar la hora REAL de la cancelación, y no puede pisar la de aprobación.
+
+        Antes no se guardaba en ninguna parte: `fecha_resolucion` conservaba la hora de la
+        aprobación y el correo de cancelación la mostraba rotulada como "Fecha de Cancelación",
+        así que informaba una hora hasta 30 minutos anterior a la real (el tamaño de la ventana).
+        Y `fecha_resolucion` no se puede reutilizar: de ella se miden la ventana de 30 minutos y el
+        orden de la guardia LIFO.
+        """
+        aprobacion = self.B.fecha_resolucion
+        antes = timezone.now()
+
+        code, body = self._cancelar(self.B, self.mariana)
+        self.assertEqual(code, 200, body)
+
+        self.B.refresh_from_db()
+        self.assertIsNotNone(self.B.fecha_cancelacion, 'la cancelación no dejó hora')
+        self.assertGreaterEqual(self.B.fecha_cancelacion, antes)
+        self.assertEqual(self.B.fecha_resolucion, aprobacion,
+                         'la hora de aprobación no puede sobrescribirse: de ella dependen la '
+                         'ventana de 30 minutos y la guardia LIFO')
+
     def test_lifo(self):
         # Cancelar A (el viejo) → bloqueado por existir B más reciente sobre Mariana en X.
         code, body = self._cancelar(self.A, self.mariana)
