@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView
+from django.views.generic import TemplateView, ListView, UpdateView
 from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
@@ -74,12 +74,6 @@ class DiaEspecialListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
         params.pop('page', None)
         context['query_params'] = params.urlencode()
         return context
-
-class DiaEspecialCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
-    model = DiaEspecial
-    template_name = 'turnos/diasespeciales_create.html'
-    fields = ['fecha', 'tipo', 'descripcion', 'recurrente', 'activo']
-    success_url = '/turnos/dias-especiales-admin/'
 
 class DiaEspecialUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     model = DiaEspecial

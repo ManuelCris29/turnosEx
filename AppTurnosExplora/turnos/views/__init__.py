@@ -12,7 +12,6 @@ __all__ = [
     "DiasEspecialesView",
     "TurnosCalendarioView",
     "DiaEspecialListView",
-    "DiaEspecialCreateView",
     "DiaEspecialUpdateView",
     "DiaEspecialVisualizarListView",
     "DiaEspecialTemporadasAnualView",

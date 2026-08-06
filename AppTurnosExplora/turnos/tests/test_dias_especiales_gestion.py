@@ -441,7 +441,6 @@ class PlantillasSinComentariosFiltradosTest(TestCase):
         urls = (
             f'/turnos/dias-especiales-admin/?anio={ANIO}',
             f'/turnos/dias-especiales-admin/edit/{self.festivo.pk}/',
-            '/turnos/dias-especiales-admin/create/',
             f'/turnos/dias-especiales/visualizar/?anio={ANIO}',
             f'/turnos/dias-especiales/temporadas-anual/?anio={ANIO}',
             f'/turnos/dias-especiales/festivos-mantenimiento-anual/?anio={ANIO}',

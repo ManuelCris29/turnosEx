@@ -2,7 +2,7 @@ from django.urls import path, include
 from .views import (
     MisTurnosView, CambiosTurnoView, ConsolidadoHorasView, DiasEspecialesView,
     TurnosCalendarioView,
-    DiaEspecialListView, DiaEspecialCreateView, DiaEspecialUpdateView,
+    DiaEspecialListView, DiaEspecialUpdateView,
     DiaEspecialVisualizarListView, DiaEspecialTemporadasAnualView, DiaEspecialFestivosMantenimientoAnualView,
     DescansoSemanaListView, DescansoSemanaCreateView, DescansoSemanaUpdateView, DescansoSemanaDeleteView,
     DescansoSemanaAnualView, AsignacionEspecialAnualView, AsignacionEspecialSiembraView,
@@ -18,7 +18,6 @@ urlpatterns = [
     path('dias-especiales/temporadas-anual/', DiaEspecialTemporadasAnualView.as_view(), name='dias_especiales_temporadas_anual'),
     path('dias-especiales/festivos-mantenimiento-anual/', DiaEspecialFestivosMantenimientoAnualView.as_view(), name='dias_especiales_festivos_mantenimiento_anual'),
     path('dias-especiales-admin/', DiaEspecialListView.as_view(), name='dias_especiales_list'),
-    path('dias-especiales-admin/create/', DiaEspecialCreateView.as_view(), name='dias_especiales_create'),
     path('dias-especiales-admin/edit/<int:pk>/', DiaEspecialUpdateView.as_view(), name='dias_especiales_edit'),
     # No hay ruta de baja: las altas y bajas se hacen desde las páginas anuales, que ven
     # el año completo y protegen contra ediciones concurrentes.
