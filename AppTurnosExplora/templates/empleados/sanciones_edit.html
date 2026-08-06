@@ -27,8 +27,10 @@
             {% for e in form.explorador.errors %}<div class="text-danger small">{{ e }}</div>{% endfor %}
           </div>
           <div class="form-group">
-            {# No es <label>: no hay control detrás, solo el nombre en texto. Un <label>
-               sin control hace que el lector de pantalla anuncie un campo inexistente. #}
+            {% comment %}
+              No es <label>: no hay control detrás, solo el nombre en texto. Un <label>
+              sin control hace que el lector de pantalla anuncie un campo inexistente.
+            {% endcomment %}
             <span class="d-block font-weight-bold"><i class="fas fa-user-shield mr-1"></i> Supervisor</span>
             <p class="form-control-plaintext mb-0">
               {{ supervisor_actual.nombre }} {{ supervisor_actual.apellido }}
