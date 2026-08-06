@@ -16,6 +16,7 @@ from .doblada_snapshot_service import DobladaSnapshotService
 from .doblada_deuda_service import DobladaDeudaService
 from .doblada_pago_service import DobladaPagoService
 from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
+from core.constants import TipoCambioTurno
 from datetime import date, timedelta
 import logging
 
@@ -210,7 +211,7 @@ class DobladaAplicacionService:
             jornadas_receptor = DobladaTurnoService.obtener_jornadas_en_fecha(receptor, fecha_cesion)
             if jornada_cedida_nombre not in jornadas_receptor:
                 DobladaTurnoService.agregar_jornada_a_doblada(
-                    receptor, fecha_cesion, jornada_cedida_obj, 'DOBLADA'
+                    receptor, fecha_cesion, jornada_cedida_obj, TipoCambioTurno.DOBLADA
                 )
         else:
             # El receptor no tiene turno con su jornada base en esta fecha.
@@ -233,7 +234,7 @@ class DobladaAplicacionService:
                     fecha=fecha_cesion,
                     jornada=jornada_cedida_obj,
                     sala=sala_receptor,
-                    tipo_cambio='DOBLADA'
+                    tipo_cambio=TipoCambioTurno.DOBLADA
                 )
                 logger.info(
                     f"Doblada cesión: receptor {receptor.nombre} estaba LIBRE; cubre solo "
@@ -241,7 +242,7 @@ class DobladaAplicacionService:
                 )
             else:
                 DobladaTurnoService.crear_doblada_completa(
-                    receptor, fecha_cesion, jornada_receptor, jornada_cedida_obj, 'DOBLADA'
+                    receptor, fecha_cesion, jornada_receptor, jornada_cedida_obj, TipoCambioTurno.DOBLADA
                 )
         
         # Solicitante: Eliminar turnos según tipo de cesión
@@ -264,7 +265,7 @@ class DobladaAplicacionService:
                     fecha=fecha_cesion,
                     jornada=jornada_otra_obj,
                     sala=sala_sol,
-                    tipo_cambio="DOBLADA"
+                    tipo_cambio=TipoCambioTurno.DOBLADA
                 )
             logger.info(
                 f"Doblada cesión parcial AM aplicada: Receptor {receptor.nombre} dobla en {fecha_cesion}, "
@@ -288,7 +289,7 @@ class DobladaAplicacionService:
                     fecha=fecha_cesion,
                     jornada=jornada_otra_obj,
                     sala=sala_sol,
-                    tipo_cambio="DOBLADA"
+                    tipo_cambio=TipoCambioTurno.DOBLADA
                 )
             logger.info(
                 f"Doblada cesión parcial PM aplicada: Receptor {receptor.nombre} dobla en {fecha_cesion}, "
@@ -366,7 +367,7 @@ class DobladaAplicacionService:
             for jn in ('AM', 'PM'):
                 Turno.objects.create(
                     explorador=empleado, fecha=fecha,
-                    jornada=jornadas_cache[jn], sala=sala, tipo_cambio='DOBLADA',
+                    jornada=jornadas_cache[jn], sala=sala, tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
 
         # Día A: el receptor asume tu doblada (misma sala); tú descansas.
@@ -410,7 +411,8 @@ class DobladaAplicacionService:
 
         turnos = list(Turno.objects.filter(
             explorador=explorador, fecha=fecha,
-            tipo_cambio__in=['DOBLADA', 'D FDS', 'DOBLADA PERM', 'PAGO REPROGRAMADO']
+            tipo_cambio__in=[TipoCambioTurno.DOBLADA, TipoCambioTurno.D_FDS,
+                             TipoCambioTurno.DOBLADA_PERM, TipoCambioTurno.PAGO_REPROGRAMADO]
         ))
         for t in turnos:
             t.anulado = True
@@ -490,7 +492,7 @@ class DobladaAplicacionService:
             los turnos DOBLADA, NO se recrea ningún turno base: crear un turno suelto dejaría
             media jornada donde por rotación corresponde doblada o descanso.
             """
-            Turno.objects.filter(explorador=empleado, fecha=fecha, tipo_cambio='DOBLADA').delete()
+            Turno.objects.filter(explorador=empleado, fecha=fecha, tipo_cambio=TipoCambioTurno.DOBLADA).delete()
 
             from solicitudes.services.solicitud_validator import SolicitudValidator as _SVfv
             if _SVfv.es_festivo_semana(fecha):

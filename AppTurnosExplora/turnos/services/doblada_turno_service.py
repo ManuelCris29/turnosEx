@@ -10,6 +10,7 @@ from django.db import transaction
 from turnos.models import Turno, Jornada, Sala
 from empleados.models import Empleado
 from turnos.services.turno_service import TurnoService
+from core.constants import TipoCambioTurno
 from datetime import date
 import logging
 
@@ -78,7 +79,7 @@ class DobladaTurnoService:
         fecha: date,
         jornada_base: Jornada,
         jornada_adicional: Jornada,
-        tipo_cambio: str = 'DOBLADA'
+        tipo_cambio: str = TipoCambioTurno.DOBLADA
     ) -> Tuple[Turno, Turno]:
         """
         Crea una doblada completa (ambos turnos) cuando el explorador no tiene turnos en esa fecha.
@@ -129,7 +130,7 @@ class DobladaTurnoService:
         explorador: Empleado,
         fecha: date,
         jornada_adicional: Jornada,
-        tipo_cambio: str = 'DOBLADA'
+        tipo_cambio: str = TipoCambioTurno.DOBLADA
     ) -> Turno:
         """
         Agrega una jornada adicional a un turno existente (para crear doblada parcial).

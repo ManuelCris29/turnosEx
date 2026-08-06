@@ -17,6 +17,7 @@ from django.conf import settings
 
 from solicitudes.models import Notificacion
 from solicitudes.services.email_service import EmailService
+from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -209,8 +210,8 @@ class PermisoMediaJornadaService:
                 snap = _App._capturar_snapshot(emp, emp, [f_trabajo, f_comp])
                 type(permiso).objects.filter(pk=permiso.pk).update(snapshot_turnos_previos=snap)
                 permiso.snapshot_turnos_previos = snap
-            _App._trabaja_jornada(emp, f_trabajo, j_dia, tipo_cambio='PERMISO')
-            _App._trabaja_jornada(emp, f_comp, j_comp, tipo_cambio='PERMISO')
+            _App._trabaja_jornada(emp, f_trabajo, j_dia, tipo_cambio=TipoCambioTurno.PERMISO)
+            _App._trabaja_jornada(emp, f_comp, j_comp, tipo_cambio=TipoCambioTurno.PERMISO)
         logger.info("Permiso media jornada %s aplicado: %s=%s, %s=%s",
                     permiso.id, f_trabajo, j_dia, f_comp, j_comp)
 

@@ -36,6 +36,7 @@ from turnos.services.jornada_service import JornadaService
 from turnos.services.doblada_turno_service import DobladaTurnoService
 from .deuda_service import DeudaService
 from .deuda_corporativa_service import DeudaCorporativaService
+from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class DFDSAplicacionService:
         }
 
     @staticmethod
-    def _crear_doblada_dia(explorador, fecha: date, tipo_cambio: str = 'D FDS') -> None:
+    def _crear_doblada_dia(explorador, fecha: date, tipo_cambio: str = TipoCambioTurno.D_FDS) -> None:
         """
         Deja al explorador con doblada completa AM+PM en `fecha` (un día de finde).
         Borra cualquier turno previo de ese día y crea AM y PM.
@@ -122,7 +123,7 @@ class DFDSAplicacionService:
             Turno.objects.filter(
                 explorador__in=[solicitud.explorador_solicitante, solicitud.explorador_receptor],
                 fecha__in=[solicitud.fecha_cambio_turno, detalle.fecha_pago],
-                tipo_cambio='D FDS',
+                tipo_cambio=TipoCambioTurno.D_FDS,
             ).delete()
         DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
         # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.

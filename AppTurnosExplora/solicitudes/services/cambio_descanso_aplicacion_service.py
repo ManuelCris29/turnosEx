@@ -27,6 +27,7 @@ from django.db import transaction
 from turnos.models import Turno
 from turnos.services.doblada_turno_service import DobladaTurnoService
 from core.utils.date_utils import DateUtils
+from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -233,7 +234,7 @@ class CambioDescansoAplicacionService:
         limite = timezone.now() - timedelta(minutes=VENTANA_CANCELACION_MINUTOS)
 
         # Lado "trabaja": turno CAMBIO DESCANSO ese día — ¿la solicitud que lo creó sigue en ventana?
-        if any(t.tipo_cambio == 'CAMBIO DESCANSO' for t in turnos):
+        if any(t.tipo_cambio == TipoCambioTurno.CAMBIO_DESCANSO for t in turnos):
             qs = (SolicitudCambio.objects
                   .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada',
                           fecha_resolucion__gte=limite)
@@ -263,7 +264,7 @@ class CambioDescansoAplicacionService:
         return False
 
     @staticmethod
-    def _trabaja_dia(explorador, fecha, tipo_cambio='CAMBIO DESCANSO'):
+    def _trabaja_dia(explorador, fecha, tipo_cambio=TipoCambioTurno.CAMBIO_DESCANSO):
         """Deja al explorador trabajando el día completo (AM+PM) en `fecha`."""
         jc = CambioDescansoAplicacionService._jornadas()
         Turno.objects.filter(explorador=explorador, fecha=fecha).delete()
@@ -273,7 +274,7 @@ class CambioDescansoAplicacionService:
                                  sala=sala, tipo_cambio=tipo_cambio)
 
     @staticmethod
-    def _trabaja_jornada(explorador, fecha, jornada_nombre=None, tipo_cambio='CAMBIO DESCANSO'):
+    def _trabaja_jornada(explorador, fecha, jornada_nombre=None, tipo_cambio=TipoCambioTurno.CAMBIO_DESCANSO):
         """
         Deja al explorador trabajando UNA sola jornada en `fecha` (entre semana).
         Si `jornada_nombre` es None usa su jornada base (AsignarJornadaExplorador).
@@ -310,7 +311,7 @@ class CambioDescansoAplicacionService:
         aplicar_entre_semana y las sub-modalidades no llaman aquí: no es un olvido.
         """
         if not Turno.objects.filter(
-            explorador=explorador, fecha=fecha, tipo_cambio='CAMBIO DESCANSO'
+            explorador=explorador, fecha=fecha, tipo_cambio=TipoCambioTurno.CAMBIO_DESCANSO
         ).exists():
             return
 
@@ -709,7 +710,7 @@ class CambioDescansoAplicacionService:
                 Turno.objects.filter(
                     explorador__in=[solicitud.explorador_solicitante, solicitud.explorador_receptor],
                     fecha__in=fechas,
-                    tipo_cambio='CAMBIO DESCANSO',
+                    tipo_cambio=TipoCambioTurno.CAMBIO_DESCANSO,
                 ).delete()
                 logger.info(
                     "Cambio de descanso %s sin snapshot: turnos 'CAMBIO DESCANSO' borrados en %s.",

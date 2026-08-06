@@ -12,6 +12,7 @@ from turnos.models import Turno
 from turnos.services.jornada_service import JornadaService
 from turnos.services.doblada_turno_service import DobladaTurnoService
 from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
+from core.constants import TipoCambioTurno, TipoSolicitud
 import logging
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=jornadas_cache[jn],
                     sala=sala_solicitante,
-                    tipo_cambio="DOBLADA",
+                    tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
             logger.info(
                 f"Pago en sábado (AMBAS): {solicitante.nombre} cubre AM+PM en {fecha_pago}, "
@@ -139,7 +140,7 @@ class DobladaPagoService:
         # contraria, solo se recrea la seleccionada.
         _otra_mitad_pagada = SolicitudCambio.objects.filter(
             explorador_solicitante=solicitante,
-            tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+            tipo_cambio__nombre__in=[TipoSolicitud.DOBLADA, TipoSolicitud.D_FDS],
             estado='aprobada',
             doblada__fecha_pago=fecha_pago,
             doblada__jornada_pago_sabado__iexact=jornada_contraria,
@@ -155,7 +156,7 @@ class DobladaPagoService:
             fecha=fecha_pago,
             jornada=jornada_sel_obj,
             sala=sala_solicitante,
-            tipo_cambio="DOBLADA"
+            tipo_cambio=TipoCambioTurno.DOBLADA
         )
 
         # 2) Receptor: se le quita la jornada que ahora cubre el deudor (jornada_sel). Normalmente
@@ -165,7 +166,7 @@ class DobladaPagoService:
         _contraria_tambien_cubierta = SolicitudCambio.objects.filter(
             explorador_solicitante=solicitante,
             explorador_receptor=receptor,
-            tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+            tipo_cambio__nombre__in=[TipoSolicitud.DOBLADA, TipoSolicitud.D_FDS],
             estado='aprobada',
             doblada__fecha_pago=fecha_pago,
             doblada__jornada_pago_sabado__iexact=jornada_contraria,
@@ -188,7 +189,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=jornada_contraria_obj,
                     sala=sala_receptor,
-                    tipo_cambio="DOBLADA"
+                    tipo_cambio=TipoCambioTurno.DOBLADA
                 )
             logger.info(
                 f"Pago en sábado aplicado: {solicitante.nombre} trabaja {jornada_sel} en {fecha_pago}, "
@@ -212,7 +213,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=j_obj,
                     sala=sala_solicitante,
-                    tipo_cambio="DOBLADA",
+                    tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
         logger.info(
             f"Doblada pago (jcp=AMBAS): {solicitante.nombre} AM+PM en {fecha_pago}, "
@@ -246,7 +247,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=j_obj,
                     sala=sala_solicitante,
-                    tipo_cambio="DOBLADA",
+                    tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
 
         # Acreedor: pierde la jornada que cubre el deudor (jcp) y conserva la otra.
@@ -260,7 +261,7 @@ class DobladaPagoService:
                 fecha=fecha_pago,
                 jornada=j_propia_obj,
                 sala=sala_receptor,
-                tipo_cambio="DOBLADA",
+                tipo_cambio=TipoCambioTurno.DOBLADA,
             )
 
         logger.info(
@@ -316,7 +317,7 @@ class DobladaPagoService:
                         fecha=fecha_pago,
                         jornada=jbd_obj,
                         sala=sala_base,
-                        tipo_cambio="DOBLADA",
+                        tipo_cambio=TipoCambioTurno.DOBLADA,
                     )
 
         # El acreedor descansa.
@@ -330,7 +331,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=j_obj,
                     sala=sala_solicitante,
-                    tipo_cambio="DOBLADA",
+                    tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
         cubiertas = ', '.join(sorted({j.nombre for j in jornadas_a_cubrir if j}))
         logger.info(
@@ -375,7 +376,7 @@ class DobladaPagoService:
                             fecha=fecha_pago,
                             jornada=_jb_obj,
                             sala=sala_sol_base,
-                            tipo_cambio="DOBLADA",
+                            tipo_cambio=TipoCambioTurno.DOBLADA,
                         )
 
         # La jornada cedida es la parte PROPIA del deudor en la doblada de pago: solo se suma
@@ -388,7 +389,7 @@ class DobladaPagoService:
                 fecha=fecha_pago,
                 jornada=_jc_obj,
                 sala=sala_sol,
-                tipo_cambio="DOBLADA",
+                tipo_cambio=TipoCambioTurno.DOBLADA,
             )
 
         # El deudor SIEMPRE cubre la jornada del acreedor (es el pago). Se garantiza aunque
@@ -411,7 +412,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=_ja_obj,
                     sala=sala_sol_acre,
-                    tipo_cambio="DOBLADA",
+                    tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
 
         if getattr(detalle, 'tipo_cesion', None) == 'cesion_completa':
@@ -433,7 +434,7 @@ class DobladaPagoService:
                     fecha=fecha_pago,
                     jornada=_jo_obj,
                     sala=sala_rec,
-                    tipo_cambio="DOBLADA",
+                    tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
 
         _jornadas_deudor_final = sorted(
@@ -490,7 +491,7 @@ class DobladaPagoService:
                 sala_fb = DobladaTurnoService.obtener_sala_explorador_fecha(solicitante, fecha_pago)
                 Turno.objects.create(
                     explorador=solicitante, fecha=fecha_pago,
-                    jornada=jornada_acreedor_obj, sala=sala_fb, tipo_cambio='DOBLADA',
+                    jornada=jornada_acreedor_obj, sala=sala_fb, tipo_cambio=TipoCambioTurno.DOBLADA,
                 )
         else:
             turno_deudor_existente = DobladaTurnoService.tiene_jornada_en_fecha(
@@ -502,11 +503,11 @@ class DobladaPagoService:
 
                 if jornada_acreedor_nombre not in jornadas_deudor:
                     DobladaTurnoService.agregar_jornada_a_doblada(
-                        solicitante, fecha_pago, jornada_acreedor_obj, 'DOBLADA'
+                        solicitante, fecha_pago, jornada_acreedor_obj, TipoCambioTurno.DOBLADA
                     )
             else:
                 DobladaTurnoService.crear_doblada_completa(
-                    solicitante, fecha_pago, jornada_deudor, jornada_acreedor_obj, 'DOBLADA'
+                    solicitante, fecha_pago, jornada_deudor, jornada_acreedor_obj, TipoCambioTurno.DOBLADA
                 )
 
         DobladaTurnoService.eliminar_turnos_explorador(receptor, fecha_pago)
@@ -553,9 +554,9 @@ class DobladaPagoService:
         if DobladaTurnoService.tiene_jornada_en_fecha(receptor, fecha, j_rec_obj):
             jornadas_receptor = DobladaTurnoService.obtener_jornadas_en_fecha(receptor, fecha)
             if j_sol.nombre.upper() not in jornadas_receptor:
-                DobladaTurnoService.agregar_jornada_a_doblada(receptor, fecha, j_sol_obj, 'DOBLADA')
+                DobladaTurnoService.agregar_jornada_a_doblada(receptor, fecha, j_sol_obj, TipoCambioTurno.DOBLADA)
         else:
-            DobladaTurnoService.crear_doblada_completa(receptor, fecha, j_rec_obj, j_sol_obj, 'DOBLADA')
+            DobladaTurnoService.crear_doblada_completa(receptor, fecha, j_rec_obj, j_sol_obj, TipoCambioTurno.DOBLADA)
 
         logger.info(
             f"Pago en semana aplicado: {receptor.nombre} dobla cubriendo a {solicitante.nombre} "

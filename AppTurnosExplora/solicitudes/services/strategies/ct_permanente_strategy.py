@@ -13,6 +13,7 @@ from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service, get_turno_service
 from core.utils.date_utils import DateUtils
+from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -268,7 +269,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             except (ValueError, TypeError):
                 continue
             borrados, _ = Turno.objects.filter(
-                explorador_id=emp_id, fecha=fecha, tipo_cambio='CT PERMANENTE',
+                explorador_id=emp_id, fecha=fecha, tipo_cambio=TipoCambioTurno.CT_PERMANENTE,
             ).delete()
             meses_afectados.add((emp_id, fecha.month, fecha.year))
 
@@ -388,7 +389,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 Turno.objects.filter(explorador=empleado, fecha=fecha).delete()
                 Turno.objects.create(
                     explorador=empleado, fecha=fecha, jornada=jornada,
-                    sala=sala, tipo_cambio='CT PERMANENTE',
+                    sala=sala, tipo_cambio=TipoCambioTurno.CT_PERMANENTE,
                 )
             dias += 1
         return dias
@@ -497,7 +498,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
                         fecha=fecha_actual,
                         jornada=jornada_nueva,
                         sala=sala,
-                        tipo_cambio='CT PERMANENTE',
+                        tipo_cambio=TipoCambioTurno.CT_PERMANENTE,
                     ))
 
                 turnos_creados.append(tuple(creados_dia))

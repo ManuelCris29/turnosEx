@@ -24,6 +24,7 @@ from turnos.models import Turno
 from .deuda_corporativa_service import DeudaCorporativaService
 from .deuda_service import DeudaService
 from .d_fds_aplicacion_service import DFDSAplicacionService
+from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -286,7 +287,7 @@ class DobladaPermanenteAplicacionService:
 
         # Cesión: receptor dobla, solicitante descansa
         for fecha in ocur_ces:
-            DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio='DOBLADA PERM')
+            DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM)
             Turno.objects.filter(explorador=solicitante, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(receptor, fecha, solicitud, 'cesión')
             # El solicitante pierde sus turnos ese día: si venía doblando, deja de doblar y sus
@@ -297,7 +298,7 @@ class DobladaPermanenteAplicacionService:
 
         # Devolución: solicitante dobla, receptor descansa
         for fecha in ocur_dev:
-            DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio='DOBLADA PERM')
+            DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM)
             Turno.objects.filter(explorador=receptor, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(solicitante, fecha, solicitud, 'devolución')
             DeudaCorporativaService.sincronizar_deuda_corporativa(
@@ -390,11 +391,11 @@ class DobladaPermanenteAplicacionService:
 
         n = 0
         for fecha in (f for f in ocur_ces if f in fechas):
-            DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio='DOBLADA PERM')
+            DFDSAplicacionService._crear_doblada_dia(receptor, fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM)
             Turno.objects.filter(explorador=solicitante, fecha=fecha).delete()
             n += 1
         for fecha in (f for f in ocur_dev if f in fechas):
-            DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio='DOBLADA PERM')
+            DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM)
             Turno.objects.filter(explorador=receptor, fecha=fecha).delete()
             n += 1
 
@@ -432,7 +433,7 @@ class DobladaPermanenteAplicacionService:
             )
             for fechas, quien in lados:
                 for fecha in fechas:
-                    Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio='DOBLADA PERM').delete()
+                    Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM).delete()
 
         # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.
         DeudaCorporativaService.cancelar_deudas_de_solicitud(

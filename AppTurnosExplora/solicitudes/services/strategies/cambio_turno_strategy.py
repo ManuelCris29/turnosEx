@@ -14,6 +14,7 @@ from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service, get_turno_service
 from core.utils.date_utils import DateUtils
+from core.constants import TipoCambioTurno
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -289,7 +290,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
             # CT antiguos (sin snapshot): elimina los turnos CT de esa fecha.
             Turno.objects.filter(
                 explorador__in=[solicitud.explorador_solicitante, solicitud.explorador_receptor],
-                fecha=solicitud.fecha_cambio_turno, tipo_cambio='CT',
+                fecha=solicitud.fecha_cambio_turno, tipo_cambio=TipoCambioTurno.CT,
             ).delete()
 
     @staticmethod
@@ -329,7 +330,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
             Turno.objects.create(
                 explorador=empleado, fecha=fecha, jornada=jornada,
                 sala=DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha),
-                tipo_cambio='CT',
+                tipo_cambio=TipoCambioTurno.CT,
             )
         return 1
 
@@ -465,7 +466,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     fecha=fecha_cambio,
                     jornada=jornada_receptor,
                     sala=sala_solicitante,
-                    tipo_cambio='CT'
+                    tipo_cambio=TipoCambioTurno.CT
                 )
                 logger.info(
                     "FASE 2.1: Turno solicitante (re)creado ID: %d | Fecha: %s | Jornada: %s",
@@ -510,7 +511,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
                     fecha=fecha_cambio,
                     jornada=jornada_solicitante,
                     sala=sala_receptor,
-                    tipo_cambio='CT'
+                    tipo_cambio=TipoCambioTurno.CT
                 )
                 logger.info(
                     "FASE 2.1: Turno receptor (re)creado ID: %d | Fecha: %s | Jornada: %s",
