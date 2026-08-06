@@ -135,13 +135,22 @@ class VerificarDobladaExistenteTest(TestCase):
         )
     
     def test_verificar_doblada_con_ct_aprobado(self):
-        """Test: Usuario con CT aprobado - NO debe poder solicitar doblada"""
+        """Un CT aprobado NO impide pedir doblada ese mismo día.
+
+        Regla 18 de REGLAS_NEGOCIO_SOLICITUDES.md: no hay tope de cambios por
+        fecha. Lo que gobierna el día es su estado real —el explorador trabaja una
+        jornada, y esa jornada es cedible como cualquier otra— más el principio de
+        "la última aprobada gana".
+
+        Este test asertaba lo contrario y pasaba por partida doble: la vista
+        filtraba `tipo_cambio__nombre='CT'` (el `codigo_estrategia`, no el
+        `nombre`) y el fixture fabricaba un `TipoSolicitudCambio(nombre='CT')` que
+        no existe en producción. Dato incorrecto contra filtro incorrecto.
+        """
         self.client.login(username='jeison.mora', password='test123')
-        
-        # El `nombre` en la tabla maestra es 'CAMBIO TURNO'; 'CT' es su `codigo_estrategia`
-        # y el valor que se escribe en `Turno.tipo_cambio`. Crear aquí un tipo llamado 'CT'
-        # fabricaba un dato que no existe en producción y hacía pasar el test contra un
-        # filtro incorrecto.
+
+        # 'CAMBIO TURNO' es el `nombre` real en la maestra; 'CT' su `codigo_estrategia`
+        # y el valor que se escribe en `Turno.tipo_cambio`.
         tipo_ct, _ = TipoSolicitudCambio.objects.get_or_create(
             nombre='CAMBIO TURNO', defaults={'codigo_estrategia': 'CT'}
         )
@@ -173,11 +182,11 @@ class VerificarDobladaExistenteTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.content)
         
-        # Debe detectar que tiene CT aprobado
         self.assertTrue(data.get('success', False))
-        self.assertFalse(data.get('puede_ceder', True),
-                        "NO debe poder ceder si tiene CT aprobado")
-        self.assertEqual(data.get('solicitud_id'), solicitud_ct.id)
+        self.assertTrue(data.get('puede_ceder', False),
+                        "Un CT aprobado no debe impedir ceder: la jornada que trabaja es cedible")
+        self.assertIn('PM', data.get('jornadas', []),
+                      "Debe ver la jornada que le quedó tras el CT (la del receptor)")
     
     def test_verificar_doblada_con_turnos_am_pm(self):
         """Test: Usuario con turnos AM+PM - debe mostrar que tiene doblada"""

@@ -340,38 +340,19 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                         'solicitud_id': None,
                     })
 
-            # CASO 2: Usuario tiene turnos pero NO es doblada (solo una jornada)
-            # IMPORTANTE: Verificar si estos turnos son resultado de un CT donde el usuario es solicitante
+            # CASO 2: Usuario tiene turnos pero NO es doblada (solo una jornada) → puede ceder.
+            #
+            # Aquí había un bloqueo: si el día venía de un CAMBIO DE TURNO aprobado del propio
+            # usuario, se le impedía pedir doblada. Contradice la regla 18 de
+            # REGLAS_NEGOCIO_SOLICITUDES.md ("no hay tope de cambios por fecha", eliminada): lo que
+            # gobierna el día es su ESTADO REAL —¿trabaja?, ¿está doblado?, ¿comprometido por otra
+            # aprobada?— y el principio de "la última aprobada gana". Tener un CT no impide nada:
+            # el explorador trabaja una jornada, y esa jornada es cedible como cualquier otra.
+            #
+            # Sobrevivió porque nunca llegó a ejecutarse: filtraba `tipo_cambio__nombre='CT'`, y
+            # 'CT' es el `codigo_estrategia` del tipo, no su `nombre` ('CAMBIO TURNO'). Cero filas,
+            # cero disparos, nadie lo noto. El bloqueo se elimina en vez de repararse.
             if jornadas:
-                # Verificar si alguno de los turnos que tiene el usuario está relacionado con un CT donde él es solicitante
-                # turno_origen es el turno del solicitante (con jornada del receptor)
-                # (Q ya está importado a nivel de módulo; un import local aquí volvía
-                #  'Q' local a todo el método y rompía su uso en el CASO 1 de arriba.)
-                turnos_ids = [t.id for t in turnos]
-                ct_como_solicitante = (
-                    SolicitudCambio.objects
-                    .filter(
-                        explorador_solicitante=usuario_actual,
-                        # 'CT' es el `codigo_estrategia` del tipo, NO su `nombre`: filtrar por
-                        # nombre='CT' no casa con ninguna fila y desactiva la validación entera.
-                        tipo_cambio__nombre='CAMBIO TURNO',
-                        fecha_cambio_turno=fecha_obj,
-                        estado='aprobada'
-                    )
-                    .filter(
-                        Q(turno_origen_id__in=turnos_ids) | Q(turno_destino_id__in=turnos_ids)
-                    )
-                    .select_related('turno_origen', 'turno_destino', 'explorador_receptor', 'tipo_cambio')
-                    .first()
-                )
-                
-                if ct_como_solicitante:
-                    p = {'tiene_doblada': False, 'esta_descansando': False, 'puede_ceder': False,
-                         'jornadas': jornadas, 'mensaje': 'Ya tienes un cambio de turno aprobado para esta fecha. No puedes solicitar doblada en la misma fecha.',
-                         'solicitud_id': ct_como_solicitante.id}
-                    if mensaje_festivo_descansa:
-                        p['mensaje_festivo_descansa'] = mensaje_festivo_descansa
-                    return json_ok(p)
                 p = {'tiene_doblada': False, 'esta_descansando': False, 'puede_ceder': True, 'jornadas': jornadas, 'solicitud_id': None}
                 if mensaje_festivo_descansa:
                     p['mensaje_festivo_descansa'] = mensaje_festivo_descansa
@@ -421,40 +402,14 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                         'solicitud_id': sol.id
                     })
             
-            # CASO 2.6: Verificar si tiene cambio de turno (CT) aprobado ANTES de verificar doblada por regla de negocio
-            # Esto tiene prioridad sobre la regla de doblada en sábados
-            # Solo se ejecuta si NO hay turnos físicos en BD y NO está descansando por DOBLADA
-            # VALIDACIÓN CRÍTICA: Asegurar que no hay turnos antes de verificar CT
-            if not jornadas and len(turnos_list) == 0:
-                ct_como_solicitante = (
-                    SolicitudCambio.objects
-                    .filter(
-                        explorador_solicitante=usuario_actual,
-                        # Ver nota del CASO 2: el `nombre` en la maestra es 'CAMBIO TURNO'.
-                        tipo_cambio__nombre='CAMBIO TURNO',
-                        fecha_cambio_turno=fecha_obj,
-                        estado='aprobada'
-                    )
-                    .select_related('turno_origen', 'turno_destino', 'explorador_receptor', 'tipo_cambio')
-                    .first()
-                )
-                
-                if ct_como_solicitante:
-                    # Usuario tiene un CT aprobado para esta fecha
-                    # No puede solicitar doblada porque ya hizo un cambio de turno
-                    return json_ok({
-                        'tiene_doblada': False,
-                        'esta_descansando': False,  # Técnicamente no está descansando, está trabajando con jornada diferente
-                        'puede_ceder': False,
-                        'jornadas': [],
-                        'mensaje': 'Ya tienes un cambio de turno aprobado para esta fecha. No puedes solicitar doblada en la misma fecha.',
-                        'solicitud_id': ct_como_solicitante.id
-                    })
-            
+            # (Aquí había un CASO 2.6 que bloqueaba por CT aprobado cuando no hay turnos físicos.
+            #  Eliminado por lo mismo que el bloqueo del CASO 2: contradice la regla 18 y tampoco
+            #  llegó a ejecutarse nunca. Ver la nota del CASO 2.)
+
             # CASO 2.5: No hay turnos físicos, pero es sábado y debería tener DOBLADA por regla de negocio
             # Esto es necesario porque en sábados, según la alternancia, algunos exploradores trabajan
             # y tienen DOBLADA (AM+PM) aunque no haya turnos físicos creados en BD todavía
-            # SOLO se aplica si NO está descansando por DOBLADA aprobada y NO tiene CT aprobado
+            # SOLO se aplica si NO está descansando por DOBLADA aprobada
             # VALIDACIÓN CRÍTICA: Asegurar que no hay turnos antes de aplicar regla de sábado
             if not jornadas and len(turnos_list) == 0 and fecha_obj.weekday() == 5:  # Sábado (weekday 5)
                 # Verificar estado real antes de aplicar la alternancia: un CAMBIO DESCANSO aprobado

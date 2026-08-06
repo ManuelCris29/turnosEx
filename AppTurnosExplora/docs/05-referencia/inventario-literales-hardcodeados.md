@@ -9,7 +9,7 @@ destaparon un problema mucho mayor que el que SonarQube reporta.
 
 | Fase | Qué | Commit |
 |---|---|---|
-| — | **Bug**: `tipo_cambio__nombre='CT'` no casaba con ninguna fila | `cdd8a2c` |
+| — | **Código muerto**: bloqueo CT+doblada que contradecía la regla 18 | `cdd8a2c` + reversión |
 | 1 | Literales de riesgo muy bajo a constantes de módulo | `80b435e` |
 | 2 | `core/constants.py`: `EstadoSolicitud`, `TipoSolicitud`, `TipoCambioTurno` | `6680164` |
 | 3 | `choices` + `CheckConstraint` en `Turno.tipo_cambio` | `2442bc3` |
@@ -288,30 +288,42 @@ valores persistidos. Coinciden casi 1:1 con los `S1192` que Sonar reporta.
 
 ---
 
-## 8. El bug que destapó la auditoría
+## 8. El código muerto que destapó la auditoría
 
 Antes de tocar nada se clasificó cada filtro sobre `tipo_cambio` como FK o
-CharField. De los 58 del lado FK, uno usaba el vocabulario equivocado:
+CharField. De los 58 del lado FK, dos usaban el vocabulario equivocado:
 
 ```python
-# solicitudes/views/doblada_api.py — dos veces
+# solicitudes/views/doblada_api.py — CASO 2 y CASO 2.6
 tipo_cambio__nombre='CT',  # 'CT' es el codigo_estrategia, el nombre es 'CAMBIO TURNO'
 ```
 
 Filas de la maestra con `nombre='CT'`: **0**. Solicitudes que casaba el filtro:
-**0**, siempre. Solicitudes `CAMBIO TURNO` aprobadas que debía encontrar: **52**.
+**0**, siempre. El bloqueo que colgaba de ese `if` —*"ya tienes un cambio de
+turno aprobado para esta fecha, no puedes pedir doblada"*— nunca llegó a
+ejecutarse.
 
-Efecto: la regla *"ya tienes un cambio de turno aprobado para esta fecha, no
-puedes pedir doblada"* nunca disparaba. Fallaba en silencio y en la dirección
-permisiva.
+**Y está bien que no se ejecutara.** Ese bloqueo contradice la
+[regla 18](solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md): *"no hay tope de cambios
+por fecha (eliminado)"*. Un CT no impide nada — el explorador trabaja una
+jornada, y esa jornada es cedible como cualquier otra. Lo que gobierna el día es
+su estado real más el principio de "la última aprobada gana".
 
-El test que cubría el caso pasaba porque su fixture fabricaba un
-`TipoSolicitudCambio(nombre='CT')` que no existe en producción: verificaba el
-filtro incorrecto contra un dato igual de incorrecto.
+Era código muerto de una regla retirada, y sobrevivió **precisamente porque su
+filtro estaba roto**: como nunca disparaba, nadie notó que seguía ahí.
 
-Corregido en `cdd8a2c`. Es el argumento entero a favor de los dos namespaces
-separados: con `TipoSolicitud.CAMBIO_TURNO` y `TipoCambioTurno.CT` el error deja
-de ser expresable.
+El primer intento fue reparar el filtro (`cdd8a2c`), lo que resucitó la regla
+eliminada: los 34 casos de la BD de desarrollo pasaron a bloquearse. Se revirtió
+eliminando los dos bloqueos, que es lo correcto.
+
+El test que cubría el caso asertaba el bloqueo y pasaba por partida doble: la
+vista filtraba por el campo equivocado y el fixture fabricaba un
+`TipoSolicitudCambio(nombre='CT')` que no existe en producción. Dato incorrecto
+contra filtro incorrecto. Ahora aserta que **sí** se puede ceder.
+
+La lección para el refactor: con `TipoSolicitud.CAMBIO_TURNO` y
+`TipoCambioTurno.CT` como constantes distintas, el cruce de vocabularios deja de
+ser expresable — y con él, el tipo de código muerto que se esconde detrás.
 
 La `CheckConstraint` destapó tres casos más del mismo tipo, todos en tests:
 `tipo_cambio='TEST'` (un marcador inventado, en ~100 turnos de
