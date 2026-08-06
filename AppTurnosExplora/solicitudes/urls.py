@@ -19,7 +19,7 @@ from .views import (
     ProgramarReprogramacionView, CancelarReprogramacionView,
     CierreConfigView,
     MisFavoresView,
-    AlternanciaFindeView, AlternanciaMesView, DFDSCompanerosView,
+    AlternanciaMesView, DFDSCompanerosView,
     DescansosSemanaUsuarioView, CambioDescansoFindesView,
     DobladasSemanaView,
     CoberturaCandidatosView,
@@ -74,7 +74,6 @@ urlpatterns = [
     path('obtener-turno-explorador/', ObtenerTurnoExploradorView.as_view(), name='obtener_turno_explorador'),
     path('obtener-jornadas-rango/', ObtenerJornadasRangoView.as_view(), name='obtener_jornadas_rango'),
     path('obtener-cambio-aprobado/', ObtenerCambioAprobadoView.as_view(), name='obtener_cambio_aprobado'),
-    path('alternancia-finde/', AlternanciaFindeView.as_view(), name='alternancia_finde'),
     path('descansos-semana-usuario/', DescansosSemanaUsuarioView.as_view(), name='descansos_semana_usuario'),
     path('cambio-descanso-findes/', CambioDescansoFindesView.as_view(), name='cambio_descanso_findes'),
     path('alternancia-mes/', AlternanciaMesView.as_view(), name='alternancia_mes'),
@@ -113,5 +112,4 @@ urlpatterns = [
     
     # URL LEGACY (redirigir a la vista principal)
     path('notificaciones-solicitudes/', SolicitudesView.as_view(), name='notificaciones_solicitudes'),
-    path('dashboard/', SolicitudesView.as_view(), name='dashboard_solicitudes'),
 ] 

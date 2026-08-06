@@ -260,51 +260,5 @@ class AlternanciaMesView(LoginRequiredMixin, View):
         return json_ok({'findes': findes, 'meses': meses, 'anio': anio, 'mes': mes})
 
 
-class AlternanciaFindeView(LoginRequiredMixin, View):
-    """
-    Devuelve, para el fin de semana de una fecha dada (sábado o domingo), qué jornada
-    (AM/PM) trabaja el sábado y cuál el domingo según la alternancia. Sirve de "distintivo"
-    en la Doblada de Fin de Semana para ver de un vistazo la configuración del finde.
-    """
-    def get(self, request):
-        from datetime import datetime, timedelta
-        from turnos.services.asignacion_especial_service import AsignacionEspecialService
-        from turnos.services.turno_service import TurnoService
-        fecha_str = request.GET.get('fecha')
-        if not fecha_str:
-            return json_error('Falta el parámetro fecha', status=400, code='missing_params')
-        try:
-            fecha = DateUtils.parse_date(fecha_str)
-        except ValueError:
-            return json_error('Formato de fecha inválido (use YYYY-MM-DD)', status=400, code='invalid_date')
-        if fecha.weekday() not in (5, 6):
-            return json_error('La fecha debe ser sábado o domingo', status=400, code='no_finde')
-
-        sabado = fecha if fecha.weekday() == 5 else fecha - timedelta(days=1)
-        domingo = sabado + timedelta(days=1)
-
-        # "mio": ¿el USUARIO trabaja ese día REALMENTE? Usa la fuente de verdad única
-        # (estado_dia, las mismas capas de "Mis Turnos"), NO la alternancia pura. Así el
-        # distintivo refleja cambios aprobados (p. ej. un cambio de descanso que movió su
-        # día de trabajo del domingo al sábado). La jornada AM/PM sigue siendo la del finde.
-        emp = getattr(request.user, 'empleado', None)
-
-        def _mio(d):
-            return bool(emp and TurnoService.estado_dia(emp, d)['trabaja'])
-
-        return json_ok({
-            'sabado': {
-                'fecha': sabado.strftime('%Y-%m-%d'),
-                'dia': sabado.strftime('%d/%m'),
-                'jornada': AsignacionEspecialService.grupo_trabaja(sabado),
-                'mio': _mio(sabado),
-            },
-            'domingo': {
-                'fecha': domingo.strftime('%Y-%m-%d'),
-                'dia': domingo.strftime('%d/%m'),
-                'jornada': AsignacionEspecialService.grupo_trabaja(domingo),
-                'mio': _mio(domingo),
-            },
-        })
 
 
