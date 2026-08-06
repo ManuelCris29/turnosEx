@@ -93,6 +93,20 @@
 
     // ===================== TARJETAS =====================
 
+    // Chip de la jornada REAL de un día de finde.
+    //
+    // Antes se pintaba `dia.jornada`, que es la jornada de la ALTERNANCIA teórica (el grupo AM/PM
+    // que le toca ese finde). En un día que ya está modificado por un cambio previo eso miente:
+    // un día trabajado completo (AM+PM) salía etiquetado "AM" mientras Mis Turnos lo mostraba
+    // como DOBLADA. Un día de finde se trabaja COMPLETO —es la unidad que se cede en D FDS—, así
+    // que se etiqueta como tal y solo se muestra AM/PM cuando de verdad es media jornada.
+    function chipJornada(dia) {
+        const real = (dia.jornada_real || '').toUpperCase();
+        if (real === 'DOBLADA') return `<span class="jor jor-COMPLETO">DÍA COMPLETO</span>`;
+        if (real === 'AM' || real === 'PM') return `<span class="jor jor-${real}">${real}</span>`;
+        return '';
+    }
+
     // Una línea de la tarjeta de cesión: un día concreto del finde con su estado.
     // `cedible` lo decide el backend (trabajado a día completo, futuro, del mes y no cerrado).
     function lineaDiaCesion(dia, clave) {
@@ -100,7 +114,7 @@
         if (dia.cedible) {
             return `<div class="fds-dia-linea mio fds-dia-cedible" data-dia="${clave}" data-fecha="${dia.fecha}">` +
                    `<i class="fas fa-user mr-1"></i>Trabajas <strong>${nombre} ${dia.dia}</strong> ` +
-                   `<span class="jor jor-${dia.jornada}">${dia.jornada || '?'}</span>` +
+                   chipJornada(dia) +
                    `<span class="fds-ceder-hint"> — tocar para ceder</span></div>`;
         }
         if (dia.mio) {
@@ -136,11 +150,16 @@
             // Disponibilidad calculada por renderPago (ambos lados).
             seleccionable = f._pago_ok;
             if (f._pago_ok) {
+                // El chip describe el día DEL COMPAÑERO, que es lo que se cubre: para poder
+                // elegirse como pago, él lo trabaja completo y tú lo tienes libre (por eso la
+                // segunda línea dice que ese día hoy descansas). Antes se pintaba la jornada de
+                // alternancia del propio usuario y se afirmaba "+ tu día normal — te doblas el
+                // finde": ese día NO trabajas nada, así que no hay doblada sobre un día propio.
                 cuerpo =
                     `<div class="fds-dia-linea mio"><i class="fas fa-hands-helping mr-1"></i>` +
                     `Cubres <strong>${NOMBRE_DIA[diaCesion].toUpperCase()} ${diaObj.dia}</strong> ` +
-                    `<span class="jor jor-${diaObj.jornada}">${diaObj.jornada || '?'}</span> a tu compañero</div>` +
-                    `<div class="fds-dia-linea descanso">+ tu día normal — te doblas el finde</div>`;
+                    `<span class="jor jor-COMPLETO">DÍA COMPLETO</span> a tu compañero</div>` +
+                    `<div class="fds-dia-linea descanso">Hoy descansas ese día — pasarías a trabajarlo completo (AM+PM)</div>`;
                 if (f._pago_nota) {
                     cuerpo += `<div class="fds-nota">Ese día tu compañero cubría a ${f._pago_nota}; ` +
                               `al cubrirlo tú, pasa a descansar igual</div>`;
@@ -337,10 +356,14 @@
         if (inputCesion.value && inputPago.value && empleadoReceptor) {
             const fc = fmtLargo(inputCesion.value);
             const fp = fmtLargo(inputPago.value);
+            // El acuerdo es un intercambio de DÍAS DE FINDE completos, no una doblada sobre el día
+            // propio: para poder elegirse, el compañero tiene libre el día que recibe y tú tienes
+            // libre el día de pago (reglas 8 y 9 de la validación). Decir "se doblará" contradecía
+            // esas reglas y es también el motivo por el que la D FDS no genera los 30 minutos.
             let texto =
-                `<i class="fas fa-check-circle mr-1"></i> <strong>${empleadoReceptor.nombre}</strong> se doblará el ` +
-                `<strong>${fc}</strong> (tu ${NOMBRE_DIA[diaCesion]}). Tú te doblarás el <strong>${fp}</strong> ` +
-                `para devolverle el favor.`;
+                `<i class="fas fa-check-circle mr-1"></i> <strong>${empleadoReceptor.nombre}</strong> trabajará ` +
+                `tu <strong>${fc}</strong> completo (AM+PM) en tu lugar, y tú descansas. ` +
+                `Tú trabajarás su <strong>${fp}</strong> completo para devolverle el favor.`;
             // Traspaso de cobertura: el día que cedes lo trabajas por un favor de un tercero.
             // Se puede ceder —tu sustituto lo cubrirá completo— pero conviene decir a quién afecta.
             const cob = cesionSel && cesionSel[diaCesion] && cesionSel[diaCesion].cobertura;
@@ -369,7 +392,7 @@
         ev.preventDefault();
         const errores = [];
         if (!inputCesion.value) errores.push('Selecciona el fin de semana que cedes.');
-        if (!selectReceptor.value) errores.push('Selecciona el compañero que se doblará.');
+        if (!selectReceptor.value) errores.push('Selecciona el compañero que trabajará tu día.');
         if (!inputPago.value) errores.push('Selecciona el fin de semana de devolución (pago).');
         if (!document.getElementById('comentarios').value.trim()) errores.push('Ingresa un comentario.');
         if (errores.length) {

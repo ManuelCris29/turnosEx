@@ -564,6 +564,11 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # Convertir fechas string a objetos date
             fechas_obj = [DateUtils.parse_date(f) for f in fechas_sin_solicitud]
 
+            # D FDS va junto a DOBLADA en las cuatro consultas: la geometría es la misma (el
+            # receptor trabaja la fecha de cesión, el solicitante la de pago), solo cambia la
+            # unidad (un día de finde completo en vez de media jornada). Sin esto, un día de
+            # doblada de fin de semana no traía compañero y el detalle no podía decir a quién se
+            # está cubriendo.
             # IMPORTANTE: Para dobladas, necesitamos buscar en ambos escenarios:
             # 1. Empleado como SOLICITANTE en fecha de cesión (empleado cedió, receptor trabaja)
             # 2. Empleado como RECEPTOR en fecha de cesión (empleado trabaja/dobla, solicitante descansa)
@@ -573,7 +578,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # Buscar donde el empleado es SOLICITANTE y la fecha es de CESIÓN (empleado descansa, receptor trabaja)
             solicitudes_solicitante_cesion = SolicitudCambio.objects.filter(
                 explorador_solicitante=empleado,
-                tipo_cambio__nombre='DOBLADA',
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                 fecha_cambio_turno__in=fechas_obj,
                 estado='aprobada'
             ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
@@ -581,7 +586,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # Buscar donde el empleado es RECEPTOR y la fecha es de CESIÓN (empleado trabaja/dobla, solicitante descansa)
             solicitudes_receptor_cesion = SolicitudCambio.objects.filter(
                 explorador_receptor=empleado,
-                tipo_cambio__nombre='DOBLADA',
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                 fecha_cambio_turno__in=fechas_obj,
                 estado='aprobada'
             ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
@@ -589,7 +594,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # Buscar donde el empleado es RECEPTOR y la fecha es de PAGO (empleado descansa, solicitante trabaja/dobla)
             solicitudes_receptor_pago = SolicitudCambio.objects.filter(
                 explorador_receptor=empleado,
-                tipo_cambio__nombre='DOBLADA',
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                 doblada__fecha_pago__in=fechas_obj,
                 estado='aprobada'
             ).select_related('explorador_solicitante', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
@@ -597,7 +602,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # Buscar donde el empleado es SOLICITANTE y la fecha es de PAGO (empleado trabaja/dobla, receptor descansa)
             solicitudes_solicitante_pago = SolicitudCambio.objects.filter(
                 explorador_solicitante=empleado,
-                tipo_cambio__nombre='DOBLADA',
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
                 doblada__fecha_pago__in=fechas_obj,
                 estado='aprobada'
             ).select_related('explorador_receptor', 'tipo_cambio', 'doblada').order_by('-fecha_resolucion', '-id')
@@ -656,6 +661,8 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 fecha_cambio_turno__in=fechas_obj, estado='aprobada'
             ).select_related('explorador_receptor', 'doblada').order_by('-fecha_resolucion', '-id')
             for sol in cd_sol:
+                if sol.fecha_cambio_turno.weekday() >= 5:
+                    continue  # el finde tiene otra geometría, se resuelve abajo
                 fecha_str = sol.fecha_cambio_turno.strftime('%Y-%m-%d')
                 dobladas_dict.setdefault(fecha_str, {
                     'solicitud': sol, 'companero': sol.explorador_receptor.nombre, 'rol': 'solicitante'})
@@ -665,10 +672,43 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 doblada__fecha_pago__in=fechas_obj, estado='aprobada'
             ).select_related('explorador_solicitante', 'doblada').order_by('-fecha_resolucion', '-id')
             for sol in cd_rec:
-                if sol.doblada and sol.doblada.fecha_pago:
+                if sol.doblada and sol.doblada.fecha_pago and sol.doblada.fecha_pago.weekday() < 5:
                     fecha_str = sol.doblada.fecha_pago.strftime('%Y-%m-%d')
                     dobladas_dict.setdefault(fecha_str, {
                         'solicitud': sol, 'companero': sol.explorador_solicitante.nombre, 'rol': 'receptor'})
+
+            # CAMBIO DESCANSO de FIN DE SEMANA: la geometría es DISTINTA de la de entre semana y
+            # las dos consultas de arriba no la describen. En el finde es un TRUEQUE de días
+            # (`CambioDescansoAplicacionService.aplicar`):
+            #   · el RECEPTOR trabaja la fecha de cesión y la de pago;
+            #   · el SOLICITANTE trabaja los días OPUESTOS de esos dos findes (sáb↔dom).
+            # Con el mapeo de entre semana, quien trabajaba su sábado por un intercambio salía sin
+            # compañero, y el detalle del día no podía decir con quién había cambiado (era el caso
+            # de Marco el 15/08: trabajaba por el trueque con jeison y el mensaje no lo nombraba).
+            # `_otro_dia` es el MISMO helper que usa el aplicador: una sola fuente para sáb↔dom.
+            from solicitudes.services.cambio_descanso_aplicacion_service import _otro_dia
+            fechas_set = set(fechas_obj)
+            cd_finde = (SolicitudCambio.objects
+                        .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
+                        .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
+                        .select_related('explorador_solicitante', 'explorador_receptor', 'doblada')
+                        .order_by('-fecha_resolucion', '-id'))
+            for sol in cd_finde:
+                fc = sol.fecha_cambio_turno
+                if not fc or fc.weekday() < 5:
+                    continue
+                fp = sol.doblada.fecha_pago if sol.doblada else None
+                es_solicitante = sol.explorador_solicitante_id == empleado.id
+                if es_solicitante:
+                    dias_que_trabaja = [_otro_dia(f) for f in (fc, fp) if f]
+                    companero, rol = sol.explorador_receptor, 'solicitante'
+                else:
+                    dias_que_trabaja = [f for f in (fc, fp) if f]
+                    companero, rol = sol.explorador_solicitante, 'receptor'
+                for f in dias_que_trabaja:
+                    if f in fechas_set:
+                        dobladas_dict.setdefault(f.strftime('%Y-%m-%d'), {
+                            'solicitud': sol, 'companero': companero.nombre, 'rol': rol})
 
             # Asociar información de dobladas a los turnos
             for fecha_str in fechas_sin_solicitud:

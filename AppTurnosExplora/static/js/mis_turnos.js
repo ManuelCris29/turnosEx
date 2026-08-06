@@ -584,6 +584,28 @@ function aplicarEstilosCambios() {
 }
 
 // Muestra los detalles del día seleccionado en los contenedores del template
+// Nombre legible del acuerdo que modificó un día, a partir de `Turno.tipo_cambio`
+// (vocabulario `core.constants.TipoCambioTurno`, que NO es el de los tipos de solicitud).
+// El detalle del día decía "Cambio de turno" para TODOS los tipos, así que un intercambio de
+// descanso o una doblada de finde se anunciaban con el nombre de otro trámite.
+const NOMBRE_ACUERDO = {
+    'CAMBIO DESCANSO': 'Cambio de día de descanso',
+    'D FDS': 'Doblada de fin de semana',
+    'DOBLADA': 'Doblada',
+    'DOBLADA PERM': 'Doblada permanente',
+    'CT': 'Cambio de turno',
+    'CT PERMANENTE': 'Cambio de turno permanente',
+};
+
+// `YYYY-MM-DD` → ¿sábado o domingo? Se parte la cadena a mano: `new Date('YYYY-MM-DD')` se
+// interpreta en UTC y en zonas al oeste devuelve el día anterior.
+function esFinDeSemana(fechaStr) {
+    const [a, m, d] = (fechaStr || '').split('-').map(Number);
+    if (!a || !m || !d) return false;
+    const wd = new Date(a, m - 1, d).getDay();
+    return wd === 0 || wd === 6;
+}
+
 function mostrarDetallesDia(fechaStr) {
     console.log('Mostrando detalles para:', fechaStr);
     console.log('Turnos disponibles:', turnosMes);
@@ -711,7 +733,13 @@ function mostrarDetallesDia(fechaStr) {
             // Construir HTML para la jornada
             let jornadaTexto = info.jornada;
             if (info.jornada === 'DOBLADA') {
-                jornadaTexto = 'DOBLADA (AM + PM)';
+                // En FIN DE SEMANA un día trabajado es AM+PM POR DEFINICIÓN: la unidad del finde es
+                // el día completo, no media jornada. Llamarlo "DOBLADA" afirma un esfuerzo extra que
+                // no existe —y en este dominio "doblada" significa algo preciso: cubrir un día de
+                // más por un favor, con contraparte y con 30 min de deuda (solo de lunes a viernes)—.
+                // Quien trabaja su sábado por un cambio de descanso leía "DOBLADA" y parecía que le
+                // debían algo. Mismo vocabulario que el formulario de D FDS: DÍA COMPLETO.
+                jornadaTexto = esFinDeSemana(fechaStr) ? 'DÍA COMPLETO (AM + PM)' : 'DOBLADA (AM + PM)';
             }
             let jornadaHTML = `<span class="jornada-value ${claseJornada}">${jornadaTexto}</span>`;
             
@@ -737,35 +765,53 @@ function mostrarDetallesDia(fechaStr) {
                 let mensajeCambio = '';
                 const companero = solicitudInfo?.companero_nombre;
                 const fechaAprobacion = solicitudInfo?.fecha_resolucion;
+                const rol = solicitudInfo?.rol;   // 'solicitante' | 'receptor'
                 
+                // Lo que se trabaja ese día, dicho como lo entiende quien lo lee: en finde es un
+                // DÍA COMPLETO, entre semana una DOBLADA (ver el badge, mismo criterio).
+                const finde = esFinDeSemana(fechaStr);
+                const loQueTrabaja = (info.jornada === 'DOBLADA'
+                    ? (finde ? 'el día completo (AM + PM)' : 'DOBLADA (AM + PM)')
+                    : info.jornada);
+                // La comparación era `=== 'DESCANSO'`, pero en FINDE el backend devuelve 'Descanso'
+                // (title case, ver `JornadaUtils.calcular_jornada_dia`). Resultado: la explicación
+                // buena era inalcanzable justo en los findes, y siempre salía la genérica.
+                const descansabaEseDia = String(jornadaPredeterminada).toUpperCase() === 'DESCANSO';
+
                 if (coincidePredeterminada) {
                     // Cambio que coincide con la predeterminada
-                    mensajeCambio = `Este turno fue modificado por un cambio aprobado. Tu jornada actual (${info.jornada}) coincide con tu jornada predeterminada.`;
-                    if (companero && fechaAprobacion) {
-                        mensajeCambio += ` Cambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
-                    }
-                } else if (jornadaPredeterminada === 'DESCANSO') {
-                    // Ese día en realidad DESCANSABA (día de temporada de su grupo) y ahora trabaja
-                    // por un intercambio de descanso: no tenía jornada "predeterminada" que mostrar.
-                    mensajeCambio = `Ese día <strong>descansabas</strong> (día de temporada de tu grupo); por el cambio de día de descanso ahora trabajas <strong>${info.jornada}</strong>.`;
-                    if (companero && fechaAprobacion) {
-                        mensajeCambio += ` Intercambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
-                    } else if (companero) {
-                        mensajeCambio += ` Intercambio realizado con <strong>${companero}</strong>.`;
-                    }
+                    mensajeCambio = `Este turno fue modificado por un cambio aprobado. Tu jornada actual (${loQueTrabaja}) coincide con tu jornada predeterminada.`;
+                } else if (descansabaEseDia) {
+                    // Ese día en realidad DESCANSABA (temporada o alternancia del finde) y ahora
+                    // trabaja por un acuerdo: no tenía jornada "predeterminada" que mostrar.
+                    mensajeCambio = `Normalmente <strong>descansabas</strong> este día; por este acuerdo trabajas <strong>${loQueTrabaja}</strong>.`;
                 } else {
-                    // Cambio que difiere de la predeterminada
-                    mensajeCambio = `Jornada modificada por cambio de turno. Tu jornada predeterminada era <strong>${jornadaPredeterminada}</strong>, ahora trabajas <strong>${info.jornada}</strong>.`;
-                    if (companero && fechaAprobacion) {
-                        mensajeCambio += ` Cambio realizado con <strong>${companero}</strong> (aprobado el ${fechaAprobacion}).`;
-                    } else if (companero) {
-                        mensajeCambio += ` Cambio realizado con <strong>${companero}</strong>.`;
-                    }
+                    mensajeCambio = `Tu jornada predeterminada era <strong>${jornadaPredeterminada}</strong>; ahora trabajas <strong>${loQueTrabaja}</strong>.`;
                 }
-                
+
+                // Con QUIÉN, y qué papel juega cada uno. En una doblada (de semana o de finde) el
+                // día no es propio: se está cubriendo o devolviendo. Decirlo aquí es lo que permite
+                // que el badge no tenga que insinuarlo.
+                if (companero) {
+                    const esFavor = ['DOBLADA', 'D FDS', 'DOBLADA PERM'].includes(info.tipo_cambio);
+                    let conQuien;
+                    if (esFavor && rol === 'receptor') {
+                        conQuien = `Estás <strong>cubriendo a ${companero}</strong> este día.`;
+                    } else if (esFavor) {
+                        conQuien = `Estás <strong>devolviéndole el favor a ${companero}</strong>.`;
+                    } else if (info.tipo_cambio === 'CAMBIO DESCANSO') {
+                        // Trueque: cada uno toma el día del otro, no hay favor ni deuda.
+                        conQuien = `Intercambio con <strong>${companero}</strong>.`;
+                    } else {
+                        conQuien = `Cambio con <strong>${companero}</strong>.`;
+                    }
+                    mensajeCambio += ` ${conQuien}`;
+                    if (fechaAprobacion) mensajeCambio += ` Aprobado el ${fechaAprobacion}.`;
+                }
+
                 jornadaHTML += `<div class="info-cambio" style="margin-top: 8px; padding: 10px; background-color: #d1ecf1; border-left: 3px solid #17a2b8; border-radius: 4px; font-size: 0.9rem; color: #0c5460; line-height: 1.5;">
                     <i class="fas fa-exchange-alt" style="margin-right: 6px;"></i>
-                    <strong>Cambio de turno:</strong> ${mensajeCambio}
+                    <strong>${NOMBRE_ACUERDO[info.tipo_cambio] || 'Cambio de turno'}:</strong> ${mensajeCambio}
                 </div>`;
             } else if (info.tipo === 'predeterminado' && info.jornada) {
                 // Mostrar información para días predeterminados (sin cambios)

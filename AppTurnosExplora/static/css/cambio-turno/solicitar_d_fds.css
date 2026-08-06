@@ -7,6 +7,9 @@
 .jor { font-weight: 700; padding: 1px 7px; border-radius: 5px; color: #fff; font-size: .72rem; }
 .jor-AM { background: #0d6efd; }
 .jor-PM { background: #f59e0b; }
+/* Día de finde trabajado COMPLETO (AM+PM): es la unidad que se cede en una D FDS, así que no
+   se etiqueta con un grupo AM/PM (eso describía la alternancia teórica, no el día real). */
+.jor-COMPLETO { background: #0f766e; }
 
 /* ===== Tarjetas de fin de semana ===== */
 .fds-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
