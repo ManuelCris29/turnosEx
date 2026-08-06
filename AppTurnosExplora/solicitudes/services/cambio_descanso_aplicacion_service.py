@@ -351,9 +351,14 @@ class CambioDescansoAplicacionService:
 
     @staticmethod
     @transaction.atomic
-    def aplicar(solicitud, detalle):
+    def aplicar(solicitud, detalle, marcar_reemplazos: bool = True):
         """
         Aplica el intercambio de descansos en los dos findes (cesión y devolución).
+
+        `marcar_reemplazos=False` re-materializa SOLO los turnos, sin tocar el estado de otras
+        solicitudes. Lo usa la reconciliación posterior a una cancelación: allí esta solicitud ya
+        estaba aplicada y solo se están reconstruyendo sus turnos, así que volver a marcar
+        reemplazos convertiría en 'reemplazada' a una solicitud que sigue vigente.
 
         Semana 1 (cesión):
         - Solicitante: trabaja otro_w1 (lo que el receptor trabajaba)
@@ -386,19 +391,23 @@ class CambioDescansoAplicacionService:
         #   Solicitante TRABAJA otro_w1 y otro_w2 ; DESCANSA fecha_cesion y fecha_pago
         #   Receptor    TRABAJA fecha_cesion y fecha_pago ; DESCANSA otro_w1 y otro_w2
 
+        def _reemplazos(explorador, fecha):
+            if marcar_reemplazos:
+                CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, explorador, fecha)
+
         # Semana de cesión
-        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, solicitante, otro_w1)
+        _reemplazos(solicitante, otro_w1)
         CambioDescansoAplicacionService._trabaja_dia(solicitante, otro_w1)
         CambioDescansoAplicacionService._descansa_dia(solicitante, fecha_cesion)
-        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, receptor, fecha_cesion)
+        _reemplazos(receptor, fecha_cesion)
         CambioDescansoAplicacionService._trabaja_dia(receptor, fecha_cesion)
         CambioDescansoAplicacionService._descansa_dia(receptor, otro_w1)
 
         # Semana de devolución (espejo)
-        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, solicitante, otro_w2)
+        _reemplazos(solicitante, otro_w2)
         CambioDescansoAplicacionService._trabaja_dia(solicitante, otro_w2)
         CambioDescansoAplicacionService._descansa_dia(solicitante, fecha_pago)
-        CambioDescansoAplicacionService._marcar_reemplazadas(solicitud, receptor, fecha_pago)
+        _reemplazos(receptor, fecha_pago)
         CambioDescansoAplicacionService._trabaja_dia(receptor, fecha_pago)
         CambioDescansoAplicacionService._descansa_dia(receptor, otro_w2)
 
