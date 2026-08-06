@@ -19,6 +19,10 @@ from django.utils import timezone
 
 N_SEMANAS = 8
 
+# Destino unico de todos los redirect del panel: cambiar el nombre de la ruta en
+# urls.py obliga a tocar un solo sitio.
+_URL_CONFIG = 'solicitudes:cierre_config'
+
 
 _DIAS_VALIDOS = {v for v, _ in DIA_CIERRE_CHOICES}
 
@@ -89,7 +93,7 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
             cfg.hora_cierre, hora_ok = _parse_hora(request.POST.get('hora_cierre'), cfg.hora_cierre)
             if not (dia_ok and hora_ok):
                 messages.error(request, 'Día u hora de cierre inválidos: no se guardó nada.')
-                return redirect('solicitudes:cierre_config')
+                return redirect(_URL_CONFIG)
             cfg.save()
             messages.success(request, 'Configuración por defecto del cierre guardada.')
         elif accion == 'override':
@@ -97,7 +101,7 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
                 lunes = DateUtils.parse_date(request.POST.get('semana_lunes'))
             except (ValueError, TypeError):
                 messages.error(request, 'Semana inválida.')
-                return redirect('solicitudes:cierre_config')
+                return redirect(_URL_CONFIG)
             # El override se busca siempre por el LUNES de la semana: normalizar para no crear
             # ajustes huérfanos que `_config_efectiva` nunca encontraría.
             lunes -= timedelta(days=lunes.weekday())
@@ -109,7 +113,7 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
             hora, hora_ok = _parse_hora(request.POST.get('hora_cierre'), actual.hora_cierre)
             if not (dia_ok and hora_ok):
                 messages.error(request, 'Día u hora de cierre inválidos: no se guardó nada.')
-                return redirect('solicitudes:cierre_config')
+                return redirect(_URL_CONFIG)
             actual.habilitado = request.POST.get('habilitado') == 'on'
             actual.dia_cierre, actual.hora_cierre = dia, hora
             actual.save()
@@ -122,4 +126,4 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
                 messages.success(request, 'Ajuste de semana eliminado (vuelve al valor por defecto).')
             except (ValueError, TypeError):
                 pass
-        return redirect('solicitudes:cierre_config')
+        return redirect(_URL_CONFIG)

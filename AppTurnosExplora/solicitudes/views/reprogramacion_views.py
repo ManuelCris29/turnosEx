@@ -27,6 +27,10 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
+# Destino unico de todos los redirect del panel: cambiar el nombre de la ruta en
+# urls.py obliga a tocar un solo sitio.
+_URL_LISTA = 'solicitudes:reprog_list'
+
 
 def _notificar(explorador, titulo, mensaje):
     try:
@@ -233,7 +237,7 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
             f"ese día te doblas (AM + PM). Aparece en tu calendario de Mis Turnos.",
         )
         messages.success(request, f'Pago reprogramado: {reprog.explorador.nombre} dobla el {fecha_nueva.strftime("%d/%m/%Y")}.')
-        return redirect('solicitudes:reprog_list')
+        return redirect(_URL_LISTA)
 
 
 class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
@@ -259,7 +263,7 @@ class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
                 RS.deshacer_pago(reprog)
             except ValueError as e:
                 messages.error(request, str(e))
-                return redirect('solicitudes:reprog_list')
+                return redirect(_URL_LISTA)
             if fecha_pago:
                 _notificar(
                     reprog.explorador,
@@ -275,17 +279,17 @@ class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
                     f'{reprog.explorador.nombre} quedó PENDIENTE de programar otra vez.')
             else:
                 messages.info(request, 'Esta reprogramación ya estaba pendiente de programar.')
-            return redirect('solicitudes:reprog_list')
+            return redirect(_URL_LISTA)
 
         # cerrar_sin_pago: el día no cumplido queda anulado y nadie lo repone.
         if reprog.estado == 'cancelada':
             messages.info(request, 'Esta reprogramación ya estaba cancelada.')
-            return redirect('solicitudes:reprog_list')
+            return redirect(_URL_LISTA)
         try:
             RS.cerrar_sin_pago(reprog)
         except ValueError as e:
             messages.error(request, str(e))
-            return redirect('solicitudes:reprog_list')
+            return redirect(_URL_LISTA)
         _notificar(
             reprog.explorador,
             'Reprogramación de doblada cerrada sin pago',
@@ -297,4 +301,4 @@ class CancelarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
             request,
             f'Reprogramación cerrada sin pago: el día {reprog.fecha_original.strftime("%d/%m/%Y")} '
             f'queda anulado y {reprog.explorador.nombre} no lo repondrá.')
-        return redirect('solicitudes:reprog_list')
+        return redirect(_URL_LISTA)

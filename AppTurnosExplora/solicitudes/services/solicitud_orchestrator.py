@@ -21,6 +21,9 @@ from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
+# Mensaje generico de los 500: el detalle real va al log, nunca a la respuesta.
+_MSG_ERROR_INTERNO = 'Error al procesar la solicitud'
+
 
 class _CreacionAbortada(Exception):
     """
@@ -276,7 +279,7 @@ class SolicitudOrchestrator:
                 status=400, code='creation_failed')
         except Exception:
             logger.exception('Error creando cobertura con 2 compañeros (solicitante=%s)', solicitante.id)
-            return json_error('Error al procesar la solicitud', status=500, code='internal_error')
+            return json_error(_MSG_ERROR_INTERNO, status=500, code='internal_error')
 
         logger.info('Cobertura con 2 compañeros creada — solicitudes %s solicitante=%s',
                     [s.id for s in creadas], solicitante.id)
@@ -613,7 +616,7 @@ class SolicitudOrchestrator:
             except Exception:
                 logger.exception('Error procesando doblada permanente multi — solicitante=%s',
                                  solicitante.id)
-                return json_error('Error al procesar la solicitud', status=500,
+                return json_error(_MSG_ERROR_INTERNO, status=500,
                                   code='internal_error')
 
         # 2b. Cierre semanal (programación del fin de semana ya cerrada)
@@ -675,4 +678,4 @@ class SolicitudOrchestrator:
         except Exception:
             logger.exception("Error validando o creando solicitud — tipo=%s solicitante=%s",
                              tipo_nombre, solicitante.id)
-            return json_error('Error al procesar la solicitud', status=500, code='internal_error')
+            return json_error(_MSG_ERROR_INTERNO, status=500, code='internal_error')

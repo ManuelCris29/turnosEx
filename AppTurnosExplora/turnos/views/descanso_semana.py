@@ -18,6 +18,9 @@ import json
 
 logger = logging.getLogger(__name__)
 
+# Mismo texto en los tres puntos donde se valida el año (dos vistas HTML y un endpoint JSON).
+_MSG_ANIO_INVALIDO = 'Año inválido.'
+
 
 def _invalidar_cache_turnos(anio, meses=None):
     """
@@ -171,7 +174,7 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
         try:
             anio = int(request.POST.get('anio'))
         except (TypeError, ValueError):
-            messages.error(request, 'Año inválido.')
+            messages.error(request, _MSG_ANIO_INVALIDO)
             return redirect('descanso_semana_anual')
         anio_actual = timezone.localdate().year
         if not (anio_actual <= anio <= anio_actual + 5):
@@ -255,7 +258,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
         try:
             anio = int(request.POST.get('anio'))
         except (TypeError, ValueError):
-            messages.error(request, 'Año inválido.')
+            messages.error(request, _MSG_ANIO_INVALIDO)
             return redirect('asignacion_especial_anual')
         # Los años pasados no se reprograman: alterarían turnos ya trabajados.
         anio_actual = timezone.localdate().year
@@ -297,7 +300,7 @@ class AsignacionEspecialSiembraView(LoginRequiredMixin, AdminRequiredMixin, View
         try:
             anio = int(request.GET.get('anio'))
         except (TypeError, ValueError):
-            return JsonResponse({'error': 'Año inválido.'}, status=400)
+            return JsonResponse({'error': _MSG_ANIO_INVALIDO}, status=400)
         try:
             propuesta = AsignacionEspecialService.calcular_siembra(
                 anio, request.GET.get('finde'), request.GET.get('festivo'))

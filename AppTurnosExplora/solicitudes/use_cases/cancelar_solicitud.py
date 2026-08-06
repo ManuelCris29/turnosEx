@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 VENTANA_CANCELACION_MINUTOS = 30
 
+# Formato de fecha de los mensajes al usuario (dd/mm/aaaa).
+_FMT_FECHA = '%d/%m/%Y'
+
 
 class CancelarSolicitudUseCase:
 
@@ -139,9 +142,9 @@ class CancelarSolicitudUseCase:
                 pasadas = self.fechas_ya_cumplidas(solicitud)
 
                 if pasadas and len(pasadas) < len(afectadas):
-                    faltan = ', '.join(f.strftime('%d/%m/%Y')
+                    faltan = ', '.join(f.strftime(_FMT_FECHA)
                                        for f in afectadas if f not in pasadas)
-                    hechas = ', '.join(f.strftime('%d/%m/%Y') for f in pasadas)
+                    hechas = ', '.join(f.strftime(_FMT_FECHA) for f in pasadas)
                     tipo = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
                     alternativa = (
                         ' Usa "Reprogramar" para reasignar el día que falta.'
@@ -155,7 +158,7 @@ class CancelarSolicitudUseCase:
 
                 if pasadas:
                     if not permitir_cierre_administrativo:
-                        hechas = ', '.join(f.strftime('%d/%m/%Y') for f in pasadas)
+                        hechas = ', '.join(f.strftime(_FMT_FECHA) for f in pasadas)
                         return False, (
                             f'No se puede eliminar: estos días ya se trabajaron ({hechas}). '
                             f'Borrar la solicitud dejaría esos turnos puestos y sin nada que '
