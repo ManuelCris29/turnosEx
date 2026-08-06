@@ -391,44 +391,61 @@ class CDDiaEnCursoTest(CDBaseTest):
     para hoy no debe volverse inaprobable por el paso del tiempo."""
 
     def test_ceder_hoy_rechazado_en_finde(self):
-        hoy = timezone.localdate()
-        if hoy.weekday() not in (5, 6):  # forzar un "hoy" de fin de semana
-            hoy = hoy + timedelta(days=(5 - hoy.weekday()) % 7)
-        pago = hoy + timedelta(days=8 if hoy.weekday() == 5 else 6)  # día contrario, otro finde
-        with self.settings(USE_TZ=True):
+        """
+        La regla es "la cesión no puede ser HOY", así que el test necesita que el día cedido
+        SEA hoy. Adelantar la fecha al próximo sábado no sirve: eso es un día futuro y la
+        validación lo acepta con razón. Por eso se sustituye `hoy` en lugar de la fecha —
+        `cambio_descanso_strategy` lee `timezone.localdate()` en cada validación.
+        """
+        from unittest import mock
+
+        sabado = timezone.localdate() + timedelta(days=1)
+        while sabado.weekday() != 5:
+            sabado += timedelta(days=1)
+        domingo_siguiente = sabado + timedelta(days=8)  # día contrario, otro finde
+
+        with mock.patch('django.utils.timezone.localdate', return_value=sabado):
             ok, msg = self.strat.validar_solicitud(self._datos(
-                fecha_cambio_turno=hoy.strftime('%Y-%m-%d'),
-                fecha_pago=pago.strftime('%Y-%m-%d'),
+                fecha_cambio_turno=sabado.strftime('%Y-%m-%d'),
+                fecha_pago=domingo_siguiente.strftime('%Y-%m-%d'),
             ))
+
         self.assertFalse(ok)
+        self.assertIn('posterior a hoy', msg)
+
+    @staticmethod
+    def _proximo_miercoles():
+        """Miércoles futuro: la ruta lun-vie necesita que el día siguiente también sea hábil."""
+        d = timezone.localdate() + timedelta(days=1)
+        while d.weekday() != 2:
+            d += timedelta(days=1)
+        return d
 
     def test_ceder_hoy_rechazado_entre_semana(self):
-        hoy = timezone.localdate()
-        if hoy.weekday() >= 5:
-            self.skipTest('Hoy es fin de semana: esta ruta es la de lun-vie')
-        otro = hoy + timedelta(days=1)
-        if otro.weekday() >= 5:
-            self.skipTest('No hay otro día lun-vie en la misma semana')
-        ok, msg = self.strat.validar_solicitud(self._datos(
-            fecha_cambio_turno=hoy.strftime('%Y-%m-%d'),
-            fecha_pago=otro.strftime('%Y-%m-%d'),
-        ))
+        from unittest import mock
+
+        miercoles = self._proximo_miercoles()
+        with mock.patch('django.utils.timezone.localdate', return_value=miercoles):
+            ok, msg = self.strat.validar_solicitud(self._datos(
+                fecha_cambio_turno=miercoles.strftime('%Y-%m-%d'),
+                fecha_pago=(miercoles + timedelta(days=1)).strftime('%Y-%m-%d'),
+            ))
+
         self.assertFalse(ok)
         self.assertIn('posterior a hoy', msg)
 
     def test_revalidar_no_rechaza_por_ser_hoy(self):
         """Al aprobar, la cesión de HOY ya no se rechaza por la regla del día en curso."""
-        hoy = timezone.localdate()
-        if hoy.weekday() >= 5:
-            self.skipTest('Hoy es fin de semana: esta ruta es la de lun-vie')
-        otro = hoy + timedelta(days=1)
-        if otro.weekday() >= 5:
-            self.skipTest('No hay otro día lun-vie en la misma semana')
-        ok, msg = self.strat.validar_solicitud(self._datos(
-            fecha_cambio_turno=hoy.strftime('%Y-%m-%d'),
-            fecha_pago=otro.strftime('%Y-%m-%d'),
-            es_revalidacion=True,
-        ))
+        from unittest import mock
+
+        miercoles = self._proximo_miercoles()
+        with mock.patch('django.utils.timezone.localdate', return_value=miercoles):
+            ok, msg = self.strat.validar_solicitud(self._datos(
+                fecha_cambio_turno=miercoles.strftime('%Y-%m-%d'),
+                fecha_pago=(miercoles + timedelta(days=1)).strftime('%Y-%m-%d'),
+                es_revalidacion=True,
+            ))
+
         self.assertNotIn('posterior a hoy', msg)
 
 
