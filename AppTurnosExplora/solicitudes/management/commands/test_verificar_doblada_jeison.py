@@ -101,7 +101,8 @@ class Command(BaseCommand):
         self.stdout.write('4. VERIFICANDO CAMBIOS DE TURNO (CT) APROBADOS (Jeison como solicitante):')
         cts_solicitante = SolicitudCambio.objects.filter(
             explorador_solicitante=jeison,
-            tipo_cambio__nombre='CT',
+            # 'CT' es el codigo_estrategia; el `nombre` en la maestra es 'CAMBIO TURNO'.
+            tipo_cambio__nombre='CAMBIO TURNO',
             fecha_cambio_turno=fecha_test,
             estado='aprobada'
         ).select_related('explorador_receptor', 'turno_origen', 'turno_destino')

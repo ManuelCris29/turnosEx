@@ -138,9 +138,12 @@ class VerificarDobladaExistenteTest(TestCase):
         """Test: Usuario con CT aprobado - NO debe poder solicitar doblada"""
         self.client.login(username='jeison.mora', password='test123')
         
-        # Crear tipo de cambio CT
-        tipo_ct = TipoSolicitudCambio.objects.create(
-            nombre='CT'
+        # El `nombre` en la tabla maestra es 'CAMBIO TURNO'; 'CT' es su `codigo_estrategia`
+        # y el valor que se escribe en `Turno.tipo_cambio`. Crear aquí un tipo llamado 'CT'
+        # fabricaba un dato que no existe en producción y hacía pasar el test contra un
+        # filtro incorrecto.
+        tipo_ct, _ = TipoSolicitudCambio.objects.get_or_create(
+            nombre='CAMBIO TURNO', defaults={'codigo_estrategia': 'CT'}
         )
         
         # Crear solicitud de CT aprobada

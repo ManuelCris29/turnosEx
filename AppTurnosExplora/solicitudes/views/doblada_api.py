@@ -352,7 +352,9 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     SolicitudCambio.objects
                     .filter(
                         explorador_solicitante=usuario_actual,
-                        tipo_cambio__nombre='CT',  # Cambio Turno sencillo
+                        # 'CT' es el `codigo_estrategia` del tipo, NO su `nombre`: filtrar por
+                        # nombre='CT' no casa con ninguna fila y desactiva la validación entera.
+                        tipo_cambio__nombre='CAMBIO TURNO',
                         fecha_cambio_turno=fecha_obj,
                         estado='aprobada'
                     )
@@ -428,7 +430,8 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                     SolicitudCambio.objects
                     .filter(
                         explorador_solicitante=usuario_actual,
-                        tipo_cambio__nombre='CT',  # Cambio Turno sencillo
+                        # Ver nota del CASO 2: el `nombre` en la maestra es 'CAMBIO TURNO'.
+                        tipo_cambio__nombre='CAMBIO TURNO',
                         fecha_cambio_turno=fecha_obj,
                         estado='aprobada'
                     )
