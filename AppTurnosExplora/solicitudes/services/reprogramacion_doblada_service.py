@@ -23,9 +23,9 @@ from .d_fds_aplicacion_service import DFDSAplicacionService
 from .deuda_corporativa_service import DeudaCorporativaService
 from django.utils import timezone
 
-logger = logging.getLogger(__name__)
+from core.constants import TipoCambioTurno, TipoSolicitud
 
-TIPO_PAGO_REPROGRAMADO = 'PAGO REPROGRAMADO'
+logger = logging.getLogger(__name__)
 
 
 class ReprogramacionDobladaService:
@@ -59,10 +59,10 @@ class ReprogramacionDobladaService:
         # Legacy (patrón por weekday, sin fechas): usar las dobladas PERM aplicadas en el rango.
         if not fechas:
             fechas = list(Turno.objects.filter(
-                explorador=explorador, tipo_cambio='DOBLADA PERM',
+                explorador=explorador, tipo_cambio=TipoCambioTurno.DOBLADA_PERM,
                 fecha__range=(det.fecha_inicio, det.fecha_fin)).values_list('fecha', flat=True))
         activas = set(Turno.objects.filter(
-            explorador=explorador, tipo_cambio='DOBLADA PERM', fecha__in=fechas
+            explorador=explorador, tipo_cambio=TipoCambioTurno.DOBLADA_PERM, fecha__in=fechas
         ).values_list('fecha', flat=True))
         return sorted(f for f in fechas if f in activas)
 
@@ -79,7 +79,7 @@ class ReprogramacionDobladaService:
         from turnos.models import Turno
         activas = set(Turno.objects.filter(
             explorador=explorador, fecha__in=fechas,
-            tipo_cambio__in=['DOBLADA', 'D FDS', 'PAGO REPROGRAMADO'],
+            tipo_cambio__in=[TipoCambioTurno.DOBLADA, TipoCambioTurno.D_FDS, TipoCambioTurno.PAGO_REPROGRAMADO],
         ).values_list('fecha', flat=True))
         return [f for f in fechas if f in activas]
 
@@ -93,7 +93,7 @@ class ReprogramacionDobladaService:
         cambia es el DÍA DE COMPENSACIÓN, que en finde tiene sus propias reglas — ver `programar`.
         """
         tipo = solicitud.tipo_cambio.nombre
-        if tipo in ('DOBLADA', 'D FDS'):
+        if tipo in (TipoSolicitud.DOBLADA, TipoSolicitud.D_FDS):
             det = solicitud.doblada
             _act = ReprogramacionDobladaService._fechas_activas_sencilla
             return [
@@ -102,7 +102,7 @@ class ReprogramacionDobladaService:
                 ('solicitante', solicitud.explorador_solicitante,
                  _act(solicitud.explorador_solicitante, [det.fecha_pago])),
             ]
-        if tipo == 'DOBLADA PERMANENTE':
+        if tipo == TipoSolicitud.DOBLADA_PERMANENTE:
             det = solicitud.doblada_permanente
             return [
                 ('receptor', solicitud.explorador_receptor,
@@ -177,7 +177,7 @@ class ReprogramacionDobladaService:
     def es_dfds(reprog: ReprogramacionDiaDoblada) -> bool:
         """La doblada de origen es de FIN DE SEMANA (reglas de compensación propias)."""
         tipo = getattr(reprog.doblada_origen, 'tipo_cambio', None)
-        return bool(tipo) and tipo.nombre == 'D FDS'
+        return bool(tipo) and tipo.nombre == TipoSolicitud.D_FDS
 
     @staticmethod
     def validar_dia_pago(reprog: ReprogramacionDiaDoblada, fecha_nueva: date, hoy: date | None = None):
@@ -282,7 +282,7 @@ class ReprogramacionDobladaService:
         reprog.jornada_pago_previa = ReprogramacionDobladaService.validar_dia_pago(reprog, fecha_nueva)
 
         DFDSAplicacionService._crear_doblada_dia(
-            reprog.explorador, fecha_nueva, tipo_cambio=TIPO_PAGO_REPROGRAMADO)
+            reprog.explorador, fecha_nueva, tipo_cambio=TipoCambioTurno.PAGO_REPROGRAMADO)
 
         # Regenerar los 30 min en la fecha real (misma regla que una doblada: solo lun-vie no festivo).
         if DeudaCorporativaService.aplica_deuda_doblada(fecha_nueva):

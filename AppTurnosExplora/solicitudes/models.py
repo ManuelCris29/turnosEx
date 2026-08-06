@@ -5,6 +5,8 @@ from turnos.models import Turno
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
+from core.constants import EstadoSolicitud
+
 class Notificacion(models.Model):
     """Modelo para representar notificaciones del sistema."""
     TIPOS_CHOICES = [
@@ -141,15 +143,8 @@ class SolicitudCambio(models.Model):
     tipo_cambio = models.ForeignKey('TipoSolicitudCambio', on_delete=models.CASCADE)
     estado = models.CharField(
         max_length=20,
-        choices=[
-            ('pendiente', 'Pendiente'),
-            ('aprobada', 'Aprobada'),
-            ('rechazada', 'Rechazada'),
-            ('cancelada', 'Cancelada'),
-            ('pagada', 'Pagada'),
-            ('reemplazada', 'Reemplazada'),
-        ],
-        default='pendiente'
+        choices=EstadoSolicitud.CHOICES,
+        default=EstadoSolicitud.PENDIENTE
     )
     fecha_solicitud = models.DateTimeField(auto_now_add=True)
     fecha_cambio_turno = models.DateField(null=True, blank=True, help_text='Fecha para la cual se solicita el cambio de turno')
