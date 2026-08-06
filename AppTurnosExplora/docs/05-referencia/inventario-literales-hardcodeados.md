@@ -1,10 +1,51 @@
 # Inventario: literales de dominio hardcodeados
 
-**Estado: SOLO INVENTARIO. No se ha modificado ningún código.**
+**Estado: EJECUTADO.** Rama `refactor/constantes-dominio`. Fecha: 5 ago 2026.
 
-Levantamiento previo a decidir un plan de refactor. Fecha: 5 ago 2026.
 Origen: los `python:S1192` de [sonarqube-triage.md](sonarqube-triage.md)
 destaparon un problema mucho mayor que el que SonarQube reporta.
+
+## Qué se hizo
+
+| Fase | Qué | Commit |
+|---|---|---|
+| — | **Bug**: `tipo_cambio__nombre='CT'` no casaba con ninguna fila | `cdd8a2c` |
+| 1 | Literales de riesgo muy bajo a constantes de módulo | `80b435e` |
+| 2 | `core/constants.py`: `EstadoSolicitud`, `TipoSolicitud`, `TipoCambioTurno` | `6680164` |
+| 3 | `choices` + `CheckConstraint` en `Turno.tipo_cambio` | `2442bc3` |
+| 4 | `TipoCambioTurno` en los 9 servicios que escriben turnos | `52bec93` |
+
+Suite: 792 → **802 passed** (10 tests nuevos, cero regresiones).
+
+## Correcciones a este inventario
+
+La auditoría previa encontró cinco datos equivocados aquí. Se dejan anotados
+porque explican por qué el plan salió distinto de lo previsto:
+
+1. **`SolicitudCambio.estado` tiene 6 valores, no 4**: faltaban `pagada` y
+   `reemplazada`. Y el campo ya tenía `choices`, así que la BD ya lo validaba:
+   la sección 6 lo clasificaba como riesgo ALTO sin serlo.
+2. **Falta `'PERMISO'`** en la tabla de valores de `Turno.tipo_cambio` (§3). Lo
+   escribe [permisos/services.py:212](../../permisos/services.py#L212). Aún sin
+   filas, pero es un valor legítimo: son **cinco** vocabularios en la columna,
+   no cuatro.
+3. **La suite NO tenía 1 test fallando** (riesgo #6). Estaba entera en verde:
+   792 passed, 0 skips. El dato estaba desactualizado.
+4. **`'%d/%m'` en `api_alternancia.py` tiene 1 uso, no 3** (§6). Se omitió del
+   refactor: una constante para un uso único no aporta.
+5. **`TurnoArchivado` se llama `TurnoArchivo`**
+   ([turnos/models.py:199](../../turnos/models.py#L199)).
+
+Y dos cosas que el inventario no llegó a ver:
+
+- **El JS es el foco real de duplicación**: 41 usos de `DOBLADA` en 9 archivos
+  de `static/js/` y ~22 de `aprobada`. Las constantes Python no lo alcanzan.
+  Sigue pendiente — ver "Lo que queda".
+- **Hay un TERCER vocabulario que también dice `'DOBLADA'`**: el display de
+  jornada que devuelve `estado_dia(...)['jornada']` (`AM` / `PM` / `DOBLADA` /
+  `Descanso`). No tiene relación con `tipo_cambio` aunque comparta el texto.
+  Sustituirlo por la constante habría atado dos conceptos distintos por
+  coincidencia tipográfica.
 
 ---
 
@@ -107,6 +148,11 @@ Esto es lo que hace peligroso "centralizar en una constante por concepto".
 | `NULL` | 29 | ✅ legítimo (turno sin cambio) |
 | **`PAGO REPROGRAMADO`** | 8 | ❌ **no existe en la tabla maestra** |
 | `D FDS` | 4 | ✅ = `nombre` |
+| **`PERMISO`** | 0 | ❌ **no existe en la maestra**; lo escribe `permisos/services.py` |
+
+> Recuento repetido con `Turno.all_objects` (incluye anulados, que el manager
+> por defecto oculta) y sobre `TurnoArchivo`: no aparece ningún valor más. La
+> lista de 8 está completa y es la que valida la `CheckConstraint`.
 
 > Verificado que los 29 son `NULL` reales, **no** el string `'None'`
 > (`tipo_cambio__isnull=True` → 29; `tipo_cambio='None'` → 0).
@@ -144,9 +190,13 @@ para el mismo concepto**, según el campo que se consulte.
 
 ---
 
-## 4. Estado actual de las constantes en el proyecto
+## 4. Estado de las constantes ANTES del refactor
 
-- **No existe** ningún módulo `constants.py`, `constantes.py` ni `enums.py`.
+> Hoy existe [`core/constants.py`](../../core/constants.py) con
+> `EstadoSolicitud`, `TipoSolicitud`, `TipoCambioTurno` y
+> `MAPA_SOLICITUD_A_TURNO`. Lo de abajo es el punto de partida.
+
+- **No existía** ningún módulo `constants.py`, `constantes.py` ni `enums.py`.
 - **No se usa** `models.TextChoices` en ninguna parte.
 - Solo **una** constante de dominio está definida en todo el proyecto:
 
@@ -175,17 +225,17 @@ para el mismo concepto**, según el campo que se consulte.
 
 ---
 
-## 5. Riesgos identificados para el refactor
+## 5. Riesgos identificados, y cómo se resolvió cada uno
 
-| # | Riesgo | Por qué |
+| # | Riesgo | Cómo quedó |
 |---|---|---|
-| 1 | **Confundir los tres `tipo_cambio`** | Uno es FK y dos son CharField. Un reemplazo global por texto los mezclaría. |
-| 2 | **Asumir un vocabulario único** | `DOBLADA PERMANENTE` (maestra) vs `DOBLADA PERM` (turnos) son el mismo concepto con dos textos. |
-| 3 | **`CharField` sin `choices`** | Nada valida lo que se escribe en `Turno.tipo_cambio`; un typo entra en silencio y solo se nota al leer. |
-| 4 | **Valores fuera de la maestra** | `PAGO REPROGRAMADO` y `DOBLADA PERM` no existen en `TipoSolicitudCambio`: no se pueden derivar de ella. |
-| 5 | **Registro dinámico de estrategias** | [`solicitud_factory.py`](../../solicitudes/services/solicitud_factory.py) resuelve estrategias leyendo `codigo_estrategia`/`nombre` **desde la BD** en tiempo de ejecución. Cambiar textos afecta el despacho. |
-| 6 | **Sin red de seguridad completa** | La suite tiene **1 test fallando** (`test_ceder_hoy_rechazado_en_finde`), preexistente. Conviene resolverlo antes para poder confiar en el verde. |
-| 7 | **Volumen** | 54 archivos si se aborda todo; muchos en lógica de dobladas/CT/descansos, la más delicada del sistema. |
+| 1 | **Confundir los tres `tipo_cambio`** | Resuelto por construcción: `TipoSolicitud` y `TipoCambioTurno` son namespaces separados y no se pueden mezclar sin que salte a la vista. **El riesgo ya se había materializado**: ver §8. |
+| 2 | **Asumir un vocabulario único** | No se unificaron. `MAPA_SOLICITUD_A_TURNO` hace explícitas las dos correspondencias que no son la identidad, con un test que lo verifica. |
+| 3 | **`CharField` sin `choices`** | **Resuelto.** `choices` + `CheckConstraint`. Los `choices` solos no bastaban: Django solo los comprueba en `full_clean()`, que ningún servicio llama. |
+| 4 | **Valores fuera de la maestra** | Confirmado y asumido: `PAGO REPROGRAMADO` y `PERMISO` viven solo en `TipoCambioTurno`, con un test que fija que son exactamente esos dos. |
+| 5 | **Registro dinámico de estrategias** | **No se tocó** `solicitud_factory.py`. Se añadió un test que verifica que cada `TipoSolicitud` resuelve una estrategia y no cae en el fallback silencioso a `CambioTurnoStrategy`. |
+| 6 | ~~1 test fallando~~ | Dato equivocado: la suite estaba en verde (792 passed, 0 skips). |
+| 7 | **Volumen** | Acotado: solo los 9 servicios que ESCRIBEN turnos, que es donde un literal errado corrompe datos. Las lecturas transversales quedan fuera. |
 
 ---
 
@@ -200,7 +250,7 @@ Sin recomendación cerrada: material para que decidas.
 | `'solicitudes:reprog_list'` | `reprogramacion_views.py` | 6 |
 | `'solicitudes:cierre_config'` | `cierre_config_views.py` | 4 |
 | `'%d/%m/%Y'` | `cancelar_solicitud.py` | 3 |
-| `'%d/%m'` | `api_alternancia.py` | 3 |
+| ~~`'%d/%m'`~~ | ~~`api_alternancia.py`~~ | ~~3~~ → **1 real, omitido** |
 | `'Año inválido.'` | `descanso_semana.py` | 3 |
 | `'Error al procesar la solicitud'` | `solicitud_orchestrator.py` | 3 |
 
@@ -224,16 +274,71 @@ valores persistidos. Coinciden casi 1:1 con los `S1192` que Sonar reporta.
 
 ---
 
-## 7. Preguntas abiertas antes de decidir
+## 7. Preguntas abiertas: cómo se respondieron
 
-1. ¿`DOBLADA PERM` y `DOBLADA PERMANENTE` deben unificarse, o la abreviatura
-   en `Turno` es intencional? *(Producción arranca limpia, así que migrar
-   datos no sería el obstáculo; el obstáculo es el código que lee ambas.)*
-2. ¿`Turno.tipo_cambio` debería tener `choices` para que la BD valide?
-3. ¿`PAGO REPROGRAMADO` debería existir como fila en `TipoSolicitudCambio`,
-   o es correcto que sea solo un marcador de turno?
-4. ¿Se arregla primero `test_ceder_hoy_rechazado_en_finde` para tener la
-   suite en verde como red de seguridad?
+1. **¿Unificar `DOBLADA PERM` y `DOBLADA PERMANENTE`?** No. Son vocabularios de
+   campos distintos y el despacho de estrategias depende del segundo. Se
+   documenta la correspondencia en `MAPA_SOLICITUD_A_TURNO`; unificar sigue
+   siendo posible después, y ese mapa sería el único sitio a cambiar.
+2. **¿`choices` en `Turno.tipo_cambio`?** Sí, más `CheckConstraint`, que es lo
+   que de verdad valida.
+3. **¿`PAGO REPROGRAMADO` como fila de la maestra?** No. Es un marcador de
+   turno, no un tipo de solicitud: nadie *pide* un pago reprogramado.
+4. **¿Arreglar el test que fallaba?** No hacía falta: la suite estaba verde.
+
+---
+
+## 8. El bug que destapó la auditoría
+
+Antes de tocar nada se clasificó cada filtro sobre `tipo_cambio` como FK o
+CharField. De los 58 del lado FK, uno usaba el vocabulario equivocado:
+
+```python
+# solicitudes/views/doblada_api.py — dos veces
+tipo_cambio__nombre='CT',  # 'CT' es el codigo_estrategia, el nombre es 'CAMBIO TURNO'
+```
+
+Filas de la maestra con `nombre='CT'`: **0**. Solicitudes que casaba el filtro:
+**0**, siempre. Solicitudes `CAMBIO TURNO` aprobadas que debía encontrar: **52**.
+
+Efecto: la regla *"ya tienes un cambio de turno aprobado para esta fecha, no
+puedes pedir doblada"* nunca disparaba. Fallaba en silencio y en la dirección
+permisiva.
+
+El test que cubría el caso pasaba porque su fixture fabricaba un
+`TipoSolicitudCambio(nombre='CT')` que no existe en producción: verificaba el
+filtro incorrecto contra un dato igual de incorrecto.
+
+Corregido en `cdd8a2c`. Es el argumento entero a favor de los dos namespaces
+separados: con `TipoSolicitud.CAMBIO_TURNO` y `TipoCambioTurno.CT` el error deja
+de ser expresable.
+
+La `CheckConstraint` destapó tres casos más del mismo tipo, todos en tests:
+`tipo_cambio='TEST'` (un marcador inventado, en ~100 turnos de
+`test_matriz_dobladas.py`) y `tipo_cambio='CAMBIO TURNO'` escrito en el
+CharField en otros dos archivos.
+
+---
+
+## 9. Lo que queda pendiente
+
+- **El front (41 usos de `DOBLADA` en `static/js/`, ~22 de `aprobada`).** Es el
+  foco real de duplicación y las constantes Python no lo alcanzan. Requiere
+  exponerlas vía context processor o endpoint JSON: es un diseño aparte, no una
+  sustitución mecánica.
+- **Los estados en las 54/43 ubicaciones.** `EstadoSolicitud` ya existe; su
+  adopción masiva es riesgo alto y beneficio bajo, porque el campo ya tiene
+  `choices` y la BD ya restringe los valores.
+- **`solicitud_factory.py`**, deliberadamente intacto.
+- **La tabla maestra no la crea ninguna migración de datos.** Las 6 filas se
+  crearon a mano en desarrollo. Si producción arranca limpia, habrá que crearlas
+  antes de que el sistema funcione — conviene una migración de datos o un
+  comando de seed.
+- **`scripts/tests/test_architecture.py`** filtra `nombre="CT"` con el mismo
+  error del §8. Solo imprime un diagnóstico, así que no se tocó.
+- **Colación de MySQL.** Es case-insensitive por defecto, así que la constraint
+  acepta `'doblada'` como `'DOBLADA'`. Los filtros del ORM comparan igual y
+  tampoco lo notarían; solo un `==` en Python distinguiría.
 
 ---
 
