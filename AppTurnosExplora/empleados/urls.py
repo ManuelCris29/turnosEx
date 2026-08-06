@@ -1,7 +1,6 @@
 from django.urls import path
 from .views import (
     EmpleadoListView, EmpleadoDetailView, EmpleadoEditView, EmpleadoDeleteView,
-    RestriccionesView, SeccionesView, JornadasView,
     RoleListView, RoleCreateView, EmpleadoUsuarioCreateView, AsignarRolesSalasView,
     SalaListView, SalaCreateView, SalaUpdateView, SalaDeleteView,
     JornadaListView, JornadaCreateView, JornadaUpdateView, JornadaDeleteView,
@@ -20,7 +19,6 @@ urlpatterns = [
     path('detail/<int:pk>/', EmpleadoDetailView.as_view(), name='empleado_detail'),
     path('edit/<int:pk>/', EmpleadoEditView.as_view(), name='empleado_edit'),
     path('delete/<int:pk>/', EmpleadoDeleteView.as_view(), name='empleado_delete'),
-    path('secciones/', SeccionesView.as_view(), name='secciones'),
     path('jornadas/', JornadaListView.as_view(), name='jornadas_list'),
     path('jornadas/create/', JornadaCreateView.as_view(), name='jornadas_create'),
     path('jornadas/edit/<int:pk>/', JornadaUpdateView.as_view(), name='jornadas_edit'),

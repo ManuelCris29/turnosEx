@@ -10,9 +10,6 @@ from .empleado import (
     EmpleadoEditForm,
     EmpleadoEditView,
     EmpleadoDeleteView,
-    RestriccionesView,
-    SeccionesView,
-    JornadasView,
     EmpleadoUsuarioCreateView,
     AsignarRolesSalasForm,
     AsignarRolesSalasView,
@@ -68,7 +65,7 @@ from .pdh import (
 __all__ = [
     # empleado
     'EmpleadoListView', 'EmpleadoDetailView', 'EmpleadoEditForm', 'EmpleadoEditView',
-    'EmpleadoDeleteView', 'RestriccionesView', 'SeccionesView', 'JornadasView',
+    'EmpleadoDeleteView',
     'EmpleadoUsuarioCreateView', 'AsignarRolesSalasForm', 'AsignarRolesSalasView',
     'ChangePasswordView',
     # roles

@@ -174,15 +174,6 @@ class EmpleadoDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
     template_name = 'empleados/confirm_delete.html'
     success_url = '/empleados/'  # Redirigir a la lista después de eliminar
 
-class RestriccionesView(LoginRequiredMixin, TemplateView):
-    template_name = 'empleados/placeholder.html'
-
-class SeccionesView(LoginRequiredMixin, TemplateView):
-    template_name = 'empleados/placeholder.html'
-
-class JornadasView(LoginRequiredMixin, TemplateView):
-    template_name = 'empleados/placeholder.html'
-
 # Formulario personalizado para crear usuario, empleado, roles y salas
 class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
     template_name = 'empleados/create_usuario_empleado.html'
