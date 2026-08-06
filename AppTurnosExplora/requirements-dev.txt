@@ -9,3 +9,4 @@ pytest-django==4.9.0
 # test (sufijo _gwN), así que además de repartir la suite elimina de raíz que dos corridas
 # simultáneas se pisen la misma base `test_*`. Ver la clave TEST en config/settings.py.
 pytest-xdist==3.8.0
+pytest-cov==7.1.0

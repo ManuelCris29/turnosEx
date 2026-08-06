@@ -13,6 +13,9 @@ staticfiles/
 *.pyd
 .pytest_cache/
 .mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 
 # Entornos virtuales
 venv/

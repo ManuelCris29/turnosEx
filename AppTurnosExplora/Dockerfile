@@ -32,14 +32,20 @@ RUN chmod 644 /app/certs/rds-ca-global.pem
 # Código de la app.
 COPY . .
 
-# Recolectar estáticos en el build (los sirve WhiteNoise en runtime).
-# Las variables son ficticias y viven SOLO en esta capa (no se hornean como
-# secretos). ENVIRONMENT=production evita cargar debug_toolbar (que no está en
-# requirements de producción).
+# Recolectar estáticos en el build (los sirve WhiteNoise en runtime) y crear el
+# usuario sin privilegios, todo en una sola capa.
+# - Las variables son ficticias y viven SOLO en esta capa (no se hornean como
+#   secretos). ENVIRONMENT=production evita cargar debug_toolbar (que no está en
+#   requirements de producción).
+# - `appuser`: si alguien logra ejecutar código dentro del contenedor, no lo hace
+#   como root. El chown va al final, cuando collectstatic ya escribió en /app.
 RUN ENVIRONMENT=production SECRET_KEY=build-only \
     DB_NAME=build DB_USER=build DB_PASSWORD=build DB_HOST=localhost DB_PORT=3306 \
     EMAIL_HOST_USER=build EMAIL_HOST_PASSWORD=build DEFAULT_FROM_EMAIL=build@build.local \
-    python manage.py collectstatic --noinput
+    python manage.py collectstatic --noinput && \
+    useradd --create-home --shell /usr/sbin/nologin appuser && \
+    chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 

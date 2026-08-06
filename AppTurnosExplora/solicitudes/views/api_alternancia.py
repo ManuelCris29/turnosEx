@@ -82,9 +82,6 @@ class AlternanciaMesView(LoginRequiredMixin, View):
             """Estado real del día (fuente única). `estado_mes` no cubre días de otro mes."""
             return e_estados.get(d) or TurnoService.estado_dia(e_emp, d)
 
-        def _info(d, e_estados, e_emp):
-            return bool(_estado(d, e_estados, e_emp)['trabaja'])
-
         # Receptor opcional: para validar el otro lado del D FDS en cada finde.
         receptor = None
         rec_estados = {}

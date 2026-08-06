@@ -43,8 +43,11 @@
     <!-- Sembrar: fija el grupo del primer día y rellena TODO el año con la alternancia. -->
     <div class="pg-card" style="margin-bottom:14px;">
       <div class="pg-card-body" style="display:flex; flex-wrap:wrap; gap:18px; align-items:flex-end;">
-        <div>
-          <label class="mb-1 small font-weight-bold d-block"><i class="fas fa-seedling mr-1"></i> Sembrar el año {{ anio }}</label>
+        {# fieldset/legend en vez de <label>: este rótulo titula el GRUPO completo
+           (dos selects + botón), no un control puntual, así que no puede llevar `for`.
+           Los reset de borde/ancho evitan el estilo por defecto del navegador. #}
+        <fieldset style="border:0; padding:0; margin:0; min-width:0;">
+          <legend class="mb-1 small font-weight-bold d-block" style="font-size:inherit; width:auto; border:0;"><i class="fas fa-seedling mr-1"></i> Sembrar el año {{ anio }}</legend>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <span class="small">Primer sábado trabaja:</span>
             <select id="seed-finde" class="form-control form-control-sm" style="width:auto;">
@@ -63,7 +66,7 @@
           {% else %}
           <small class="text-muted d-block mt-1"><i class="fas fa-exclamation-triangle mr-1"></i>{{ anio|add:"-1" }} no está sembrado, así que no hay continuidad de la que partir: elige los grupos explícitamente.</small>
           {% endif %}
-        </div>
+        </fieldset>
       </div>
     </div>
     {% else %}

@@ -168,22 +168,22 @@ class Command(BaseCommand):
             self.stdout.write(self.style.HTTP_INFO('📊 DIAGNÓSTICO'))
             if falta_doblada_cesion:
                 self.stdout.write(self.style.WARNING(
-                    f'  ⚠️  Estado incorrecto en fecha de cesión'
-                    + (f' (receptor {jornada_cedida}, solicitante {jornada_otra})' if es_cesion_parcial else f' (receptor sin doblada)')
+                    '  ⚠️  Estado incorrecto en fecha de cesión'
+                    + (f' (receptor {jornada_cedida}, solicitante {jornada_otra})' if es_cesion_parcial else ' (receptor sin doblada)')
                 ))
             else:
                 self.stdout.write(self.style.SUCCESS(
-                    f'  ✅ Fecha de cesión correcta'
+                    '  ✅ Fecha de cesión correcta'
                 ))
             
             if falta_doblada_pago:
                 self.stdout.write(self.style.WARNING(
-                    f'  ⚠️  Estado incorrecto en fecha de pago'
+                    '  ⚠️  Estado incorrecto en fecha de pago'
                     + (f' (solicitante {jornada_cedida}, receptor {jornada_otra})' if es_cesion_parcial else ' (solicitante sin doblada)')
                 ))
             else:
                 self.stdout.write(self.style.SUCCESS(
-                    f'  ✅ Fecha de pago correcta'
+                    '  ✅ Fecha de pago correcta'
                 ))
             
             if not falta_doblada_cesion and not falta_doblada_pago:
@@ -215,11 +215,11 @@ class Command(BaseCommand):
                     self.stdout.write(f'    - Aplicar doblada de pago: {solicitante.nombre} dobla en {fecha_pago}, {receptor.nombre} descansa')
                 if not skip_deudas:
                     self.stdout.write(
-                        f'    - Crear las deudas que falten (DeudaExplorador y DeudaCorporativa). '
-                        f'Las que ya existan NO se duplican.'
+                        '    - Crear las deudas que falten (DeudaExplorador y DeudaCorporativa). '
+                        'Las que ya existan NO se duplican.'
                     )
                 else:
-                    self.stdout.write(f'    - ⏭️  Omitir regeneración de deudas (--skip-deudas)')
+                    self.stdout.write('    - ⏭️  Omitir regeneración de deudas (--skip-deudas)')
                 self.stdout.write('')
                 self.stdout.write(self.style.SUCCESS('✅ DRY-RUN completado. Ejecuta sin --dry-run para aplicar.'))
                 return
@@ -250,25 +250,25 @@ class Command(BaseCommand):
                     # 1. Aplicar doblada de cesión (siempre, tras el borrado)
                     self.stdout.write(f'  📝 Aplicando doblada en fecha de cesión ({fecha_cesion})...')
                     DobladaAplicacionService.aplicar_doblada_cesion(solicitud, detalle)
-                    self.stdout.write(self.style.SUCCESS(f'     ✅ Doblada de cesión aplicada'))
+                    self.stdout.write(self.style.SUCCESS('     ✅ Doblada de cesión aplicada'))
 
                     # 2. Aplicar doblada de pago (siempre, tras el borrado)
                     self.stdout.write(f'  📝 Aplicando doblada en fecha de pago ({fecha_pago})...')
                     DobladaAplicacionService.aplicar_doblada_pago(solicitud, detalle)
-                    self.stdout.write(self.style.SUCCESS(f'     ✅ Doblada de pago aplicada'))
+                    self.stdout.write(self.style.SUCCESS('     ✅ Doblada de pago aplicada'))
 
                 # 3. Generar deudas (opcional; un intercambio nunca las genera)
                 if not skip_deudas and not es_intercambio:
                     # Idempotente: crea solo las deudas que falten. Antes esto duplicaba la deuda
                     # (y los 30 min corporativos) de una solicitud ya aplicada. Ver
                     # PROTECTION_PATTERNS.md #21.
-                    self.stdout.write(f'  📝 Creando las deudas que falten...')
+                    self.stdout.write('  📝 Creando las deudas que falten...')
                     DobladaAplicacionService.generar_deudas_doblada(solicitud, detalle)
-                    self.stdout.write(self.style.SUCCESS(f'     ✅ Deudas al día (las existentes no se duplicaron)'))
+                    self.stdout.write(self.style.SUCCESS('     ✅ Deudas al día (las existentes no se duplicaron)'))
                 elif es_intercambio:
                     self.stdout.write('  ⏭️  Un intercambio de dobladas no genera deudas')
                 else:
-                    self.stdout.write(f'  ⏭️  Omitiendo regeneración de deudas (--skip-deudas)')
+                    self.stdout.write('  ⏭️  Omitiendo regeneración de deudas (--skip-deudas)')
 
             self.stdout.write('')
 
@@ -364,15 +364,15 @@ class Command(BaseCommand):
                     self.stdout.write(f'  • {fecha_pago}: {solicitante.nombre} {jornada_cedida} (paga), {receptor.nombre} {jornada_otra}')
                 else:
                     self.stdout.write(f'  • {receptor.nombre} DOBLADA en {fecha_cesion}, {solicitante.nombre} DOBLADA en {fecha_pago}')
-                self.stdout.write(f'  • La doblada debería aparecer en "Mis Turnos"')
+                self.stdout.write('  • La doblada debería aparecer en "Mis Turnos"')
             else:
                 self.stdout.write(self.style.ERROR(
                     '❌ ERROR: La doblada no se aplicó completamente.'
                 ))
                 if not tiene_doblada_cesion:
-                    self.stdout.write(f'  • Estado incorrecto en fecha de cesión')
+                    self.stdout.write('  • Estado incorrecto en fecha de cesión')
                 if not tiene_doblada_pago:
-                    self.stdout.write(f'  • Estado incorrecto en fecha de pago')
+                    self.stdout.write('  • Estado incorrecto en fecha de pago')
 
         except SolicitudCambio.DoesNotExist:
             raise CommandError(f'La solicitud con ID {solicitud_id} no existe')
