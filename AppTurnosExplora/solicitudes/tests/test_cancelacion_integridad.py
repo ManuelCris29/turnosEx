@@ -281,3 +281,84 @@ class SerializadorSnapshotTest(TestCase):
         from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
 
         self.assertEqual(DobladaSnapshotService.serializar_pares(['basura', None, '1:no-fecha']), {})
+
+
+class RefrescarResultantesTest(TestCase):
+    """
+    Tras reconciliar, los resultantes de las solicitudes vigentes se refrescan — pero SOLO en las
+    fechas que la reconciliación realmente reconstruyó.
+
+    Una doblada toca 2-3 días (cesión, pago, devolución en semana) y puede entrar al refresco por
+    uno solo de ellos. Recalcular el resultante completo reescribiría también los días intactos:
+    una edición externa en el día de pago quedaría adoptada como "lo que la doblada dejó", y al
+    cancelar, la guardia no vería conflicto y pisaría ese cambio ajeno en silencio.
+    """
+
+    def setUp(self):
+        self.am = Jornada.objects.create(nombre='AM', hora_inicio='06:00:00', hora_fin='14:00:00')
+        self.pm = Jornada.objects.create(nombre='PM', hora_inicio='14:00:00', hora_fin='22:00:00')
+        self.sala = Sala.objects.create(nombre='Sala', activo=True)
+        self.tipo = TipoSolicitudCambio.objects.create(nombre='DOBLADA')
+
+        def _emp(username, ced):
+            u = User.objects.create_user(username=username, password='x')
+            return Empleado.objects.create(
+                user=u, nombre=username, apellido='X', cedula=ced, activo=True)
+
+        self.yesika = _emp('yesika', '11')
+        self.andres = _emp('andres', '12')
+
+        hoy = timezone.localdate()
+        self.f_cesion = hoy + timedelta(days=7)
+        self.f_pago = hoy + timedelta(days=15)
+
+        self.k_cesion = f"{self.andres.id}:{self.f_cesion.isoformat()}"
+        self.k_pago = f"{self.andres.id}:{self.f_pago.isoformat()}"
+
+        def _fila(jornada):
+            return [{'jornada_nombre': jornada, 'sala_id': self.sala.id, 'tipo_cambio': 'DOBLADA'}]
+
+        self.solicitud = SolicitudCambio.objects.create(
+            explorador_solicitante=self.yesika, explorador_receptor=self.andres,
+            tipo_cambio=self.tipo, fecha_cambio_turno=self.f_cesion, estado='aprobada',
+            fecha_resolucion=timezone.now() - timedelta(minutes=5),
+            snapshot_turnos_previos={self.k_cesion: [], self.k_pago: []},
+            snapshot_turnos_resultantes={
+                self.k_cesion: _fila('AM'), self.k_pago: _fila('AM')},
+        )
+
+        # Estado en BD DISTINTO del resultante en AMBOS días, por causas distintas:
+        # - cesión: la reconciliación acaba de reconstruirlo (refresco legítimo).
+        # - pago: alguien lo editó por fuera (discrepancia que la guardia DEBE conservar).
+        for fecha in (self.f_cesion, self.f_pago):
+            Turno.objects.create(explorador=self.andres, fecha=fecha, jornada=self.pm,
+                                 sala=self.sala, tipo_cambio='DOBLADA')
+
+    def test_solo_refresca_las_fechas_reconciliadas(self):
+        from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+
+        DobladaSnapshotService.refrescar_resultantes(
+            afectados={(self.andres.id, self.f_cesion)}, excluir_solicitud_id=0)
+
+        self.solicitud.refresh_from_db()
+        res = self.solicitud.snapshot_turnos_resultantes
+        # El día reconciliado se pone al día...
+        self.assertEqual(res[self.k_cesion][0]['jornada_nombre'], 'PM')
+        # ...y el día que nadie tocó conserva lo que la solicitud dejó de verdad.
+        self.assertEqual(
+            res[self.k_pago][0]['jornada_nombre'], 'AM',
+            'El resultante del día de pago se reescribió con una edición externa: la guardia de '
+            'integridad ya no detectaría el conflicto y la cancelación lo pisaría en silencio.')
+
+    def test_la_guardia_sigue_bloqueando_tras_el_refresco(self):
+        """Cierre del caso completo: refrescar no debe volver cancelable lo que no lo era."""
+        from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+
+        DobladaSnapshotService.refrescar_resultantes(
+            afectados={(self.andres.id, self.f_cesion)}, excluir_solicitud_id=0)
+
+        self.solicitud.refresh_from_db()
+        bloqueo = CancelarSolicitudUseCase().bloqueo_integridad(self.solicitud)
+
+        self.assertIsNotNone(bloqueo)
+        self.assertIn(self.f_pago.strftime('%d/%m'), bloqueo)

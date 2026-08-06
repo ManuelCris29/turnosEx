@@ -290,17 +290,15 @@ class DobladaSnapshotService:
         # guardia de integridad los vería "modificados por otro" y bloquearía su cancelación
         # legítima. Se hace al final, con el estado ya estabilizado.
         DobladaSnapshotService.refrescar_resultantes(
-            afectados, excluir_solicitud_id, fechas, exploradores)
+            afectados, excluir_solicitud_id, exploradores)
 
     @staticmethod
     def refrescar_resultantes(afectados: set, excluir_solicitud_id: int,
-                              fechas: set = None, exploradores: set = None) -> None:
+                              exploradores: set = None) -> None:
         """Recalcula `snapshot_turnos_resultantes` de las solicitudes aprobadas que tocan `afectados`."""
         from django.db.models import Q
         from solicitudes.models import SolicitudCambio
 
-        if fechas is None:
-            fechas = {f for (_e, f) in afectados}
         if exploradores is None:
             exploradores = {e for (e, _f) in afectados}
         claves_afectadas = {f"{e}:{f.isoformat()}" for (e, f) in afectados}
@@ -319,8 +317,23 @@ class DobladaSnapshotService:
                 if obj is None:
                     continue
                 previo = getattr(obj, 'snapshot_turnos_previos', None) or {}
-                if previo and claves_afectadas & set(previo.keys()):
-                    DobladaSnapshotService.capturar_snapshot_resultante(obj, previo)
+                comunes = claves_afectadas & set(previo.keys()) if previo else set()
+                if not comunes:
+                    continue
+                # SOLO las claves que la reconciliación acaba de reconstruir. Una doblada toca
+                # 2-3 días (cesión, pago y devolución en semana) y aquí puede entrar por UNO de
+                # ellos. Recalcular el resultante COMPLETO reescribiría también los días que
+                # nadie tocó: si alguien los había modificado por fuera (admin, permiso
+                # especial), esa discrepancia —justo la que `bloqueo_integridad` debe detectar—
+                # quedaría adoptada como "lo que esta solicitud dejó" y la cancelación pisaría
+                # el cambio ajeno en silencio. Por eso se fusiona en vez de reemplazar.
+                resultante = dict(getattr(obj, 'snapshot_turnos_resultantes', None) or {})
+                resultante.update(DobladaSnapshotService.serializar_pares(comunes))
+                obj.snapshot_turnos_resultantes = resultante
+                try:
+                    obj.save(update_fields=['snapshot_turnos_resultantes'])
+                except ValueError:
+                    pass
 
     @staticmethod
     def _reconciliar_cambios_de_turno(fechas: set, exploradores: set, excluir_solicitud_id: int) -> None:

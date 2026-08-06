@@ -43,11 +43,17 @@ class DobladaTurnoService:
         Raises:
             ValidationError: Si no se encuentra ninguna sala asignada
         """
-        # 1. Buscar sala del turno existente en esa fecha
+        # 1. Buscar sala del turno existente en esa fecha.
+        # El `order_by('jornada_id')` no es cosmético: si el explorador tiene AM y PM en salas
+        # distintas, sin desempate `.first()` puede devolver una u otra entre llamadas (el
+        # `ordering` del modelo es ['fecha', 'explorador'], que no discrimina dentro del día).
+        # Al re-aplicar una solicitud en la reconciliación se recrean los turnos, y una sala
+        # distinta a la original cambia la huella `(jornada, sala_id, tipo_cambio)` que compara
+        # `bloqueo_integridad`: la cancelación se bloquearía por un cambio que nadie hizo.
         turno_existente = Turno.objects.filter(
             explorador=explorador,
             fecha=fecha
-        ).select_related('sala').first()
+        ).select_related('sala').order_by('jornada_id').first()
         
         if turno_existente:
             return turno_existente.sala
