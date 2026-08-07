@@ -627,41 +627,53 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # previsualización y la aplicación (`_razones_exclusion_ct_permanente`), para que el
             # porcentaje signifique de verdad "días que se van a aplicar con este compañero".
             from ..ct_permanente_helper import (
-                _razones_exclusion_ct_permanente, _jornada_efectiva_ct,
+                _razones_exclusion_ct_permanente, _estado_ct, precargar_ct_permanente,
             )
 
-            # Días descartados por el LADO del solicitante (festivo, mantenimiento, temporada,
-            # su descanso, su día libre, un cambio previo suyo). No dependen del candidato, así
-            # que se calculan una sola vez y además fijan el denominador honesto del porcentaje:
-            # antes se dividía entre los días de calendario, inflando la compatibilidad.
-            fechas_evaluables = [
-                f for f in fechas_a_evaluar if not _razones_exclusion_ct_permanente(f, usuario_actual)
-            ]
-            if not fechas_evaluables:
-                logger.debug("CT PERMANENTE: el solicitante no tiene ningún día aplicable en el rango")
-                return []
+            # PRECARGA EN LOTE de la matriz empleado×día. Esto es lo que hace viable el cálculo:
+            # antes cada celda resolvía su estado por separado (~13 consultas y ~17 ms), de modo
+            # que un rango de 90 días con una decena de candidatos costaba ~13.000 consultas y
+            # ~40 s, creciendo linealmente con la plantilla. Ahora todo el estado se trae de una
+            # vez y el doble bucle de abajo no toca la base de datos.
+            with precargar_ct_permanente(
+                [usuario_actual, *candidatos_base],
+                min(fechas_a_evaluar), max(fechas_a_evaluar),
+            ):
+                # Días descartados por el LADO del solicitante (festivo, mantenimiento, temporada,
+                # su descanso, su día libre, un cambio previo suyo). No dependen del candidato, así
+                # que se calculan una sola vez y además fijan el denominador honesto del porcentaje:
+                # antes se dividía entre los días de calendario, inflando la compatibilidad.
+                fechas_evaluables = [
+                    f for f in fechas_a_evaluar if not _razones_exclusion_ct_permanente(f, usuario_actual)
+                ]
+                if not fechas_evaluables:
+                    logger.debug("CT PERMANENTE: el solicitante no tiene ningún día aplicable en el rango")
+                    return []
 
-            logger.debug("Evaluación día a día para %s fechas aplicables del solicitante", len(fechas_evaluables))
-            for fecha_eval in fechas_evaluables:
-                # La jornada del SOLICITANTE ese día no depende del candidato: se resuelve UNA vez
-                # por fecha. Antes se llamaba a `jornadas_intercambiables_ct(usuario_actual, ...)`
-                # dentro del bucle de candidatos, que recalculaba `estado_dia` del solicitante
-                # tantas veces como candidatos hubiera (decenas de miles de consultas en rangos
-                # largos). El resultado es idéntico: contraria ⇔ ambas son AM/PM y distintas.
-                j_sol = _jornada_efectiva_ct(usuario_actual, fecha_eval)
-                fecha_fmt = fecha_eval.strftime('%Y-%m-%d')
-                for cand_id, info in mapa_compatibilidad.items():
-                    candidato = info['empleado']
-                    # El candidato debe estar disponible ese día Y tener jornada contraria.
-                    es_compatible = bool(
-                        j_sol
-                        and not _razones_exclusion_ct_permanente(fecha_eval, candidato)
-                        and _jornada_efectiva_ct(candidato, fecha_eval) not in (None, j_sol)
-                    )
-                    if es_compatible:
-                        info['dias_compatibles'].append(fecha_fmt)
-                    else:
-                        info['dias_incompatibles'].append(fecha_fmt)
+                logger.debug("Evaluación día a día para %s fechas aplicables del solicitante", len(fechas_evaluables))
+                for fecha_eval in fechas_evaluables:
+                    # La jornada del SOLICITANTE ese día no depende del candidato: se resuelve UNA
+                    # vez por fecha. Antes se llamaba a `jornadas_intercambiables_ct(usuario_actual,
+                    # ...)` dentro del bucle de candidatos, que recalculaba `estado_dia` del
+                    # solicitante tantas veces como candidatos hubiera. El resultado es idéntico:
+                    # contraria ⇔ ambas son AM/PM y distintas.
+                    j_sol = _estado_ct(usuario_actual, fecha_eval).get('jornada')
+                    j_sol = j_sol if j_sol in ('AM', 'PM') else None
+                    fecha_fmt = fecha_eval.strftime('%Y-%m-%d')
+                    for cand_id, info in mapa_compatibilidad.items():
+                        candidato = info['empleado']
+                        # El candidato debe estar disponible ese día Y tener jornada contraria.
+                        # `_razones_exclusion_ct_permanente` ya resuelve el estado del candidato,
+                        # así que la jornada se lee de ese mismo estado en vez de volver a
+                        # derivarlo con `_jornada_efectiva_ct` (era un 40 % de recálculo puro).
+                        es_compatible = False
+                        if j_sol and not _razones_exclusion_ct_permanente(fecha_eval, candidato):
+                            j_cand = _estado_ct(candidato, fecha_eval).get('jornada')
+                            es_compatible = j_cand in ('AM', 'PM') and j_cand != j_sol
+                        if es_compatible:
+                            info['dias_compatibles'].append(fecha_fmt)
+                        else:
+                            info['dias_incompatibles'].append(fecha_fmt)
 
             # 4. Construir lista de resultados con metadatos
             resultados = []

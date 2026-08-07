@@ -455,65 +455,80 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
             
             from turnos.models import Turno, Jornada
-            from turnos.services.turno_service import TurnoService as _TSrango
             from empleados.models import Empleado as _EmpRango
             from solicitudes.services.ct_permanente_helper import (
-                _es_festivo, _es_mantenimiento, _es_temporada,
+                _es_festivo, _es_mantenimiento, _es_temporada, _estado_ct,
+                _dia_libre_por_solicitud, precargar_ct_permanente,
             )
             _emp_rango = _EmpRango.objects.filter(id=explorador_id).first()
+
+            # Turnos del rango de una sola vez (antes: una consulta por fecha).
+            _turnos_por_fecha = {}
+            for _t in (Turno.objects
+                       .filter(explorador_id=explorador_id,
+                               fecha__range=(fecha_inicio_obj, fecha_fin_obj))
+                       .select_related('jornada')):
+                _turnos_por_fecha.setdefault(_t.fecha, []).append(_t)
+
+            # Catálogo de jornadas por nombre (antes: una consulta por día trabajado).
+            _jornadas_cat = {j.nombre.upper(): j for j in Jornada.objects.all()}
+
             jornadas_por_dia = []
-            for fecha_obj in fechas_validas:
-                dia_semana_num = fecha_obj.weekday()
-                # Reflejar el estado REAL del día, coherente con lo que se aplicará en el CT
-                # permanente. Prioridad (igual que la exclusión real):
-                #   Doblada (turno real) > Comprometido por solicitud > Mantenimiento >
-                #   Festivo > Temporada > jornada AM/PM (real del día).
-                turnos_dia = list(
-                    Turno.objects.filter(explorador_id=explorador_id, fecha=fecha_obj)
-                    .select_related('jornada')
-                )
-                if len(turnos_dia) >= 2:
-                    jornada_nombre, jornada_id = 'DOBLADA', None
-                elif _emp_rango and _TSrango.dia_comprometido_por_solicitud(_emp_rango, fecha_obj):
-                    # Día ya cedido/comprometido en otra solicitud aprobada (L2): no aplica.
-                    jornada_nombre, jornada_id = 'COMPROMETIDO', None
-                elif _es_mantenimiento(fecha_obj):
-                    jornada_nombre, jornada_id = 'MANTENIMIENTO', None
-                elif _es_festivo(fecha_obj):
-                    jornada_nombre, jornada_id = 'FESTIVO', None
-                elif _es_temporada(fecha_obj):
-                    jornada_nombre, jornada_id = 'TEMPORADA', None
-                elif len(turnos_dia) == 1 and turnos_dia[0].jornada:
-                    # Turno real único: la jornada REAL de ese día (no la predeterminada)
-                    jornada_nombre = turnos_dia[0].jornada.nombre
-                    jornada_id = turnos_dia[0].jornada.id
-                elif _emp_rango:
-                    # FUENTE DE VERDAD (estado_dia): igual que Mis Turnos. Cubre descanso de
-                    # temporada por DescansoSemanaManual, día completo (grupo contrario
-                    # descansa), festivos por rotación/override y demás capas.
-                    _est = _TSrango.estado_dia(_emp_rango, fecha_obj)
-                    if not _est['trabaja']:
-                        _map_fuente = {'temporada': 'TEMPORADA', 'mantenimiento': 'MANTENIMIENTO',
-                                       'festivo': 'FESTIVO', 'solicitud': 'COMPROMETIDO'}
-                        jornada_nombre = _map_fuente.get(_est['fuente'], 'DESCANSO')
-                        jornada_id = None
-                    elif _est['jornada'] == 'DOBLADA':
+            # Precarga en lote del estado del explorador: este bucle resolvía cada fecha por
+            # separado (día comprometido, festivo, mantenimiento, temporada y `estado_dia`),
+            # que era ~1.400 consultas para un rango de 90 días.
+            with precargar_ct_permanente([_emp_rango] if _emp_rango else [],
+                                         fecha_inicio_obj, fecha_fin_obj):
+                for fecha_obj in fechas_validas:
+                    dia_semana_num = fecha_obj.weekday()
+                    # Reflejar el estado REAL del día, coherente con lo que se aplicará en el CT
+                    # permanente. Prioridad (igual que la exclusión real):
+                    #   Doblada (turno real) > Comprometido por solicitud > Mantenimiento >
+                    #   Festivo > Temporada > jornada AM/PM (real del día).
+                    turnos_dia = _turnos_por_fecha.get(fecha_obj, [])
+                    if len(turnos_dia) >= 2:
                         jornada_nombre, jornada_id = 'DOBLADA', None
+                    elif _emp_rango and _dia_libre_por_solicitud(_emp_rango, fecha_obj):
+                        # Día ya cedido/comprometido en otra solicitud aprobada (L2): no aplica.
+                        jornada_nombre, jornada_id = 'COMPROMETIDO', None
+                    elif _es_mantenimiento(fecha_obj):
+                        jornada_nombre, jornada_id = 'MANTENIMIENTO', None
+                    elif _es_festivo(fecha_obj):
+                        jornada_nombre, jornada_id = 'FESTIVO', None
+                    elif _es_temporada(fecha_obj):
+                        jornada_nombre, jornada_id = 'TEMPORADA', None
+                    elif len(turnos_dia) == 1 and turnos_dia[0].jornada:
+                        # Turno real único: la jornada REAL de ese día (no la predeterminada)
+                        jornada_nombre = turnos_dia[0].jornada.nombre
+                        jornada_id = turnos_dia[0].jornada.id
+                    elif _emp_rango:
+                        # FUENTE DE VERDAD (estado_dia): igual que Mis Turnos. Cubre descanso de
+                        # temporada por DescansoSemanaManual, día completo (grupo contrario
+                        # descansa), festivos por rotación/override y demás capas.
+                        _est = _estado_ct(_emp_rango, fecha_obj)
+                        if not _est.get('trabaja'):
+                            _map_fuente = {'temporada': 'TEMPORADA', 'mantenimiento': 'MANTENIMIENTO',
+                                           'festivo': 'FESTIVO', 'solicitud': 'COMPROMETIDO'}
+                            jornada_nombre = _map_fuente.get(_est.get('fuente'), 'DESCANSO')
+                            jornada_id = None
+                        elif _est.get('jornada') == 'DOBLADA':
+                            jornada_nombre, jornada_id = 'DOBLADA', None
+                        else:
+                            _nom = _est.get('jornada')
+                            _j_obj = _jornadas_cat.get(_nom.upper()) if _nom else None
+                            jornada_nombre = _j_obj.nombre if _j_obj else _nom
+                            jornada_id = _j_obj.id if _j_obj else None
                     else:
-                        _j_obj = Jornada.objects.filter(nombre__iexact=_est['jornada']).first() if _est['jornada'] else None
-                        jornada_nombre = _j_obj.nombre if _j_obj else _est['jornada']
-                        jornada_id = _j_obj.id if _j_obj else None
-                else:
-                    jornada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha_obj)
-                    jornada_nombre = jornada.nombre if jornada else None
-                    jornada_id = jornada.id if jornada else None
-                jornadas_por_dia.append({
-                    'fecha': fecha_obj.strftime('%Y-%m-%d'),
-                    'fecha_formateada': fecha_obj.strftime('%d/%m/%Y'),
-                    'dia_semana': dias_semana_es[dia_semana_num] if dia_semana_num < len(dias_semana_es) else fecha_obj.strftime('%A'),
-                    'jornada': jornada_nombre,
-                    'jornada_id': jornada_id
-                })
+                        jornada = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha_obj)
+                        jornada_nombre = jornada.nombre if jornada else None
+                        jornada_id = jornada.id if jornada else None
+                    jornadas_por_dia.append({
+                        'fecha': fecha_obj.strftime('%Y-%m-%d'),
+                        'fecha_formateada': fecha_obj.strftime('%d/%m/%Y'),
+                        'dia_semana': dias_semana_es[dia_semana_num] if dia_semana_num < len(dias_semana_es) else fecha_obj.strftime('%A'),
+                        'jornada': jornada_nombre,
+                        'jornada_id': jornada_id
+                    })
 
             # Etiquetas que NO son una jornada aplicable (el día queda excluido del cambio)
             _NO_APLICAN = {'DOBLADA', 'MANTENIMIENTO', 'FESTIVO', 'TEMPORADA', 'COMPROMETIDO', 'DESCANSO'}

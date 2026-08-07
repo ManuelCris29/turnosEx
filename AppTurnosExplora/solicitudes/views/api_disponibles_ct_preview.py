@@ -198,7 +198,9 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
         import json
         from django.core.exceptions import ValidationError
         from empleados.models import Empleado
-        from ..services.ct_permanente_helper import evaluar_fechas_ct_permanente
+        from ..services.ct_permanente_helper import (
+            evaluar_fechas_ct_permanente, precargar_ct_permanente,
+        )
         from ..services.solicitud_validator import SolicitudValidator  # type: ignore
 
         fecha_inicio_str = request.GET.get('fecha_inicio')
@@ -256,25 +258,29 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
                     fecha_inicio, fecha_fin, dias_seleccionados
                 )
 
-            # Jornada contraria en rango solo si hay receptor
-            if receptor:
-                SolicitudValidator.validar_jornada_contraria_rango_permanente(
-                    solicitante,
-                    receptor,
-                    fecha_inicio,
-                    fecha_fin,
-                    dias_seleccionados if dias_seleccionados else None,
-                )
+            # Una sola precarga en lote para las DOS pasadas de abajo (la validación de jornada
+            # contraria y la evaluación), que barren el mismo rango y los mismos dos empleados.
+            # Sin esto cada una resolvía el rango entero por su cuenta, consulta a consulta.
+            with precargar_ct_permanente([solicitante, receptor], fecha_inicio, fecha_fin):
+                # Jornada contraria en rango solo si hay receptor
+                if receptor:
+                    SolicitudValidator.validar_jornada_contraria_rango_permanente(
+                        solicitante,
+                        receptor,
+                        fecha_inicio,
+                        fecha_fin,
+                        dias_seleccionados if dias_seleccionados else None,
+                    )
 
-            # MISMA evaluación que usan la validación y la aplicación: lo que se ve aquí es
-            # exactamente lo que se va a aplicar. Antes esta vista repetía la expansión y el
-            # filtrado por su cuenta (quinta copia de la misma lógica) y no comprobaba que las
-            # jornadas fueran contrarias día a día.
-            fechas_aplicables_dt, fechas_excluidas_dt = evaluar_fechas_ct_permanente(
-                fecha_inicio, fecha_fin, solicitante, receptor,
-                dias_seleccionados if dias_seleccionados else None,
-                incluir_fines_semana=True,
-            )
+                # MISMA evaluación que usan la validación y la aplicación: lo que se ve aquí es
+                # exactamente lo que se va a aplicar. Antes esta vista repetía la expansión y el
+                # filtrado por su cuenta (quinta copia de la misma lógica) y no comprobaba que las
+                # jornadas fueran contrarias día a día.
+                fechas_aplicables_dt, fechas_excluidas_dt = evaluar_fechas_ct_permanente(
+                    fecha_inicio, fecha_fin, solicitante, receptor,
+                    dias_seleccionados if dias_seleccionados else None,
+                    incluir_fines_semana=True,
+                )
 
             fechas_aplicables = [f.strftime('%Y-%m-%d') for f in fechas_aplicables_dt]
             fechas_excluidas = [
@@ -352,7 +358,9 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
     def get(self, request):
         import json
         from datetime import datetime, timedelta
-        from ..services.ct_permanente_helper import _motivo_no_doblada_perm
+        from ..services.ct_permanente_helper import (
+            _motivo_no_doblada_perm, precargar_ct_permanente,
+        )
 
         fi_s = request.GET.get('fecha_inicio')
         ff_s = request.GET.get('fecha_fin')
@@ -384,16 +392,19 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
         # con varios compañeros—, así que aquí NO se evalúa el compañero.
         aplicables, excluidas = [], []
         if dias and ff >= fi:
-            d = fi
-            while d <= ff:
-                wd = d.weekday()
-                if wd in dias:
-                    razon = _motivo_no_doblada_perm(solicitante, d)
-                    if razon:
-                        excluidas.append({'fecha': d.strftime('%Y-%m-%d'), 'razon': razon})
-                    else:
-                        aplicables.append(d.strftime('%Y-%m-%d'))
-                d += timedelta(days=1)
+            # Precarga en lote del estado del solicitante en todo el rango: el barrido de abajo
+            # lo resolvía día a día (~13 consultas por día).
+            with precargar_ct_permanente([solicitante], fi, ff):
+                d = fi
+                while d <= ff:
+                    wd = d.weekday()
+                    if wd in dias:
+                        razon = _motivo_no_doblada_perm(solicitante, d)
+                        if razon:
+                            excluidas.append({'fecha': d.strftime('%Y-%m-%d'), 'razon': razon})
+                        else:
+                            aplicables.append(d.strftime('%Y-%m-%d'))
+                    d += timedelta(days=1)
 
         return json_ok({
             'aplicables': aplicables,
@@ -417,6 +428,7 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         from empleados.models import Empleado
         from ..services.ct_permanente_helper import (
             _jornada_doblada_perm, _motivo_no_cubre_companero,
+            bloque_calendario_no_apto, precargar_ct_permanente,
         )
 
         fi_s = request.GET.get('fecha_inicio')
@@ -485,26 +497,48 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         por_par = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
         no_cubre = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
         if ff >= fi:
-            d = fi
-            while d <= ff:
-                js = _sol_jornada(d)
-                if js:
-                    w = d.weekday()
-                    ds = d.strftime('%Y-%m-%d')
-                    por_dia[w].append({'f': ds, 'ys': js})
-                    for (wd, cid), comp in pares_norm.items():
-                        if wd != w:
-                            continue
-                        jr = _jornada_doblada_perm(comp, d) if comp else None
-                        if jr and jr != js:
-                            por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': jr})
-                        else:
-                            # Solo aquí se paga el costo de reconstruir el estado del compañero.
-                            motivo = _motivo_no_cubre_companero(comp, d, js)
-                            no_cubre[f"{wd}|{cid}"].append(
-                                {'f': ds, 'ys': js, 'tipo': motivo['tipo'], 'razon': motivo['razon']}
-                            )
-                d += timedelta(days=1)
-        return json_ok({'por_dia': por_dia, 'por_par': por_par, 'no_cubre': no_cubre})
+            # Precarga en lote del solicitante y de todos los compañeros implicados: este bucle
+            # es una matriz empleado×día y sin la precarga cada celda iba a la base de datos.
+            with precargar_ct_permanente(
+                [solicitante, *pares_norm.values()], fi, ff
+            ):
+                d = fi
+                while d <= ff:
+                    js = _sol_jornada(d)
+                    if js:
+                        w = d.weekday()
+                        ds = d.strftime('%Y-%m-%d')
+                        por_dia[w].append({'f': ds, 'ys': js})
+                        for (wd, cid), comp in pares_norm.items():
+                            if wd != w:
+                                continue
+                            jr = _jornada_doblada_perm(comp, d) if comp else None
+                            if jr and jr != js:
+                                por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': jr})
+                            else:
+                                # Solo aquí se paga el costo de reconstruir el estado del compañero.
+                                motivo = _motivo_no_cubre_companero(comp, d, js)
+                                no_cubre[f"{wd}|{cid}"].append(
+                                    {'f': ds, 'ys': js, 'tipo': motivo['tipo'], 'razon': motivo['razon']}
+                                )
+                    d += timedelta(days=1)
+
+        # El calendario del formulario deshabilita temporada, festivo y mantenimiento, así que al
+        # arrastrar el "Hasta" el rango se corta SOLO, sin decir por qué: el usuario cree haber
+        # elegido "hasta diciembre" y en realidad eligió hasta la víspera de la temporada, con la
+        # mitad de los días que esperaba. Si el rango termina pegado a un bloque bloqueado, se
+        # informa desde dónde y hasta cuándo, para que el formulario lo diga en vez de callarlo.
+        # El tramo empieza en `ff + 1`, FUERA del rango precargado, así que se resuelve con su
+        # propia consulta única en vez de día a día (ver `bloque_calendario_no_apto`).
+        corte = bloque_calendario_no_apto(ff + timedelta(days=1))
+
+        return json_ok({
+            'por_dia': por_dia, 'por_par': por_par, 'no_cubre': no_cubre,
+            'rango': {
+                'inicio': fi.strftime('%Y-%m-%d'),
+                'fin': ff.strftime('%Y-%m-%d'),
+                'corte': corte,
+            },
+        })
 
 

@@ -395,6 +395,26 @@ class TurnoService(ITurnoService):
             'es_festivo': bool,
             'companero': dict|None,    # {id, nombre} si descansa por una solicitud
           }
+
+        ⚠️ NO SIRVE PARA SABER SI EL DÍA ES DE TEMPORADA.
+
+        `fuente='temporada'` solo aparece para quien DESCANSA por temporada (y `DOBLADA` para
+        quien cubre el día completo porque el grupo contrario descansa). Al explorador que en
+        temporada CONSERVA su jornada normal se le devuelve `fuente='base'`, indistinguible de
+        un día ordinario: L4 se activa vía `es_descanso_semana_manual`, que no contempla ese
+        tercer caso. Comprobado el 16/12/2026 (día de temporada): 9 de 12 exploradores activos
+        salen con `fuente='base'`.
+
+        Si tu formulario DEBE rechazar la temporada, compruébalo POR REGLA contra el calendario
+        (`DiaEspecial.es_temporada_en(fecha)`, o `_dia_calendario_no_apto()` en
+        `solicitudes/services/ct_permanente_helper.py`) — NUNCA con `fuente == 'temporada'`,
+        que no se cumplirá para el caso que te interesa y fallará EN SILENCIO.
+
+        Hoy esto no rompe nada: los únicos formularios que rechazan temporada (CT PERMANENTE y
+        DOBLADA PERMANENTE) ya la comprueban por regla; los demás la permiten a propósito. La
+        política de cada formulario está fijada en `solicitudes/tests/test_politica_temporada.py`
+        y el análisis completo, con las opciones de arreglo, en
+        `docs/05-referencia/turnos/PUNTO_CIEGO_TEMPORADA_ESTADO_DIA.md`.
         """
         from datetime import datetime as _dt
         from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador
@@ -498,126 +518,193 @@ class TurnoService(ITurnoService):
         Versión BATCH de `estado_dia` para un mes completo (~8 consultas en vez de N×día).
         Devuelve { date: <mismo dict que estado_dia> } para cada día del mes.
         Mantiene EXACTAMENTE el mismo orden de capas que `estado_dia`.
+
+        Atajo sobre `estado_rango_multiple`, que es la implementación real (antes esta función
+        tenía su propia copia del cálculo por capas).
         """
         from calendar import monthrange
-        from datetime import date as _date, timedelta as _td
-        from turnos.models import (Turno, DiaEspecial, AsignarJornadaExplorador,
-                                   DescansoSemanaManual)
-        from turnos.services.descanso_semana_service import DescansoSemanaService
+        from datetime import date as _date
 
         ndias = monthrange(anio, mes)[1]
-        ini = _date(anio, mes, 1)
-        fin = _date(anio, mes, ndias)
+        return TurnoService.estado_rango(empleado, _date(anio, mes, 1), _date(anio, mes, ndias))
 
-        # L1: turnos reales (batch)
-        turnos_por_fecha = {}
-        for t in Turno.objects.filter(explorador=empleado, fecha__range=(ini, fin)).select_related('jornada'):
-            turnos_por_fecha.setdefault(t.fecha, []).append(t)
+    @staticmethod
+    def estado_rango(empleado, ini, fin):
+        """
+        Versión BATCH de `estado_dia` para un rango arbitrario: { date: <dict de estado_dia> }.
+        Atajo de un solo empleado sobre `estado_rango_multiple`.
+        """
+        return TurnoService.estado_rango_multiple([empleado], ini, fin).get(
+            getattr(empleado, 'id', empleado), {}
+        )
 
-        # Jornada base (asignación más reciente <= fin de mes)
-        asg = (AsignarJornadaExplorador.objects.filter(explorador=empleado, fecha_inicio__lte=fin)
-               .select_related('jornada').order_by('-fecha_inicio').first())
-        jornada_base = asg.jornada.nombre.upper() if asg else None
+    @staticmethod
+    def estado_rango_multiple(empleados, ini, fin):
+        """
+        Versión BATCH de `estado_dia` para VARIOS empleados y un rango arbitrario, con un número
+        CONSTANTE de consultas (no N×empleado×día): { emp_id: { fecha: <dict de estado_dia> } }.
 
-        # Festivos del mes
-        festivos = set(DiaEspecial.objects.filter(
-            fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True))
+        Mantiene EXACTAMENTE el mismo orden de capas que `estado_dia`:
+          L1 turno real → L2 descanso por solicitud → L5 festivo (entre semana, antes que L1 salvo
+          cambio explícito) → L6 alternancia de finde → L4 temporada → L3 mantenimiento → base.
 
-        # L2: descansos por solicitud aprobada (batch) — FUENTE ÚNICA compartida con
-        # `_descanso_por_solicitud` (estado_dia) y el endpoint de Mis Turnos. Cubre DOBLADA,
-        # D FDS, CAMBIO DESCANSO y DOBLADA PERMANENTE, SIEMPRE por fecha específica.
+        La necesitan los formularios que evalúan una MATRIZ empleado×día (CT permanente y sus
+        primos): resolver esa matriz con `estado_dia` costaba ~13 consultas y ~17 ms por celda,
+        de modo que un rango de 90 días con una decena de candidatos se iba a decenas de miles de
+        consultas y ~40 s. Aquí el coste por celda es de microsegundos.
+
+        ⚠️ Hereda el punto ciego de TEMPORADA de `estado_dia` (mismo orden de capas, misma L4):
+        a quien conserva su jornada en temporada se le devuelve `fuente='base'`. Ver la
+        advertencia completa en el docstring de `estado_dia`.
+
+        DIFERENCIA DELIBERADA con la antigua `estado_mes`: la jornada base se resuelve POR FECHA
+        (la asignación vigente ese día), no con la asignación vigente al final del rango. Si un
+        explorador cambia de grupo a mitad del periodo, `estado_mes` devolvía la jornada nueva
+        también para los días anteriores al cambio y contradecía a `estado_dia`, que siempre miró
+        `fecha_inicio__lte=fecha`. Ahora ambas coinciden.
+        """
+        from bisect import bisect_right
+        from datetime import timedelta as _td
+        from turnos.models import (Turno, DiaEspecial, AsignarJornadaExplorador,
+                                   DescansoSemanaManual)
         from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
-        rest_sol = DescansoPorSolicitudService.en_rango(empleado, ini, fin)
-
-        # L4: temporada (descanso de semana manual de la jornada base)
-        # y días donde descansa la jornada CONTRARIA (este grupo trabaja día completo).
-        temporada = set()
-        temporada_trabaja_completo = set()
-        if jornada_base:
-            jornada_contraria = 'PM' if jornada_base == 'AM' else 'AM'
-            for dsm in (DescansoSemanaManual.objects
-                        .filter(fecha__range=(ini, fin), activo=True)
-                        .select_related('jornada')):
-                if dsm.fecha.weekday() >= 5:
-                    continue
-                nombre_dsm = dsm.jornada.nombre.upper()
-                if nombre_dsm == jornada_base:
-                    temporada.add(dsm.fecha)
-                elif nombre_dsm == jornada_contraria:
-                    temporada_trabaja_completo.add(dsm.fecha)
-
-        # Alternancia publicada para findes y festivos del rango: {fecha: 'AM'/'PM'}.
-        # Una fecha ausente significa SIN PLANIFICAR, no "descansa".
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
+
+        if isinstance(ini, str):
+            ini = DateUtils.parse_date(ini)
+        if isinstance(fin, str):
+            fin = DateUtils.parse_date(fin)
+
+        empleados = list(empleados or [])
+        ids = [getattr(e, 'id', e) for e in empleados]
+        if not ids or fin < ini:
+            return {i: {} for i in ids}
+
+        # --- L1: turnos reales de todos los empleados (1 consulta) ---
+        turnos_por_emp = {i: {} for i in ids}
+        for t in (Turno.objects.filter(explorador_id__in=ids, fecha__range=(ini, fin))
+                  .select_related('jornada')):
+            turnos_por_emp[t.explorador_id].setdefault(t.fecha, []).append(t)
+
+        # --- Jornada base vigente POR FECHA (1 consulta) ---
+        # Se guardan las asignaciones ordenadas por fecha_inicio y luego se busca por bisección
+        # la vigente en cada día. Incluye las anteriores al rango (la vigente al empezar).
+        asg_por_emp = {i: ([], []) for i in ids}  # (fechas_inicio, jornadas)
+        for a in (AsignarJornadaExplorador.objects
+                  .filter(explorador_id__in=ids, fecha_inicio__lte=fin)
+                  .select_related('jornada').order_by('fecha_inicio')):
+            fechas, jornadas = asg_por_emp[a.explorador_id]
+            fechas.append(a.fecha_inicio)
+            jornadas.append(a.jornada.nombre.upper() if a.jornada else None)
+
+        def _jornada_base(emp_id, d):
+            fechas, jornadas = asg_por_emp[emp_id]
+            pos = bisect_right(fechas, d) - 1
+            return jornadas[pos] if pos >= 0 else None
+
+        # --- Días especiales del rango (1 consulta para festivo + mantenimiento + temporada) ---
+        festivos, mantenimiento_raw, temporada_especial = set(), set(), set()
+        for f, tipo, es_temp in DiaEspecial.objects.filter(
+                fecha__range=(ini, fin), activo=True).values_list('fecha', 'tipo', 'es_temporada'):
+            if tipo == 'festivo':
+                festivos.add(f)
+            elif tipo == 'mantenimiento':
+                mantenimiento_raw.add(f)
+            if es_temp:
+                temporada_especial.add(f)
+        # Misma regla que `DiaEspecial.es_mantenimiento_efectivo`: la temporada manda.
+        mantenimiento = mantenimiento_raw - temporada_especial
+
+        # --- L2: descansos por solicitud aprobada (batch, ~8 consultas para todos) ---
+        rest_por_emp = DescansoPorSolicitudService.en_rango_multiple(empleados, ini, fin)
+
+        # --- L4: descansos de semana manuales del rango (1 consulta) → {fecha: {jornadas}} ---
+        dsm_por_fecha = {}
+        for dsm in (DescansoSemanaManual.objects
+                    .filter(fecha__range=(ini, fin), activo=True).select_related('jornada')):
+            if dsm.fecha.weekday() >= 5 or not dsm.jornada:
+                continue
+            dsm_por_fecha.setdefault(dsm.fecha, set()).add(dsm.jornada.nombre.upper())
+
+        # --- L6/L5: alternancia publicada de findes y festivos (1 consulta) ---
         alternancia = AsignacionEspecialService.mapa_grupo_trabaja(ini, fin)
 
-        # Decisión por día (MISMO orden que estado_dia)
-        out = {}
-        d = ini
-        while d <= fin:
-            es_festivo = d in festivos
+        # --- Decisión por celda (MISMO orden que estado_dia), ya sin tocar la BD ---
+        salida = {}
+        for emp_id in ids:
+            turnos_por_fecha = turnos_por_emp[emp_id]
+            rest_sol = rest_por_emp.get(emp_id, {})
+            out = {}
+            d = ini
+            while d <= fin:
+                es_festivo = d in festivos
+                jornada_base = _jornada_base(emp_id, d)
 
-            def _r(trabaja, jornada, fuente, motivo=None, companero=None):
-                return {'trabaja': trabaja, 'jornada': jornada, 'fuente': fuente,
-                        'motivo': motivo, 'es_festivo': es_festivo, 'companero': companero}
+                def _r(trabaja, jornada, fuente, motivo=None, companero=None, _f=es_festivo):
+                    return {'trabaja': trabaja, 'jornada': jornada, 'fuente': fuente,
+                            'motivo': motivo, 'es_festivo': _f, 'companero': companero}
 
-            # L5 FESTIVO entre semana: la jornada que dobla trabaja AM+PM; la otra descansa.
-            # Manda sobre el predeterminado; un cambio EXPLÍCITO (tipo_cambio) se respeta.
-            if d.weekday() < 5 and es_festivo:
-                turnos_fv = turnos_por_fecha.get(d, [])
-                explicitos = [t for t in turnos_fv if t.tipo_cambio]
-                if explicitos:
-                    js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
-                    jornada = ('DOBLADA' if {'AM', 'PM'} <= js else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
+                # L5 FESTIVO entre semana: la jornada que dobla trabaja AM+PM; la otra descansa.
+                # Manda sobre el predeterminado; un cambio EXPLÍCITO (tipo_cambio) se respeta.
+                if d.weekday() < 5 and es_festivo:
+                    explicitos = [t for t in turnos_por_fecha.get(d, []) if t.tipo_cambio]
+                    if explicitos:
+                        js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
+                        jornada = ('DOBLADA' if {'AM', 'PM'} <= js
+                                   else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
+                        out[d] = _r(True, jornada, 'turno')
+                    elif d in rest_sol:
+                        # Mismo orden que `estado_dia`: la cesión por solicitud manda sobre la rotación.
+                        info = rest_sol[d]
+                        out[d] = _r(False, None, 'solicitud', motivo=info['motivo'],
+                                    companero=info.get('companero'))
+                    else:
+                        grupo = alternancia.get(d)
+                        if not grupo:
+                            out[d] = _r(False, None, 'sin_planificar',
+                                        motivo=_MOTIVO_SIN_PLANIFICAR % d.year)
+                        elif jornada_base and jornada_base == grupo.upper():
+                            out[d] = _r(True, 'DOBLADA', 'festivo')
+                        else:
+                            out[d] = _r(False, None, 'festivo',
+                                        motivo='festivo: descansa el grupo contrario')
+                    d += _td(days=1)
+                    continue
+
+                turnos = turnos_por_fecha.get(d)
+                if turnos:
+                    js = {t.jornada.nombre.upper() for t in turnos if t.jornada}
+                    jornada = ('DOBLADA' if ('AM' in js and 'PM' in js)
+                               else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
                     out[d] = _r(True, jornada, 'turno')
                 elif d in rest_sol:
-                    # Mismo orden que `estado_dia`: la cesión por solicitud manda sobre la rotación.
                     info = rest_sol[d]
                     out[d] = _r(False, None, 'solicitud', motivo=info['motivo'],
                                 companero=info.get('companero'))
-                else:
-                    grupo = alternancia.get(d)
-                    if not grupo:
+                elif not jornada_base:
+                    out[d] = _r(False, None, 'base', motivo='sin jornada asignada')
+                elif d.weekday() in (5, 6):
+                    trabaja_grp = alternancia.get(d)
+                    if not trabaja_grp:
                         out[d] = _r(False, None, 'sin_planificar',
                                     motivo=_MOTIVO_SIN_PLANIFICAR % d.year)
-                    elif jornada_base and jornada_base == grupo.upper():
-                        out[d] = _r(True, 'DOBLADA', 'festivo')
+                    elif jornada_base == trabaja_grp.upper():
+                        out[d] = _r(True, 'DOBLADA', 'alternancia')
                     else:
-                        out[d] = _r(False, None, 'festivo', motivo='festivo: descansa el grupo contrario')
-                d += _td(days=1)
-                continue
-
-            turnos = turnos_por_fecha.get(d)
-            if turnos:
-                js = {t.jornada.nombre.upper() for t in turnos if t.jornada}
-                jornada = ('DOBLADA' if ('AM' in js and 'PM' in js)
-                           else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
-                out[d] = _r(True, jornada, 'turno')
-            elif d in rest_sol:
-                info = rest_sol[d]
-                out[d] = _r(False, None, 'solicitud', motivo=info['motivo'], companero=info.get('companero'))
-            elif not jornada_base:
-                out[d] = _r(False, None, 'base', motivo='sin jornada asignada')
-            elif d.weekday() in (5, 6):
-                trabaja_grp = alternancia.get(d)
-                if not trabaja_grp:
-                    out[d] = _r(False, None, 'sin_planificar', motivo=_MOTIVO_SIN_PLANIFICAR % d.year)
-                elif jornada_base == trabaja_grp.upper():
-                    out[d] = _r(True, 'DOBLADA', 'alternancia')
+                        out[d] = _r(False, None, 'alternancia', motivo='descanso de fin de semana')
+                elif jornada_base in dsm_por_fecha.get(d, ()):
+                    out[d] = _r(False, None, 'temporada', motivo='descanso de temporada')
+                elif d in mantenimiento:
+                    out[d] = _r(False, None, 'mantenimiento', motivo='lunes de mantenimiento')
+                elif ('PM' if jornada_base == 'AM' else 'AM') in dsm_por_fecha.get(d, ()):
+                    # Día especial de temporada: el grupo contrario descansa,
+                    # este grupo cubre el día completo (AM+PM).
+                    out[d] = _r(True, 'DOBLADA', 'temporada')
                 else:
-                    out[d] = _r(False, None, 'alternancia', motivo='descanso de fin de semana')
-            elif d in temporada:
-                out[d] = _r(False, None, 'temporada', motivo='descanso de temporada')
-            elif DiaEspecial.es_mantenimiento_efectivo(d):
-                out[d] = _r(False, None, 'mantenimiento', motivo='lunes de mantenimiento')
-            elif d in temporada_trabaja_completo:
-                # Día especial de temporada: el grupo contrario descansa,
-                # este grupo cubre el día completo (AM+PM).
-                out[d] = _r(True, 'DOBLADA', 'temporada')
-            else:
-                out[d] = _r(True, jornada_base, 'base')
-            d += _td(days=1)
-        return out
+                    out[d] = _r(True, jornada_base, 'base')
+                d += _td(days=1)
+            salida[emp_id] = out
+        return salida
 
     @staticmethod
     def get_salas_explorador(explorador_id):

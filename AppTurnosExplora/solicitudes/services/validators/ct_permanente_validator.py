@@ -86,6 +86,7 @@ class CTPermanenteValidator:
         """
         from solicitudes.services.ct_permanente_helper import (
             generar_fechas_candidatas_ct_permanente, jornadas_intercambiables_ct,
+            precargar_ct_permanente,
         )
 
         if isinstance(fecha_inicio, str):
@@ -96,9 +97,20 @@ class CTPermanenteValidator:
         fechas_a_evaluar = generar_fechas_candidatas_ct_permanente(
             fecha_inicio, fecha_fin, dias_seleccionados
         )
+        if not fechas_a_evaluar:
+            raise ValidationError(
+                'No se puede realizar el cambio permanente. '
+                'No se encontraron días en el rango donde los empleados tengan jornadas contrarias. '
+                'Los empleados deben tener jornadas opuestas (AM ↔ PM) en al menos un día del rango.'
+            )
 
-        if any(jornadas_intercambiables_ct(solicitante, receptor, f) for f in fechas_a_evaluar):
-            return
+        # Precarga en lote: el barrido de abajo resolvía el estado de los dos empleados fecha a
+        # fecha. Si el llamador ya precargó (vista previa, cálculo de compatibilidad), se reutiliza.
+        with precargar_ct_permanente(
+            [solicitante, receptor], min(fechas_a_evaluar), max(fechas_a_evaluar)
+        ):
+            if any(jornadas_intercambiables_ct(solicitante, receptor, f) for f in fechas_a_evaluar):
+                return
 
         raise ValidationError(
             'No se puede realizar el cambio permanente. '
