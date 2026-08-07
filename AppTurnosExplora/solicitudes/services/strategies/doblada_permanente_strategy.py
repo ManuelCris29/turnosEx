@@ -49,6 +49,12 @@ def _csv_fechas(fechas):
     return ','.join(out)
 
 
+def _fechas_set(fechas):
+    """Convierte una lista/csv de fechas ISO en un set de `date` (descarta las mal formadas)."""
+    from datetime import date as _date
+    return {_date.fromisoformat(s) for s in _csv_fechas(fechas).split(',') if s}
+
+
 class DobladaPermanenteStrategy(SolicitudStrategy):
 
     def __init__(self):
@@ -194,13 +200,44 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             _excluir = datos.get('solicitud_actual_id')
             if _excluir:
                 otros = otros.exclude(solicitud_id=_excluir)
+            # El choque se mide por FECHA, no por día de la semana: dos acuerdos pueden usar el
+            # mismo weekday dentro de rangos que se solapan y no tocar ni una fecha en común
+            # (p. ej. uno los miércoles 9 y 16, otro los miércoles 2, 23 y 30). Comparar weekdays
+            # rechazaba esos casos aunque el formulario los dejara armar y `aplicar` los aceptara.
+            # Se comparan las dos partes en bloque (cesión ∪ devolución) porque el conflicto es de
+            # DISPONIBILIDAD: en una fecha ya comprometida da igual el rol, el compañero no puede
+            # doblarse ni descansar dos veces.
+            # Solo se cae al chequeo por weekday cuando faltan las fechas concretas (acuerdos
+            # legacy anteriores a `fechas_cesion`/`fechas_devolucion`).
+            fechas_acuerdo = _fechas_set(datos.get('fechas_cesion')) | _fechas_set(datos.get('fechas_devolucion'))
             for det in otros:
                 dias_otro = _set(det.dias_cesion) | _set(det.dias_devolucion)
-                if dias_acuerdo & dias_otro:
-                    return False, (
-                        f"{receptor.nombre} {receptor.apellido} ya tiene una doblada permanente en esos días "
-                        f"dentro del rango. Elige otros días u otro compañero."
-                    )
+                fechas_otro = _fechas_set(getattr(det, 'fechas_cesion', '')) | _fechas_set(
+                    getattr(det, 'fechas_devolucion', ''))
+
+                if fechas_acuerdo and fechas_otro:
+                    choque = fechas_acuerdo & fechas_otro
+                elif fechas_acuerdo:
+                    # El otro acuerdo es legacy: sus fechas reales son las ocurrencias de sus
+                    # weekdays dentro de SU rango.
+                    choque = {f for f in fechas_acuerdo
+                              if det.fecha_inicio <= f <= det.fecha_fin and f.weekday() in dias_otro}
+                else:
+                    # Este acuerdo viene sin fechas (legacy): no hay más que weekdays que cruzar.
+                    choque = None
+                    if not (dias_acuerdo & dias_otro):
+                        continue
+
+                if choque is not None and not choque:
+                    continue
+
+                detalle = ''
+                if choque:
+                    detalle = ' (' + ', '.join(f.strftime('%d/%m/%Y') for f in sorted(choque)) + ')'
+                return False, (
+                    f"{receptor.nombre} {receptor.apellido} ya tiene una doblada permanente en esas "
+                    f"fechas{detalle}. Elige otras fechas u otro compañero."
+                )
 
             # ===========================
             # Jornadas contrarias por FECHA REAL (no por la base): OMITIR los días inválidos.
@@ -399,15 +436,19 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             fecha_obj = self._parse(fecha)
             if not fecha_obj:
                 return []
-            from ..ct_permanente_helper import _jornada_unica_real
-            empleados = (
+            from ..ct_permanente_helper import jornadas_unicas_reales
+            empleados = list(
                 Empleado.objects.filter(activo=True)
                 .exclude(id=usuario_actual.id)
                 .select_related('supervisor')
             )
+            # Resolución en LOTE (2 consultas para toda la plantilla). Antes se llamaba a
+            # `_jornada_unica_real` empleado a empleado: ~1,8 consultas cada uno, que con 400
+            # exploradores son ~730 consultas y más de un segundo para abrir el desplegable.
+            jornadas = jornadas_unicas_reales(empleados, fecha_obj)
             candidatos = []
             for e in empleados:
-                jr = _jornada_unica_real(e, fecha_obj)
+                jr = jornadas.get(e.id)
                 if jr in ('AM', 'PM'):
                     e.jornada_real = jr
                     candidatos.append(e)

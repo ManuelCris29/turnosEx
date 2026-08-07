@@ -1344,6 +1344,146 @@ dependa de esa misma referencia.
 
 ---
 
+### 34. **Una caché de lectura declara QUÉ cubre, y lo que no cubre cae al camino lento** (Backend)
+**Qué es:** Cuando se precarga estado en lote para acelerar un barrido, la tabla precargada **no
+es "el estado"**: es el estado de un conjunto concreto de `(empleados, rango)` y calculado con un
+conjunto concreto de parámetros. El accesor pregunta SIEMPRE si la celda que le piden está dentro
+de esa cobertura; si no lo está, va a la base de datos como si no hubiera caché.
+
+**Por qué:** una caché de lectura que sirve celdas que no calculó no da un error — da un **dato
+falso** (mismo peligro que #29). Y como la precarga se hace por rendimiento, el que la escribe
+está pensando en consultas, no en semántica: es fácil ampliar el `hit` "un poquito" y romper una
+regla sin que ningún test lo note, porque el resultado sigue siendo un dict con la forma correcta.
+
+El caso concreto: `precargar_ct_permanente` construye la tabla **sin exclusiones**. Pero
+`_dia_libre_por_solicitud(emp, fecha, excluir_id)` existe precisamente para ignorar UNA solicitud
+—la propia— al re-validar o re-aplicar algo ya aprobado. Si la caché atendiera también las
+llamadas con `excluir_id`, esa solicitud **se auto-excluiría**: se vería a sí misma ocupando el
+día y concluiría que el día no está libre. Por eso el `excluir_id is not None` corta el hit ANTES
+de mirar la cobertura.
+
+**Reglas:**
+1. El contexto guarda su cobertura explícita (`emp_ids`, `ini`, `fin`) y expone `cubre()`.
+2. Todo accesor empieza con `if ctx is not None and ctx.cubre(...)`; el `else` es el código
+   original intacto. **Nunca** se borra el camino individual.
+3. Un parámetro que cambia el resultado y NO entró en la precarga (aquí `excluir_id`) invalida el
+   hit por sí solo.
+4. Si la precarga falla, se sigue **sin caché** (correcto y lento), no con una tabla a medias.
+5. Vida corta: se abre y se cierra dentro de una petición (`contextmanager` + `ContextVar`), así
+   que no puede quedar obsoleta ni filtrarse entre hilos o peticiones.
+6. Si ya hay una precarga activa que cubre lo pedido, se **reutiliza**; anidar otra la ocultaría y
+   dejaría fuera de cobertura celdas que la de fuera sí tenía.
+
+**Cómo se verifica (obligatorio):** ejecutar el camino con la caché ACTIVA y DESACTIVADA y comparar
+los resultados, no solo los tiempos. Aquí se hizo en tres niveles: `estado_rango_multiple` contra
+`estado_dia` celda a celda (1.236 celdas, 0 diferencias), cada endpoint con y sin precarga
+(idéntico), y `obtener-jornadas-rango` contra una reimplementación de su lógica original día a día.
+
+**Implementación:**
+```python
+def _dia_libre_por_solicitud(empleado, fecha, excluir_id=None):
+    # Con `excluir_id` NO se usa la caché: la tabla precargada se construye sin exclusiones.
+    ctx = _CTX_CT_PERMANENTE.get()
+    if excluir_id is None and ctx is not None and ctx.cubre(empleado, fecha):
+        return fecha in ctx.descansos.get(empleado.id, {})
+    return TurnoService.dia_comprometido_por_solicitud(empleado, fecha, excluir_id=excluir_id) is not None
+```
+
+**Estado:** ✅ **APLICADO** (2026-08-06)
+- `ct_permanente_helper.py` - `_ContextoCTPermanente`, `precargar_ct_permanente()`,
+  `_CTX_CT_PERMANENTE`; accesores `_estado_ct`, `_dia_libre_por_solicitud`, `_tipo_cambio_previo`,
+  `_es_festivo`, `_es_mantenimiento`, `_es_temporada`
+- `turno_service.py` - `estado_rango_multiple()` (batch real, ~8 consultas fijas);
+  `estado_mes`/`estado_rango` delegan ahí
+
+⚠️ **NO tocar sin releer esto:** ampliar el `hit` de `_dia_libre_por_solicitud` a las llamadas con
+`excluir_id` rompe la re-validación de solicitudes ya aprobadas, **en silencio y sin test rojo**.
+
+---
+
+### 35. **La regla se valida sobre el campo que MANDA al aplicar, no sobre el que la declara** (Backend)
+**Qué es:** cuando dos campos describen la misma decisión —uno *declarativo* (`tipo_cesion`) y otro
+*operativo* (`jornada_cedida`, el que el aplicador lee de verdad para decidir qué escribir en
+`Turno`)— la validación tiene que mirar **el operativo**. Validar solo el declarativo deja la regla
+sin dientes: basta que los dos se contradigan para que la validación diga "sí" y el aplicador haga
+lo contrario.
+
+**Por qué:** el caso concreto. La regla "un festivo se cede ENTERO" se comprobaba así:
+
+```python
+if es_cesion_festivo and tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm'):
+    return False, "...debes cederla entera..."
+```
+
+Pero `DobladaAplicacionService._aplicar_cesion` no consulta `tipo_cesion` para elegir la jornada:
+
+```python
+if detalle.jornada_cedida:            # <-- ESTE es el que manda
+    jornada_cedida_nombre = detalle.jornada_cedida.upper()
+else:
+    jornada_cedida_nombre = jornada_solicitante.nombre.upper()
+```
+
+Así que `tipo_cesion='cesion_completa'` + `jornada_cedida='AM'` **pasaba la validación intacto** y
+cedía media jornada del festivo. Y no era un POST artesanal: el formulario llegaba ahí solo
+(el selector AM/PM reaparecía al salir del modo intercambio y el radio quedaba marcado).
+
+**Reglas:**
+1. Antes de escribir una validación, **abrir el aplicador** y ver qué campo lee para decidir. Ese es
+   el que hay que validar.
+2. Si dos campos pueden contradecirse, la regla los cubre a los dos (`tipo_cesion in (...) or
+   jornada_cedida`), y además se **normalizan al crear** (mismo trato que el intercambio en #29).
+3. La normalización al crear no sustituye a la validación: cubre los flujos que crean sin validar;
+   la validación cubre la re-validación al aprobar de filas ya guardadas.
+
+**Estado:** ✅ **APLICADO** (2026-08-06)
+- `doblada_strategy.py` - `validar_solicitud()` (la regla mira también `jornada_cedida`);
+  `crear_solicitud()` (normaliza `jornada_cedida=None` en festivo)
+- Test: `test_cesion_festivo_con_jornada_cedida_suelta_rechazada`
+
+---
+
+### 36. **En un día de jornada VIRTUAL, el día completo no se deduce de la jornada base** (Backend)
+**Qué es:** en festivo (y en finde) la doblada **no existe como filas `Turno`**: la calcula la
+rotación. Quien deriva "qué jornada cede esta persona" leyendo su asignación base obtiene **una
+sola** (AM o PM) — la base — cuando ese día realmente trabaja AM+PM. El día completo hay que
+construirlo explícitamente, no inferirlo.
+
+**Por qué:** este es el fallo que la regla #35 dejaba ver a medias. Con `jornada_cedida` vacío
+(cesión completa, correcta), el aplicador caía en `jornada_solicitante.nombre` y le daba al receptor
+**solo la PM**. El emisor sí quedaba sin turnos (día completo cedido) pero el receptor cubría media
+jornada: **el festivo quedaba a medio cubrir y nadie protestaba** — la validación post-aplicación
+daba ✅ ("receptor tiene 1 jornada(s): PM") porque solo comprobaba que tuviera *alguna*.
+
+Es el mismo malentendido que ya costó el patrón de Mis Turnos ("un día de finde es DÍA COMPLETO, no
+una DOBLADA"): en los días de jornada virtual, **la ausencia de `Turno` no significa media jornada
+ni descanso**.
+
+**Reglas:**
+1. En festivo/finde, preguntar por la rotación (`TurnoService.dobla_en_festivo`), **no** por
+   `AsignarJornadaExplorador` ni por la presencia de filas `Turno`.
+2. Ceder un día completo virtual = crear **AM y PM** para el receptor, explícitamente.
+3. Una validación post-aplicación que solo cuenta "≥1 jornada" no protege de esto: **quien aplica
+   DECLARA el conjunto de jornadas esperado** y la guardia lo comprueba. `exists()` distingue "se
+   escribió" de "no se escribió"; no distingue "se escribió bien" de "se escribió DE MENOS", que es
+   justo la forma que tenía este bug.
+4. El log de la guardia dice contra qué comparó (`esperadas: AM, PM`) o admite que no tenía valor
+   esperado. Un ✅ junto al dato equivocado —`tiene 1 jornada(s): PM` en un festivo— es peor que no
+   tener guardia: produce evidencia de que no hay fallo.
+
+**Estado:** ✅ **APLICADO** (2026-08-06)
+- `doblada_aplicacion_service.py` - `aplicar_doblada_cesion()`, rama `_cede_festivo_completo`;
+  validación post-aplicación extraída a `_validar_post_aplicacion(..., jornadas_esperadas_receptor)`
+  y propagada a `validar_turnos_doblada_cesion()` (festivo → `{AM, PM}`; resto → la jornada cedida)
+- Tests: `test_aplicar_cesion_festivo_receptor_queda_con_dia_completo` (queda `{'PM'}` sin el fix) y
+  `test_guardia_post_aplicacion_rechaza_festivo_a_medias` (la red ve el día a medias)
+
+⚠️ **NO tocar sin releer esto:** derivar la jornada cedida desde la jornada base es correcto en día
+ordinario y **falso** en festivo/finde. Cualquier `jornada_solicitante.nombre` en un flujo que
+pueda caer en un día especial es sospechoso.
+
+---
+
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
 
 Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
@@ -1384,6 +1524,9 @@ Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
 - [ ] **¿Alguna decisión (sobre todo de permisos) se resuelve buscando una fila de catálogo por
       nombre?** → **Catálogo que gobierna permisos** (#31) - comparar exacto, proteger la fila,
       impedir nombres ambiguos y FK `PROTECT`
+- [ ] **¿Precargaste estado en lote para acelerar un barrido?** → **Caché que declara su cobertura**
+      (#34) - `cubre()` explícito, el camino individual intacto, y todo parámetro que cambie el
+      resultado (`excluir_id`) invalida el hit. Verificar con caché ON vs OFF, no solo el tiempo
 - [ ] **¿Puede haber errores?** → **Error Handling** (#19) - try/except + logging
 
 ---
@@ -1516,10 +1659,26 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | **2026-08-01** | Agregado patrón #31 (catálogo que gobierna permisos) tras auditar el CRUD de roles | #31 (nuevo) | Crear un rol "Supervisor de sala" concedía acceso total: el permiso se resolvía con `icontains` y el CRUD no validaba nada |
 | | `EmpleadoRole.role` pasa de CASCADE a PROTECT + bloqueo de roles base | #31 | Borrar el rol "Supervisor" arrastraba en silencio todas las asignaciones y dejaba la operación sin supervisores |
 | | La definición del permiso se unifica en `es_supervisor()` (el middleware la duplicaba) | #9, #31 | Estaba copiada en cinco sitios: arreglar uno dejaba la escalada viva en los otros cuatro |
+| **2026-08-06** | Agregado patrón #34 (una caché de lectura declara qué cubre) tras optimizar CT PERMANENTE | #34 (nuevo), #12, #29 | Seleccionar un rango de 90 días en `/solicitudes/cambio-turno/solicitar/2/` tardaba ~35 s y lanzaba **13.163 consultas**: la matriz empleado×día resolvía cada celda con `estado_dia` (~13 consultas y ~17 ms), y el coste crecía linealmente con la plantilla |
+| | `TurnoService.estado_rango_multiple()`: batch real de `estado_dia` para N empleados y un rango | #12, #34 | `en_fecha` delegaba en `en_rango_multiple`, o sea que **cada celda pagaba el arranque completo de la maquinaria batch** para una sola consulta. Ahora: 13.163 → 23 consultas, 39 s → 0,15 s. `estado_mes` delega ahí y deja de tener su propia copia del cálculo por capas |
+| | La jornada base se resuelve POR FECHA, no con la asignación vigente al final del mes | #29 | `estado_mes` contradecía a `estado_dia` (que siempre miró `fecha_inicio__lte=fecha`): si alguien cambia de grupo a mitad de mes, Mis Turnos mostraba la jornada NUEVA también en los días anteriores al cambio. Un hueco de este tipo no da error, da un dato falso |
+| | Eliminado el recálculo duplicado de `_estado_ct` en la matriz de compatibilidad | #12 | `_razones_exclusion_ct_permanente` ya resolvía el estado del candidato y la línea siguiente lo volvía a derivar con `_jornada_efectiva_ct`: el 40 % de las llamadas eran recálculo puro |
+| **2026-08-06** | Agregados patrones #35 (validar por el campo que manda al aplicar) y #36 (día completo en jornada virtual) tras auditar DOBLADA en festivo | #35 (nuevo), #36 (nuevo), #29 | Un festivo se cede ENTERO, pero la UI reponía el selector AM/PM al deschulear "intercambiar", `cesion_completa` + `jornada_cedida='AM'` pasaba la validación, y —el fallo de fondo— al aprobar una cesión completa el receptor recibía **una sola jornada** (la base del emisor) en vez de AM+PM: el emisor descansaba el día entero y el festivo quedaba medio cubierto |
+| | La cesión de festivo asigna al receptor AM **y** PM explícitamente | #36 | En festivo la doblada es virtual (sin filas `Turno`): `jornada_solicitante.nombre` da la base (una sola), no el día completo |
+| | La regla "festivo todo-o-nada" mira `jornada_cedida`, no solo `tipo_cesion` | #35, #29 | Al aplicar manda `jornada_cedida`; validar solo el campo declarativo dejaba la regla sin dientes |
+| | Precarga en los seis barridos de rango (compatibilidad, `evaluar_fechas_ct_permanente`, validador de jornada contraria, `obtener-jornadas-rango` y los dos endpoints de doblada permanente) | #34 | Tenían todos la misma forma N×M; la vista previa además barría el rango DOS veces (validación + evaluación) reconstruyendo el estado cada vez |
 
 ---
 
-**Última actualización:** 2026-08-01  
+## ⚠️ Deuda conocida — PENDIENTE DE DECISIÓN (no aplicar aún)
+
+| Tema | Documento | Por qué está en pausa |
+|---|---|---|
+| **Punto ciego de TEMPORADA en `estado_dia`** — la fuente de verdad NO marca los días de temporada para quien conserva su jornada normal (`fuente='base'`, indistinguible de un día ordinario). Los formularios que deben rechazar temporada lo comprueban hoy por REGLA aparte (CT permanente y doblada permanente); los que leen `estado_dia` a secas son los que SÍ permiten temporada. Sin agujero explotable conocido hoy, pero la fuente de verdad miente por omisión y el próximo formulario volverá a olvidarlo. | [`docs/05-referencia/turnos/PUNTO_CIEGO_TEMPORADA_ESTADO_DIA.md`](AppTurnosExplora/docs/05-referencia/turnos/PUNTO_CIEGO_TEMPORADA_ESTADO_DIA.md) | Hay formularios en los que en temporada **sí** se pueden modificar jornadas y aún no está confirmado si todos o algunos. Arreglar la capa antes de saberlo puede romper casos legítimos. El documento trae la checklist a validar (§5). |
+
+---
+
+**Última actualización:** 2026-08-06  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 

@@ -297,9 +297,51 @@
 
     // Disponibilidad de días válidos por weekday en el rango (lado solicitante). Al cambiar el
     // rango, recalcula y refresca los selectores para deshabilitar/anotar los días.
+    // Nota del rango realmente evaluado. El calendario deshabilita temporada/festivo/mantenimiento,
+    // así que al elegir el "Hasta" el rango se corta solo y en silencio: quien creía haber pedido
+    // "hasta diciembre" veía la mitad de los días sin saber por qué. Si el backend reporta que el
+    // rango termina pegado a un bloque bloqueado, se dice explícitamente.
+    const ETIQUETA_CORTE = {
+        temporada: 'temporada',
+        festivo: 'festivo',
+        mantenimiento: 'mantenimiento',
+    };
+    function pintarNotaRango(rango) {
+        const el = document.getElementById('rango_nota');
+        if (!el) return;
+        if (!rango) { el.style.display = 'none'; el.innerHTML = ''; return; }
+        // El bloque bloqueado puede cruzar el año (la temporada de fin de año va de diciembre a
+        // enero): sin el año, "11/ene" se lee como una fecha del rango y confunde. Se añade solo
+        // cuando NO es el año en que termina el rango, para no ensuciar el caso normal.
+        const anioRef = rango.fin.slice(0, 4);
+        const fmt = (iso) => fmtFechaCorta(iso) + (iso.slice(0, 4) === anioRef ? '' : `/${iso.slice(0, 4)}`);
+
+        let html = `<i class="fas fa-calendar-check mr-1"></i>Rango evaluado: <strong>${fmt(rango.inicio)}</strong> a <strong>${fmt(rango.fin)}</strong>.`;
+        const c = rango.corte;
+        if (c) {
+            // Un tramo contiguo puede mezclar motivos (la semana de receso de octubre encadena
+            // temporada, festivo y mantenimiento): se nombran todos los que hay, no solo el primero.
+            const etiquetas = (c.tipos && c.tipos.length ? c.tipos : [c.tipo]).map((t) => ETIQUETA_CORTE[t] || t);
+            const que = etiquetas.length > 1
+                ? etiquetas.slice(0, -1).join(', ') + ' o ' + etiquetas[etiquetas.length - 1]
+                : etiquetas[0];
+            // El tramo bloqueado se describe aparte del rango, con "es"/"son" y no "hasta", para
+            // que no se lea como si el rango elegido llegara hasta ahí.
+            const cuando = (c.desde === c.hasta)
+                ? `El <strong>${fmt(c.desde)}</strong> es de ${que}`
+                : `Los días entre el <strong>${fmt(c.desde)}</strong> y el <strong>${fmt(c.hasta)}</strong> son de ${que}`;
+            const retomar = c.siguiente_habil
+                ? ` Para incluir fechas posteriores, el rango tendría que llegar al <strong>${fmt(c.siguiente_habil)}</strong> o más.`
+                : '';
+            html += ` <span class="rango-corte">${cuando} y no admiten doblada permanente, así que el calendario no deja pasar de ahí.${retomar}</span>`;
+        }
+        el.innerHTML = html;
+        el.style.display = 'block';
+    }
+
     function cargarDisponibilidadDias() {
         const fi = inputInicio.value, ff = inputFin.value;
-        if (!fi || !ff || ff < fi) { dispDias = null; dispPar = {}; refreshDias(); return; }
+        if (!fi || !ff || ff < fi) { dispDias = null; dispPar = {}; pintarNotaRango(null); refreshDias(); return; }
         // Por-par: se envían TODOS los pares (día + compañero) de ambos lados, para calcular las
         // fechas que cubre cada compañero por separado (el mismo día puede ir con varios compañeros).
         const pares = [];
@@ -314,9 +356,10 @@
                 dispDias = (d && d.por_dia) || null;
                 dispPar = (d && d.por_par) || {};
                 dispNoCubre = (d && d.no_cubre) || {};
+                pintarNotaRango((d && d.rango) || null);
                 refreshDias();
             })
-            .catch(() => { dispDias = null; dispPar = {}; dispNoCubre = {}; refreshDias(); });
+            .catch(() => { dispDias = null; dispPar = {}; dispNoCubre = {}; pintarNotaRango(null); refreshDias(); });
     }
 
     function _syncBox() {

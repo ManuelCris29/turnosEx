@@ -218,6 +218,75 @@ class DobladaPermanentePendientesTest(DobladaPermanenteBaseTest):
         self.assertTrue(ok, msg)
 
 
+class DobladaPermanenteOtroAcuerdoTest(DobladaPermanenteBaseTest):
+    """
+    Regla 9: el compañero no puede estar comprometido en otra doblada permanente.
+
+    El choque se mide por FECHA. Antes se comparaban días de la SEMANA, así que dos acuerdos que
+    usaban el mismo weekday dentro de rangos solapados se rechazaban aunque no compartieran ni una
+    fecha (p. ej. uno los miércoles 9 y 16, otro los miércoles 2, 23 y 30).
+    """
+
+    def _acuerdo_del_receptor(self, fechas_cesion, fecha_inicio=None, fecha_fin=None, dias=None):
+        """Otra doblada permanente APROBADA en la que el receptor es el compañero."""
+        tercero = self._empleado('tercero.dp', '333', self.pm)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=tercero, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo, comentario='otro acuerdo', estado='aprobada')
+        DobladaPermanenteDetalle.objects.create(
+            solicitud=sol,
+            fecha_inicio=fecha_inicio or self.fi,
+            fecha_fin=fecha_fin or (self.ff + timedelta(days=14)),
+            dias_cesion=str(self.lunes.weekday()) if dias is None else dias,
+            dias_devolucion='',
+            fechas_cesion=','.join(f.strftime('%Y-%m-%d') for f in fechas_cesion),
+            fechas_devolucion='',
+        )
+        return sol
+
+    def test_mismo_weekday_en_fechas_distintas_no_bloquea(self):
+        # El otro acuerdo usa el lunes de la semana siguiente; este usa el lunes de esta.
+        self._acuerdo_del_receptor([self.lunes + timedelta(days=7)])
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertTrue(ok, f'Sin fechas en común no debe bloquear: {msg}')
+
+    def test_misma_fecha_bloquea_y_la_nombra(self):
+        self._acuerdo_del_receptor([self.lunes])
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok, 'Una fecha compartida sí debe bloquear')
+        self.assertIn(self.lunes.strftime('%d/%m/%Y'), msg)
+
+    def test_choque_contra_el_lado_de_devolucion_del_otro(self):
+        """En una fecha comprometida da igual el rol: el compañero ya no está disponible."""
+        tercero = self._empleado('tercero2.dp', '444', self.pm)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=tercero, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo, comentario='otro acuerdo', estado='pendiente')
+        DobladaPermanenteDetalle.objects.create(
+            solicitud=sol, fecha_inicio=self.fi, fecha_fin=self.ff + timedelta(days=14),
+            dias_cesion='', dias_devolucion=str(self.martes.weekday()),
+            fechas_cesion='', fechas_devolucion=self.martes.strftime('%Y-%m-%d'))
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok, msg)
+        self.assertIn(self.martes.strftime('%d/%m/%Y'), msg)
+
+    def test_acuerdo_legacy_sin_fechas_sigue_bloqueando_por_weekday(self):
+        # Acuerdos anteriores a `fechas_cesion`: sus fechas reales son las ocurrencias del weekday.
+        self._acuerdo_del_receptor([])
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok, 'Un acuerdo legacy que cubre ese lunes debe bloquear')
+
+    def test_acuerdo_legacy_con_otro_weekday_no_estorba(self):
+        self._acuerdo_del_receptor([], dias=str(self.martes.weekday() + 1))
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertTrue(ok, f'Otro weekday del legacy no toca este acuerdo: {msg}')
+
+    def test_al_revalidar_no_choca_consigo_misma(self):
+        sol = self._crear()
+        ok, msg = self.strat.revalidar_para_aprobar(sol)
+        self.assertTrue(ok, msg)
+
+
 class DobladaPermanenteAplicacionTest(DobladaPermanenteBaseTest):
 
     def test_aplicacion_turnos_y_deudas(self):
@@ -521,3 +590,149 @@ class DobladaPermanenteNoCubreTest(DobladaPermanenteBaseTest):
 
         self.assertEqual(cubiertas | sin_cubrir, mis_lunes)
         self.assertFalse(cubiertas & sin_cubrir, 'Una fecha no puede estar en ambos lados')
+
+
+class DobladaPermanenteDiasCalendarioTest(DobladaPermanenteBaseTest):
+    """
+    Temporada, festivo y mantenimiento NO son doblables, y el endpoint debe filtrarlos por REGLA.
+
+    Antes solo se miraba `estado_dia`, y la capa de temporada únicamente altera el estado de quien
+    descansa o dobla por temporada: a quien conservaba su jornada, un día de temporada le llegaba
+    como 'base' AM/PM y se ofrecía como día disponible. Lo tapaba el calendario del formulario
+    (que deshabilita esos días), una defensa de una sola capa que no cubre el POST directo.
+    """
+
+    URL = '/solicitudes/dias-disponibles-doblada-permanente/'
+
+    def setUp(self):
+        super().setUp()
+        self.l1 = self.lunes
+        self.l2 = self.lunes + timedelta(days=7)
+        self.client.force_login(self.solicitante.user)
+
+    def _lunes_disponibles(self, fi, ff):
+        resp = self.client.get(self.URL, {
+            'fecha_inicio': fi.strftime('%Y-%m-%d'),
+            'fecha_fin': ff.strftime('%Y-%m-%d'),
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(resp.status_code, 200)
+        d = resp.json()
+        d = d.get('data', d)
+        return d, {x['f'] for x in d['por_dia']['0']}
+
+    def test_dia_de_temporada_no_es_doblable(self):
+        from turnos.models import DiaEspecial
+        _, antes = self._lunes_disponibles(self.l1, self.l2)
+        self.assertIn(self.l2.strftime('%Y-%m-%d'), antes)
+
+        DiaEspecial.objects.create(fecha=self.l2, tipo='temporada', es_temporada=True, activo=True)
+
+        _, despues = self._lunes_disponibles(self.l1, self.l2)
+        self.assertNotIn(self.l2.strftime('%Y-%m-%d'), despues,
+                         'un lunes de temporada no puede ofrecerse como día doblable')
+        self.assertIn(self.l1.strftime('%Y-%m-%d'), despues, 'el resto del rango no se toca')
+
+    def test_preview_explica_la_temporada(self):
+        """La fecha omitida debe llevar su motivo real, no 'descansas o no tienes turno'."""
+        from turnos.models import DiaEspecial
+        DiaEspecial.objects.create(fecha=self.l2, tipo='temporada', es_temporada=True, activo=True)
+
+        resp = self.client.get('/solicitudes/previsualizar-doblada-permanente/', {
+            'fecha_inicio': self.l1.strftime('%Y-%m-%d'),
+            'fecha_fin': self.l2.strftime('%Y-%m-%d'),
+            'dias': '0',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        d = resp.json()
+        d = d.get('data', d)
+
+        excluidas = {e['fecha']: e['razon'] for e in d['excluidas']}
+        self.assertEqual(excluidas.get(self.l2.strftime('%Y-%m-%d')), 'Descanso de temporada')
+
+    def test_rango_avisa_cuando_lo_corta_la_temporada(self):
+        """
+        El calendario deshabilita la temporada, así que el 'Hasta' se corta solo y en silencio:
+        quien creía pedir un rango largo veía la mitad de los días sin saber por qué.
+        """
+        from turnos.models import DiaEspecial
+        inicio_temporada = self.l1 + timedelta(days=1)
+        for n in range(3):
+            DiaEspecial.objects.create(fecha=inicio_temporada + timedelta(days=n),
+                                       tipo='temporada', es_temporada=True, activo=True)
+
+        d, _ = self._lunes_disponibles(self.l1, self.l1)
+
+        self.assertEqual(d['rango']['fin'], self.l1.strftime('%Y-%m-%d'))
+        corte = d['rango']['corte']
+        self.assertIsNotNone(corte, 'el rango termina pegado a la temporada: hay que decirlo')
+        self.assertEqual(corte['tipo'], 'temporada')
+        self.assertEqual(corte['desde'], inicio_temporada.strftime('%Y-%m-%d'))
+        self.assertEqual(corte['hasta'], (inicio_temporada + timedelta(days=2)).strftime('%Y-%m-%d'))
+
+    def test_sin_corte_no_se_inventa_aviso(self):
+        d, _ = self._lunes_disponibles(self.l1, self.l1)
+        self.assertIsNone(d['rango']['corte'])
+
+
+class DobladaPermanenteRendimientoTest(DobladaPermanenteBaseTest):
+    """
+    El coste de estas consultas NO puede crecer con el tamaño del rango ni con el de la plantilla.
+
+    El formulario dispara la disponibilidad cada vez que se mueve el "Hasta", y el desplegable de
+    compañeros barre a TODOS los exploradores. Ambos caminos habían degenerado en N+1: el aviso de
+    corte recorría el tramo bloqueado día a día (~3 consultas por día) y los candidatos se
+    resolvían de uno en uno (~1,8 consultas por empleado, ~730 con 400 exploradores).
+    """
+
+    URL = '/solicitudes/dias-disponibles-doblada-permanente/'
+
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(self.solicitante.user)
+
+    def _consultas_rango(self, fi, ff):
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        with CaptureQueriesContext(connection) as cap:
+            self.client.get(self.URL, {
+                'fecha_inicio': fi.strftime('%Y-%m-%d'),
+                'fecha_fin': ff.strftime('%Y-%m-%d'),
+            }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        return len(cap)
+
+    def test_rango_largo_no_cuesta_mas_que_uno_corto(self):
+        corto = self._consultas_rango(self.lunes, self.lunes + timedelta(days=7))
+        largo = self._consultas_rango(self.lunes, self.lunes + timedelta(days=300))
+        self.assertEqual(corto, largo,
+                         'la disponibilidad debe costar un número CONSTANTE de consultas')
+
+    def test_el_aviso_de_corte_cuesta_una_sola_consulta(self):
+        """Un tramo bloqueado largo no puede pagarse día a día."""
+        from turnos.models import DiaEspecial
+        sin_bloque = self._consultas_rango(self.lunes, self.lunes + timedelta(days=7))
+
+        arranque = self.lunes + timedelta(days=8)
+        for n in range(40):
+            DiaEspecial.objects.create(fecha=arranque + timedelta(days=n),
+                                       tipo='temporada', es_temporada=True, activo=True)
+        con_bloque = self._consultas_rango(self.lunes, self.lunes + timedelta(days=7))
+        self.assertEqual(sin_bloque, con_bloque,
+                         'escanear 40 días bloqueados debe seguir siendo una sola consulta')
+
+    def test_candidatos_en_lote_coinciden_con_el_camino_individual(self):
+        """La versión batch es SOLO una optimización: mismo veredicto que la individual."""
+        from solicitudes.services.ct_permanente_helper import (
+            _jornada_unica_real, jornadas_unicas_reales,
+        )
+        emps = list(Empleado.objects.filter(activo=True))
+        for n in (0, 1, 2, 30):
+            f = self.lunes + timedelta(days=n)
+            lote = jornadas_unicas_reales(emps, f)
+            for e in emps:
+                self.assertEqual(lote.get(e.id), _jornada_unica_real(e, f),
+                                 f'divergencia para {e.id} el {f}')
+
+    def test_candidatos_en_lote_usan_consultas_constantes(self):
+        from solicitudes.services.ct_permanente_helper import jornadas_unicas_reales
+        emps = list(Empleado.objects.filter(activo=True))
+        with self.assertNumQueries(2):
+            jornadas_unicas_reales(emps, self.lunes)

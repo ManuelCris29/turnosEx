@@ -80,6 +80,10 @@
     let flatpickrPago = null;
     let tieneDobladaExistente = false;
     let jornadasDobladaExistente = [];
+    // True si la FECHA DE CESIÓN es festivo con doblada: el día se cede COMPLETO (AM+PM), nunca
+    // por medias jornadas. Es estado de módulo (y no una local del handler) porque salir del modo
+    // intercambio también tiene que saber que NO debe reponer el selector "Jornada a Ceder".
+    let cesionEsFestivoDoblada = false;
     // Fecha de hoy en hora LOCAL. Con `toISOString()` (UTC) se adelantaba un día a partir de las
     // 19:00 en Colombia (UTC-5), y como esta fecha se compara contra la fecha de pago elegida
     // (`fecha <= fechaCreacionSolicitud` → se rechaza), cada noche el formulario rechazaba MAÑANA
@@ -1811,8 +1815,15 @@
             empleadoReceptorSelect.disabled = false;
             // Volvemos a una doblada existente: re-mostrar el selector "Jornada a Ceder" (AM/PM),
             // que se había ocultado al entrar en intercambio.
+            // En festivo NO se repone: el día se cede completo, no hay media jornada que elegir.
             const _oc = document.getElementById('opciones_cesion_parcial');
-            if (_oc && tieneDobladaExistente) _oc.style.display = 'block';
+            if (_oc && tieneDobladaExistente && !cesionEsFestivoDoblada) {
+                _oc.style.display = 'block';
+            } else if (_oc && cesionEsFestivoDoblada) {
+                _oc.style.display = 'none';
+                document.querySelectorAll('input[name="jornada_cedida"]').forEach(r => { r.checked = false; });
+                if (tipoCesionHidden) tipoCesionHidden.value = 'cesion_completa';
+            }
             // Reconstruir el flujo de cesión desde la fecha de cesión (recandidatos, estado, vista previa).
             // Se omite cuando ya estamos dentro del onChange de cesión (evita recursión).
             if (reconstruirCesion && fechaCesionInput && fechaCesionInput.value) {
@@ -1967,6 +1978,7 @@
                         // AM/PM: se cede el día completo a un solo compañero y se paga con otro festivo
                         // del mismo mes.
                         const esFestivoDoblada = !!data.es_festivo;
+                        cesionEsFestivoDoblada = esFestivoDoblada;
 
                         // 4. Actualizar mensaje del alert (opcional, si existe)
                         const alertDiv = dobladaExistenteInfo.querySelector('.alert');
@@ -2118,6 +2130,8 @@
     function limpiarEstadoDoblada() {
         // Ocultar información de doblada existente usando optional chaining
         dobladaExistenteInfo?.style.setProperty('display', 'none');
+        // La marca de "festivo día completo" pertenece a la fecha que se está abandonando.
+        cesionEsFestivoDoblada = false;
         
         // Limpiar y ocultar opciones de cesión parcial usando optional chaining
         const opcionesParcial = document.getElementById('opciones_cesion_parcial');

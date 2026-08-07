@@ -52,6 +52,12 @@
                     </div>
                 </div>
 
+                {% comment %}
+                Explica el rango REALMENTE evaluado y, si el calendario lo cortó (temporada,
+                festivo o mantenimiento justo después del "Hasta"), por qué no se pudo alargar.
+                {% endcomment %}
+                <div id="rango_nota" class="rango-nota" style="display:none;"></div>
+
                 <div class="form-group box-cesion">
                     <label><i class="fas fa-hand-paper mr-1"></i>Días que <strong>cedes</strong> — te cubre un compañero <span class="text-danger">*</span></label>
                     <p class="small text-muted mb-2">Elige el día de la semana y el compañero que te cubrirá. Ese día <strong>tú descansas</strong> y él se <strong>dobla</strong> (trabaja AM + PM). La tabla muestra, por fecha, tu jornada y la suya. Puedes usar el mismo día con distintos compañeros.</p>

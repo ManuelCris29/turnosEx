@@ -489,7 +489,7 @@ cubrir↔devolver completos.
 | 6 | Un mismo día no puede ser de cesión y de devolución | "Un mismo día de la semana no puede ser de cesión y de devolución a la vez." | Backend + Frontend |
 | 7 | **Balance**: misma cantidad de fechas (o días) cubiertas que devueltas | "Debes devolver la misma cantidad de fechas que te cubren..." | Backend + Frontend |
 | 8 | Ni solicitante ni compañero pueden estar **sancionados** en el rango | "Estás sancionado en ese rango..." / "{compañero} está sancionado en ese rango." | Backend |
-| 9 | El compañero no puede tener otra **doblada permanente** (pendiente o aprobada) que solape rango y días | "{compañero} ya tiene una doblada permanente en esos días dentro del rango." | Backend |
+| 9 | El compañero no puede tener otra **doblada permanente** (pendiente o aprobada) que comparta alguna **fecha**. Se cruzan las fechas concretas de ambos acuerdos, no los días de la semana: dos acuerdos pueden usar el mismo weekday en fechas distintas y no chocar. Solo se compara por weekday si el otro acuerdo es legacy (sin `fechas_*`) | "{compañero} ya tiene una doblada permanente en esas fechas (dd/mm/aaaa)." | Backend |
 | 10 | Jornadas **contrarias** por fecha real; deben quedar días válidos para cubrir **y** devolver | "No quedan fechas válidas para CUBRIR y DEVOLVER a la vez..." | Backend + Frontend |
 | 11 | Ninguna de las **fechas afectadas** puede estar tomada por otra solicitud **pendiente**, ni del solicitante ni del compañero. Se cruzan las fechas que de verdad se aplicarían, no solo el inicio del rango | "Ya tienes una solicitud pendiente que afecta el dd/mm/aaaa..." | Backend |
 

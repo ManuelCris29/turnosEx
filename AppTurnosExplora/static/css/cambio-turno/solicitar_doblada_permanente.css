@@ -38,6 +38,13 @@
 .perm-fila-sin { color: #b45309; font-size: .8rem; display: block; margin-top: .25rem; }
 .perm-fila-vacia { color: #64748b; font-size: .8rem; display: block; margin-top: .25rem; }
 
+/* Rango realmente evaluado + por qué no se pudo alargar (el calendario corta en temporada,
+   festivo o mantenimiento, y antes lo hacía en silencio) */
+.rango-nota { font-size: .8rem; color: #334155; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: .4rem .6rem; margin-bottom: .75rem; }
+.rango-nota .rango-corte { color: #92400e; }
+:root[data-theme="dark"] .rango-nota { color: #cbd5e1; background: rgba(148,163,184,.1); border-color: #334155; }
+:root[data-theme="dark"] .rango-nota .rango-corte { color: #fcd34d; }
+
 /* Línea "Tus <día>: 11/ago [AM] · 25/ago [PM]" — el split de jornadas antes de elegir compañero */
 .perm-tus-fechas { font-size: .8rem; color: #334155; margin: .3rem 0; display: flex; flex-wrap: wrap; gap: .1rem .5rem; align-items: center; }
 .perm-tus-fechas .tf-item { display: inline-flex; align-items: center; gap: .25rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: .1rem .4rem; }
