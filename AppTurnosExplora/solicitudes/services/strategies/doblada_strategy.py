@@ -315,7 +315,12 @@ class DobladaStrategy(SolicitudStrategy):
                 # En un festivo se trabaja la DOBLADA COMPLETA (AM+PM) y se cede ENTERA: la doblada
                 # de festivo es todo-o-nada. No se admiten cesiones parciales (dejarían media jornada
                 # colgando en un día que por rotación es doblada o descanso).
-                if es_cesion_festivo and tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm'):
+                # Se mira TAMBIÉN `jornada_cedida`: al APLICAR manda ella, no `tipo_cesion` (ver
+                # doblada_aplicacion_service._aplicar_cesion), así que un `cesion_completa` con
+                # `jornada_cedida='AM'` cedía media jornada del festivo sin que nadie protestara.
+                if es_cesion_festivo and (
+                    tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm') or jornada_cedida
+                ):
                     return False, (
                         f"El {fecha_cesion_obj.strftime('%d/%m/%Y')} es festivo: ese día trabajas la "
                         f"doblada completa (AM + PM) y debes cederla entera. No puedes ceder solo una "
@@ -815,6 +820,12 @@ class DobladaStrategy(SolicitudStrategy):
             # es ruido de otro sub-flujo. Normalizarlo al crear evita filas que se contradicen con
             # lo que `aplicar_intercambio` hace de verdad (borrar el día entero a cada uno).
             if datos.get('es_intercambio'):
+                tipo_cesion = 'cesion_completa'
+                jornada_cedida = None
+            # Un FESTIVO se cede ENTERO (AM + PM): la validación ya rechaza `cesion_parcial_*`, pero
+            # el formulario todavía puede arrastrar un `jornada_cedida` de una fecha anterior no
+            # festiva. Guardarlo dejaría el detalle contradiciendo la cesión completa que se aplica.
+            elif fecha_cambio_turno and SolicitudValidator.es_festivo_semana(fecha_cambio_turno):
                 tipo_cesion = 'cesion_completa'
                 jornada_cedida = None
 

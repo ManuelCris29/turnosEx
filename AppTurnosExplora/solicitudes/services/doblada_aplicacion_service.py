@@ -52,7 +52,8 @@ class DobladaAplicacionService:
         DobladaSnapshotService.reconciliar_dobladas_aprobadas(afectados, excluir_solicitud_id)
 
     @staticmethod
-    def validar_turnos_doblada_cesion(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> dict:
+    def validar_turnos_doblada_cesion(solicitud: SolicitudCambio, detalle: DobladaDetalle,
+                                      jornadas_esperadas_receptor=None) -> dict:
         """
         Valida que los turnos se hayan creado correctamente después de aplicar la doblada de cesión.
         
@@ -83,8 +84,22 @@ class DobladaAplicacionService:
             )
         else:
             jornadas_receptor = [t.jornada.nombre.upper() for t in turnos_receptor]
-            
-            # Para cesión completa, el receptor debe tener al menos 1 jornada
+
+            # VALOR ESPERADO (patrón #36): quien aplicó dice qué jornadas DEBE tener el receptor.
+            # Comprobar solo "tiene al menos un turno" no distingue "se escribió bien" de "se
+            # escribió DE MENOS": en festivo el receptor quedaba con una sola jornada y esta
+            # validación daba ✅ ("tiene 1 jornada(s): PM") mientras el festivo quedaba a medias.
+            if jornadas_esperadas_receptor:
+                _faltantes = sorted(set(jornadas_esperadas_receptor) - set(jornadas_receptor))
+                if _faltantes:
+                    resultado['valido'] = False
+                    resultado['errores'].append(
+                        f"ERROR: Receptor {receptor.nombre} no tiene la(s) jornada(s) "
+                        f"{', '.join(_faltantes)} en {fecha_cesion}. Esperadas: "
+                        f"{', '.join(sorted(jornadas_esperadas_receptor))}; "
+                        f"encontradas: {', '.join(jornadas_receptor) or 'ninguna'}"
+                    )
+
             # Para cesión parcial, debe tener la jornada cedida
             if detalle.tipo_cesion in ['cesion_parcial_am', 'cesion_parcial_pm']:
                 jornada_esperada = detalle.jornada_cedida.upper() if detalle.jornada_cedida else None
@@ -95,7 +110,12 @@ class DobladaAplicacionService:
                         f"en {fecha_cesion}. Jornadas encontradas: {', '.join(jornadas_receptor)}"
                     )
             
-            logger.info(f"✅ Validación receptor: {receptor.nombre} tiene {len(jornadas_receptor)} jornada(s): {', '.join(jornadas_receptor)}")
+            _esperadas_txt = (f" (esperadas: {', '.join(sorted(jornadas_esperadas_receptor))})"
+                              if jornadas_esperadas_receptor else " (sin valor esperado declarado)")
+            logger.info(
+                f"✅ Validación receptor: {receptor.nombre} tiene {len(jornadas_receptor)} "
+                f"jornada(s): {', '.join(jornadas_receptor)}{_esperadas_txt}"
+            )
         
         # Verificar turnos del solicitante (debe estar descansando o con cesión parcial)
         turnos_solicitante = Turno.objects.filter(
@@ -200,6 +220,44 @@ class DobladaAplicacionService:
             receptor.id, fecha_cesion_str
         )
         
+        # FESTIVO cedido ENTERO: el emisor trabajaba AM+PM por rotación, así que el receptor debe
+        # recibir las DOS jornadas. Antes se cedía `jornada_solicitante` (su jornada BASE, una sola)
+        # y el receptor quedaba con media jornada: el emisor descansaba el día completo pero el
+        # festivo quedaba medio cubierto. La jornada del festivo es virtual (sin filas Turno), por
+        # eso no basta con la lógica de "conservar la propia y agregar la cedida".
+        from solicitudes.services.solicitud_validator import SolicitudValidator as _SV_ces
+        _cede_festivo_completo = (
+            _TS_ces_prev.dobla_en_festivo(solicitante, fecha_cesion)
+            and not detalle.jornada_cedida
+            and detalle.tipo_cesion == 'cesion_completa'
+            and _SV_ces.es_festivo_semana(fecha_cesion)
+        )
+        if _cede_festivo_completo:
+            sala_receptor = DobladaTurnoService.obtener_sala_explorador_fecha(receptor, fecha_cesion)
+            jornadas_receptor = DobladaTurnoService.obtener_jornadas_en_fecha(receptor, fecha_cesion)
+            for _nombre in ('AM', 'PM'):
+                if _nombre not in jornadas_receptor:
+                    Turno.objects.create(
+                        explorador=receptor,
+                        fecha=fecha_cesion,
+                        jornada=jornadas_cache[_nombre],
+                        sala=sala_receptor,
+                        tipo_cambio=TipoCambioTurno.DOBLADA,
+                    )
+            logger.info(
+                f"Doblada cesión FESTIVO: receptor {receptor.nombre} cubre el día COMPLETO "
+                f"(AM + PM) en {fecha_cesion}."
+            )
+            DobladaTurnoService.eliminar_turnos_explorador(solicitante, fecha_cesion)
+            logger.info(
+                f"Doblada cesión aplicada (festivo): Solicitante {solicitante.nombre} descansa "
+                f"el día completo en {fecha_cesion}."
+            )
+            DobladaAplicacionService._validar_post_aplicacion(
+                solicitud, detalle, jornadas_esperadas_receptor={'AM', 'PM'}
+            )
+            return
+
         # Receptor: cubre la jornada cedida. Si ese día YA trabaja su jornada (la contraria a la
         # cedida), la CONSERVA y se DOBLA (su jornada + la cedida); si está libre/festivo, cubre
         # SOLO la cedida. Mismo criterio para cesión PARCIAL y COMPLETA. (Antes, la cesión parcial
@@ -303,13 +361,29 @@ class DobladaAplicacionService:
                 f"Solicitante {solicitante.nombre} descansa"
             )
         
-        # VALIDACIÓN POST-APLICACIÓN (Integridad de datos)
+        # El receptor SIEMPRE debe terminar cubriendo la jornada cedida (en cesión completa y en
+        # parcial). Lo que varía es si además conserva la suya, y eso ya no se afirma aquí.
+        DobladaAplicacionService._validar_post_aplicacion(
+            solicitud, detalle, jornadas_esperadas_receptor={jornada_cedida_nombre}
+        )
+
+    @staticmethod
+    def _validar_post_aplicacion(solicitud, detalle, jornadas_esperadas_receptor=None):
+        """VALIDACIÓN POST-APLICACIÓN (integridad de datos). Cualquier fallo revierte la
+        transacción del llamador.
+
+        `jornadas_esperadas_receptor` lo declara QUIEN aplica (patrón #36): es el conjunto mínimo
+        de jornadas que el receptor debe tener al terminar. Sin él, la validación solo puede
+        comprobar que exista *algún* turno, que no distingue un día bien escrito de uno a medias.
+        """
         try:
             from django.core.exceptions import ValidationError as DjangoValidationError
             
             # Validar que los turnos se hayan creado correctamente
             # (La transacción atómica garantiza que los cambios sean visibles dentro del bloque)
-            validacion = DobladaAplicacionService.validar_turnos_doblada_cesion(solicitud, detalle)
+            validacion = DobladaAplicacionService.validar_turnos_doblada_cesion(
+                solicitud, detalle, jornadas_esperadas_receptor=jornadas_esperadas_receptor
+            )
             
             if not validacion['valido']:
                 errores_str = '; '.join(validacion['errores'])

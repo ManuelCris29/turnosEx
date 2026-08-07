@@ -2301,11 +2301,69 @@ class TestFestivoDobladaReglas(MatrizDobladasTestCase):
         datos = self._datos(tipo_cesion='cesion_parcial_pm', jornada_cedida='PM')
         self.assertRechazado(datos, 'doblada completa', 'cesión parcial en festivo')
 
+    def test_cesion_festivo_con_jornada_cedida_suelta_rechazada(self):
+        """`cesion_completa` + `jornada_cedida` era la puerta trasera de la media jornada: al
+        APLICAR manda `jornada_cedida`, así que el festivo se cedía a medias pese al 'completa'."""
+        datos = self._datos(tipo_cesion='cesion_completa', jornada_cedida='PM')
+        self.assertRechazado(datos, 'doblada completa', 'jornada_cedida suelta en festivo')
+
     def test_cesion_festivo_sin_doblar_rechazada(self):
         # El emisor (AM) NO dobla FECHA_CESION (dobla el grupo PM) -> no tiene doblada que ceder.
         self._asignar_jornada_base(self.emisor, self.jornada_am)
         datos = self._datos(tipo_cesion='cesion_completa')
         self.assertRechazado(datos, 'no doblas el festivo', 'cesión en festivo donde descansa')
+
+    def test_aplicar_cesion_festivo_receptor_queda_con_dia_completo(self):
+        """El festivo se cede ENTERO: el receptor debe terminar con AM+PM (la doblada que el
+        emisor tenía por rotación), no con una sola jornada."""
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        # En festivo la jornada es virtual (sin filas Turno): la sala sale de la competencia.
+        from turnos.models import CompetenciaEmpleado
+        for e in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='cesion festivo completa',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_completa', jornada_cedida=None, empleado_receptor=self.receptor,
+        )
+        DobladaAplicacionService.aplicar_doblada_cesion(sol, det)
+        jornadas_receptor = {
+            t.jornada.nombre.upper()
+            for t in Turno.objects.filter(explorador=self.receptor, fecha=FECHA_CESION)
+                                  .select_related('jornada')
+        }
+        self.assertEqual(jornadas_receptor, {'AM', 'PM'},
+                         f'el receptor debe cubrir el festivo COMPLETO, quedó: {jornadas_receptor}')
+        jornadas_emisor = set(Turno.objects.filter(explorador=self.emisor, fecha=FECHA_CESION)
+                              .values_list('jornada__nombre', flat=True))
+        self.assertEqual(jornadas_emisor, set(), 'el emisor cede el festivo entero: queda sin turnos')
+
+    def test_guardia_post_aplicacion_rechaza_festivo_a_medias(self):
+        """La red de seguridad debe VER el día escrito de menos. Antes daba ✅ con el receptor en
+        una sola jornada, porque solo comprobaba que existiera *algún* turno."""
+        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
+            comentario='festivo a medias',
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, minutos_deuda=30, fecha_pago=FECHA_PAGO,
+            tipo_cesion='cesion_completa', jornada_cedida=None, empleado_receptor=self.receptor,
+        )
+        # Estado corrupto a propósito: el receptor cubre SOLO la PM de un festivo (falta la AM).
+        self._crear_turno(self.receptor, FECHA_CESION, self.jornada_pm, TipoCambioTurno.DOBLADA)
+        res = DobladaAplicacionService.validar_turnos_doblada_cesion(
+            sol, det, jornadas_esperadas_receptor={'AM', 'PM'}
+        )
+        self.assertFalse(res['valido'], 'un festivo cubierto a medias NO puede dar por válido')
+        self.assertIn('AM', ' '.join(res['errores']), 'el error debe nombrar la jornada que falta')
 
     def test_revert_en_festivo_no_recrea_turno_base(self):
         """Revertir una doblada en festivo NO debe dejar un turno base suelto: la jornada
