@@ -878,8 +878,8 @@ la jornada del acreedor y tiene `Turno` real. Al intentar ceder ese día, la gua
 descanso viejo y respondía *"Ya tienes el 30/07/2026 comprometido en otra solicitud aprobada (paga
 doblada); no puedes cederlo de nuevo"* — falso: ese día trabaja y sí puede cederlo.
 
-**Dónde:** `solicitudes/services/descanso_solicitud_service.py` (ramas `cedió su jornada`,
-`paga doblada` y `doblada permanente`).
+**Dónde:** `solicitudes/services/descanso_solicitud_service.py` — **las CINCO ramas**, incluida
+`cambio de día de descanso`.
 
 **Implementación:**
 ```python
@@ -893,10 +893,18 @@ for d, e in pago.items():
 
 ⚠️ **No quitar la guarda** ni resolverla en el llamador: si cada validación decide por su cuenta
 si el descanso sigue vigente, la atribución vuelve a divergir entre pantalla y validación — que es
-exactamente el problema que este servicio existe para evitar. CAMBIO DESCANSO queda fuera a
-propósito: es un intercambio puro con su propia fuente de verdad.
+exactamente el problema que este servicio existe para evitar.
 
-**Estado:** ✅ **APLICADO** (29/07/2026)
+⚠️ **CAMBIO DESCANSO ya NO está exento.** Lo estuvo, con el argumento de que "es un intercambio
+puro con su propia fuente de verdad". El argumento no se sostenía: esa fuente propia
+(`CambioDescansoAplicacionService._mapa_descanso_multi`) tampoco mira los turnos reales, así que
+nadie aplicaba la guarda en esa rama. No se veía en las pantallas —todas resuelven L1 antes que
+L2— pero sí en `dia_comprometido_por_solicitud`, que llama a `en_fecha` en crudo y alimenta 8
+validaciones: producía falsos bloqueos ("ya tienes ese día comprometido en otra solicitud
+aprobada") sobre días que la persona trabajaba de verdad. Si alguien vuelve a exceptuar una rama,
+que sea porque esa rama comprueba los turnos ella misma.
+
+**Estado:** ✅ **APLICADO** (29/07/2026) · rama CAMBIO DESCANSO incluida (07/08/2026)
 - Test: `test_ceder_jornada_recibida.py` -
   `test_si_ese_dia_recupero_jornada_real_si_puede_cederla`
 - La rama de doblada permanente ya tenía esta guarda por su cuenta; ahora las tres la comparten

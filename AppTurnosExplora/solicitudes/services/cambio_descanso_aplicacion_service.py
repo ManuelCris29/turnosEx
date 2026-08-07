@@ -106,7 +106,7 @@ class CambioDescansoAplicacionService:
         ~400 exploradores, llamar la versión individual costaba miles de consultas. La regla es la
         misma línea por línea — esta función ES la implementación y la individual la envuelve.
         """
-        from django.db.models import Q
+        from django.db.models import F, Q
         from solicitudes.models import SolicitudCambio
 
         fecha_inicio = _as_date(fecha_inicio)
@@ -120,10 +120,18 @@ class CambioDescansoAplicacionService:
         # (Por empleado: en batch dos personas distintas pueden estar acumulando el mismo día.)
         cob_sol_ced = {}    # emp_id → {fecha: set(jornadas)}
         cob_sol_comp = {}   # emp_id → {fecha: compañero}
+        # ORDEN EXPLÍCITO + `setdefault` más abajo: "última aprobada gana por día". Sin `order_by`
+        # el queryset llegaba en el orden que quisiera la BD y, como el resultado se escribía con
+        # asignación directa, con dos intercambios aprobados sobre el mismo día el compañero
+        # mostrado era arbitrario y podía cambiar entre peticiones. Se ordena de más reciente a más
+        # antigua para que el primero en reclamar la fecha sea el vigente (mismo criterio que las
+        # ramas DOBLADA de `DescansoPorSolicitudService`). `fecha_resolucion` puede ser NULL en
+        # datos antiguos: `-id` desempata.
         qs = (SolicitudCambio.objects
               .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
               .filter(Q(explorador_solicitante_id__in=emp_ids) | Q(explorador_receptor_id__in=emp_ids))
-              .select_related('doblada', 'explorador_solicitante', 'explorador_receptor'))
+              .select_related('doblada', 'explorador_solicitante', 'explorador_receptor')
+              .order_by(F('fecha_resolucion').desc(nulls_last=True), '-id'))
         if excluir_id:
             qs = qs.exclude(id=excluir_id)
         if dentro_ventana:
@@ -168,12 +176,16 @@ class CambioDescansoAplicacionService:
                         dias = []  # jornadas_partidas: ambos trabajan media en ambos días (L1)
                 for d in dias:
                     if d and fecha_inicio <= d <= fecha_fin:
-                        rest[emp_id][d] = comp
+                        # `setdefault`, no asignación: con el orden de arriba la PRIMERA que
+                        # reclama la fecha es la más reciente, y es la que debe ganar.
+                        rest[emp_id].setdefault(d, comp)
         # Días donde el solicitante cedió el día COMPLETO por cobertura (parciales que suman AM+PM).
         for emp_id, por_fecha in cob_sol_ced.items():
             for f_ced, js in por_fecha.items():
                 if js >= {'AM', 'PM'} and fecha_inicio <= f_ced <= fecha_fin:
-                    rest[emp_id][f_ced] = cob_sol_comp.get(emp_id, {}).get(f_ced)
+                    # `setdefault` por el mismo motivo: si una solicitud más reciente ya reclamó
+                    # esa fecha, no se la pisa con la suma de parciales de una anterior.
+                    rest[emp_id].setdefault(f_ced, cob_sol_comp.get(emp_id, {}).get(f_ced))
         return rest
 
     @staticmethod

@@ -258,6 +258,16 @@ class DescansoPorSolicitudService:
             for dcd, comp in por_fecha.items():
                 if not (ini <= dcd <= fin):
                     continue
+                # MISMA guarda L1 que las demás ramas (Patrón #28). Antes CAMBIO DESCANSO estaba
+                # exento "porque tiene su propia fuente de verdad", pero esa fuente
+                # (`_mapa_descanso_multi`) tampoco mira los turnos reales, así que nadie cubría el
+                # caso: un intercambio viejo seguía diciendo "descansa" un día en el que la persona
+                # había recuperado jornada real por algo aprobado DESPUÉS. Las pantallas no lo
+                # notaban (todas resuelven L1 primero), pero `dia_comprometido_por_solicitud` sí:
+                # alimenta 8 validaciones y producía falsos bloqueos ("ya tienes ese día
+                # comprometido") sobre días que la persona trabaja de verdad.
+                if dcd in con_turno_real[emp_id]:
+                    continue
                 salida[emp_id].setdefault(dcd, {
                     'motivo': 'cambio de día de descanso', 'origen': 'cambio_descanso', 'tipo': 'cedio',
                     'companero': comp, 'solicitud_id': None,

@@ -572,8 +572,11 @@
         document.getElementById('resumen-box').classList.remove('show');
         resetSubtipos();
 
+        // `cargarCompañerosSemana` NO se llama aquí: necesita la fecha_pago (el descanso del grupo
+        // contrario en esta semana), que solo se conoce dentro de `buscarDescansoContrario`. Antes
+        // se llamaba con `fecha` —MI descanso— y el desplegable ofrecía compañeros que la
+        // validación rechazaba luego por su estado en la OTRA fecha.
         buscarDescansoContrario(fecha);
-        cargarCompañerosSemana(fecha);
     }
 
     // Busca el descanso de temporada del grupo CONTRARIO en la misma semana.
@@ -612,6 +615,9 @@
                     if (subCont) subCont.style.display = 'block';
                     const _sinc = document.getElementById('sin-descanso-contrario');
                     if (_sinc) _sinc.style.display = 'none';
+                    // Ya se conoce la fecha_pago: los compañeros se piden filtrados por ELLA
+                    // (deben seguir descansando ese día), no por mi propio descanso.
+                    cargarCompañerosSemana(fecha, match[0]);
                 } else {
                     // No hay descanso del grupo contrario esa semana → no se puede intercambiar.
                     // En vez de ocultar todo en silencio (parece que "no hace nada"), avisamos.
@@ -629,17 +635,22 @@
             .catch(() => {});
     }
 
-    function cargarCompañerosSemana(fecha) {
+    // `fechaPago` = el descanso del grupo contrario en esta semana. El servidor excluye a quien
+    // ya NO descanse ese día (misma comprobación que la validación al enviar), para no ofrecer
+    // compañeros que luego se rechazan con "Tu compañero ya no descansa el ...".
+    function cargarCompañerosSemana(fecha, fechaPago) {
         const sel = document.getElementById('select-receptor-semana');
         sel.innerHTML = '<option value="">Cargando…</option>';
-        fetch(`${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fecha)}&tipo_solicitud_id=${TIPO_ID}`, {
+        let url = `${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fecha)}&tipo_solicitud_id=${TIPO_ID}`;
+        if (fechaPago) url += `&fecha_descanso_receptor=${encodeURIComponent(fechaPago)}`;
+        fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
             .then(r => r.json())
             .then(data => {
                 const emps = (data && data.empleados) || [];
                 if (!emps.length) {
-                    sel.innerHTML = '<option value="">No hay compañeros disponibles</option>';
+                    sel.innerHTML = '<option value="">Ningún compañero descansa ese día</option>';
                     return;
                 }
                 sel.innerHTML = '<option value="">Selecciona un compañero…</option>';

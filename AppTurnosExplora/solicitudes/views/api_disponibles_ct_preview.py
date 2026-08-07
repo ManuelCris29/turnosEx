@@ -30,6 +30,31 @@ from core.utils.json_responses import json_ok, json_error
 # Create your views here.
 
 class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
+
+    @staticmethod
+    def _filtrar_por_descanso_receptor(empleados, fecha_descanso_receptor):
+        """
+        Deja solo los candidatos que SIGUEN descansando `fecha_descanso_receptor`.
+
+        POR QUÉ: en el CAMBIO DESCANSO de entre semana el intercambio se hace contra el descanso
+        del grupo contrario en la MISMA semana, que es una fecha distinta de la que se pasa en
+        `fecha` (esa es MI descanso). El desplegable se llenaba con `fecha` y la validación decide
+        con la otra, así que ofrecía compañeros que luego rechazaba al enviar:
+        "Tu compañero ya no descansa el DD/MM (ya lo intercambió o está comprometido)".
+
+        Se usa la MISMA comprobación que la validación (`estado_dia(...)['trabaja']`, ver
+        `CambioDescansoStrategy._validar_entre_semana`) para que lo que se ofrece y lo que se
+        acepta no puedan divergir. Sin el parámetro no filtra nada: el resto de formularios
+        (CT, doblada, CT permanente…) siguen igual.
+        """
+        if not fecha_descanso_receptor or not empleados:
+            return empleados
+        fecha_obj = DateUtils.parse_date(fecha_descanso_receptor)
+        if not fecha_obj:
+            return empleados
+        from turnos.services.turno_service import TurnoService
+        return [e for e in empleados if not TurnoService.estado_dia(e, fecha_obj)['trabaja']]
+
     def get(self, request):
         fecha = request.GET.get('fecha')
         tipo_solicitud_id = request.GET.get('tipo_solicitud_id')
@@ -37,6 +62,13 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         # Nuevos parámetros para CT PERMANENTE
         fecha_fin = request.GET.get('fecha_fin')
         dias_seleccionados_json = request.GET.get('dias_seleccionados', '{}')
+
+        # CAMBIO DESCANSO entre semana: el día que el CANDIDATO debe seguir descansando.
+        # `fecha` es MI descanso; el intercambio se decide sobre el descanso del grupo contrario
+        # en esa misma semana (la `fecha_pago`), que es una fecha DISTINTA. Sin este parámetro el
+        # desplegable se filtraba por `fecha` y ofrecía compañeros que la validación luego
+        # rechazaba con "Tu compañero ya no descansa el ..." (ver `CambioDescansoStrategy`).
+        fecha_descanso_receptor = request.GET.get('fecha_descanso_receptor')
         
         # Logging mejorado para diagnóstico
         logger.info("ObtenerEmpleadosDisponiblesView - Parámetros recibidos", extra={
@@ -89,6 +121,10 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         
         # Clave de caché extendida para incluir parámetros de rango
         cache_params = f"{fecha}_{tipo_solicitud_id or 'default'}_{request.user.empleado.id}"
+        if fecha_descanso_receptor:
+            # Forma parte de la clave: dos peticiones con la misma `fecha` pero distinta fecha de
+            # descanso del receptor producen listas distintas.
+            cache_params += f"_r{fecha_descanso_receptor}"
         if fecha_fin:
             import hashlib
             # No es uso criptográfico: solo deriva una clave de caché estable. Se hashea el JSON
@@ -99,19 +135,22 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
             dias_hash = hashlib.md5(dias_norm.encode(), usedforsecurity=False).hexdigest()
             cache_params += f"_{fecha_fin}_{dias_hash}"
             
-        # v5: al corregir la aptitud del día (los días ya DOBLADOS ya no cuentan como aplicables)
-        # cambian el denominador y los porcentajes de compatibilidad; las entradas v4 son inválidas.
-        cache_key = f"empleados_disp_v5_{cache_params}"
-        
+        # v6: se añade el filtro por `fecha_descanso_receptor` (el candidato debe SEGUIR
+        # descansando ese día); las listas cacheadas en v5 no lo aplican.
+        cache_key = f"empleados_disp_v6_{cache_params}"
+
         def obtener_empleados():
             # Obtener empleados según el tipo de solicitud usando el Factory
             try:
                 empleados = SolicitudFactory.get_empleados_disponibles(
-                    tipo_solicitud, 
-                    fecha, 
+                    tipo_solicitud,
+                    fecha,
                     request.user.empleado,
                     fecha_fin=fecha_fin,
                     dias_seleccionados=dias_seleccionados
+                )
+                empleados = ObtenerEmpleadosDisponiblesView._filtrar_por_descanso_receptor(
+                    empleados, fecha_descanso_receptor
                 )
                 logger.info("ObtenerEmpleadosDisponiblesView - Empleados obtenidos desde Factory", extra={
                     'count': len(empleados) if empleados else 0,
