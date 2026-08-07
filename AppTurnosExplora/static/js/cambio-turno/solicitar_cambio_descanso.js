@@ -43,6 +43,7 @@
     let cesion = null;           // { sabado, domingo, diaTrabajo, fechaTrabajoISO }
     let pago = null;             // idem
     let empleadoReceptor = null;
+    let cargaCompañerosToken = 0;    // descarta respuestas de cargas de compañeros ya superadas
     let descansoSolicitante = null;  // { fecha } (entre semana): MI día de descanso
     let descansoReceptor = null;     // { fecha } (entre semana): descanso del contrario = MI día de TRABAJO completo
 
@@ -640,17 +641,26 @@
     // compañeros que luego se rechazan con "Tu compañero ya no descansa el ...".
     function cargarCompañerosSemana(fecha, fechaPago) {
         const sel = document.getElementById('select-receptor-semana');
+        // Lo que hubiera elegido el usuario antes de repoblar: si sigue estando en la lista nueva
+        // se le devuelve la selección, en vez de dejársela borrada sin avisar.
+        const previo = sel.value;
         sel.innerHTML = '<option value="">Cargando…</option>';
         let url = `${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fecha)}&tipo_solicitud_id=${TIPO_ID}`;
         if (fechaPago) url += `&fecha_descanso_receptor=${encodeURIComponent(fechaPago)}`;
+        // Solo la respuesta de la ÚLTIMA petición puede pintar el select: al mover esta carga
+        // detrás de `buscarDescansoContrario` son dos fetch encadenados, y dos cambios seguidos
+        // de descanso dejaban en vuelo dos respuestas cuyo orden de llegada no está garantizado.
+        const token = ++cargaCompañerosToken;
         fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
             .then(r => r.json())
             .then(data => {
+                if (token !== cargaCompañerosToken) return;  // llegó tarde: la ignoramos
                 const emps = (data && data.empleados) || [];
                 if (!emps.length) {
                     sel.innerHTML = '<option value="">Ningún compañero descansa ese día</option>';
+                    sincronizarReceptorSemana();
                     return;
                 }
                 sel.innerHTML = '<option value="">Selecciona un compañero…</option>';
@@ -661,13 +671,28 @@
                     o.dataset.emp = JSON.stringify(e);
                     sel.appendChild(o);
                 });
+                if (previo && sel.querySelector(`option[value="${previo}"]`)) sel.value = previo;
+                sincronizarReceptorSemana();
             })
-            .catch(() => { sel.innerHTML = '<option value="">Error cargando compañeros</option>'; });
+            .catch(() => {
+                if (token !== cargaCompañerosToken) return;
+                sel.innerHTML = '<option value="">Error cargando compañeros</option>';
+                sincronizarReceptorSemana();
+            });
     }
 
-    document.getElementById('select-receptor-semana').addEventListener('change', function () {
-        const opt = this.options[this.selectedIndex];
-        if (this.value && opt.dataset.emp) {
+    /**
+     * Deja `empleadoReceptor` y el input oculto en SINCRONÍA con lo que muestra el select.
+     *
+     * El select es la única fuente de verdad. Antes `empleadoReceptor` solo se actualizaba en el
+     * evento `change`, que NO se dispara cuando la lista se repuebla o se restaura la selección
+     * por código: el usuario veía a su compañero elegido y el envío respondía "Selecciona el
+     * compañero". Se llama al repoblar, al cambiar y antes de validar.
+     */
+    function sincronizarReceptorSemana() {
+        const sel = document.getElementById('select-receptor-semana');
+        const opt = sel.options[sel.selectedIndex];
+        if (sel.value && opt && opt.dataset.emp) {
             empleadoReceptor = JSON.parse(opt.dataset.emp);
             document.getElementById('empleado_receptor').value = empleadoReceptor.id;
         } else {
@@ -675,7 +700,9 @@
             document.getElementById('empleado_receptor').value = '';
         }
         actualizarResumenSemana();
-    });
+    }
+
+    document.getElementById('select-receptor-semana').addEventListener('change', sincronizarReceptorSemana);
 
     function actualizarResumenSemana() {
         const resumen = document.getElementById('resumen-box');
@@ -1137,6 +1164,10 @@
             if (!empleadoReceptor) errores.push('Selecciona el compañero.');
             if (!pago) errores.push('Selecciona la semana de devolución.');
         } else {
+            // El select manda: si por lo que sea la variable quedó desincronizada, se corrige
+            // aquí antes de decidir si falta el compañero (el usuario lo veía elegido y el
+            // formulario le decía que no lo había elegido).
+            sincronizarReceptorSemana();
             if (!descansoSolicitante) errores.push('Selecciona tu descanso (define la semana).');
             if (!descansoReceptor) errores.push('No se encontró el día del grupo contrario en esa semana.');
             if (!subtipoSemana) errores.push('Elige qué quieres hacer esa semana.');
