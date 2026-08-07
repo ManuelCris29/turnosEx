@@ -1,17 +1,35 @@
 """
 POLÍTICA DE TEMPORADA POR FORMULARIO — decisión de negocio fijada en tests.
 
-En temporada, la mayoría de los formularios SÍ permiten modificar jornadas. Solo dos la
-rechazan:
+Son DOS ejes distintos, y conviene no mezclarlos:
 
-    | Formulario           | ¿Permite temporada? |
-    |----------------------|---------------------|
-    | CT sencillo (1)      | SÍ                  |
-    | CT PERMANENTE (2)    | NO                  |
-    | DOBLADA (3)          | SÍ                  |
-    | D FDS (4)            | N/A (fines de semana) |
-    | DOBLADA PERMANENTE (5)| NO                 |
-    | CAMBIO DESCANSO (6)  | SÍ (su modalidad entre semana SOLO existe en temporada) |
+1) ¿El formulario puede operar DENTRO de una semana de temporada?
+   En temporada la mayoría de los formularios SÍ permiten modificar jornadas. Solo dos la
+   rechazan por completo:
+
+    | Formulario            | ¿Permite temporada?   |
+    |-----------------------|-----------------------|
+    | CT sencillo (1)       | SÍ                    |
+    | CT PERMANENTE (2)     | NO                    |
+    | DOBLADA (3)           | SÍ                    |
+    | D FDS (4)             | N/A (fines de semana) |
+    | DOBLADA PERMANENTE (5)| NO                    |
+    | CAMBIO DESCANSO (6)   | SÍ (su modalidad entre semana SOLO existe en temporada) |
+
+2) ¿Puede tocar los DOS DÍAS DE DESCANSO que el supervisor fija dentro de esa semana?
+   **Solo el formulario 6 (CAMBIO DESCANSO).** Ningún otro, incluidos los que sí permiten
+   temporada. Esos dos días son justamente lo que el 6 intercambia, con cinco opciones
+   (intercambiar el día, jornadas partidas, que me cubran mi día, cambio de doblada, permiso
+   de media jornada) y con la obligación de compensar EN LA MISMA SEMANA — algo que una
+   doblada, que paga en cualquier fecha, no garantiza.
+
+   Ojo al alcance: esto veta dos fechas por semana, NO la temporada entera. DOBLADA sigue
+   pudiendo operar en el resto de días de una semana de temporada.
+
+   El predicado único es `DescansoSemanaService.es_dia_descanso_temporada(fecha)`. NO sirve
+   `DiaEspecial.es_temporada_en` / `_es_temporada`: ese marca la SEMANA, y hay días de descanso
+   fijados en fechas sin ese marcador (07/08/2026: `_dia_calendario_no_apto(2026-09-15)`
+   devolvía None sobre un día que sí era descanso fijado).
 
 Esto se fija aquí porque es una decisión de negocio que el código reparte entre el front (el
 flag `permitirTemporada` del datepicker) y el backend (una regla de calendario explícita), y
@@ -128,6 +146,82 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         )
         razones = _razones_exclusion_ct_permanente(self.dia_temporada, self.solicitante)
         self.assertIn('Temporada', razones)
+
+    def test_dia_de_descanso_fijado_no_necesita_el_marcador_de_semana(self):
+        """
+        Los dos ejes son conjuntos DISTINTOS: hay días de descanso fijados en fechas sin el
+        marcador `DiaEspecial.es_temporada`. Por eso la regla no puede apoyarse en `_es_temporada`.
+        """
+        from turnos.models import Jornada, DescansoSemanaManual
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+
+        suelto = self.lunes + timedelta(days=2)
+        self.assertFalse(
+            DiaEspecial.objects.filter(fecha=suelto, es_temporada=True).exists(),
+            'la fecha de prueba no debe tener el marcador de semana de temporada',
+        )
+        DescansoSemanaManual.objects.create(
+            fecha=suelto, jornada=Jornada.objects.get(nombre='AM'),
+            motivo='temporada', activo=True,
+        )
+        self.assertTrue(DescansoSemanaService.es_dia_descanso_temporada(suelto))
+
+    def test_solo_cambio_descanso_puede_tocar_los_dias_de_descanso_fijados(self):
+        """
+        REGLA DE NEGOCIO: esos dos días son del formulario 6. Se comprueba en los tres caminos
+        que antes llegaban a ellos (DOBLADA, CT PERMANENTE y DOBLADA PERMANENTE).
+        """
+        from turnos.models import Jornada, DescansoSemanaManual
+        from solicitudes.services.ct_permanente_helper import (
+            _dia_calendario_no_apto, _razones_exclusion_ct_permanente,
+        )
+
+        dia = self.lunes + timedelta(days=2)
+        DescansoSemanaManual.objects.create(
+            fecha=dia, jornada=Jornada.objects.get(nombre='AM'),
+            motivo='temporada', activo=True,
+        )
+
+        # DOBLADA PERMANENTE y CT PERMANENTE comparten la regla de calendario.
+        self.assertEqual(_dia_calendario_no_apto(dia), 'temporada')
+        self.assertIn('Temporada', _razones_exclusion_ct_permanente(dia, self.solicitante))
+
+        # DOBLADA: rechaza tanto si el día es la cesión como si es el pago.
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+        otro = dia + timedelta(days=1)
+        for fc, fp in ((dia, otro), (otro, dia)):
+            ok, msg = DobladaStrategy().validar_solicitud({
+                'explorador_solicitante': self.solicitante,
+                'explorador_receptor': self.receptor,
+                'fecha_cambio_turno': fc.strftime('%Y-%m-%d'),
+                'fecha_pago': fp.strftime('%Y-%m-%d'),
+                'tipo_cesion': 'cesion_completa',
+                'comentario': 'politica',
+            })
+            self.assertFalse(ok, f'DOBLADA no puede usar {dia} (cesion={fc}, pago={fp})')
+            self.assertIn('Cambio de Día de Descanso', str(msg),
+                          'el rechazo debe redirigir al formulario que sí puede hacerlo')
+
+    def test_la_doblada_sigue_permitiendo_el_resto_de_la_temporada(self):
+        """
+        Contrapeso del test anterior: el veto es de DOS FECHAS, no de la temporada entera.
+        Si alguien lo convierte en un veto general, esto falla.
+        """
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+
+        # `self.dia_temporada` tiene el marcador de SEMANA pero no es descanso fijado.
+        ok, msg = DobladaStrategy().validar_solicitud({
+            'explorador_solicitante': self.solicitante,
+            'explorador_receptor': self.receptor,
+            'fecha_cambio_turno': self.dia_temporada.strftime('%Y-%m-%d'),
+            'fecha_pago': (self.dia_temporada + timedelta(days=1)).strftime('%Y-%m-%d'),
+            'tipo_cesion': 'cesion_completa',
+            'comentario': 'politica',
+        })
+        self.assertNotIn(
+            'día de descanso de temporada', str(msg),
+            'un día de temporada que NO es descanso fijado no debe rechazarse por esta regla',
+        )
 
     def test_estado_dia_NO_delata_la_temporada(self):
         """

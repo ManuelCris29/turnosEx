@@ -16,6 +16,7 @@ from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from ..solicitud_validator import SolicitudValidator
 from turnos.services.jornada_service import JornadaService
+from turnos.services.descanso_semana_service import DescansoSemanaService
 from core.services import get_empleado_disponibilidad_service, get_turno_service
 from core.utils.date_utils import DateUtils
 from django.utils import timezone
@@ -175,6 +176,25 @@ class DobladaStrategy(SolicitudStrategy):
             SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
 
             fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+
+            # Los DOS días de descanso que el supervisor fija en una semana de temporada son
+            # territorio exclusivo del formulario de CAMBIO DESCANSO, que ofrece cinco formas de
+            # moverlos y OBLIGA a compensar dentro de la misma semana. Una doblada paga en
+            # cualquier fecha —incluso de otra semana—, así que cederlos por aquí rompía ese
+            # cómputo semanal; y dejaba el día de un compañero sin descanso sin que el formulario
+            # de cambio de descanso se enterara.
+            #
+            # Ojo al alcance: esto NO veta la temporada (la doblada sigue permitiéndola, ver
+            # `validar_dias_especiales_doblada`). Solo esas dos fechas por semana.
+            for _f in (fecha_cesion_obj, fecha_pago_obj):
+                if DescansoSemanaService.es_dia_descanso_temporada(_f):
+                    return False, (
+                        f"El {_f.strftime('%d/%m/%Y')} es un día de descanso de temporada. "
+                        f"Esos días solo se cambian desde 'Cambio de Día de Descanso', que tiene "
+                        f"las opciones para hacerlo (intercambiar el día, jornadas partidas, que "
+                        f"te cubran tu día, cambio de doblada o permiso de media jornada). "
+                        f"El resto de días de la temporada sí puedes usarlos en una doblada."
+                    )
 
             # Sábado por sábado se gestiona en Doblada de Fin de Semana (D FDS), no en doblada
             # normal. Se permite el sábado en UN solo lado (sábado ↔ día de semana), pero no en
