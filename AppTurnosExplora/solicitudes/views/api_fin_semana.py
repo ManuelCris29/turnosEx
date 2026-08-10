@@ -243,6 +243,7 @@ class CoberturaCandidatosView(LoginRequiredMixin, View):
             if bases.get(c.id) != contrario:
                 continue
             work = _App._jornadas_actuales(c, fecha_trabajo)
+            pago_set = _App._jornadas_actuales(c, fecha_pago) if fecha_pago else None
             disponible, motivo, genera_deuda = True, '', False
             comprometido = TurnoService.dia_comprometido_por_solicitud(c, fecha_trabajo)
             if opcion in work:
@@ -254,11 +255,21 @@ class CoberturaCandidatosView(LoginRequiredMixin, View):
             elif comprometido:
                 disponible = False
                 motivo = f'Ese día ya está comprometido en otra solicitud ({comprometido.get("motivo")}).'
+            elif pago_set is not None and opcion not in pago_set:
+                # DÍA DE PAGO: solo puedes devolverle la jornada que él REALMENTE trabaja ese día.
+                # Si no la trabaja (descansa, o trabaja la contraria) no hay nada que pagarle y el
+                # backend lo rechaza (`_validar_semana_cobertura`: "no hay jornada que puedas
+                # pagarle"). Sin esto el desplegable ofrecía compañeros que el envío tumbaba: el
+                # selector miraba solo el día de cesión y la validación además el día de pago.
+                disponible = False
+                motivo = (f'No trabaja {opcion} el {fecha_pago:%d/%m}; no hay jornada que puedas '
+                          f'pagarle ese día.') if pago_set else \
+                         f'Descansa el {fecha_pago:%d/%m}; no hay jornada que puedas pagarle ese día.'
             else:
                 # Libre → sin deuda; trabaja la jornada contraria → dobla → 30 min de deuda.
                 genera_deuda = bool(work)
 
-            jornada_pago = _label(_App._jornadas_actuales(c, fecha_pago)) if fecha_pago else None
+            jornada_pago = _label(pago_set) if fecha_pago else None
             candidatos.append({
                 'id': c.id,
                 'nombre': c.nombre,

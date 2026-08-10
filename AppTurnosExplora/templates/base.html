@@ -291,6 +291,26 @@
                     © 2026 Parque Explora. Todos los derechos reservados.        </footer>
     </div>
 
+    <!-- Código de referencia: envuelve fetch para conservar el X-Request-ID de
+         las respuestas con error. Va PRIMERO, antes de cualquier script que
+         haga peticiones, o no las capturaría.
+
+         El stub de abajo se define ANTES de cargar el fichero y garantiza que
+         window.CodigoReferencia siempre exista. Sin él, si el script no llegara
+         a cargarse, los .catch() de los formularios lanzarían ReferenceError al
+         invocarlo: el usuario se quedaría sin aviso Y sin que se rehabilitara
+         el botón de enviar, con el formulario bloqueado. Una ayuda de
+         diagnóstico no puede ser un punto de fallo en la ruta de error. El
+         fichero real sobrescribe el stub al cargarse. -->
+    <script>
+      window.CodigoReferencia = {
+        ultimo: function () { return null; },
+        mensaje: function (m) { return m; },
+        htmlMensaje: function (m) { return m; },
+        registrar: function () {}
+      };
+    </script>
+    <script src="{% static_v 'js/utils/codigo-referencia.js' %}"></script>
     <!-- jQuery -->
     <script src="/static/plugins/jquery/jquery.min.js"></script>
     <!-- Bootstrap 4 -->

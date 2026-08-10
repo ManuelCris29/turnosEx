@@ -68,3 +68,6 @@ venvturnos/
 
 # Respaldos locales previos a cambios grandes (no versionar)
 _backups/
+
+# Logs de aplicacion (rotativos). Nunca se versionan: contienen datos personales.
+AppTurnosExplora/logs/

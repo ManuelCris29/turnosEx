@@ -1,0 +1,52 @@
+{% extends "errors/_base_error.html" %}
+{# 500 · La grilla se rompió. El detalle técnico NO se muestra: va al log. #}
+
+{% block body_variant %}500{% endblock %}
+{% block head_title %}Error del servidor{% endblock %}
+{% block watermark %}500{% endblock %}
+{% block eyebrow %}Error 500 · Fallo interno{% endblock %}
+{% block heading %}Algo se rompió por nuestro lado{% endblock %}
+
+{% block lede %}
+No es culpa tuya. Se produjo un fallo inesperado al procesar tu petición y no
+pudimos completarla. El equipo de desarrollo ya tiene el registro del error con
+todo el detalle técnico.
+{% endblock %}
+
+{% block hint %}
+<p class="hint">
+  <b>Si estabas registrando una solicitud, revísala antes de repetirla.</b>
+  Entra en <i>Mis Solicitudes</i> para comprobar si llegó a guardarse y evitar
+  crearla dos veces.
+</p>
+{% endblock %}
+
+{% block glyph %}
+<svg class="motif" viewBox="0 0 200 200" role="img" xmlns="http://www.w3.org/2000/svg">
+  <rect class="g-cell" x="12" y="8" width="176" height="14" rx="5"/>
+
+  <rect class="g-cell" x="12"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="30"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="80"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="80"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="130" width="52" height="40" rx="7"/>
+
+  <!-- La casilla partida en dos mitades desplazadas. -->
+  <g transform="translate(-5 -3) rotate(-5 100 100)">
+    <path class="g-fill" d="M74 87a7 7 0 0 1 7-7h19l-6 40H81a7 7 0 0 1-7-7z"/>
+    <path class="g-cell g-cell--live" d="M74 87a7 7 0 0 1 7-7h19l-6 40H81a7 7 0 0 1-7-7z"/>
+  </g>
+  <g transform="translate(6 4) rotate(4 100 100)">
+    <path class="g-fill" d="M100 80h19a7 7 0 0 1 7 7v26a7 7 0 0 1-7 7H94z"/>
+    <path class="g-cell g-cell--live" d="M100 80h19a7 7 0 0 1 7 7v26a7 7 0 0 1-7 7H94z"/>
+  </g>
+
+  <!-- La grieta que atraviesa la grilla. -->
+  <path class="g-ink pulse" d="M46 26 62 62 44 74 76 108 58 128 84 164 70 186" opacity=".5"/>
+</svg>
+{% endblock %}

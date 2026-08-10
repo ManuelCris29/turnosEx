@@ -107,4 +107,4 @@ class AprobarSolicitudAmbosView(LoginRequiredMixin, View):
             return json_error('Error al aprobar en ambos roles', status=500, code='internal_error')
 
 
-# Vistas para aprobaciÃ³n por email (sin login requerido)
+# Vistas para aprobación por email (sin login requerido)

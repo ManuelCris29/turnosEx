@@ -34,11 +34,20 @@ class DobladasSemanaView(LoginRequiredMixin, View):
     Dobladas reales (Turno AM+PM, lun-vie) de la semana de la fecha dada, de OTROS
     empleados. Alimenta el sub-flujo "cambio de doblada" del Cambio de Día de
     Descanso entre semana: el solicitante elige cuál doblada de la semana tomar.
+
+    `fecha` es MI día completo de temporada (el que cedo). Solo se listan compañeros que
+    además estén LIBRES ese día: el intercambio es mutuo (él toma mi día completo), así que
+    quien trabaja ese día no puede tomarlo. Es la misma condición que valida el envío
+    (`_validar_semana_cambio_doblada`); sin ella el desplegable ofrecía gente que el envío
+    tumbaba con "tu compañero trabaja el ...; debe estar descansando".
     """
     def get(self, request):
         from datetime import datetime as _dt, timedelta as _td
         from collections import defaultdict
         from turnos.models import Turno
+        from turnos.services.turno_service import TurnoService
+        from solicitudes.services.cambio_descanso_aplicacion_service import (
+            CambioDescansoAplicacionService as _App)
 
         emp = getattr(request.user, 'empleado', None)
         if not emp:
@@ -61,10 +70,19 @@ class DobladasSemanaView(LoginRequiredMixin, View):
             pares[(t.explorador_id, t.fecha)].add(t.jornada.nombre.upper())
             nombres[t.explorador_id] = f"{t.explorador.nombre} {t.explorador.apellido}"
 
+        # ¿Puede este compañero tomar MI día completo? Se calcula una vez por empleado
+        # (no por doblada), que es como lo valida el envío.
+        candidatos = {emp_id for (emp_id, _f) in pares}
+        libre_mi_dia = {
+            e.id: (not _App._jornadas_actuales(e, fecha)
+                   and not TurnoService.dia_comprometido_por_solicitud(e, fecha))
+            for e in Empleado.objects.filter(id__in=candidatos)
+        }
+
         dobladas = [
             {'empleado_id': emp_id, 'nombre': nombres[emp_id], 'fecha': f.isoformat()}
             for (emp_id, f), js in sorted(pares.items(), key=lambda kv: (kv[0][1], nombres[kv[0][0]]))
-            if {'AM', 'PM'} <= js
+            if {'AM', 'PM'} <= js and f != fecha and libre_mi_dia.get(emp_id)
         ]
         return json_ok({'dobladas': dobladas})
 

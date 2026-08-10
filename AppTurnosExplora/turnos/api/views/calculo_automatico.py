@@ -1,6 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
+from core.utils.json_responses import json_error_inesperado
 from datetime import date
 
 from core.mixins import SupervisorApiRequiredMixin
@@ -75,10 +76,8 @@ class CalcularMantenimientoAutomaticoView(LoginRequiredMixin, SupervisorApiRequi
             })
 
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error al calcular días de mantenimiento automático: {e}")
-            return JsonResponse({'error': f'Error al calcular días de mantenimiento: {str(e)}'}, status=500)
+            return json_error_inesperado(
+                request, e, 'No pudimos calcular los días de mantenimiento. Inténtalo de nuevo.')
 
 
 class CalcularFestivosAutomaticoView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
@@ -129,7 +128,5 @@ class CalcularFestivosAutomaticoView(LoginRequiredMixin, SupervisorApiRequiredMi
             logger.warning(f"Intento de generar festivos con año inválido: {e}")
             return JsonResponse({'error': str(e)}, status=400)
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error al calcular festivos automáticos: {e}")
-            return JsonResponse({'error': f'Error al calcular festivos automáticos: {str(e)}'}, status=500)
+            return json_error_inesperado(
+                request, e, 'No pudimos calcular los festivos del año. Inténtalo de nuevo.')

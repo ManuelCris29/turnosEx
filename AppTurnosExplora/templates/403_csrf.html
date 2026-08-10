@@ -1,0 +1,63 @@
+{% extends "errors/_base_error.html" %}
+{% comment %}
+403 CSRF · Django busca esta plantilla concreta cuando falla la verificación
+del token CSRF. Su contexto incluye una variable `reason` con el motivo exacto
+("CSRF token missing", "Referer checking failed", ...). NO se imprime a
+propósito: le diría a un atacante qué defensa concreta está tropezando y cómo
+ajustar el siguiente intento. El motivo queda en el log del servidor.
+{% endcomment %}
+
+{% block body_variant %}403{% endblock %}
+{% block head_title %}Sesión expirada{% endblock %}
+{% block watermark %}403{% endblock %}
+{% block eyebrow %}Error 403 · Verificación fallida{% endblock %}
+{% block heading %}Tu sesión expiró antes de enviar el formulario{% endblock %}
+
+{% block lede %}
+Por seguridad, SWALP comprueba que cada formulario se envíe desde una sesión
+activa y desde la propia aplicación. Esa comprobación no ha pasado, así que no
+se guardó nada. Lo más habitual es que la pestaña llevara demasiado tiempo
+abierta.
+{% endblock %}
+
+{% block hint %}
+<p class="hint">
+  <b>Vuelve a iniciar sesión y repite el envío.</b>
+  Comprueba también que tu navegador acepte cookies para este sitio: sin ellas
+  la verificación siempre fallará.
+</p>
+{% endblock %}
+
+{% block actions %}
+<a class="btn btn--primary" href="/">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg>
+  Iniciar sesión de nuevo
+</a>
+<button class="btn btn--ghost" type="button" data-back>
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+  Volver atrás
+</button>
+{% endblock %}
+
+{% block glyph %}
+<svg class="motif" viewBox="0 0 200 200" role="img" xmlns="http://www.w3.org/2000/svg">
+  <rect class="g-cell" x="12" y="8" width="176" height="14" rx="5"/>
+
+  <rect class="g-cell" x="12"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="30"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="80"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="80"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="130" width="52" height="40" rx="7"/>
+
+  <!-- Reloj: la sesión que se agotó. -->
+  <rect class="g-fill" x="74" y="80" width="52" height="40" rx="7"/>
+  <rect class="g-cell g-cell--live" x="74" y="80" width="52" height="40" rx="7"/>
+  <circle class="g-ink" cx="100" cy="100" r="14"/>
+  <path class="g-ink pulse" d="M100 92v8l5 4"/>
+</svg>
+{% endblock %}

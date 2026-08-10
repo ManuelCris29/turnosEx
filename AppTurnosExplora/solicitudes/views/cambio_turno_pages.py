@@ -116,7 +116,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         return render(request, 'solicitudes/solicitar_doblada_permanente.html', context)
     
     def _render_ct_permanente(self, request, tipo_solicitud):
-        """Renderizar formulario especÃ­fico para CT PERMANENTE"""
+        """Renderizar formulario específico para CT PERMANENTE"""
         # No establecer fecha inicial por defecto - el usuario debe seleccionarla
         context = {
             'tipo_solicitud': tipo_solicitud,

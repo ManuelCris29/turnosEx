@@ -175,8 +175,13 @@ class ReenviarNotificacionSolicitudView(_AccionGestionBase):
             from ..services.notificacion_service import NotificacionService
             NotificacionService.crear_notificacion_solicitud(solicitud)
             messages.success(request, f'Notificación reenviada para la solicitud #{solicitud.id}.')
-        except Exception as e:
-            messages.error(request, f'No se pudo reenviar la notificación: {e}')
+        except Exception:
+            # El detalle va al log, no a la pantalla: str(e) aqui puede ser el
+            # error crudo del driver de correo o de la base.
+            logger.exception('Fallo al reenviar la notificación de la solicitud %s', solicitud.id)
+            referencia = getattr(request, 'request_id', None)
+            messages.error(request, 'No se pudo reenviar la notificación.' + (
+                f' Código de referencia: {referencia}' if referencia else ''))
         return self._volver(request)
 
 

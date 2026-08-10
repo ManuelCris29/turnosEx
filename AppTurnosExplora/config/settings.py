@@ -68,6 +68,7 @@ if not IS_PRODUCTION:
 # Middleware
 # ---------------------------------------------------------------------------
 MIDDLEWARE = [
+    'core.errors.RequestIDMiddleware',              # etiqueta la petición: debe ir arriba del todo
     'corsheaders.middleware.CorsMiddleware',       # debe ir primero
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',   # sirve estáticos sin Nginx (contenedores)
@@ -252,6 +253,15 @@ EMAIL_SEND_ASYNC = env.bool('EMAIL_SEND_ASYNC', default=IS_PRODUCTION)
 
 SITE_URL = env('SITE_URL', default='http://127.0.0.1:8000')
 
+# Vida de los enlaces de aprobación/rechazo que viajan en el correo. Esos enlaces
+# actúan SIN sesión iniciada: el token firmado es la única credencial, así que
+# caduca. 30 días cubre de sobra el plazo real de respuesta a una solicitud.
+#
+# La firma usa SECRET_KEY (ver solicitudes/services/tokens_aprobacion.py). En AWS
+# eso obliga a que TODAS las instancias compartan la misma SECRET_KEY, y rotarla
+# invalida los enlaces ya enviados.
+APPROVAL_LINK_MAX_AGE_DAYS = env.int('APPROVAL_LINK_MAX_AGE_DAYS', default=30)
+
 # ---------------------------------------------------------------------------
 # Caché — se elige con CACHE_URL
 #
@@ -429,6 +439,11 @@ SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
 
+# Vista propia para los fallos de CSRF. La de Django imprime el motivo exacto
+# del rechazo; la nuestra lo registra en el log y al usuario le muestra un
+# mensaje genérico de sesión expirada. Ver core/errors.py.
+CSRF_FAILURE_VIEW = 'core.errors.csrf_failure'
+
 # ---------------------------------------------------------------------------
 # Seguridad adicional (requiere HTTPS)
 # Activo por defecto en producción, pero desactivable con SECURE_HTTPS=False
@@ -457,16 +472,55 @@ if SECURE_HTTPS:
 # ---------------------------------------------------------------------------
 # Logging estructurado
 # ---------------------------------------------------------------------------
+# Los errores NO se le muestran al usuario (ver core/errors.py y las plantillas
+# 4xx/5xx): salen por aquí, y solo aquí. Dos destinos, a propósito:
+#
+#   consola  -> stdout. En ECS/Fargate el log driver `awslogs` recoge stdout y
+#               lo publica en CloudWatch Logs sin ninguna dependencia extra.
+#               Es la vía recomendada en AWS: si el contenedor muere, el driver
+#               ya ha enviado lo que había.
+#   fichero  -> logs/appturnos.log con rotación. Sobrevive a un fallo de red
+#               con CloudWatch y permite un `tail -f` inmediato por SSH. El
+#               CloudWatch Agent puede además vigilar este fichero si se quiere
+#               un segundo grupo de logs con retención distinta.
+#
+# Cada línea lleva el request_id, así que buscar el código de referencia que el
+# usuario ve en la página de error basta para reconstruir la petición entera:
+#   aws logs filter-log-events --log-group-name /swalp/app \
+#       --filter-pattern '"A3F91C2B"'
+#
+# RETENCIÓN: configúrala en el grupo de CloudWatch (no en el fichero). Estos
+# logs contienen nombres de empleado y detalles de solicitudes, así que son
+# datos personales: acótala y restringe el acceso al grupo por IAM.
+# La ruta se puede reapuntar por entorno (p.ej. a un volumen montado que sí sea
+# escribible cuando el contenedor arranca con el sistema de ficheros en solo
+# lectura, que es lo recomendable en Fargate).
+LOG_DIR = Path(env('LOG_DIR', default=str(BASE_DIR / 'logs')))
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_A_FICHERO = os.access(LOG_DIR, os.W_OK)
+except OSError:
+    # Sin permiso de escritura NO se cae la aplicación: se renuncia al fichero
+    # y todo sale por stdout, que es de donde tira CloudWatch de todos modos.
+    LOG_A_FICHERO = False
+
+_DESTINOS = ['console', 'file'] if LOG_A_FICHERO else ['console']
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'filters': {
+        'request_id': {
+            '()': 'core.errors.RequestIDFilter',
+        },
+    },
     'formatters': {
         'json': {
             '()': 'django.utils.log.ServerFormatter',
-            'format': '%(asctime)s %(levelname)s %(name)s %(message)s',
+            'format': '%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s',
         },
         'verbose': {
-            'format': '[{asctime}] {levelname} {name}: {message}',
+            'format': '[{asctime}] {levelname} {name} [{request_id}]: {message}',
             'style': '{',
         },
     },
@@ -474,26 +528,50 @@ LOGGING = {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
+            'filters': ['request_id'],
+        },
+        'file': {
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': str(LOG_DIR / 'appturnos.log'),
+            'maxBytes': 10 * 1024 * 1024,   # 10 MB
+            'backupCount': 5,               # ~50 MB como techo
+            'encoding': 'utf-8',
+            'formatter': 'verbose',
+            'filters': ['request_id'],
         },
     },
     'root': {
-        'handlers': ['console'],
+        'handlers': _DESTINOS,
         'level': 'WARNING',
     },
     'loggers': {
         'solicitudes': {
-            'handlers': ['console'],
+            'handlers': _DESTINOS,
             'level': 'INFO',
             'propagate': False,
         },
         'turnos': {
-            'handlers': ['console'],
+            'handlers': _DESTINOS,
             'level': 'INFO',
             'propagate': False,
         },
+        # Aquí aterrizan los 500 con su traceback completo. Es el logger que
+        # sustituye a la pantalla de debug: mismo detalle, pero solo para el
+        # equipo de desarrollo.
         'django.request': {
-            'handlers': ['console'],
+            'handlers': _DESTINOS,
             'level': 'ERROR',
+            'propagate': False,
+        },
+        # Fallos de CSRF y peticiones rechazadas (Host no permitido, etc.).
+        'django.security': {
+            'handlers': _DESTINOS,
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'core.errors': {
+            'handlers': _DESTINOS,
+            'level': 'WARNING',
             'propagate': False,
         },
     },

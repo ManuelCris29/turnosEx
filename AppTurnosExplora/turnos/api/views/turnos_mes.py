@@ -1,6 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
+from core.utils.json_responses import json_error_inesperado
 from django.db.models import Q
 from turnos.models import Turno, AsignarJornadaExplorador
 from turnos.services.turno_service import TurnoService
@@ -19,10 +20,8 @@ class TurnosPorDiaView(LoginRequiredMixin, View):
             # Solo necesitamos retornarlos directamente
             return JsonResponse({'am': data.get('am', []), 'pm': data.get('pm', [])})
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f'Error en TurnosPorDiaView: {str(e)}', exc_info=True)
-            return JsonResponse({'error': f'Error al obtener turnos: {str(e)}'}, status=500)
+            return json_error_inesperado(
+                request, e, 'No pudimos cargar los turnos de ese día. Inténtalo de nuevo.')
 
 
 class TurnosPorMesView(LoginRequiredMixin, View):
@@ -382,14 +381,16 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             return JsonResponse(turnos_mes_dict)
 
         except Exception as e:
-            import traceback
-            error_trace = traceback.format_exc()
-            print(f"ERROR en MisTurnosPorMesView: {str(e)}")
-            print(f"Traceback: {error_trace}")
-            return JsonResponse({
-                'error': f'Error al procesar fechas: {str(e)}',
-                'traceback': error_trace if request.user.is_staff else None  # Solo mostrar traceback a staff
-            }, status=400)
+            # Aquí había código de depuración que se quedó puesto: dos `print`
+            # y, en el propio JSON, `'traceback': error_trace if
+            # request.user.is_staff else None`. Es decir, la aplicación
+            # publicaba el traceback COMPLETO —rutas de fichero, líneas de
+            # código y nombres de variables— a cualquier usuario `is_staff`,
+            # que aquí incluye a los supervisores. Los `print`, además, salían
+            # sin nivel y sin el identificador de la petición, así que en
+            # CloudWatch quedaban sueltos y sin poder cruzarlos con nada.
+            return json_error_inesperado(
+                request, e, 'No pudimos cargar tus turnos de ese mes. Inténtalo de nuevo.')
 
     @staticmethod
     def _permisos_por_fecha(empleado, fecha_inicio, fecha_fin):
