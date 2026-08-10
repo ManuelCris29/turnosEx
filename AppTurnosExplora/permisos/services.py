@@ -9,36 +9,29 @@ Replica el flujo de las solicitudes de cambio de turno:
 El destinatario siempre es `permiso.empleado.supervisor` (cada empleado tiene su
 supervisor asignado), por lo que funciona aunque existan varios supervisores.
 """
-import hashlib
-import hmac
 import logging
 
 from django.conf import settings
 
 from solicitudes.models import Notificacion
 from solicitudes.services.email_service import EmailService
+from solicitudes.services import tokens_aprobacion
 from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
-_SECRET = b'secret_key_change_this'  # mismo esquema que las solicitudes de cambio
-
-
 class PermisoNotificacionService:
 
     # ------------------------------------------------------------------ tokens
+    # Firma y caducidad viven en solicitudes/services/tokens_aprobacion.py
+    # (fuente única, misma protección que las solicitudes de cambio).
     @staticmethod
     def generar_token(permiso_id, supervisor_id):
-        data = f"permiso_{permiso_id}_{supervisor_id}"
-        return hmac.new(_SECRET, data.encode(), hashlib.sha256).hexdigest()
+        return tokens_aprobacion.generar_permiso(permiso_id, supervisor_id)
 
     @staticmethod
     def verificar_token(permiso, token):
-        supervisor = permiso.empleado.supervisor
-        if not supervisor:
-            return False
-        esperado = PermisoNotificacionService.generar_token(permiso.id, supervisor.id)
-        return hmac.compare_digest(token, esperado)
+        return tokens_aprobacion.verificar_permiso(permiso, token)
 
     # ----------------------------------------------------------------- helpers
     @staticmethod

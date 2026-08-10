@@ -1,4 +1,5 @@
 from django.shortcuts import render, get_object_or_404
+from core.utils.error_token import render_error_token, render_error_token_inesperado
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -15,9 +16,8 @@ from ..services.solicitud_service import SolicitudService
 from ..services.solicitud_factory import SolicitudFactory
 from ..services.permiso_service import PermisoService
 from ..services.notificacion_service import NotificacionService
+from ..services import tokens_aprobacion
 from django.utils import timezone
-import hashlib
-import hmac
 import logging
 from django.core.cache import cache
 
@@ -100,16 +100,12 @@ class AprobarSolicitudEmailView(View):
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'supervisor'):
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': 'Token invÃ¡lido o expirado'
-                })
+                return render_error_token(request, 'Token inválido o expirado', status=403)
             
             # Verificar que el usuario actual es el supervisor
             supervisor = solicitud.explorador_solicitante.supervisor
             if not supervisor:
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': 'No se encontrÃ³ supervisor para esta solicitud'
-                })
+                return render_error_token(request, 'No se encontró supervisor para esta solicitud', status=409)
             
             # Idempotencia: si ya está resuelta o el supervisor ya respondió,
             # NO re-procesar ni reenviar notificación (enlaces de correo re-clicados).
@@ -127,33 +123,14 @@ class AprobarSolicitudEmailView(View):
             if success:
                 return _render_resultado(request, solicitud, 'supervisor', 'aprobada')
             else:
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': message
-                })
+                return render_error_token(request, message, status=409)
                 
         except Exception as e:
-            return render(request, 'solicitudes/error_token.html', {
-                'mensaje': f'Error al procesar la solicitud: {str(e)}'
-            })
+            return render_error_token_inesperado(request, e, 'aprobar supervisor')
     
     def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea vÃ¡lido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producciÃ³n
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
+        """Verifica el token del enlace de aprobación (fuente única)."""
+        return tokens_aprobacion.verificar(solicitud, token, tipo)
 
 class RechazarSolicitudEmailView(View):
     """
@@ -174,16 +151,12 @@ class RechazarSolicitudEmailView(View):
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'supervisor'):
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': 'Token invÃ¡lido o expirado'
-                })
+                return render_error_token(request, 'Token inválido o expirado', status=403)
             
             # Verificar que el usuario actual es el supervisor
             supervisor = solicitud.explorador_solicitante.supervisor
             if not supervisor:
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': 'No se encontrÃ³ supervisor para esta solicitud'
-                })
+                return render_error_token(request, 'No se encontró supervisor para esta solicitud', status=409)
             
             # Idempotencia: si ya está resuelta o el supervisor ya respondió,
             # NO re-procesar ni reenviar notificación.
@@ -201,33 +174,14 @@ class RechazarSolicitudEmailView(View):
             if success:
                 return _render_resultado(request, solicitud, 'supervisor', 'rechazada')
             else:
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': message
-                })
+                return render_error_token(request, message, status=409)
                 
         except Exception as e:
-            return render(request, 'solicitudes/error_token.html', {
-                'mensaje': f'Error al procesar la solicitud: {str(e)}'
-            })
+            return render_error_token_inesperado(request, e, 'rechazar supervisor')
     
     def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea vÃ¡lido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producciÃ³n
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
+        """Verifica el token del enlace de aprobación (fuente única)."""
+        return tokens_aprobacion.verificar(solicitud, token, tipo)
 
 class AprobarSolicitudReceptorEmailView(View):
     """
@@ -248,9 +202,7 @@ class AprobarSolicitudReceptorEmailView(View):
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'receptor'):
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': 'Token invÃ¡lido o expirado'
-                })
+                return render_error_token(request, 'Token inválido o expirado', status=403)
             
             # Idempotencia: si ya está resuelta o el receptor ya respondió,
             # NO re-procesar ni reenviar notificación.
@@ -268,33 +220,14 @@ class AprobarSolicitudReceptorEmailView(View):
             if success:
                 return _render_resultado(request, solicitud, 'receptor', 'aprobada')
             else:
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': message
-                })
+                return render_error_token(request, message, status=409)
                 
         except Exception as e:
-            return render(request, 'solicitudes/error_token.html', {
-                'mensaje': f'Error al procesar la solicitud: {str(e)}'
-            })
+            return render_error_token_inesperado(request, e, 'aprobar receptor')
     
     def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea vÃ¡lido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producciÃ³n
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
+        """Verifica el token del enlace de aprobación (fuente única)."""
+        return tokens_aprobacion.verificar(solicitud, token, tipo)
 
 class RechazarSolicitudReceptorEmailView(View):
     """
@@ -315,9 +248,7 @@ class RechazarSolicitudReceptorEmailView(View):
             
             # Verificar token
             if not self._verificar_token(solicitud, token, 'receptor'):
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': 'Token invÃ¡lido o expirado'
-                })
+                return render_error_token(request, 'Token inválido o expirado', status=403)
             
             # Idempotencia: si ya está resuelta o el receptor ya respondió,
             # NO re-procesar ni reenviar notificación.
@@ -335,32 +266,13 @@ class RechazarSolicitudReceptorEmailView(View):
             if success:
                 return _render_resultado(request, solicitud, 'receptor', 'rechazada')
             else:
-                return render(request, 'solicitudes/error_token.html', {
-                    'mensaje': message
-                })
+                return render_error_token(request, message, status=409)
                 
         except Exception as e:
-            return render(request, 'solicitudes/error_token.html', {
-                'mensaje': f'Error al procesar la solicitud: {str(e)}'
-            })
+            return render_error_token_inesperado(request, e, 'rechazar receptor')
     
     def _verificar_token(self, solicitud, token, tipo):
-        """Verifica que el token sea vÃ¡lido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producciÃ³n
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
+        """Verifica el token del enlace de aprobación (fuente única)."""
+        return tokens_aprobacion.verificar(solicitud, token, tipo)
 
 
