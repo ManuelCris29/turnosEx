@@ -116,6 +116,50 @@ class CoberturaDosCompanerosTest(TestCase):
         self.assertEqual(r.status_code, 400)
         self.assertEqual(SolicitudCambio.objects.count(), 0)
 
+    def test_dia_de_pago_donde_ya_doblo_es_rechazado(self):
+        """
+        Si el solicitante ya trabaja AM+PM el día de pago no le queda jornada con la que pagar:
+        cubrirle la jornada al compañero sería ficticio (ya iba a estar ese día completo) y no
+        genera deuda (la regla exige partir de UNA sola jornada). El formulario lo avisa, pero
+        el backend debe rechazarlo por su cuenta.
+        """
+        from turnos.models import Turno
+        for jornada in (self.am, self.pm):
+            Turno.objects.create(explorador=self.solicitante, fecha=self.pago,
+                                 jornada=jornada, sala=self.sala)
+
+        r = self._post(empleado_receptor_2='', tipo_cesion='cesion_parcial',
+                       jornada_cedida='AM', empleado_receptor=self.comp_am.id)
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('ya trabajas esa jornada', r.json().get('error', ''))
+        self.assertEqual(SolicitudCambio.objects.count(), 0)
+
+    def test_candidatos_excluye_a_quien_no_trabaja_esa_jornada_el_dia_de_pago(self):
+        """
+        El desplegable y la validación deben mirar las MISMAS dos fechas. El día de pago, el
+        compañero (grupo AM) trabaja AM: se le puede pagar la AM, pero no la PM. Antes el
+        desplegable lo ofrecía igual para PM porque solo miraba el día de cesión, y el envío
+        moría con "no hay jornada que puedas pagarle ese día".
+        """
+        url = reverse('solicitudes:cobertura_candidatos')
+        params = {'fecha_trabajo': self.cesion.strftime('%Y-%m-%d'),
+                  'fecha_pago': self.pago.strftime('%Y-%m-%d')}
+
+        def _cand(opcion):
+            r = self.client.get(url, dict(params, opcion=opcion),
+                                HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+            self.assertEqual(r.status_code, 200, r.content)
+            data = r.json().get('data') or r.json()
+            return {c['id']: c for c in data['candidatos']}[self.comp_am.id]
+
+        am = _cand('AM')
+        self.assertTrue(am['disponible'], f"Debía poder cubrir/pagar la AM: {am['motivo']}")
+
+        pm = _cand('PM')
+        self.assertFalse(pm['disponible'],
+                         'No trabaja PM el día de pago: no debía ofrecerse para la PM.')
+        self.assertIn('pagarle', pm['motivo'])
+
     def test_sin_segundo_companero_usa_el_flujo_normal(self):
         """Sin `empleado_receptor_2` no se activa el camino de pareja: sigue el flujo de siempre
         (una sola solicitud parcial), que aquí falla por no indicar la jornada cedida."""
