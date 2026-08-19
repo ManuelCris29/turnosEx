@@ -94,8 +94,59 @@ class DobladaPagoService:
         return DobladaPagoService._aplicar_pago_fallback(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str)
 
     @staticmethod
+    def _mitad_contraria_cubierta_por_otra_doblada(solicitud, receptor, fecha_pago, jornada_sel) -> bool:
+        """¿La OTRA mitad de este sábado del receptor ya la cubre otra doblada aprobada?
+
+        Un sábado del acreedor se reparte en dos mitades y cada una puede pagarla una doblada
+        distinta. Cuando las DOS están cubiertas, el acreedor no trabaja nada ese día: descansa
+        completo, y su descanso está correctamente atribuido (`DescansoPorSolicitudService` acumula
+        las mitades con `{'AM','PM'} <= parciales`).
+
+        NO se filtra por `explorador_solicitante`: da igual QUIÉN cubra la otra mitad. Antes ambos
+        usos exigían que fuera el mismo deudor, y eso rompía el caso de dos deudores distintos:
+          - la rama de reparto le RECREABA al receptor la mitad que el otro deudor ya cubre
+            (doble cobertura del mismo turno),
+          - y el guard de "el receptor no trabaja" bloqueaba re-aplicar una doblada legítima
+            (reconciliación / re-validación al aprobar), porque el receptor ya no tenía turnos.
+        Lo que importa es si la mitad está cubierta, no por quién.
+        """
+        if jornada_sel not in ("AM", "PM"):
+            return False
+        return SolicitudCambio.objects.filter(
+            explorador_receptor=receptor,
+            tipo_cambio__nombre__in=[TipoSolicitud.DOBLADA, TipoSolicitud.D_FDS],
+            estado='aprobada',
+            doblada__fecha_pago=fecha_pago,
+            doblada__jornada_pago_sabado__iexact=("PM" if jornada_sel == "AM" else "AM"),
+        ).exclude(id=solicitud.id).exists()
+
+    @staticmethod
     def _aplicar_pago_sabado(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str) -> None:
         jornada_sel = detalle.jornada_pago_sabado.upper()
+
+        # El reparto de sábado da por sentado que el receptor TRABAJA ese día: se le quita la mitad
+        # que cubre el deudor y conserva (o se le crea) la contraria. Si en realidad descansa, ese
+        # "crear la contraria" le INVENTA un turno en un día libre en vez de fallar. Lo impide
+        # `validar_receptor_tiene_jornada_en_fecha_pago` aguas arriba, pero aquí se entra desde
+        # varias rutas (creación, re-validación al aprobar, aprobación por enlace de correo), así
+        # que el servicio no puede depender de que alguien más haya mirado. Se comprueba aquí.
+        #
+        # EXCEPCIÓN: que el receptor no tenga turnos puede ser consecuencia legítima de que la OTRA
+        # mitad de ese sábado ya la cubra otra doblada aprobada (ver el helper). Ahí no hay turno
+        # inventado: se lo están relevando entre las dos dobladas.
+        if not DobladaPagoService._mitad_contraria_cubierta_por_otra_doblada(
+                solicitud, receptor, fecha_pago, jornada_sel):
+            from solicitudes.services.validators.base_validator import BaseValidator
+            if not BaseValidator._explorador_trabaja(receptor, fecha_pago):
+                # El mensaje lo lee el SOLICITANTE al enviar, pero también el APROBADOR al aprobar
+                # (la re-validación pasa por aquí): no puede dar una instrucción que solo uno de los
+                # dos puede ejecutar, así que describe el problema sin decirle a nadie qué teclear.
+                raise ValidationError(
+                    f'{receptor.nombre} {receptor.apellido} no trabaja el sábado '
+                    f'{fecha_pago.strftime("%d/%m/%Y")}: ese día descansa, así que no hay jornada '
+                    f'suya que cubrir y no se le puede pagar la doblada. La doblada debe rehacerse '
+                    f'con otra fecha de pago.'
+                )
 
         # ===========================
         # AMBAS: el solicitante cubre el día completo (AM+PM) y el receptor descansa.
@@ -138,6 +189,12 @@ class DobladaPagoService:
         # mismo sábado (cediste ambas jornadas a dos personas distintas), se ACUMULA — el deudor
         # termina doblado AM+PM, cada mitad pagando a una persona. En ese caso no se borra la
         # contraria, solo se recrea la seleccionada.
+        #
+        # OJO — esta consulta se PARECE a `_mitad_contraria_cubierta_por_otra_doblada` pero pregunta
+        # otra cosa, y por eso NO se unifica con ella: aquí el sujeto es el DEUDOR (¿ya trabajo yo
+        # la otra mitad de este sábado?), allí es el ACREEDOR (¿alguien cubre su otra mitad?). Por
+        # eso aquí sí se filtra por `explorador_solicitante` y no se filtra por receptor: las dos
+        # mitades pueden pagarse a personas DISTINTAS. Unificarlas rompería una de las dos.
         _otra_mitad_pagada = SolicitudCambio.objects.filter(
             explorador_solicitante=solicitante,
             tipo_cambio__nombre__in=[TipoSolicitud.DOBLADA, TipoSolicitud.D_FDS],
@@ -160,24 +217,18 @@ class DobladaPagoService:
         )
 
         # 2) Receptor: se le quita la jornada que ahora cubre el deudor (jornada_sel). Normalmente
-        # CONSERVA la contraria (reparto del sábado). EXCEPCIÓN: si esa contraria también se la
-        # cubre el MISMO deudor con OTRA doblada suya ese mismo sábado (le pagas las DOS mitades al
-        # mismo compañero), entonces el receptor NO trabaja ninguna → DESCANSA el día completo.
-        _contraria_tambien_cubierta = SolicitudCambio.objects.filter(
-            explorador_solicitante=solicitante,
-            explorador_receptor=receptor,
-            tipo_cambio__nombre__in=[TipoSolicitud.DOBLADA, TipoSolicitud.D_FDS],
-            estado='aprobada',
-            doblada__fecha_pago=fecha_pago,
-            doblada__jornada_pago_sabado__iexact=jornada_contraria,
-        ).exclude(id=solicitud.id).exists()
+        # CONSERVA la contraria (reparto del sábado). EXCEPCIÓN: si esa contraria también la cubre
+        # OTRA doblada aprobada de ese mismo sábado (sea del mismo deudor o de otro), entonces el
+        # receptor NO trabaja ninguna → DESCANSA el día completo.
+        _contraria_tambien_cubierta = DobladaPagoService._mitad_contraria_cubierta_por_otra_doblada(
+            solicitud, receptor, fecha_pago, jornada_sel)
 
         if _contraria_tambien_cubierta:
-            # Le pagas AM y PM al mismo compañero ese sábado → descansa completo (tú doblas).
+            # Ambas mitades cubiertas → el receptor descansa completo.
             Turno.objects.filter(explorador=receptor, fecha=fecha_pago).delete()
             logger.info(
                 f"Pago en sábado aplicado: {solicitante.nombre} cubre {jornada_sel} en {fecha_pago}; "
-                f"{receptor.nombre} DESCANSA el día completo (le cubres ambas mitades)."
+                f"{receptor.nombre} DESCANSA el día completo (ambas mitades cubiertas)."
             )
         else:
             # Reparto normal: el receptor conserva la jornada contraria.
@@ -229,6 +280,31 @@ class DobladaPagoService:
         #   - si ESE día TRABAJA su propia jornada (la contraria a jcp) → DOBLA (su jornada + jcp).
         #   - si ese día está LIBRE (cedió, temporada, fin de semana...) → cubre SOLO jcp, quedando
         #     con UNA jornada (no tiene jornada propia que sumar).
+        #
+        # Guard (patrón 39): más abajo, al acreedor se le CREA la jornada contraria si no la tiene.
+        # Con un acreedor que ese día descansa eso le FABRICA un turno en un día libre, sin fallar
+        # y sin que nadie se entere. Por la web no se llega (la aprobación re-valida) y la
+        # reconciliación la tapa la guardia LIFO, pero los comandos de gestión
+        # `reaplicar_doblada` y `corregir_doblada_cesion_total` llaman aquí SIN validar nada —y son
+        # justo lo que se ejecuta cuando un día ya está descuadrado. El servicio no puede depender
+        # de que alguien mirara antes.
+        #
+        # Aquí el guard es seguro frente a la RE-aplicación porque esta rama le DEJA al acreedor su
+        # jornada propia: al repetir, `_explorador_trabaja` la ve (turno real) y no salta. En las
+        # ramas que dejan al acreedor DESCANSANDO por diseño (`cesion_parcial`, `fallback` y
+        # `jornada_cedida` con cesión completa) esta misma comprobación bloquearía su propia
+        # re-aplicación, porque `estado_dia` cuenta el descanso por solicitud y no sabe excluir la
+        # solicitud actual. Ahí hace falta otro enfoque (comparar contra `snapshot_turnos_previos`);
+        # ver la nota de `_aplicar_pago_cesion_parcial`.
+        from solicitudes.services.validators.base_validator import BaseValidator as _BV_jcp
+        if not _BV_jcp._explorador_trabaja(receptor, fecha_pago):
+            raise ValidationError(
+                f'{receptor.nombre} {receptor.apellido} no trabaja el '
+                f'{fecha_pago.strftime("%d/%m/%Y")}: ese día descansa, así que no tiene una '
+                f'jornada que cubrirle para pagar la doblada. La doblada debe rehacerse con otra '
+                f'fecha de pago.'
+            )
+
         j_cubre = jcp                                   # ej. AM (la del acreedor que cubro)
         j_propia = 'PM' if j_cubre == 'AM' else 'AM'    # mi propia jornada ese día (contraria)
         jornadas_cache = _obtener_jornadas_cache()
@@ -284,6 +360,30 @@ class DobladaPagoService:
             # Sin turno explícito: usar la jornada base (predeterminada) del acreedor. Si no hay
             # jornada base no se puede adivinar cuál cubre — antes se asumía 'AM' en silencio, lo
             # que materializaba un turno arbitrario. Ahora falla explícito.
+            #
+            # OJO AL CRITERIO: `get_jornada_explorador_fecha` devuelve la jornada BASE (el TIPO de
+            # turno de la persona: "es AM"), no si TRABAJA ese día. Recibe una fecha, así que
+            # parece responder lo segundo, pero responde lo primero: contesta 'AM' igual un día de
+            # descanso. Y a este `else` se llega justamente cuando el acreedor no tiene turnos, que
+            # es el aspecto que tiene un día libre. Así que un acreedor que DESCANSA pasa por aquí
+            # y se acaba cubriendo una jornada que nadie iba a trabajar.
+            # El `raise` de abajo NO cubre eso: solo salta si la persona no tiene jornada base en
+            # absoluto (nunca se le asignó), que es otra situación.
+            # La pregunta correcta es `BaseValidator._explorador_trabaja` (mira turnos reales,
+            # alternancia de finde, descanso de semana y mantenimiento), que es la que usa el guard
+            # de `_aplicar_pago_sabado`.
+            #
+            # POR QUÉ AQUÍ NO SE PUEDE PONER ESE GUARD TAL CUAL: esta rama deja al acreedor SIN
+            # TURNOS por diseño (más abajo, "El acreedor descansa"). Al re-aplicar la MISMA
+            # solicitud —que es justo lo que hace `reaplicar_doblada`— el acreedor ya está
+            # descansando por culpa de ella, y `_explorador_trabaja` lo vería como "no trabaja":
+            # el guard bloquearía su propia re-aplicación. `estado_dia` cuenta el descanso por
+            # solicitud aprobada y no admite excluir la solicitud en curso, así que el estado
+            # posterior no distingue "descansa porque yo lo dejé así" de "descansa porque no le
+            # tocaba". Hacerlo bien exige comparar contra `snapshot_turnos_previos` (el mundo
+            # ANTES de aplicar esta solicitud), que es un cambio de más calado y está sin decidir.
+            # Las ramas `jcp_media` y `jornada_cedida` (parcial) sí llevan el guard porque le
+            # conservan al acreedor una jornada, y ahí la re-aplicación no se autoengaña.
             jb = JornadaService.get_jornada_explorador_fecha(receptor.id, fecha_pago_str)
             if not jb:
                 raise ValidationError(
@@ -425,6 +525,19 @@ class DobladaPagoService:
             ).delete()
             _jo_nombre = 'PM' if _jc_nombre == 'AM' else 'AM'
             _jo_obj = _jcache.get(_jo_nombre)
+            # Guard (patrón 39): el `create()` de abajo, dentro de un `if not ...exists()`, le
+            # fabricaría un turno al acreedor si ese día descansa. Va DENTRO de esta rama y no al
+            # principio del método a propósito: la rama de al lado (`cesion_completa`) deja al
+            # acreedor sin turnos POR DISEÑO, y allí la misma comprobación bloquearía su propia
+            # re-aplicación. Aquí no ocurre: esta rama le conserva la jornada opuesta.
+            from solicitudes.services.validators.base_validator import BaseValidator as _BV_jc
+            if not _BV_jc._explorador_trabaja(receptor, fecha_pago):
+                raise ValidationError(
+                    f'{receptor.nombre} {receptor.apellido} no trabaja el '
+                    f'{fecha_pago.strftime("%d/%m/%Y")}: ese día descansa, así que no tiene una '
+                    f'jornada que cubrirle para pagar la doblada. La doblada debe rehacerse con '
+                    f'otra fecha de pago.'
+                )
             if _jo_obj and not DobladaTurnoService.tiene_jornada_en_fecha(
                 receptor, fecha_pago, _jo_obj
             ):
@@ -462,6 +575,12 @@ class DobladaPagoService:
         
         # Sin jornada del acreedor no hay nada que devolverle: fallar con un mensaje de negocio
         # en vez de reventar con AttributeError sobre None y abortar la aprobación con un traceback.
+        #
+        # MISMO CRITERIO FLOJO que en `_aplicar_pago_cesion_parcial` (ver la nota larga allí):
+        # esto comprueba que EXISTA jornada base, no que el acreedor TRABAJE ese día. Un acreedor
+        # que descansa tiene jornada base igual y pasa el `if`. Y por la misma razón que allí, no
+        # se puede endurecer con `_explorador_trabaja` sin más: esta rama también deja al acreedor
+        # sin turnos, así que el guard bloquearía su propia re-aplicación.
         if not jornada_acreedor:
             raise ValidationError(
                 f"El compañero {receptor.nombre} no tiene jornada asignada el "
