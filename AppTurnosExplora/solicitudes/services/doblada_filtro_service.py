@@ -32,7 +32,10 @@ class DobladaFiltroService:
         Filtra empleados excluyendo aquellos que tienen doblada activa en la fecha.
         
         Regla de negocio: No se puede solicitar doblada a un explorador que ya
-        tiene una doblada aprobada en esa fecha (evitar triple turno).
+        tiene una doblada aprobada en esa fecha (evitar triple turno). "Tener doblada"
+        es trabajar AM+PM ese día: el RECEPTOR de una doblada aprobada, o quien ya
+        tiene ambos turnos materializados. El SOLICITANTE de una doblada no se dobla,
+        se libera — ese descansa y sigue disponible.
         
         Args:
             empleados: Lista o QuerySet de empleados a filtrar
@@ -48,14 +51,18 @@ class DobladaFiltroService:
             fecha_obj = fecha
         
         # -------------------------------
-        # 1) Empleados con doblada por SolicitudCambio (solicitantes)
+        # 1) Empleados que QUEDAN DOBLADOS por una SolicitudCambio aprobada
         # -------------------------------
-        empleados_con_doblada_solicitante = set(
+        # OJO CON EL ROL: en una DOBLADA el `explorador_solicitante` es quien CEDE su jornada y
+        # DESCANSA; quien se dobla (AM+PM) es el `explorador_receptor`. Filtrar por solicitante
+        # excluía justo a la gente libre ese día —incluida la que descansa porque te cedió a TI—,
+        # así que no aparecía en el selector de compañeros pese a estar disponible.
+        empleados_con_doblada_receptor = set(
             SolicitudCambio.objects.filter(
                 tipo_cambio__nombre='DOBLADA',
                 fecha_cambio_turno=fecha_obj,
                 estado='aprobada'
-            ).values_list('explorador_solicitante_id', flat=True)
+            ).values_list('explorador_receptor_id', flat=True)
         )
         
         # Convertir QuerySet a lista si es necesario
@@ -93,7 +100,7 @@ class DobladaFiltroService:
         # -------------------------------
         # 3) Unir todas las fuentes de doblada
         # -------------------------------
-        empleados_con_doblada = empleados_con_doblada_solicitante.union(
+        empleados_con_doblada = empleados_con_doblada_receptor.union(
             empleados_con_doblada_turno
         )
 
@@ -108,7 +115,7 @@ class DobladaFiltroService:
         logger.debug(
             f"Filtrados {len(empleados_list) - len(empleados_disponibles)} empleados "
             f"con doblada activa en {fecha_obj} "
-            f"(solicitudes={len(empleados_con_doblada_solicitante)}, "
+            f"(solicitudes={len(empleados_con_doblada_receptor)}, "
             f"turnos={len(empleados_con_doblada_turno)})"
         )
 

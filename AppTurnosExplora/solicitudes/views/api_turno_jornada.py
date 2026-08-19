@@ -25,7 +25,7 @@ from django.core.cache import cache
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error
+from core.utils.json_responses import json_ok, json_error, json_error_inesperado
 
 # Create your views here.
 
@@ -36,7 +36,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
         jornada_base = request.GET.get('jornada_base', 'false').lower() == 'true'
         
         if not fecha or not explorador_id:
-            return json_error('Faltan parÃ¡metros requeridos', status=400, code='missing_params')
+            return json_error('Faltan parámetros requeridos', status=400, code='missing_params')
         
         try:
             # Si se solicita jornada base, obtener directamente de AsignarJornadaExplorador
@@ -79,7 +79,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 else:
                     return json_ok({'turno': None, 'tiene_turno': False})
             
-            # Obtener el tipo de solicitud desde la URL o parÃ¡metros
+            # Obtener el tipo de solicitud desde la URL o parámetros
             tipo_solicitud_id = request.GET.get('tipo_solicitud_id')
             tipo_solicitud = None
             
@@ -551,20 +551,20 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             })
             
         except Exception as e:
-            logger.exception('Error en ObtenerJornadasRangoView')
-            return json_error(f'Error al procesar la solicitud: {str(e)}', status=500, code='internal_error')
+            return json_error_inesperado(
+                request, e, 'No pudimos calcular las jornadas de ese rango. Inténtalo de nuevo.')
 
 
 class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
     """
     FASE 2.5: Endpoint para verificar si el usuario ya tiene un cambio aprobado para una fecha.
-    Devuelve informaciÃ³n sobre la solicitud que creÃ³ el turno si existe.
+    Devuelve información sobre la solicitud que creó el turno si existe.
     """
     def get(self, request):
         fecha = request.GET.get('fecha')
         
         if not fecha:
-            return json_error('Falta el parÃ¡metro fecha', status=400, code='missing_fecha')
+            return json_error('Falta el parámetro fecha', status=400, code='missing_fecha')
         
         if not hasattr(request.user, 'empleado'):
             return json_error('Usuario no tiene empleado asociado', status=400, code='no_empleado')
@@ -590,7 +590,7 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
                     'informacion_cambio': None
                 })
             
-            # Si existe turno, buscar la solicitud que lo creÃ³
+            # Si existe turno, buscar la solicitud que lo creó
             solicitud = SolicitudCambio.objects.filter(
                 Q(turno_origen=turno) | Q(turno_destino=turno),
                 estado='aprobada'
@@ -615,7 +615,7 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
                 mensaje = (
                     f"Ya tienes un cambio aprobado para esta fecha. "
                     f"Tu jornada actual es {turno.jornada.nombre} (intercambio con {companero.nombre} {companero.apellido}). "
-                    f"Este nuevo cambio lo reemplazarÃ¡."
+                    f"Este nuevo cambio lo reemplazará."
                 )
                 
                 return json_ok({
@@ -624,10 +624,10 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
                     'informacion_cambio': informacion_cambio
                 })
             else:
-                # Hay turno pero no se encontrÃ³ la solicitud (caso raro)
+                # Hay turno pero no se encontró la solicitud (caso raro)
                 return json_ok({
                     'tiene_cambio_aprobado': True,
-                    'mensaje': f"Ya tienes un turno asignado para esta fecha (jornada: {turno.jornada.nombre if turno.jornada else 'N/A'}). Este nuevo cambio lo reemplazarÃ¡.",
+                    'mensaje': f"Ya tienes un turno asignado para esta fecha (jornada: {turno.jornada.nombre if turno.jornada else 'N/A'}). Este nuevo cambio lo reemplazará.",
                     'informacion_cambio': {
                         'jornada_actual': turno.jornada.nombre if turno.jornada else 'N/A',
                         'solicitud_id': None

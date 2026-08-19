@@ -878,8 +878,8 @@ la jornada del acreedor y tiene `Turno` real. Al intentar ceder ese día, la gua
 descanso viejo y respondía *"Ya tienes el 30/07/2026 comprometido en otra solicitud aprobada (paga
 doblada); no puedes cederlo de nuevo"* — falso: ese día trabaja y sí puede cederlo.
 
-**Dónde:** `solicitudes/services/descanso_solicitud_service.py` (ramas `cedió su jornada`,
-`paga doblada` y `doblada permanente`).
+**Dónde:** `solicitudes/services/descanso_solicitud_service.py` — **las CINCO ramas**, incluida
+`cambio de día de descanso`.
 
 **Implementación:**
 ```python
@@ -893,10 +893,18 @@ for d, e in pago.items():
 
 ⚠️ **No quitar la guarda** ni resolverla en el llamador: si cada validación decide por su cuenta
 si el descanso sigue vigente, la atribución vuelve a divergir entre pantalla y validación — que es
-exactamente el problema que este servicio existe para evitar. CAMBIO DESCANSO queda fuera a
-propósito: es un intercambio puro con su propia fuente de verdad.
+exactamente el problema que este servicio existe para evitar.
 
-**Estado:** ✅ **APLICADO** (29/07/2026)
+⚠️ **CAMBIO DESCANSO ya NO está exento.** Lo estuvo, con el argumento de que "es un intercambio
+puro con su propia fuente de verdad". El argumento no se sostenía: esa fuente propia
+(`CambioDescansoAplicacionService._mapa_descanso_multi`) tampoco mira los turnos reales, así que
+nadie aplicaba la guarda en esa rama. No se veía en las pantallas —todas resuelven L1 antes que
+L2— pero sí en `dia_comprometido_por_solicitud`, que llama a `en_fecha` en crudo y alimenta 8
+validaciones: producía falsos bloqueos ("ya tienes ese día comprometido en otra solicitud
+aprobada") sobre días que la persona trabajaba de verdad. Si alguien vuelve a exceptuar una rama,
+que sea porque esa rama comprueba los turnos ella misma.
+
+**Estado:** ✅ **APLICADO** (29/07/2026) · rama CAMBIO DESCANSO incluida (07/08/2026)
 - Test: `test_ceder_jornada_recibida.py` -
   `test_si_ese_dia_recupero_jornada_real_si_puede_cederla`
 - La rama de doblada permanente ya tenía esta guarda por su cuenta; ahora las tres la comparten
@@ -1484,6 +1492,234 @@ pueda caer en un día especial es sospechoso.
 
 ---
 
+### 37. **Un desplegable de candidatos filtra por las MISMAS fechas que valida el envío** (Backend)
+**Qué es:** casi toda operación de este sistema toca **dos fechas** (cesión y pago/devolución) y
+**dos personas**. El endpoint que llena el desplegable de compañeros y la validación del envío son
+**dos implementaciones de la misma regla**. Cuando el desplegable filtra por una sola de las dos
+fechas, ofrece candidatos que el envío rechaza.
+
+**Por qué:** el usuario no ve un bug, ve una **contradicción**: el sistema le propone a alguien y
+acto seguido le dice que no puede. Peor, entre medias la ficha del candidato muestra texto
+**calculado sobre la fecha equivocada** ("Marco trabaja libre → le cubres su PM"): no se puede
+cubrir una jornada que no trabaja. El dato falso llega antes que el rechazo.
+
+Este patrón se rompió **tres veces por sitios distintos** en el mismo formulario (Cambio de Día de
+Descanso), lo que lo hace estructural y no un descuido puntual:
+
+| Sub-flujo | El desplegable miraba | La validación mira además |
+|---|---|---|
+| Intercambiar el día / Jornadas partidas | mi día de descanso | el día de pago (`fecha_descanso_receptor`) |
+| Que me cubran mi día | el día de cesión | que trabaje esa jornada el día de pago |
+| Cambio de doblada | "¿tiene doblada esa semana?" | que esté LIBRE mi día completo |
+
+**Reglas:**
+1. Si la validación consulta N fechas, el endpoint de candidatos consulta **las mismas N**. La
+   condición del desplegable debe poder leerse al lado de la del validador y decir lo mismo.
+2. El endpoint recibe la segunda fecha **como parámetro explícito**; no la deduce ni la asume.
+   Si no llega, o no filtra (y se documenta), o es error — nunca "filtra por una y ya".
+3. Un candidato no seleccionable se devuelve **con su motivo**, no se oculta: "no trabaja PM el
+   11/08" enseña la regla; una lista más corta, no.
+4. El texto informativo de un candidato se calcula sobre la fecha a la que corresponde. Si la
+   operación abarca dos fechas, la ficha las nombra por separado.
+5. Antes de dar por bueno el filtro, **desactivarlo y ver caer el test**. Un test que pasa con y
+   sin el filtro no prueba el filtro.
+
+**Estado:** ✅ **APLICADO** (2026-08-07)
+- `api_disponibles_ct_preview.py` - `_filtrar_por_descanso_receptor()` + param `fecha_descanso_receptor`
+- `api_fin_semana.py` - `CoberturaCandidatosView`: `disponible` considera también `fecha_pago`
+- `api_dobladas_consulta.py` - `DobladasSemanaView`: solo compañeros libres mi día de cesión
+- Tests: `test_candidatos_excluye_a_quien_no_trabaja_esa_jornada_el_dia_de_pago`,
+  `test_cambio_doblada_candidatos.py` (los 3 verificados por sabotaje)
+
+⚠️ **NO tocar sin releer esto:** cualquier endpoint cuyo nombre sea "…disponibles", "…candidatos"
+o "…semana" y que reciba UNA sola fecha mientras su validación usa dos es sospechoso. El
+precedente correcto vive en `ExploradoresConDobladaView` (`api_dobladas_consulta.py`), que sí
+filtra por el día A **y** el día B desde el principio.
+
+---
+
+### 38. **Una credencial que actúa SIN sesión se firma en un solo sitio, caduca y falla cerrada** (Backend / Seguridad)
+**Qué es:** los correos de esta aplicación llevan enlaces que **aprueban o rechazan sin iniciar
+sesión**. En un enlace así el token no es un identificador: es **la credencial completa**. Quien
+sepa fabricarlo actúa en nombre de otro. La firma de esos tokens vive en **un único módulo**
+(`solicitudes/services/tokens_aprobacion.py`) y todo el mundo delega en él.
+
+**Por qué:** este patrón nació de un fallo real. La firma estaba duplicada en **seis** sitios, todos
+con la clave escrita en el código (`b'secret_key_change_this'`, con el comentario "Cambiar en
+producción" que nunca se atendió). Cualquiera con acceso al repositorio podía aprobar cualquier
+solicitud. Y lo que lo convierte en patrón y no en anécdota: **la sexta copia estaba en OTRA app**
+(`permisos/services.py`) y se pasó por alto en la primera revisión. Con la lógica duplicada, cerrar
+cinco de seis agujeros equivale a no cerrar ninguno.
+
+**Reglas:**
+1. **Una sola implementación de la firma.** Si aparece un segundo `hmac.new(...)` o un segundo
+   `signing.dumps(...)` para el mismo propósito, el patrón ya está roto.
+2. **La clave sale de `SECRET_KEY`**, nunca de un literal. En AWS eso obliga a que todas las
+   instancias compartan la MISMA `SECRET_KEY` (una entrada de Secrets Manager/SSM, no un valor por
+   tarea): si no, los enlaces fallan de forma intermitente según a dónde encamine el ALB.
+3. **Caduca.** `APPROVAL_LINK_MAX_AGE_DAYS` (30 por defecto). Una credencial sin caducidad es
+   permanente por definición.
+4. **Sal distinta por circuito.** Solicitudes de cambio y permisos especiales usan sales separadas,
+   de modo que un token de un circuito no vale en el otro aunque los firme la misma clave.
+5. **Falla cerrada.** Firma inválida, caducada o de otra persona → `False`. Nunca una excepción que
+   alguien capture como "sigue adelante".
+6. **Se ata a quien ocupa el rol HOY**, no a quien lo ocupaba al enviarse: si a un explorador le
+   cambian de supervisor, el enlace del anterior deja de servir.
+7. **El uso único se apoya en el estado del negocio**, no en una lista de tokens gastados:
+   `_ya_resuelto_para()` consulta la base de datos, que es el almacén compartido entre instancias.
+   Una lista propia añadiría dependencia de Redis sin ganar nada.
+
+**Dónde vive:**
+- `solicitudes/services/tokens_aprobacion.py` — fuente única (firma, caducidad, sales).
+- Delegan: `solicitudes/services/email_service.py`, `solicitudes/views/aprobacion_email.py` (4
+  vistas), `permisos/services.py`.
+- Tests: `solicitudes/tests/test_tokens_aprobacion.py` (25), incluido uno que comprueba que un
+  token firmado con la clave antigua ya **no** se acepta.
+
+⚠️ **NO tocar sin releer esto:** antes de dar por cerrada una vulnerabilidad de credenciales,
+busca la lógica duplicada **en todo el repositorio, no solo en la app donde la encontraste**
+(`grep -rn "hmac.new\|signing.dumps" --include=*.py .`). Aquí la sexta copia vivía en otra app.
+
+---
+
+### 39. **La guardia vive donde está la ESCRITURA, no solo en la estrategia** (Backend)
+**Qué es:** un servicio que **escribe turnos** valida sus propias precondiciones antes de tocar
+nada, aunque la estrategia de validación ya las compruebe. La estrategia protege *un* camino; el
+servicio protege *el dato*.
+
+**Por qué:** nació de un fallo real en `DobladaPagoService._aplicar_pago_sabado`. El reparto de
+sábado asume que el acreedor trabaja ese día: le quita la mitad que cubre el deudor y **le crea la
+contraria si no la tiene**. Con un acreedor que descansa, eso **no fallaba: le inventaba un turno en
+un día libre**. La comprobación existía en `validar_receptor_tiene_jornada_en_fecha_pago`, pero solo
+cubría la ruta del formulario — y al servicio se entra desde **tres**: creación, re-validación al
+aprobar y aprobación por enlace de correo. Una guardia que solo está en la estrategia es una guardia
+en una de tres puertas.
+
+Lo que lo convierte en patrón: el modo de fallo silencioso. Cuando falta la guardia, el código no
+revienta — **escribe un dato incorrecto** que nadie detecta hasta que alguien se presenta a un turno
+que no le tocaba.
+
+**Reglas:**
+1. **Si el método escribe, valida.** Todo `*_aplicacion_service` / `*_pago_service` comprueba sus
+   precondiciones aunque "ya estén validadas aguas arriba".
+2. **Antes de la primera escritura**, y con el método en `@transaction.atomic`, para que el rechazo
+   no deje estado a medias.
+3. **Lanza, no arregla.** Ante una precondición incumplida se levanta `ValidationError`; nunca se
+   "completa" el estado que falta (crear el turno ausente es exactamente el bug).
+4. **Un `create()` dentro de un `if not ...exists()` es la señal de alarma.** Pregúntate qué pasa si
+   ese registro falta porque *no debía existir*, en vez de por un hueco a rellenar.
+5. **El mensaje no puede dar instrucciones de rol.** Lo lee tanto quien envía como quien aprueba
+   (la re-validación pasa por el mismo código): describe el problema, no ordenes "elige otra fecha".
+
+**La puerta que justifica el patrón — los COMANDOS de gestión.** No es hipotética: la aprobación
+web re-valida y la reconciliación la tapa la guardia LIFO, pero `reaplicar_doblada` y
+`corregir_doblada_cesion_total` llaman al servicio **sin validar nada y sin pasar por el LIFO**. Y
+no son scripts olvidados: `verificar_doblada` imprime el comando como sugerencia cuando detecta un
+error, y hay dos guías de operación que lo indican paso a paso. Es decir, el camino previsto ante
+un descuadre pasa por la única puerta sin guardia — y justo cuando el día ya no es el que se validó.
+
+**Aplicado solo donde es DEMOSTRABLE (cierre parcial, a propósito).** De las seis ramas de
+`aplicar_doblada_pago`, llevan guardia tres: `_aplicar_pago_sabado`, `_aplicar_pago_jcp_media` y la
+rama parcial de `_aplicar_pago_jornada_cedida`. `_aplicar_pago_jcp_ambas` no la necesita (no le
+escribe al acreedor). Las otras **no pueden llevarla con esta técnica**, y el motivo es el hallazgo
+más útil de todo esto:
+
+> Una guardia que consulta el estado **posterior** no sirve en un método cuyo efecto es
+> precisamente cambiar ese estado.
+
+`_aplicar_pago_cesion_parcial`, `_aplicar_pago_fallback` y `jornada_cedida`/`cesion_completa` dejan
+al acreedor **sin turnos por diseño**. Comprobado empíricamente: en cuanto la solicitud está
+`aprobada`, `estado_dia` ya le atribuye el descanso a esa misma solicitud, así que
+`_explorador_trabaja(acreedor)` devuelve `False` **incluso antes de aplicar**. Una guardia ahí se
+bloquearía a sí misma en la primera aplicación y en cada reaplicación. Cerrarlo bien exige preguntar
+por el mundo ANTERIOR (`snapshot_turnos_previos`) o poder excluir la solicitud en curso de
+`estado_dia` — que hoy no admite ese parámetro. Está sin decidir y sin implementar.
+
+Las tres guardadas lo son porque **conservan una jornada al acreedor**: al re-aplicar, el turno real
+sigue ahí y la guardia no se autoengaña.
+
+**Dónde vive:**
+- `solicitudes/services/doblada_pago_service.py` — guardias en `_aplicar_pago_sabado`,
+  `_aplicar_pago_jcp_media` y la rama parcial de `_aplicar_pago_jornada_cedida`.
+- Aguas arriba, sin sustituirla: `solicitudes/services/validators/doblada_validator.py`
+  (`validar_receptor_tiene_jornada_en_fecha_pago`), llamada desde `doblada_strategy.py`.
+- Avisos para quien opera: `docs/05-referencia/solicitudes/dobladas/GUIA_RAPIDA_REAPLICAR_DOBLADA.md`
+  y `CHECKLIST_SOLUCION_DOBLADA.md`.
+- Tests: `solicitudes/tests/test_matriz_dobladas.py::TestPagoSabadoReceptorDescansa`,
+  `::TestGuardPagoEntreSemana` y `::TestLifoProtegeLaReconciliacion`.
+
+⚠️ **NO muevas la guardia de `_aplicar_pago_jornada_cedida` al inicio del método.** Está dentro de
+su rama parcial a propósito: al inicio caería también sobre `cesion_completa`, que deja al acreedor
+sin turnos por diseño, y rompería su reaplicación. Lo mismo vale para cualquier intento de
+"unificar" las guardias de las seis ramas en una sola al principio del despachador.
+
+⚠️ **NO tocar sin releer esto:** la excepción de la guardia usa
+`_mitad_contraria_cubierta_por_otra_doblada`, que **deliberadamente no filtra por
+`explorador_solicitante`** — las dos mitades de un sábado las pueden pagar deudores distintos.
+Añadirle ese filtro "para ser más estricto" revive una doble cobertura del mismo turno (test
+sentinela `test_dos_deudores_distintos_cubren_cada_mitad_del_sabado`). Y ojo: en el mismo archivo
+hay una consulta casi idéntica, `_otra_mitad_pagada`, que **sí** filtra por solicitante porque
+pregunta por el día del DEUDOR, no del acreedor. Se parecen y no son lo mismo.
+
+---
+
+### 40. **Una REPARACIÓN no aborta por una pieza que no encaja** (Backend)
+**Qué es:** un proceso de *reparación* —el que recoloca lo que ya fue aprobado, después de que la
+decisión esté tomada— captura el fallo de negocio de cada pieza, lo registra y **sigue con las
+demás**. Un proceso de *validación* —el que decide si la acción procede— hace lo contrario: falla
+entero y bloquea. La distinción es **en qué fase estás**, no qué excepción salta.
+
+**Por qué:** nació de `DobladaSnapshotService.reconciliar_dobladas_aprobadas`. Al cancelar, la
+reconciliación re-aplica **sin re-validar** las solicitudes vigentes de las fechas afectadas; los
+servicios de aplicación tienen sus propias guardias (patrón #39), así que una solicitud que ya no
+encaja con el calendario actual levanta `ValidationError` con toda la razón. Sin el `try`, ese error
+abortaba la transacción entera y **el usuario no podía cancelar por culpa de una solicitud ajena**:
+de otra persona, en días colaterales que ni siquiera salen en su pantalla.
+
+Lo que lo convierte en patrón es que ese bloqueo **no tiene salida**. Las guardias de entrada
+(LIFO, integridad por snapshot) también bloquean, pero te dicen qué cancelar primero. Aquí no hay
+nada que el usuario pueda cancelar, arreglar ni ver. Un error sin acción posible no es una guardia:
+es un callejón.
+
+**Reglas:**
+1. **Sitúa la fase antes de decidir.** ¿Estás decidiendo si la acción procede (validación → falla
+   cerrado) o recolocando lo ya aprobado (reparación → best-effort)? En la segunda, el permiso ya
+   se concedió: volver a preguntar es llegar tarde.
+2. **Captura SOLO la excepción de negocio.** `ValidationError`, nunca `Exception`. Un fallo de BD o
+   un `AttributeError` son bugs: ahí sí conviene abortar y que se note.
+3. **El `except` registra a nivel ERROR con todo lo necesario para repararlo a mano**: id, tipo,
+   fechas y motivo. Un `pass` silencioso convierte esto en pérdida de datos invisible.
+4. **La pieza omitida NO se marca como procesada.** El `reaplicadas.add(s.id)` va **fuera** del
+   `try`: si se marcara, el refresco posterior de `snapshot_turnos_resultantes` grabaría el estado
+   roto como propio y la auditoría se quedaría ciega ante él.
+5. **Debe existir un auditor que encuentre lo omitido** sin depender de que alguien lea los logs
+   (aquí, `verificar_efecto_aplicado`). Sin él, esto es barrer bajo la alfombra.
+
+**La contrapartida, explícita:** la solicitud omitida queda **aprobada pero sin efecto
+materializado** en los turnos. Es una inconsistencia real y aceptada a conciencia: consistencia
+diferida a cambio de que la cancelación no quede bloqueada. Ver
+[ADR 008](AppTurnosExplora/docs/03-arquitectura/adr/008-reconciliacion-best-effort.md).
+
+**Dónde vive:**
+- `solicitudes/services/doblada_snapshot_service.py:332-343` — el `try/except ValidationError` y el
+  `reaplicadas.add` fuera de él.
+- Auditor y reparador: `solicitudes/management/commands/verificar_efecto_aplicado.py`
+  (`--reparar` re-materializa lo que quedó descuadrado).
+- Las guardias de ENTRADA que este patrón **no** relaja: `use_cases/cancelar_solicitud.py:290-353`
+  (integridad por snapshot) y la guardia LIFO.
+- Tests: `solicitudes/tests/test_matriz_dobladas.py::test_una_doblada_que_ya_no_encaja_no_impide_cancelar_otra`.
+
+⚠️ **NO amplíes este `except` a `Exception`.** Es el refactor de un minuto que parece más robusto y
+es justo lo contrario: se tragaría en silencio los bugs de programación y los fallos de BD que hoy
+abortan la transacción y se ven. La lista de excepciones capturadas es la frontera entre "esta pieza
+no encaja" y "el código está roto".
+
+⚠️ **NO conviertas esto en la respuesta por defecto a un `ValidationError` molesto.** Aplica solo en
+la fase de reparación. En creación, aprobación o re-validación, un `ValidationError` capturado y
+registrado es exactamente el bug que el patrón #39 viene a evitar.
+
+---
+
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
 
 Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
@@ -1527,6 +1763,10 @@ Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
 - [ ] **¿Precargaste estado en lote para acelerar un barrido?** → **Caché que declara su cobertura**
       (#34) - `cubre()` explícito, el camino individual intacto, y todo parámetro que cambie el
       resultado (`excluir_id`) invalida el hit. Verificar con caché ON vs OFF, no solo el tiempo
+- [ ] **¿Estás escribiendo un proceso que RECOLOCA lo ya aprobado (reconciliación, reparación,
+      migración de estado)?** → **Reparación best-effort** (#40) - captura solo `ValidationError`,
+      registra a ERROR, sigue con las demás y deja un auditor que encuentre lo omitido. En fase de
+      validación, lo contrario: fallar cerrado
 - [ ] **¿Puede haber errores?** → **Error Handling** (#19) - try/except + logging
 
 ---
@@ -1667,6 +1907,18 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | La cesión de festivo asigna al receptor AM **y** PM explícitamente | #36 | En festivo la doblada es virtual (sin filas `Turno`): `jornada_solicitante.nombre` da la base (una sola), no el día completo |
 | | La regla "festivo todo-o-nada" mira `jornada_cedida`, no solo `tipo_cesion` | #35, #29 | Al aplicar manda `jornada_cedida`; validar solo el campo declarativo dejaba la regla sin dientes |
 | | Precarga en los seis barridos de rango (compatibilidad, `evaluar_fechas_ct_permanente`, validador de jornada contraria, `obtener-jornadas-rango` y los dos endpoints de doblada permanente) | #34 | Tenían todos la misma forma N×M; la vista previa además barría el rango DOS veces (validación + evaluación) reconstruyendo el estado cada vez |
+| **2026-08-07** | Agregado patrón #37 (el desplegable filtra por las mismas fechas que valida el envío) | #37 (nuevo) | Se rompió TRES veces por sitios distintos en el mismo formulario: el selector miraba una sola de las dos fechas de la operación y ofrecía compañeros que el envío rechazaba (Jhon 11/08, Marco en cobertura, Mariana en cambio de doblada) |
+| | `CoberturaCandidatosView` marca no disponible a quien no trabaja esa jornada el día de pago | #37 | `jornada_pago` se calculaba solo para mostrarlo como texto; la ficha llegaba a decir "trabaja libre → le cubres su PM" |
+| | `DobladasSemanaView` solo lista compañeros libres mi día completo de temporada | #37 | El cambio de doblada es mutuo (él toma mi día): tener doblada esa semana no basta. El endpoint gemelo `ExploradoresConDobladaView` ya lo hacía bien |
+| | El formulario avisa si el día de pago de una cobertura es un día en que YA doblo | #37 | Pagar desde un día en que ya trabajas AM+PM es ficticio (y no genera los 30 min); el backend lo rechazaba, pero al final del formulario |
+| **2026-08-09** | Agregado patrón #38 (credencial sin sesión: firma única, caducidad, fallo cerrado) tras cerrar la vulnerabilidad de los tokens de aprobación por correo | #38 (nuevo) | La firma estaba duplicada en **seis** sitios con la clave escrita en el código (`b'secret_key_change_this'`): cualquiera con acceso al repositorio podía aprobar cualquier solicitud sin iniciar sesión, y el token no caducaba. La sexta copia vivía en OTRA app (`permisos/services.py`) y se pasó por alto en la primera revisión — de ahí el patrón. Ver [ADR 006](AppTurnosExplora/docs/03-arquitectura/adr/006-tokens-firmados-para-aprobacion-por-correo.md) |
+| | Los mensajes de error de las vistas ya no salen con los acentos rotos | — | 31 secuencias de mojibake por doble codificación UTF-8 en 5 archivos: el usuario leía literalmente "Token invÃ¡lido o expirado" en pantalla |
+| | La página de error de token dice el plazo y qué hacer | — | El mismo mensaje cubre cuatro causas distintas (caducado, manipulado, ajeno, rol equivocado) y no decía ninguna; ahora nombra los 30 días y remite a resolver desde la aplicación. Contexto centralizado en `core/utils/error_token.py` para que las 15 llamadas no puedan olvidarlo |
+| | `email_service.py` registra los fallos de envío con `logger.exception`, no con `print` | — | Un `print` no lleva nivel ni traza: en AWS ese texto no llega útil a CloudWatch |
+| **2026-08-13** | Agregado patrón #39 (la guardia vive donde está la escritura) tras auditar el pago en sábado de DOBLADA | #39 (nuevo) | `_aplicar_pago_sabado` le **creaba** al acreedor la jornada contraria si no la tenía. Con un acreedor que descansa, eso no fallaba: le inventaba un turno en un día libre. La comprobación existía solo en la estrategia, y al servicio se entra desde **tres** rutas (creación, re-validación al aprobar, enlace de correo) |
+| | El criterio "la otra mitad del sábado ya está cubierta" se unifica en `_mitad_contraria_cubierta_por_otra_doblada` y deja de filtrar por deudor | #39 | Estaba duplicado en dos consultas que exigían el MISMO deudor. Eso causaba un bug **preexistente** de doble cobertura (el reparto recreaba al acreedor la mitad que otro deudor ya cubría) y bloqueaba re-aplicaciones legítimas. Dos deudores distintos pueden pagar cada mitad: el dominio ya lo modelaba en `DescansoPorSolicitudService` (`{'AM','PM'} <= parciales`) |
+| | La re-validación al aprobar reencuadra el mensaje en vez de reescribir los ~13 literales | #39 (regla 5) | Los mensajes de validación están escritos para quien ENVÍA ("elige otra fecha de pago"), pero al aprobar los lee el APROBADOR, que no puede ejecutar esa instrucción. Se corrige en la costura (`solicitud_aprobacion_service.py`), no en cada mensaje: son literales documentados y hay lógica que inspecciona su texto |
+| | La UI de DOBLADA deja de ofrecer el pago en sábado cuando el compañero descansa, y avisa del rechazo en la vista previa | #37 | El panel afirmaba "tu compañero trabaja la otra" mitad aunque el compañero descansara, y el resumen se pintaba en azul mientras el rechazo ya estaba calculado: solo aparecía al pulsar Enviar |
 
 ---
 
@@ -1678,7 +1930,7 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 
 ---
 
-**Última actualización:** 2026-08-06  
+**Última actualización:** 2026-08-09  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 

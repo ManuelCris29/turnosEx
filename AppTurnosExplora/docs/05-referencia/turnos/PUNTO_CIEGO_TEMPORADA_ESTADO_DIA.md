@@ -12,6 +12,30 @@
 > que fija la política de los seis formularios. El análisis se conserva porque el punto ciego
 > sigue existiendo y volverá a ser relevante si algún día cambia una política.
 
+> **ACTUALIZACIÓN 2026-08-07 — la política cambió, y el punto ciego NO se despertó.**
+>
+> Se añadió una regla nueva: **los dos días de descanso que el supervisor fija dentro de una
+> semana de temporada solo se pueden modificar desde el formulario de CAMBIO DESCANSO.** Antes
+> los alcanzaban DOBLADA, CT PERMANENTE y DOBLADA PERMANENTE.
+>
+> Es un eje **distinto** del que describe este documento, y conviene no confundirlos:
+>
+> | | Qué marca | Predicado |
+> |---|---|---|
+> | Semana de temporada | la SEMANA completa | `DiaEspecial.es_temporada_en` / `_es_temporada` |
+> | Día de descanso fijado | los DOS días de descanso de esa semana | `DescansoSemanaService.es_dia_descanso_temporada` |
+>
+> Son conjuntos distintos, no uno subconjunto del otro: hay días de descanso fijados en fechas
+> **sin** el marcador de semana. Comprobado el 07/08/2026 —
+> `_dia_calendario_no_apto(2026-09-15)` devolvía `None` sobre un día que sí era descanso fijado
+> de temporada, y por eso los dos permanentes lo dejaban pasar.
+>
+> La regla nueva se implementó **por calendario** (`DescansoSemanaManual` con
+> `motivo='temporada'`), que es justo lo que este documento recomienda: nunca con
+> `estado_dia()['fuente']`. Así que el punto ciego sigue sin arreglarse y sigue sin molestar.
+> La política vigente está en `solicitudes/tests/test_politica_temporada.py`, ahora con sus
+> **dos ejes separados**.
+
 ---
 
 ## 1. El hecho

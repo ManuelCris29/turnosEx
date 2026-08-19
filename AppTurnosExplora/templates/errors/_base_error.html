@@ -1,0 +1,355 @@
+{% comment %}
+===============================================================================
+ SWALP · Sistema de páginas de error
+===============================================================================
+ Plantilla base de la que heredan 400 / 403 / 403_csrf / 404 / 500.
+
+ POR QUÉ ES AUTOCONTENIDA (no hereda de base.html y no carga NADA externo):
+
+ 1. SEGURIDAD. Con DEBUG=False estas páginas sustituyen a las pantallas
+    técnicas de Django, que filtran el URLconf completo, el traceback y los
+    settings. Aquí no se muestra ningún dato interno: ni ruta solicitada, ni
+    excepción, ni nombres de vista. Lo único que viaja al usuario es un
+    código de referencia opaco que el equipo de desarrollo puede cruzar
+    contra el log (fichero + CloudWatch).
+
+ 2. ROBUSTEZ. handler500 se ejecuta cuando algo YA ha fallado. Si esta
+    plantilla heredara de base.html renderizaría el sidebar completo, que
+    consulta `user.empleado.notificaciones_no_leidas_count` — es decir,
+    tocaría la base de datos que probablemente es la que se ha caído, y el
+    error 500 se convertiría en un 500 desnudo de Django. Además Django
+    renderiza handler500 con un contexto VACÍO: no hay `request`, ni `user`,
+    ni context processors. Por eso aquí no se usa ninguna variable de
+    contexto obligatoria y no hay etiquetas {% templatetag openblock %} url {% templatetag closeblock %}: los enlaces son rutas
+    literales.
+
+ 3. DISPONIBILIDAD. Todo el CSS y el SVG van en línea. Si S3/WhiteNoise o la
+    red de estáticos fallan, la página sigue viéndose perfecta. Una página de
+    error que depende de un CDN es una página de error que no funciona el día
+    que se necesita.
+
+ CSP: `style-src` y `script-src` admiten 'unsafe-inline' (ver settings.py),
+ así que el <style> y el <script> en línea no se bloquean. No se añade ningún
+ origen externo, por lo que la política ESTRICTA en report-only también pasa.
+===============================================================================
+{% endcomment %}<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block head_title %}Error{% endblock %} · SWALP</title>
+<link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
+<style>
+/* ---------------------------------------------------------------------------
+   Tokens. El acento lo define cada página hija sobre <body class="err--404">.
+   --------------------------------------------------------------------------- */
+:root{
+  --bg:#eef1f6;
+  --bg-glow-a:rgba(79,70,229,.10);
+  --bg-glow-b:rgba(14,165,233,.10);
+  --surface:#ffffff;
+  --surface-sunken:#f5f7fa;
+  --border:#e2e7ef;
+  --text:#16202e;
+  --text-soft:#5b6779;
+  --text-faint:#8a95a6;
+  --accent:#4f46e5;
+  --accent-2:#0ea5e9;
+  --accent-ink:#ffffff;
+  --watermark:rgba(22,32,46,.055);
+  --shadow:0 1px 2px rgba(16,24,40,.04),0 12px 24px -8px rgba(16,24,40,.10),0 40px 64px -32px rgba(16,24,40,.18);
+  --radius:20px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0b1017;
+    --bg-glow-a:rgba(99,102,241,.16);
+    --bg-glow-b:rgba(14,165,233,.13);
+    --surface:#141b25;
+    --surface-sunken:#0f151d;
+    --border:#243043;
+    --text:#e9eef6;
+    --text-soft:#a3b0c2;
+    --text-faint:#6f7e93;
+    --accent:#818cf8;
+    --accent-2:#38bdf8;
+    --accent-ink:#0b1017;
+    --watermark:rgba(233,238,246,.05);
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 16px 32px -8px rgba(0,0,0,.5),0 48px 80px -40px rgba(0,0,0,.7);
+  }
+}
+
+/* Acentos por tipo de error --------------------------------------------- */
+body.err--404{--accent:#4f46e5;--accent-2:#0ea5e9;--accent-ink:#fff;}
+body.err--403{--accent:#b45309;--accent-2:#f59e0b;--accent-ink:#fff;}
+body.err--500{--accent:#be123c;--accent-2:#f43f5e;--accent-ink:#fff;}
+body.err--400{--accent:#0f766e;--accent-2:#14b8a6;--accent-ink:#fff;}
+@media (prefers-color-scheme:dark){
+  body.err--404{--accent:#818cf8;--accent-2:#38bdf8;--accent-ink:#0b1017;}
+  body.err--403{--accent:#fbbf24;--accent-2:#f59e0b;--accent-ink:#0b1017;}
+  body.err--500{--accent:#fb7185;--accent-2:#f43f5e;--accent-ink:#0b1017;}
+  body.err--400{--accent:#2dd4bf;--accent-2:#14b8a6;--accent-ink:#0b1017;}
+}
+
+*,*::before,*::after{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  padding:clamp(16px,4vw,48px);
+  display:flex;align-items:center;justify-content:center;
+  background:var(--bg);
+  color:var(--text);
+  font-family:"Source Sans Pro",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:16px;line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  position:relative;overflow-x:hidden;
+}
+/* Ambiente: dos halos difusos que respiran muy lentamente. Puro adorno,
+   por eso se apaga entero con prefers-reduced-motion. */
+body::before,body::after{
+  content:"";position:fixed;z-index:0;pointer-events:none;
+  width:min(70vw,820px);aspect-ratio:1;border-radius:50%;
+  filter:blur(90px);
+}
+body::before{background:var(--bg-glow-a);top:-22vw;right:-16vw;animation:drift 26s ease-in-out infinite;}
+body::after{background:var(--bg-glow-b);bottom:-26vw;left:-18vw;animation:drift 32s ease-in-out infinite reverse;}
+@keyframes drift{0%,100%{transform:translate3d(0,0,0) scale(1);}50%{transform:translate3d(0,3vw,0) scale(1.12);}}
+
+/* ---------------------------------------------------------------------- */
+.card{
+  position:relative;z-index:1;
+  width:100%;max-width:960px;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  overflow:hidden;
+  animation:rise .5s cubic-bezier(.16,.84,.44,1) both;
+}
+@keyframes rise{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+/* Raíl de acento superior: identifica el tipo de error de un vistazo. */
+.card::before{
+  content:"";position:absolute;inset:0 0 auto 0;height:4px;
+  background:linear-gradient(90deg,var(--accent),var(--accent-2));
+}
+
+.grid{display:grid;grid-template-columns:1fr;gap:0;}
+@media (min-width:840px){.grid{grid-template-columns:1fr 340px;}}
+
+/* Columna de contenido --------------------------------------------------- */
+.body{
+  position:relative;
+  padding:clamp(30px,5vw,56px) clamp(24px,5vw,56px) clamp(28px,4vw,48px);
+  min-width:0;
+}
+/* Número gigante como marca de agua editorial, sangrando por la esquina. */
+.watermark{
+  position:absolute;top:-.18em;left:-.06em;
+  font-size:clamp(9rem,26vw,17rem);font-weight:800;letter-spacing:-.06em;line-height:.78;
+  color:var(--watermark);
+  user-select:none;pointer-events:none;z-index:0;
+  font-variant-numeric:tabular-nums;
+}
+.content{position:relative;z-index:1;}
+
+.eyebrow{
+  display:inline-flex;align-items:center;gap:.5rem;
+  padding:.3rem .7rem .3rem .55rem;
+  border:1px solid var(--border);border-radius:999px;
+  background:var(--surface-sunken);
+  font-size:.72rem;font-weight:700;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--text-soft);
+}
+.eyebrow .dot{
+  width:7px;height:7px;border-radius:50%;flex:none;
+  background:var(--accent);
+  box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);
+}
+
+h1{
+  margin:1.15rem 0 0;
+  font-size:clamp(1.7rem,4.4vw,2.6rem);
+  line-height:1.14;font-weight:700;letter-spacing:-.021em;
+  text-wrap:balance;
+}
+.lede{
+  margin:.85rem 0 0;max-width:52ch;
+  font-size:clamp(1rem,1.4vw,1.09rem);
+  color:var(--text-soft);text-wrap:pretty;
+}
+.hint{
+  margin:1.5rem 0 0;padding:.85rem 1.05rem;
+  border-left:3px solid var(--accent);
+  border-radius:0 10px 10px 0;
+  background:var(--surface-sunken);
+  font-size:.93rem;color:var(--text-soft);
+}
+.hint b{color:var(--text);font-weight:600;}
+
+/* Acciones --------------------------------------------------------------- */
+.actions{display:flex;flex-wrap:wrap;gap:.7rem;margin-top:1.9rem;}
+.btn{
+  display:inline-flex;align-items:center;gap:.55rem;
+  padding:.72rem 1.35rem;border-radius:11px;
+  font-size:.95rem;font-weight:600;text-decoration:none;
+  border:1px solid transparent;cursor:pointer;
+  transition:transform .16s ease,box-shadow .16s ease,background-color .16s ease,border-color .16s ease;
+}
+.btn svg{width:17px;height:17px;flex:none;}
+.btn--primary{
+  color:var(--accent-ink);
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  box-shadow:0 6px 18px -6px color-mix(in srgb,var(--accent) 65%,transparent);
+}
+.btn--primary:hover{transform:translateY(-2px);box-shadow:0 12px 24px -8px color-mix(in srgb,var(--accent) 70%,transparent);}
+.btn--ghost{color:var(--text);background:var(--surface);border-color:var(--border);}
+.btn--ghost:hover{background:var(--surface-sunken);border-color:var(--text-faint);transform:translateY(-2px);}
+.btn:focus-visible{outline:3px solid var(--accent-2);outline-offset:2px;}
+
+/* Pie: código de referencia --------------------------------------------- */
+.meta{
+  margin-top:2rem;padding-top:1.1rem;border-top:1px solid var(--border);
+  display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.1rem;
+  font-size:.82rem;color:var(--text-faint);
+}
+.ref{display:inline-flex;align-items:center;gap:.45rem;flex-wrap:wrap;}
+.ref code{
+  padding:.2rem .5rem;border:1px solid var(--border);border-radius:7px;
+  background:var(--surface-sunken);color:var(--text);
+  font-family:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  font-size:.82rem;letter-spacing:.03em;
+}
+.copy{
+  border:1px solid var(--border);background:var(--surface);color:var(--text-soft);
+  border-radius:7px;padding:.2rem .5rem;font:inherit;font-size:.76rem;cursor:pointer;
+  transition:background-color .16s ease,color .16s ease;
+}
+.copy:hover{background:var(--surface-sunken);color:var(--text);}
+.copy:focus-visible{outline:2px solid var(--accent-2);outline-offset:2px;}
+.brand{margin-left:auto;font-weight:600;color:var(--text-faint);letter-spacing:.02em;}
+
+/* Columna del glifo ------------------------------------------------------ */
+.stage{
+  position:relative;
+  display:flex;align-items:center;justify-content:center;
+  padding:clamp(24px,4vw,36px);
+  background:
+    radial-gradient(120% 90% at 70% 15%,color-mix(in srgb,var(--accent) 11%,transparent),transparent 62%),
+    var(--surface-sunken);
+  border-top:1px solid var(--border);
+  order:-1; /* En móvil la ilustración va arriba. */
+}
+@media (min-width:840px){
+  .stage{border-top:0;border-left:1px solid var(--border);order:0;}
+}
+.stage svg{width:100%;max-width:250px;height:auto;display:block;}
+
+/* Motif compartido: la "grilla de turnos". Cada error la altera de una forma
+   distinta, de modo que las cuatro páginas se leen como una misma familia. */
+.g-cell{fill:none;stroke:currentColor;stroke-width:2;opacity:.30;}
+.g-cell--live{opacity:.85;}
+.g-ghost{fill:none;stroke:currentColor;stroke-width:2;stroke-dasharray:5 5;opacity:.38;}
+.g-fill{fill:currentColor;opacity:.13;}
+.g-ink{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;}
+.stage .motif{color:var(--accent);}
+.float{animation:float 6s ease-in-out infinite;transform-origin:center;}
+@keyframes float{0%,100%{transform:translate(0,0) rotate(-8deg);}50%{transform:translate(7px,-9px) rotate(-2deg);}}
+.pulse{animation:pulse 3.2s ease-in-out infinite;transform-origin:center;}
+@keyframes pulse{0%,100%{opacity:.85;}50%{opacity:.35;}}
+
+/* Accesibilidad: nada se mueve si el usuario lo ha pedido. */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important;}
+  .btn:hover{transform:none;}
+}
+/* Alto contraste / sin color-mix: degradado seguro. */
+@supports not (color:color-mix(in srgb,red 50%,blue)){
+  .btn--primary{box-shadow:0 6px 18px -6px rgba(0,0,0,.35);}
+}
+</style>
+</head>
+<body class="err--{% block body_variant %}404{% endblock %}">
+
+<main class="card" role="main">
+  <div class="grid">
+
+    <div class="body">
+      <div class="watermark" aria-hidden="true">{% block watermark %}404{% endblock %}</div>
+
+      <div class="content">
+        <span class="eyebrow"><span class="dot"></span>{% block eyebrow %}Error{% endblock %}</span>
+
+        <h1>{% block heading %}Algo no ha salido bien{% endblock %}</h1>
+
+        <p class="lede">{% block lede %}{% endblock %}</p>
+
+        {% block hint %}{% endblock %}
+
+        <div class="actions">
+          {% block actions %}
+          <a class="btn btn--primary" href="/dashboard/">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9.5 21v-6h5v6"/></svg>
+            Ir al inicio
+          </a>
+          <button class="btn btn--ghost" type="button" data-back>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+            Volver atrás
+          </button>
+          {% endblock %}
+        </div>
+
+        <div class="meta">
+          {% if request_id %}
+          <span class="ref">
+            Código de referencia:
+            <code id="ref-code">{{ request_id }}</code>
+            <button class="copy" type="button" data-copy="ref-code">Copiar</button>
+          </span>
+          {% endif %}
+          <span class="brand">SWALP · Parque Explora</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stage" aria-hidden="true">
+      {% block glyph %}{% endblock %}
+    </div>
+
+  </div>
+</main>
+
+<script>
+// Sin atributos onclick: se enlaza por delegación para no depender de
+// 'unsafe-inline' en atributos y para que la página funcione igual si el
+// script no llega a ejecutarse (los enlaces <a> siguen siendo válidos).
+(function () {
+  var back = document.querySelector('[data-back]');
+  if (back) {
+    // Si no hay historial dentro del sitio, el botón sobra: mejor ocultarlo
+    // que ofrecer una acción que no hace nada.
+    if (window.history.length <= 1) {
+      back.hidden = true;
+    } else {
+      back.addEventListener('click', function () { window.history.back(); });
+    }
+  }
+
+  var copy = document.querySelector('[data-copy]');
+  if (copy && navigator.clipboard) {
+    copy.addEventListener('click', function () {
+      var el = document.getElementById(copy.getAttribute('data-copy'));
+      if (!el) return;
+      navigator.clipboard.writeText(el.textContent.trim()).then(function () {
+        var prev = copy.textContent;
+        copy.textContent = 'Copiado';
+        setTimeout(function () { copy.textContent = prev; }, 1800);
+      });
+    });
+  } else if (copy) {
+    copy.hidden = true; // Contexto no seguro (http): no hay portapapeles.
+  }
+})();
+</script>
+</body>
+</html>

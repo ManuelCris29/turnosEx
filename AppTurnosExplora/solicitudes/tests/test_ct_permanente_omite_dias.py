@@ -116,8 +116,11 @@ class CTPermanenteOmiteDiasTest(TestCase):
     # --- descanso de temporada (DescansoSemanaManual) por jornada ------------
     def test_descanso_semana_manual_se_omite(self):
         m = self._martes()[0]
-        # El grupo AM (solicitante) descansa ese martes por temporada → estado_dia: no trabaja.
-        DescansoSemanaManual.objects.create(fecha=m, jornada=self.am, activo=True)
+        # El grupo AM (solicitante) descansa ese martes → estado_dia: no trabaja.
+        # `motivo='otro'` a propósito: con el motivo por defecto ('temporada') el día sería un
+        # descanso FIJADO de temporada y se excluiría por la regla de calendario ('Temporada'),
+        # tapando lo que este test comprueba — que el día se omite por el ESTADO del solicitante.
+        DescansoSemanaManual.objects.create(fecha=m, jornada=self.am, activo=True, motivo='otro')
         self.assertNotIn(m, self._aplicables(), 'si el solicitante descansa (Mis Turnos), el día se omite')
         self.assertEqual(self._razon(m), 'Descanso Solicitante')
 
@@ -139,7 +142,9 @@ class CTPermanenteOmiteDiasTest(TestCase):
 
         m = self._martes()[0]
         # Descansa el grupo PM → el solicitante (AM) queda DOBLADA ese martes.
-        DescansoSemanaManual.objects.create(fecha=m, jornada=self.pm, activo=True)
+        # `motivo='otro'`: ver la nota de `test_descanso_semana_manual_se_omite`. Aquí interesa
+        # que la doblada VIRTUAL se detecte, no que la regla de temporada excluya el día.
+        DescansoSemanaManual.objects.create(fecha=m, jornada=self.pm, activo=True, motivo='otro')
         cache.clear()
 
         self.assertEqual(TurnoService.estado_dia(self.sol, m).get('jornada'), 'DOBLADA',

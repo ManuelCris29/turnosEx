@@ -2630,3 +2630,480 @@ class TestFechasMalformadas(MatrizDobladasTestCase):
 
     # Que la guarda no estorbe al camino normal lo cubren ya los ~130 tests restantes de este
     # módulo: todos pasan fechas bien formadas por aquí antes de llegar a su propia regla.
+
+
+class TestPagoSabadoReceptorDescansa(MatrizDobladasTestCase):
+    """El reparto de sábado NO puede inventarle un turno a quien ese día descansa.
+
+    `_aplicar_pago_sabado` reparte el sábado: el deudor cubre la mitad elegida y el receptor
+    conserva la CONTRARIA — y si no la tiene, se la CREA. Ese "si no la tiene, se la crea" da por
+    sentado que el receptor trabaja ese día. Cuando en realidad descansa, el efecto era ponerle un
+    turno en un día libre en vez de fallar.
+
+    Aguas arriba lo impide `validar_receptor_tiene_jornada_en_fecha_pago`, pero al servicio se
+    entra desde varias rutas (creación, re-validación al aprobar, aprobación por enlace de correo),
+    así que la protección se fija aquí, en quien hace la escritura.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        # `obtener_sala_explorador_fecha` cae en la competencia cuando no hay turno ese día: sin
+        # ella el reparto de sábado falla por sala antes de llegar a la regla que se prueba aquí.
+        from empleados.models import CompetenciaEmpleado
+        for emp in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=emp, sala=self.sala)
+
+    @staticmethod
+    def _martes_y_sabado_futuros():
+        d = timezone.localdate() + timedelta(days=7)
+        while d.weekday() != 1:
+            d += timedelta(days=1)
+        cesion = d
+        sabado = cesion + timedelta(days=(5 - cesion.weekday()))
+        return cesion, sabado
+
+    def _sabado_donde_receptor_descansa(self):
+        """Sábado futuro en el que al receptor NO le toca trabajar por alternancia.
+
+        Se busca preguntándole al sistema (no se calcula a mano): qué grupo trabaja cada finde es
+        un DATO publicado, así que fijar un sábado concreto ataría el test a la semilla de un año.
+        """
+        from turnos.services.turno_service import TurnoService
+        d = timezone.localdate() + timedelta(days=7)
+        while d.weekday() != 5:
+            d += timedelta(days=1)
+        for _ in range(8):  # ~2 meses de sábados: la alternancia rota mucho antes
+            if TurnoService.obtener_jornada_display(self.receptor, d) is None:
+                return d - timedelta(days=4), d   # (martes de esa semana, sábado)
+            d += timedelta(days=7)
+        self.skipTest('No hay sábado de descanso del receptor en la alternancia publicada')
+
+    def _crear_solicitud_detalle(self, cesion, sabado, solicitante=None, jps='AM'):
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=solicitante or self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=cesion,
+            comentario='Test pago sábado con receptor descansando',
+        )
+        detalle = DobladaDetalle.objects.create(
+            solicitud=sol,
+            fecha_pago=sabado,
+            tipo_cesion='cesion_parcial_am',
+            jornada_cedida='AM',
+            empleado_receptor=self.receptor,
+            jornada_pago_sabado=jps,
+        )
+        return sol, detalle
+
+    def _tercer_explorador(self):
+        """Un TERCER deudor: el sábado del acreedor se reparte en dos mitades y cada una la puede
+        pagar una doblada distinta, de personas distintas."""
+        from empleados.models import CompetenciaEmpleado
+        user_t = User.objects.create_user('tercero_test', password='x', email='t@t.com')
+        tercero = Empleado.objects.create(
+            user=user_t, nombre='Tercero', apellido='Test',
+            cedula='3333333333', email='t@t.com', activo=True
+        )
+        self._asignar_jornada_base(tercero, self.jornada_pm)
+        CompetenciaEmpleado.objects.get_or_create(empleado=tercero, sala=self.sala)
+        return tercero
+
+    def test_receptor_descansando_en_sabado_de_pago_es_rechazado(self):
+        from django.core.exceptions import ValidationError
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        cesion, sabado = self._sabado_donde_receptor_descansa()
+        # El receptor no trabaja ese sábado: sin turnos propios y sin doblada que se lo justifique.
+        self._limpiar_turnos(self.receptor, sabado)
+
+        sol, detalle = self._crear_solicitud_detalle(cesion, sabado)
+
+        with self.assertRaises(ValidationError) as ctx:
+            DobladaPagoService.aplicar_doblada_pago(sol, detalle)
+        self.assertIn('no trabaja el sábado', str(ctx.exception))
+
+        # Y sobre todo: NO se le inventó ningún turno (la transacción revierte por completo).
+        self.assertFalse(
+            Turno.objects.filter(explorador=self.receptor, fecha=sabado).exists(),
+            "No se le puede crear un turno al receptor en un sábado que descansa.",
+        )
+
+    def test_receptor_que_si_trabaja_el_sabado_se_aplica_normal(self):
+        """Contraprueba: el guard no debe estorbar al reparto de sábado legítimo."""
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        cesion, sabado = self._martes_y_sabado_futuros()
+        # El receptor SÍ trabaja ese sábado (doblada por regla de negocio: AM + PM).
+        self._limpiar_turnos(self.receptor, sabado)
+        self._crear_doblada_turnos(self.receptor, sabado)
+
+        sol, detalle = self._crear_solicitud_detalle(cesion, sabado)
+        DobladaPagoService.aplicar_doblada_pago(sol, detalle)
+
+        # El deudor cubre AM; al receptor le queda la contraria (PM).
+        jornadas_emisor = set(
+            Turno.objects.filter(explorador=self.emisor, fecha=sabado)
+            .values_list('jornada__nombre', flat=True)
+        )
+        jornadas_receptor = set(
+            Turno.objects.filter(explorador=self.receptor, fecha=sabado)
+            .values_list('jornada__nombre', flat=True)
+        )
+        self.assertEqual({'AM'}, jornadas_emisor)
+        self.assertEqual({'PM'}, jornadas_receptor)
+
+    def test_dos_deudores_distintos_cubren_cada_mitad_del_sabado(self):
+        """Las dos mitades del sábado del acreedor las pueden pagar DOS deudores distintos.
+
+        `DescansoPorSolicitudService` ya modela ese caso (acumula las mitades con
+        `{'AM','PM'} <= parciales`, sin mirar quién paga cada una), así que el servicio de pago
+        debe coincidir: al aplicar la segunda mitad el acreedor queda SIN turnos, no con la mitad
+        del otro deudor recreada.
+        """
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        cesion, sabado = self._martes_y_sabado_futuros()
+        tercero = self._tercer_explorador()
+        # El acreedor trabaja el sábado completo (AM + PM).
+        self._limpiar_turnos(self.receptor, sabado)
+        self._crear_doblada_turnos(self.receptor, sabado)
+
+        # Deudor 1 le cubre la AM → el acreedor conserva la PM.
+        sol_a, det_a = self._crear_solicitud_detalle(cesion, sabado, jps='AM')
+        DobladaPagoService.aplicar_doblada_pago(sol_a, det_a)
+        self.assertEqual(
+            {'PM'},
+            set(Turno.objects.filter(explorador=self.receptor, fecha=sabado)
+                .values_list('jornada__nombre', flat=True)),
+        )
+
+        # Deudor 2 (otra persona) le cubre la PM → ya no le queda ninguna: descansa completo.
+        sol_b, det_b = self._crear_solicitud_detalle(
+            cesion, sabado, solicitante=tercero, jps='PM')
+        DobladaPagoService.aplicar_doblada_pago(sol_b, det_b)
+
+        self.assertFalse(
+            Turno.objects.filter(explorador=self.receptor, fecha=sabado).exists(),
+            "Con ambas mitades cubiertas el acreedor descansa; no se le puede recrear la mitad "
+            "que ya cubre el otro deudor (sería doble cobertura del mismo turno).",
+        )
+
+    def test_reaplicar_doblada_con_la_otra_mitad_de_un_tercero_no_falla(self):
+        """El guard no puede bloquear una re-aplicación legítima.
+
+        Tras cubrirse ambas mitades el acreedor no tiene turnos. Re-aplicar (reconciliación o
+        re-validación al aprobar) volvía a pasar por el guard, que veía "el receptor no trabaja"
+        y rechazaba una doblada perfectamente válida.
+        """
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        cesion, sabado = self._martes_y_sabado_futuros()
+        tercero = self._tercer_explorador()
+        self._limpiar_turnos(self.receptor, sabado)
+        self._crear_doblada_turnos(self.receptor, sabado)
+
+        sol_a, det_a = self._crear_solicitud_detalle(cesion, sabado, jps='AM')
+        DobladaPagoService.aplicar_doblada_pago(sol_a, det_a)
+        sol_b, det_b = self._crear_solicitud_detalle(
+            cesion, sabado, solicitante=tercero, jps='PM')
+        DobladaPagoService.aplicar_doblada_pago(sol_b, det_b)
+
+        # Re-aplicar la segunda: el acreedor sigue sin turnos, pero es legítimo.
+        DobladaPagoService.aplicar_doblada_pago(sol_b, det_b)
+        self.assertEqual(
+            {'PM'},
+            set(Turno.objects.filter(explorador=tercero, fecha=sabado)
+                .values_list('jornada__nombre', flat=True)),
+        )
+
+    def test_media_cubierta_no_compromete_el_sabado_del_acreedor(self):
+        """Con UNA sola mitad cubierta el acreedor NO está comprometido: sigue trabajando la otra.
+
+        Esto es lo que hace que la asimetría entre capas sea inofensiva. `_es_complemento_sabado`
+        (`doblada_strategy.py`) sí filtra por el mismo deudor, y podría temerse que rechace en
+        creación el caso de dos deudores distintos que el servicio de pago sí aplica. No ocurre:
+        esa excepción solo se consulta cuando el acreedor YA está comprometido, y para estarlo
+        hacen falta las DOS mitades. Con una sola cubierta no hay bloqueo que esquivar, así que el
+        segundo deudor pasa sin necesitar la excepción.
+
+        Si algún día la atribución de descanso pasara a marcar el día con media jornada cubierta,
+        este test se cae y avisa de que la excepción de la estrategia hay que revisarla.
+        """
+        from turnos.services.turno_service import TurnoService
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        cesion, sabado = self._martes_y_sabado_futuros()
+        self._limpiar_turnos(self.receptor, sabado)
+        self._crear_doblada_turnos(self.receptor, sabado)
+
+        # Solo la AM cubierta: al acreedor le queda la PM → NO está comprometido.
+        sol_a, det_a = self._crear_solicitud_detalle(cesion, sabado, jps='AM')
+        DobladaPagoService.aplicar_doblada_pago(sol_a, det_a)
+        self.assertIsNone(
+            TurnoService.dia_comprometido_por_solicitud(self.receptor, sabado),
+            "Con media jornada cubierta el acreedor aún trabaja: no puede contar como día "
+            "comprometido, o bloquearía al segundo deudor.",
+        )
+
+        # Cubiertas las dos, ahora sí descansa el día completo y queda comprometido.
+        tercero = self._tercer_explorador()
+        sol_b, det_b = self._crear_solicitud_detalle(
+            cesion, sabado, solicitante=tercero, jps='PM')
+        DobladaPagoService.aplicar_doblada_pago(sol_b, det_b)
+        self.assertIsNotNone(
+            TurnoService.dia_comprometido_por_solicitud(self.receptor, sabado),
+            "Con ambas mitades cubiertas el acreedor descansa: el día debe constar comprometido "
+            "para que no le paguen una tercera doblada encima.",
+        )
+
+
+class TestLifoProtegeLaReconciliacion(MatrizDobladasTestCase):
+    """La guardia LIFO es lo que impide que la reconciliación re-aplique sobre un mundo cambiado.
+
+    `reconciliar_dobladas_aprobadas` re-aplica las dobladas aprobadas SIN re-validarlas, y todas
+    sus llamadas viven dentro de un `revertir(...)`, es decir en rutas de cancelación. La pregunta
+    de seguridad es si se puede cancelar una solicitud POR DEBAJO de otra más reciente que comparte
+    día y persona: si se pudiera, la reconciliación re-aplicaría la de arriba contra un estado que
+    ya no es el que validó, y las ramas de pago que crean turnos "si faltan" (`jcp_media`,
+    `jornada_cedida`) le fabricarían un turno a quien ese día ya no trabaja.
+
+    No se puede: `bloqueo_lifo` lo impide, y `_pares_afectados` incluye al RECEPTOR en la FECHA DE
+    PAGO, que es justo el par que hace falta para detectar el solape. Estos tests fijan esa
+    protección — si alguien la debilita, el punto ciego de esas ramas se vuelve alcanzable.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+
+    def _doblada_aprobada(self, solicitante, receptor, fecha_cesion, fecha_pago, resuelta_en):
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=solicitante,
+            explorador_receptor=receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=fecha_cesion,
+            comentario='Test LIFO / reconciliación',
+        )
+        DobladaDetalle.objects.create(
+            solicitud=sol, fecha_pago=fecha_pago, tipo_cesion='cesion_completa',
+            empleado_receptor=receptor,
+        )
+        # `fecha_resolucion` es lo que ordena el LIFO (no la fecha de creación).
+        SolicitudCambio.objects.filter(id=sol.id).update(fecha_resolucion=resuelta_en)
+        sol.refresh_from_db()
+        return sol
+
+    def test_no_se_puede_cancelar_por_debajo_de_una_doblada_que_paga_ese_dia(self):
+        """El caso que haría alcanzable el punto ciego: debe quedar BLOQUEADO."""
+        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+
+        ahora = timezone.now()
+        dia = FECHA_PAGO
+        tercero = User.objects.create_user('lifo_test', password='x', email='l@t.com')
+        luis = Empleado.objects.create(
+            user=tercero, nombre='Luis', apellido='Test',
+            cedula='4444444444', email='l@t.com', activo=True)
+
+        # S1 (ANTIGUA): da a `self.receptor` su jornada en `dia`.
+        s1 = self._doblada_aprobada(
+            self.emisor, self.receptor, FECHA_CESION, dia,
+            resuelta_en=ahora - timedelta(minutes=20))
+        # S2 (RECIENTE): Luis paga en `dia` cubriendo a `self.receptor`. El receptor en la fecha
+        # de PAGO es el par que el LIFO tiene que ver.
+        self._doblada_aprobada(
+            luis, self.receptor, FECHA_CESION, dia,
+            resuelta_en=ahora - timedelta(minutes=5))
+
+        bloqueo = CancelarSolicitudUseCase().bloqueo_lifo(s1)
+        self.assertIsNotNone(
+            bloqueo,
+            "Cancelar S1 por debajo de S2 dejaría que la reconciliación re-aplicara S2 contra un "
+            "estado que ya no es el que validó. El LIFO debe impedirlo.",
+        )
+        self.assertIn('más reciente', bloqueo)
+
+    def test_sin_solape_de_dia_la_cancelacion_no_se_bloquea(self):
+        """Contraprueba: el LIFO no debe bloquear lo que no comparte día."""
+        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+
+        ahora = timezone.now()
+        s1 = self._doblada_aprobada(
+            self.emisor, self.receptor, FECHA_CESION, FECHA_PAGO,
+            resuelta_en=ahora - timedelta(minutes=20))
+        # Más reciente, mismas personas, pero en fechas que no tocan las de S1.
+        otra_cesion = FECHA_CESION + timedelta(days=60)
+        self._doblada_aprobada(
+            self.emisor, self.receptor, otra_cesion, otra_cesion + timedelta(days=2),
+            resuelta_en=ahora - timedelta(minutes=5))
+
+        self.assertIsNone(CancelarSolicitudUseCase().bloqueo_lifo(s1))
+
+
+class TestGuardPagoEntreSemana(MatrizDobladasTestCase):
+    """Guard del patrón 39 en las ramas de pago de DÍA DE SEMANA que crean turnos al acreedor.
+
+    Los comandos `reaplicar_doblada` y `corregir_doblada_cesion_total` llaman a
+    `aplicar_doblada_pago` SIN validar nada y sin pasar por la guardia LIFO. Si el día cambió desde
+    que se aprobó (al acreedor le cancelaron su jornada, o pasó a descansar), estas ramas le
+    CREABAN un turno en un día libre y el comando terminaba diciendo que todo fue bien.
+
+    Solo se cubren las ramas donde el guard es demostrablemente seguro: las que le CONSERVAN una
+    jornada al acreedor. Las que le dejan sin turnos por diseño (`cesion_parcial`, `fallback`,
+    `jornada_cedida` con cesión completa) no admiten esta comprobación sobre el estado posterior
+    —bloquearía su propia re-aplicación—; ver las notas del servicio.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        from empleados.models import CompetenciaEmpleado
+        for emp in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=emp, sala=self.sala)
+
+    def _solicitud(self, jcp=None, jornada_cedida=None, tipo_cesion='cesion_completa'):
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor,
+            explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada,
+            estado='aprobada',
+            fecha_cambio_turno=FECHA_CESION,
+            comentario='Test guard pago entre semana',
+        )
+        detalle = DobladaDetalle.objects.create(
+            solicitud=sol, fecha_pago=FECHA_PAGO, tipo_cesion=tipo_cesion,
+            jornada_cedida=jornada_cedida, empleado_receptor=self.receptor,
+            jornada_cubre_en_pago=jcp,
+        )
+        return sol, detalle
+
+    # ---------------- jcp_media ----------------
+
+    def test_jcp_media_con_acreedor_que_descansa_no_le_inventa_turno(self):
+        from django.core.exceptions import ValidationError
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        # El acreedor no trabaja la fecha de pago: sin turnos y con su descanso de semana puesto.
+        self._limpiar_turnos(self.receptor, FECHA_PAGO)
+        AsignarJornadaExplorador.objects.filter(explorador=self.receptor).delete()
+
+        sol, det = self._solicitud(jcp='AM')
+        with self.assertRaises(ValidationError) as ctx:
+            DobladaPagoService.aplicar_doblada_pago(sol, det)
+        self.assertIn('no trabaja', str(ctx.exception))
+        self.assertFalse(
+            Turno.objects.filter(explorador=self.receptor, fecha=FECHA_PAGO).exists(),
+            "No se le puede crear un turno al acreedor en un día que no trabaja.",
+        )
+
+    def test_jcp_media_reaplicar_no_se_autoengana(self):
+        """La regresión que hace seguro al guard: re-aplicar no debe bloquearse a sí mismo.
+
+        Es exactamente lo que hace `reaplicar_doblada`. Esta rama le conserva al acreedor su
+        jornada propia, así que al repetir sigue constando que trabaja.
+        """
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        self._limpiar_turnos(self.receptor, FECHA_PAGO)
+        self._crear_doblada_turnos(self.receptor, FECHA_PAGO)
+
+        sol, det = self._solicitud(jcp='AM')
+        DobladaPagoService.aplicar_doblada_pago(sol, det)
+        # Segunda pasada: no debe lanzar.
+        DobladaPagoService.aplicar_doblada_pago(sol, det)
+
+        self.assertEqual(
+            {'PM'},
+            set(Turno.objects.filter(explorador=self.receptor, fecha=FECHA_PAGO)
+                .values_list('jornada__nombre', flat=True)),
+            "El acreedor conserva su jornada propia (PM) tras cubrirle la AM.",
+        )
+
+    # ---------------- jornada_cedida (rama parcial) ----------------
+
+    def test_jornada_cedida_parcial_con_acreedor_que_descansa_no_le_inventa_turno(self):
+        """La rama guardada de `_aplicar_pago_jornada_cedida` es la de `tipo_cesion` VACÍO.
+
+        El despachador manda `cesion_parcial_am/pm` a `_aplicar_pago_cesion_parcial`, y dentro de
+        `jornada_cedida` el caso `cesion_completa` va por la rama que borra los turnos del acreedor.
+        Queda esta: `jornada_cedida` puesta y `tipo_cesion` sin valor.
+        """
+        from django.core.exceptions import ValidationError
+        from solicitudes.services.doblada_pago_service import DobladaPagoService
+
+        self._limpiar_turnos(self.receptor, FECHA_PAGO)
+        AsignarJornadaExplorador.objects.filter(explorador=self.receptor).delete()
+
+        sol, det = self._solicitud(jornada_cedida='AM', tipo_cesion='')
+        with self.assertRaises(ValidationError) as ctx:
+            DobladaPagoService.aplicar_doblada_pago(sol, det)
+        self.assertIn('no trabaja', str(ctx.exception))
+        self.assertFalse(
+            Turno.objects.filter(explorador=self.receptor, fecha=FECHA_PAGO).exists())
+
+
+class TestReconciliacionNoTumbaLaCancelacion(MatrizDobladasTestCase):
+    """Una solicitud vigente que ya no encaja NO puede impedir cancelar otra.
+
+    Al cancelar se restaura el snapshot y después `reconciliar_dobladas_aprobadas` re-aplica las
+    solicitudes que siguen vigentes en esas fechas —SIN re-validarlas—. Desde que los servicios de
+    aplicación tienen guardias de negocio (patrón 39), una de esas re-aplicaciones puede levantar
+    `ValidationError` con toda la razón: la doblada vigente ya no encaja con el calendario actual.
+
+    Sin protección, ese error abortaba la transacción entera y el usuario NO podía cancelar, por
+    culpa de una solicitud ajena que él no puede arreglar. La reconciliación es reparación
+    best-effort: si una pieza no se puede recolocar, se registra y se sigue.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        from empleados.models import CompetenciaEmpleado
+        for emp in (self.emisor, self.receptor):
+            CompetenciaEmpleado.objects.get_or_create(empleado=emp, sala=self.sala)
+
+    def test_una_doblada_que_ya_no_encaja_no_impide_cancelar_otra(self):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from turnos.services.turno_service import TurnoService
+
+        # Sábado en el que el ACREEDOR no trabaja por alternancia.
+        s = timezone.localdate() + timedelta(days=25)
+        while s.weekday() != 5:
+            s += timedelta(days=1)
+        for _ in range(8):
+            if TurnoService.obtener_jornada_display(self.receptor, s) is None:
+                break
+            s += timedelta(days=7)
+        else:
+            self.skipTest('Sin sábado de descanso del receptor en la alternancia publicada')
+
+        # Doblada VIGENTE cuyo pago cae ese sábado: ya no se puede re-aplicar (el guard la rechaza).
+        vigente = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo_doblada, estado='aprobada',
+            fecha_cambio_turno=s - timedelta(days=4), comentario='vigente que ya no encaja',
+            fecha_resolucion=timezone.now() - timedelta(minutes=25))
+        det = DobladaDetalle.objects.create(
+            solicitud=vigente, fecha_pago=s, tipo_cesion='cesion_completa',
+            empleado_receptor=self.receptor, jornada_pago_sabado='AM')
+
+        # Premisa del test: re-aplicarla lanza ValidationError.
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            DobladaAplicacionService.aplicar_doblada_pago(vigente, det)
+
+        # La reconciliación sobre ese día NO debe propagar el error: lo registra y sigue.
+        DobladaAplicacionService.reconciliar_dobladas_aprobadas(
+            {(self.receptor.id, s), (self.emisor.id, s)}, excluir_solicitud_id=999999)
+
+        vigente.refresh_from_db()
+        self.assertEqual(
+            vigente.estado, 'aprobada',
+            "La solicitud sigue vigente: la reconciliación no la cancela, solo omite re-aplicarla.")

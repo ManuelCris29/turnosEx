@@ -7,7 +7,8 @@ from contextvars import ContextVar
 from datetime import date, timedelta
 from typing import List, Dict, Tuple
 from empleados.models import Empleado
-from turnos.models import DiaEspecial
+from turnos.models import DiaEspecial, DescansoSemanaManual
+from turnos.services.descanso_semana_service import DescansoSemanaService
 from solicitudes.models import CambioPermanenteDetalle
 from core.utils.date_utils import DateUtils
 import logging
@@ -78,6 +79,12 @@ class _ContextoCTPermanente:
                 mantenimiento_raw.add(f)
             if es_temp:
                 self.temporada.add(f)
+        # Días de descanso FIJADOS de temporada: cuentan como temporada aunque su fecha no lleve
+        # el marcador de semana (son conjuntos distintos, ver `_es_temporada`). Se traen aquí, en
+        # una sola consulta para todo el rango, para no pagar una por día.
+        self.temporada |= set(DescansoSemanaManual.objects.filter(
+            fecha__range=(ini, fin), activo=True, motivo='temporada',
+        ).values_list('fecha', flat=True))
         # Misma regla que `DiaEspecial.es_mantenimiento_efectivo`: la temporada manda.
         self.mantenimiento = mantenimiento_raw - self.temporada
 
@@ -321,6 +328,9 @@ def _razones_exclusion_ct_permanente(
         razones.append('Festivo')
     if _es_mantenimiento(fecha):
         razones.append('Mantenimiento')
+    # `_es_temporada` incluye tanto la semana de temporada como los días de descanso fijados
+    # dentro de ella (exclusivos del formulario de CAMBIO DESCANSO). Mismo motivo para los dos:
+    # al usuario le da igual el matiz, el día no está disponible aquí.
     if _es_temporada(fecha):
         razones.append('Temporada')
 
@@ -456,11 +466,27 @@ def _es_mantenimiento(fecha: date) -> bool:
         return False
 
 def _es_temporada(fecha: date) -> bool:
-    """Verificar si es temporada"""
+    """
+    ¿`fecha` queda descartada por temporada? Cubre DOS cosas, no una:
+
+      - el marcador de la SEMANA de temporada (`DiaEspecial.es_temporada`), y
+      - los DÍAS DE DESCANSO que el supervisor fija dentro de ella
+        (`DescansoSemanaManual` con `motivo='temporada'`).
+
+    Son conjuntos distintos: hay días de descanso fijados en fechas SIN el marcador de semana
+    (07/08/2026: `_dia_calendario_no_apto(2026-09-15)` devolvía None sobre uno de ellos). Esos
+    días son territorio exclusivo del formulario de CAMBIO DESCANSO, así que ni CT PERMANENTE ni
+    DOBLADA PERMANENTE pueden usarlos.
+
+    Los dos conjuntos se unen ya en la precarga (`_ContextoCTPermanente.temporada`), para no
+    añadir una consulta por día y romper el coste constante que garantiza
+    `test_rango_largo_no_cuesta_mas_que_uno_corto`.
+    """
     ctx = _CTX_CT_PERMANENTE.get()
     if ctx is not None and ctx.cubre_fecha(fecha):
         return fecha in ctx.temporada
-    return DiaEspecial.es_temporada_en(fecha)
+    return (DiaEspecial.es_temporada_en(fecha)
+            or DescansoSemanaService.es_dia_descanso_temporada(fecha))
 
 
 def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
@@ -606,6 +632,11 @@ def _dia_calendario_no_apto(fecha: date):
 
     Prioridad igual que en el resto del módulo: mantenimiento > festivo > temporada. Ojo:
     `_es_mantenimiento` ya es el mantenimiento EFECTIVO (en temporada no cuenta).
+
+    `_es_temporada` cubre tanto el marcador de la SEMANA de temporada como los DOS DÍAS de
+    descanso que el supervisor fija dentro de ella — que son territorio exclusivo del formulario
+    de CAMBIO DESCANSO y que, en la práctica, aparecen también en fechas sin ese marcador
+    (comprobado el 07/08/2026: 2026-09-15 salía apto).
     """
     if _es_mantenimiento(fecha):
         return 'mantenimiento'
@@ -647,6 +678,12 @@ def bloque_calendario_no_apto(desde: date, limite_dias: int = 400):
             temporada.add(f)
     # Misma regla que `DiaEspecial.es_mantenimiento_efectivo`: la temporada manda.
     mantenimiento = mant_raw - temporada
+    # Días de descanso FIJADOS de temporada: cuentan como 'temporada' igual que en
+    # `_dia_calendario_no_apto`, y en una consulta para toda la ventana (esta función existe
+    # justamente para no ir día a día).
+    temporada |= set(DescansoSemanaManual.objects.filter(
+        fecha__range=(desde, hasta_ventana), activo=True, motivo='temporada',
+    ).values_list('fecha', flat=True))
 
     def _tipo(f: date):
         # Mismo orden de prioridad que `_dia_calendario_no_apto`.

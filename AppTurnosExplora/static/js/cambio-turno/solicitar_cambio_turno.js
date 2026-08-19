@@ -418,7 +418,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             } else {
                 // Mostrar error
-                const mensajeError = data.error || 'Ocurrió un error al procesar la solicitud';
+                const mensajeError = CodigoReferencia.mensaje(data.error || 'Ocurrió un error al procesar la solicitud');
 
                 // Detectar errores relacionados con jornada doblada / uso incorrecto de CT
                 const errorDoblada = mensajeError.toLowerCase().includes('doblada') &&

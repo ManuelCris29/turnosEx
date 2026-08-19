@@ -32,7 +32,7 @@ from core.utils.date_utils import DateUtils
 class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
     """
     Endpoint API para obtener detalles completos de una solicitud.
-    Incluye informaciÃ³n especÃ­fica segÃºn el tipo de solicitud.
+    Incluye información específica según el tipo de solicitud.
     """
     def get(self, request, solicitud_id):
         try:
@@ -80,7 +80,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
         específico por tipo). Reutilizable por la API de detalle y por las
         páginas de resultado de aprobación/rechazo por email.
         """
-        # InformaciÃ³n bÃ¡sica comÃºn
+        # Información básica común
         datos = {
                 'id': solicitud.id,
                 'fecha_solicitud': DateUtils.format_datetime_display(solicitud.fecha_solicitud),
@@ -118,7 +118,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
             'informacion_adicional': {}
         }
 
-        # InformaciÃ³n especÃ­fica segÃºn el tipo
+        # Información específica según el tipo
         tipo_nombre = solicitud.tipo_cambio.nombre.upper()
 
         # CT PERMANENTE
@@ -149,7 +149,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 datos['fechas']['inicio'] = detalle.fecha_inicio.strftime('%d/%m/%Y')
                 datos['fechas']['fin'] = detalle.fecha_fin.strftime('%d/%m/%Y') if detalle.fecha_fin else 'Sin fecha de fin'
                 
-                # Obtener dÃ­as de semana seleccionados
+                # Obtener días de semana seleccionados
                 dias_seleccionados = detalle.dias.filter(tipo='dia_semana')
                 dias_semana_nombres = []
                 for dia in dias_seleccionados:
@@ -159,7 +159,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 if dias_semana_nombres:
                     datos['informacion_adicional']['dias_semana_seleccionados'] = ', '.join(dias_semana_nombres)
                 else:
-                    datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los dÃ­as hÃ¡biles'
+                    datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los días hábiles'
                 
                 # Calcular fechas aplicables y excluidas
                 from datetime import datetime as _dt
@@ -201,7 +201,7 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                 except Exception:
                     datos['fechas']['resumen'] = None
                 
-                datos['informacion_adicional']['nota'] = 'Se excluyen domingos, festivos, dÃ­as de mantenimiento y dÃ­as de descanso de los exploradores.'
+                datos['informacion_adicional']['nota'] = 'Se excluyen domingos, festivos, días de mantenimiento y días de descanso de los exploradores.'
         except Exception as e:
             logger.error(f"Error obteniendo detalles de CT PERMANENTE: {e}")
             datos['fechas']['error'] = 'No se pudieron obtener los detalles del cambio permanente'

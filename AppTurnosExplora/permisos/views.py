@@ -1,6 +1,7 @@
 import logging
 
 from django.shortcuts import render
+from core.utils.error_token import render_error_token
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
@@ -315,7 +316,7 @@ class PermisoEspecialResolverEmailView(View):
             PermisoEspecial.objects.select_related('empleado', 'empleado__supervisor'), pk=pk
         )
         if not PermisoNotificacionService.verificar_token(permiso, token):
-            return render(request, 'solicitudes/error_token.html', {'mensaje': 'Token inválido o expirado.'})
+            return render_error_token(request, 'Token inválido o expirado.', status=403)
 
         ya_resuelto = permiso.estado != 'PENDIENTE'
         if not ya_resuelto:

@@ -43,6 +43,7 @@
     let cesion = null;           // { sabado, domingo, diaTrabajo, fechaTrabajoISO }
     let pago = null;             // idem
     let empleadoReceptor = null;
+    let cargaCompañerosToken = 0;    // descarta respuestas de cargas de compañeros ya superadas
     let descansoSolicitante = null;  // { fecha } (entre semana): MI día de descanso
     let descansoReceptor = null;     // { fecha } (entre semana): descanso del contrario = MI día de TRABAJO completo
 
@@ -56,6 +57,7 @@
     let miJornadaPago = null;        // cobertura: mi jornada en el día de pago (para "tú tienes X")
     let cobJornadaPago = null;       // cobertura: jornada elegida para pagar (AM/PM) cuando estoy libre
     let cobCandidato1 = null;        // cobertura: candidato del slot 1 seleccionado (para refrescar info)
+    let cobPagoImposible = false;    // cobertura: ya doblo el día de pago → no me queda jornada para pagar
     let dobladaSel = null;           // cambio_doblada: {empleado_id, nombre, fecha}
     let permJornada = null;          // permiso: jornada que trabajo mi día completo
 
@@ -572,8 +574,11 @@
         document.getElementById('resumen-box').classList.remove('show');
         resetSubtipos();
 
+        // `cargarCompañerosSemana` NO se llama aquí: necesita la fecha_pago (el descanso del grupo
+        // contrario en esta semana), que solo se conoce dentro de `buscarDescansoContrario`. Antes
+        // se llamaba con `fecha` —MI descanso— y el desplegable ofrecía compañeros que la
+        // validación rechazaba luego por su estado en la OTRA fecha.
         buscarDescansoContrario(fecha);
-        cargarCompañerosSemana(fecha);
     }
 
     // Busca el descanso de temporada del grupo CONTRARIO en la misma semana.
@@ -612,6 +617,9 @@
                     if (subCont) subCont.style.display = 'block';
                     const _sinc = document.getElementById('sin-descanso-contrario');
                     if (_sinc) _sinc.style.display = 'none';
+                    // Ya se conoce la fecha_pago: los compañeros se piden filtrados por ELLA
+                    // (deben seguir descansando ese día), no por mi propio descanso.
+                    cargarCompañerosSemana(fecha, match[0]);
                 } else {
                     // No hay descanso del grupo contrario esa semana → no se puede intercambiar.
                     // En vez de ocultar todo en silencio (parece que "no hace nada"), avisamos.
@@ -629,17 +637,31 @@
             .catch(() => {});
     }
 
-    function cargarCompañerosSemana(fecha) {
+    // `fechaPago` = el descanso del grupo contrario en esta semana. El servidor excluye a quien
+    // ya NO descanse ese día (misma comprobación que la validación al enviar), para no ofrecer
+    // compañeros que luego se rechazan con "Tu compañero ya no descansa el ...".
+    function cargarCompañerosSemana(fecha, fechaPago) {
         const sel = document.getElementById('select-receptor-semana');
+        // Lo que hubiera elegido el usuario antes de repoblar: si sigue estando en la lista nueva
+        // se le devuelve la selección, en vez de dejársela borrada sin avisar.
+        const previo = sel.value;
         sel.innerHTML = '<option value="">Cargando…</option>';
-        fetch(`${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fecha)}&tipo_solicitud_id=${TIPO_ID}`, {
+        let url = `${URLs.EMPLEADOS}?fecha=${encodeURIComponent(fecha)}&tipo_solicitud_id=${TIPO_ID}`;
+        if (fechaPago) url += `&fecha_descanso_receptor=${encodeURIComponent(fechaPago)}`;
+        // Solo la respuesta de la ÚLTIMA petición puede pintar el select: al mover esta carga
+        // detrás de `buscarDescansoContrario` son dos fetch encadenados, y dos cambios seguidos
+        // de descanso dejaban en vuelo dos respuestas cuyo orden de llegada no está garantizado.
+        const token = ++cargaCompañerosToken;
+        fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
             .then(r => r.json())
             .then(data => {
+                if (token !== cargaCompañerosToken) return;  // llegó tarde: la ignoramos
                 const emps = (data && data.empleados) || [];
                 if (!emps.length) {
-                    sel.innerHTML = '<option value="">No hay compañeros disponibles</option>';
+                    sel.innerHTML = '<option value="">Ningún compañero descansa ese día</option>';
+                    sincronizarReceptorSemana();
                     return;
                 }
                 sel.innerHTML = '<option value="">Selecciona un compañero…</option>';
@@ -650,13 +672,28 @@
                     o.dataset.emp = JSON.stringify(e);
                     sel.appendChild(o);
                 });
+                if (previo && sel.querySelector(`option[value="${previo}"]`)) sel.value = previo;
+                sincronizarReceptorSemana();
             })
-            .catch(() => { sel.innerHTML = '<option value="">Error cargando compañeros</option>'; });
+            .catch(() => {
+                if (token !== cargaCompañerosToken) return;
+                sel.innerHTML = '<option value="">Error cargando compañeros</option>';
+                sincronizarReceptorSemana();
+            });
     }
 
-    document.getElementById('select-receptor-semana').addEventListener('change', function () {
-        const opt = this.options[this.selectedIndex];
-        if (this.value && opt.dataset.emp) {
+    /**
+     * Deja `empleadoReceptor` y el input oculto en SINCRONÍA con lo que muestra el select.
+     *
+     * El select es la única fuente de verdad. Antes `empleadoReceptor` solo se actualizaba en el
+     * evento `change`, que NO se dispara cuando la lista se repuebla o se restaura la selección
+     * por código: el usuario veía a su compañero elegido y el envío respondía "Selecciona el
+     * compañero". Se llama al repoblar, al cambiar y antes de validar.
+     */
+    function sincronizarReceptorSemana() {
+        const sel = document.getElementById('select-receptor-semana');
+        const opt = sel.options[sel.selectedIndex];
+        if (sel.value && opt && opt.dataset.emp) {
             empleadoReceptor = JSON.parse(opt.dataset.emp);
             document.getElementById('empleado_receptor').value = empleadoReceptor.id;
         } else {
@@ -664,7 +701,9 @@
             document.getElementById('empleado_receptor').value = '';
         }
         actualizarResumenSemana();
-    });
+    }
+
+    document.getElementById('select-receptor-semana').addEventListener('change', sincronizarReceptorSemana);
 
     function actualizarResumenSemana() {
         const resumen = document.getElementById('resumen-box');
@@ -756,7 +795,7 @@
         if (bloques[st]) document.getElementById(bloques[st]).style.display = 'block';
 
         // Reset del sub-flujo de cobertura (tarjetas) al cambiar de sub-tipo.
-        empleadoReceptor2 = null; coberturaBloqueoCT = false;
+        empleadoReceptor2 = null; coberturaBloqueoCT = false; cobPagoImposible = false;
         cobJornadaPago = null; cobCandidato1 = null;
         ['cob-candidatos-grupo', 'cob-candidatos-2-grupo', 'cob-dia-pago-grupo', 'cob-jornada-pago-grupo',
          'aviso-deuda-cob', 'cob-aviso-ct', 'cob-mi-jornada-pago', 'cob-info-1', 'cob-info-2'].forEach(id => {
@@ -809,7 +848,7 @@
             cobOpcion = this.dataset.cob;
             // Reset de selección de compañeros al cambiar de opción.
             empleadoReceptor = null; empleadoReceptor2 = null; coberturaBloqueoCT = false;
-            cobJornadaPago = null; cobCandidato1 = null;
+            cobJornadaPago = null; cobCandidato1 = null; cobPagoImposible = false;
             document.getElementById('empleado_receptor').value = '';
             document.getElementById('cob-aviso-ct').style.display = 'none';
             document.getElementById('cob-jornada-pago-grupo').style.display = 'none';
@@ -962,9 +1001,16 @@
         if (!el) return;
         const pago = cobDiaPago ? fmt(parseISO(cobDiaPago)) : '';
         if (!miJornadaPago || !pago) { el.style.display = 'none'; return; }
+        // Si ya doblo (AM+PM) ese día no me queda jornada con la que pagar: cubrir al compañero
+        // sería ficticio (ya estoy ese día completo). El backend lo rechaza
+        // (`_validar_semana_cobertura`: "ya trabajas esa jornada"), así que se avisa aquí en vez
+        // de dejar llenar todo el formulario para fallar al enviar.
+        cobPagoImposible = (miJornadaPago === 'DOBLADA');
         const txt = miJornadaPago === 'DESCANSO'
             ? 'estás <strong>libre</strong> (puedes cubrir sin deuda)'
-            : `trabajas <strong>${miJornadaPago}</strong>`;
+            : (cobPagoImposible
+                ? 'ya trabajas <strong>AM+PM</strong> (doblada): no te queda jornada con la que pagar. Elige otro día de pago'
+                : `trabajas <strong>${miJornadaPago}</strong>`);
         el.style.display = 'block';
         el.innerHTML = `<i class="fas fa-user-clock mr-1"></i>El día de pago (${pago}) ${txt}.`;
     }
@@ -992,6 +1038,8 @@
             let consecuencia;
             if (miJornadaPago === 'DESCANSO') {
                 consecuencia = `estás <strong>libre</strong> → le cubres su <strong>${jornadaCubierta}</strong> (él descansa esa jornada). Sin deuda.`;
+            } else if (miJornadaPago === 'DOBLADA') {
+                consecuencia = `tú ya trabajas <strong>AM+PM</strong> ese día → no te queda jornada con la que pagarle. Elige otro día de pago.`;
             } else if (miJornadaPago === jornadaCubierta) {
                 consecuencia = `tú también trabajas <strong>${jornadaCubierta}</strong> ese día → no puedes cubrir esa jornada. Hazlo con un Cambio de Turno sencillo (aviso abajo).`;
             } else {
@@ -1126,6 +1174,15 @@
             if (!empleadoReceptor) errores.push('Selecciona el compañero.');
             if (!pago) errores.push('Selecciona la semana de devolución.');
         } else {
+            // El select manda: si por lo que sea la variable quedó desincronizada, se corrige
+            // aquí antes de decidir si falta el compañero (el usuario lo veía elegido y el
+            // formulario le decía que no lo había elegido).
+            // SOLO para los sub-tipos que usan el select COMPARTIDO. En cobertura el compañero
+            // se elige en `cob-select-1` y el compartido está oculto y vacío: sincronizar contra
+            // él borraba la selección buena y devolvía "Selecciona el compañero que te cubre".
+            if (subtipoSemana === 'intercambio_dia' || subtipoSemana === 'jornadas_partidas') {
+                sincronizarReceptorSemana();
+            }
             if (!descansoSolicitante) errores.push('Selecciona tu descanso (define la semana).');
             if (!descansoReceptor) errores.push('No se encontró el día del grupo contrario en esa semana.');
             if (!subtipoSemana) errores.push('Elige qué quieres hacer esa semana.');
@@ -1143,6 +1200,8 @@
                     if (empleadoReceptor && empleadoReceptor2 && empleadoReceptor.id === empleadoReceptor2.id)
                         errores.push('Los dos compañeros deben ser personas distintas.');
                 }
+                if (cobPagoImposible)
+                    errores.push('El día de pago ya trabajas AM+PM (doblada): no te queda jornada con la que pagar. Elige otro día.');
                 if (coberturaBloqueoCT)
                     errores.push('En el día de pago tienes la misma jornada que el compañero: primero haz un Cambio de Turno sencillo.');
             }
@@ -1266,7 +1325,7 @@
                         rehabilitar();
                     }
                 })
-                .catch(() => { notificar('error', 'Error de red', 'Intenta de nuevo.'); rehabilitar(); });
+                .catch(() => { notificar('error', 'Error de red', CodigoReferencia.htmlMensaje('Intenta de nuevo.')); rehabilitar(); });
             return;
         }
 
@@ -1300,7 +1359,7 @@
                         rehabilitar();
                     }
                 })
-                .catch(() => { notificar('error', 'Error de red', 'Intenta de nuevo.'); rehabilitar(); });
+                .catch(() => { notificar('error', 'Error de red', CodigoReferencia.htmlMensaje('Intenta de nuevo.')); rehabilitar(); });
             return;
         }
 
@@ -1320,7 +1379,7 @@
                     rehabilitar();
                 }
             })
-            .catch(() => { notificar('error', 'Error de red', 'Intenta de nuevo.'); rehabilitar(); });
+            .catch(() => { notificar('error', 'Error de red', CodigoReferencia.htmlMensaje('Intenta de nuevo.')); rehabilitar(); });
     }
 
     function rehabilitar() {

@@ -439,7 +439,7 @@
                     restablecer();
                 }
             })
-            .catch(() => { notificar('error', 'Error', 'Ocurrió un error de red. Intenta de nuevo.'); restablecer(); });
+            .catch(() => { notificar('error', 'Error', CodigoReferencia.htmlMensaje('Ocurrió un error de red. Intenta de nuevo.')); restablecer(); });
     }
 
     // ===================== INIT =====================

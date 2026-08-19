@@ -284,6 +284,24 @@ sudo systemctl status certbot.timer     # renovación automática
 - [ ] Llega el correo de notificación desde `no-reply@parqueexplora.org`.
 - [ ] Admin `/admin/` abre sin el error de zona horaria (RDS ya trae las tablas TZ).
 - [ ] `curl -I http://swalp.parqueexplora.org` redirige a `https`.
+- [ ] **Aviso del cierre semanal.** La comprobación del cierre falla **ABIERTA** a propósito: si se
+      rompe, la solicitud se acepta sin validar y lo único que queda es un `CRITICAL` en el log
+      (`solicitudes/services/solicitud_orchestrator.py:154-162`). Sin aviso, el cierre queda
+      desactivado de hecho y nadie se entera. En una sola EC2, sin CloudWatch agent, basta un cron
+      diario:
+      ```bash
+      # /etc/cron.daily/swalp-alerta-cierre  (chmod +x)
+      #!/bin/sh
+      journalctl -u appturnosex --since "24 hours ago" \
+        | grep -q "CIERRE SEMANAL INOPERATIVO" \
+        && echo "Cierre semanal inoperativo en las ultimas 24 h. Revisar journalctl -u appturnosex." \
+           | mail -s "SWALP: cierre semanal caido" <tu-correo>
+      ```
+      Alternativa mejor si ya usas CloudWatch: instalar el agent sobre el journal de la unidad y
+      crear el metric filter + alarma descritos en el
+      [manual técnico § 13.6](../../manual_tecnico.md).
+- [ ] Probado el aviso: fuerza una línea con ese texto en el journal y comprueba que llega el
+      correo. **Un aviso sin probar no es un aviso.**
 
 ---
 

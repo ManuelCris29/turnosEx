@@ -1,6 +1,7 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import View
 from django.http import JsonResponse
+from core.utils.json_responses import json_error_inesperado
 from turnos.models import DiaEspecial
 from turnos.services.temporada_service import TemporadaService
 from datetime import datetime
@@ -56,7 +57,9 @@ class DiasFestivosView(LoginRequiredMixin, View):
             # En caso de error, continuar sin festivos calculados
             import logging
             logger = logging.getLogger(__name__)
-            logger.warning(f'Error al calcular festivos con biblioteca externa: {e}')
+            # exc_info: sin la traza este aviso no sirve para diagnosticar nada,
+            # y el fallo es silencioso para el usuario (se sigue sin festivos).
+            logger.warning('Error al calcular festivos con biblioteca externa', exc_info=True)
 
         return festivos_calculados
 
@@ -183,7 +186,8 @@ class DiasFestivosView(LoginRequiredMixin, View):
         except ValueError as e:
             return JsonResponse({'error': f'Formato de fecha inválido: {str(e)}'}, status=400)
         except Exception as e:
-            return JsonResponse({'error': f'Error al obtener festivos: {str(e)}'}, status=500)
+            return json_error_inesperado(
+                request, e, 'No pudimos cargar los festivos. Inténtalo de nuevo.')
 
 
 class DiasTemporadaView(LoginRequiredMixin, View):
@@ -259,7 +263,8 @@ class DiasTemporadaView(LoginRequiredMixin, View):
                 })
 
         except Exception as e:
-            return JsonResponse({'error': f'Error al obtener temporadas: {str(e)}'}, status=500)
+            return json_error_inesperado(
+                request, e, 'No pudimos cargar los días de temporada. Inténtalo de nuevo.')
 
 
 class DiasEspecialesPorTipoView(LoginRequiredMixin, View):
@@ -347,7 +352,5 @@ class DiasEspecialesPorTipoView(LoginRequiredMixin, View):
                 })
 
         except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error al obtener días especiales por tipo: {e}")
-            return JsonResponse({'error': f'Error al obtener días especiales: {str(e)}'}, status=500)
+            return json_error_inesperado(
+                request, e, 'No pudimos cargar los días especiales. Inténtalo de nuevo.')

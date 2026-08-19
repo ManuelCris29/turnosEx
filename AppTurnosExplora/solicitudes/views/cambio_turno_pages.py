@@ -2,7 +2,7 @@ from django.shortcuts import render, get_object_or_404
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.urls import reverse_lazy
@@ -38,22 +38,43 @@ class CambioTurnoInicioView(LoginRequiredMixin, TemplateView):
         return context
     
 class SolicitarCambioTurnoView(LoginRequiredMixin, View):
+    """
+    Sirve el formulario que corresponde al tipo de solicitud.
+
+    El despacho va por `codigo_estrategia`, NO por `nombre`: es el mismo campo con el que
+    `SolicitudFactory` elige la estrategia que valida y aplica la solicitud, así que pantalla y
+    backend no pueden apuntar a cosas distintas. Con el nombre, además, renombrar una fila de la
+    maestra (o añadir un tipo nuevo) caía en el `else` y entregaba el formulario de CT sencillo
+    SIN ningún error visible; ahora un código desconocido da 404 en vez de un formulario que
+    guarda otra cosa.
+    """
+
+    # codigo_estrategia -> método que renderiza su formulario
+    _RENDERERS = {
+        'CT': '_render_cambio_turno_normal',
+        'CT PERMANENTE': '_render_ct_permanente',
+        'DOBLADA': '_render_doblada',
+        'D FDS': '_render_d_fds',
+        'DOBLADA PERMANENTE': '_render_doblada_permanente',
+        'CAMBIO DESCANSO': '_render_cambio_descanso',
+    }
+
     def get(self, request, tipo_id):
         tipo_solicitud = get_object_or_404(TipoSolicitudCambio, id=tipo_id)
-        
-        # Determinar qué template usar según el tipo de solicitud
-        if tipo_solicitud.nombre == "CT PERMANENTE":
-            return self._render_ct_permanente(request, tipo_solicitud)
-        elif tipo_solicitud.nombre == "DOBLADA":
-            return self._render_doblada(request, tipo_solicitud)
-        elif tipo_solicitud.nombre == "D FDS":
-            return self._render_d_fds(request, tipo_solicitud)
-        elif tipo_solicitud.nombre == "DOBLADA PERMANENTE":
-            return self._render_doblada_permanente(request, tipo_solicitud)
-        elif tipo_solicitud.nombre == "CAMBIO DESCANSO":
-            return self._render_cambio_descanso(request, tipo_solicitud)
-        else:
-            return self._render_cambio_turno_normal(request, tipo_solicitud)
+
+        codigo = (tipo_solicitud.codigo_estrategia or '').strip().upper()
+        metodo = self._RENDERERS.get(codigo)
+        if not metodo:
+            logger.error(
+                "SolicitarCambioTurnoView - codigo_estrategia sin formulario asociado",
+                extra={'tipo_id': tipo_id, 'nombre': tipo_solicitud.nombre,
+                       'codigo_estrategia': tipo_solicitud.codigo_estrategia},
+            )
+            raise Http404(
+                f"El tipo de solicitud '{tipo_solicitud.nombre}' no tiene un formulario asociado "
+                f"(codigo_estrategia={tipo_solicitud.codigo_estrategia!r})."
+            )
+        return getattr(self, metodo)(request, tipo_solicitud)
 
     def _render_cambio_descanso(self, request, tipo_solicitud):
         """Renderizar formulario de Cambio de Día de Descanso (fin de semana)."""
@@ -95,7 +116,7 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
         return render(request, 'solicitudes/solicitar_doblada_permanente.html', context)
     
     def _render_ct_permanente(self, request, tipo_solicitud):
-        """Renderizar formulario especÃ­fico para CT PERMANENTE"""
+        """Renderizar formulario específico para CT PERMANENTE"""
         # No establecer fecha inicial por defecto - el usuario debe seleccionarla
         context = {
             'tipo_solicitud': tipo_solicitud,

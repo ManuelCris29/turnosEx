@@ -12,8 +12,7 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.core.mail.backends.smtp import EmailBackend
 from solicitudes.models import SolicitudCambio
-import hashlib
-import hmac
+from . import tokens_aprobacion
 import logging
 
 logger = logging.getLogger(__name__)
@@ -64,7 +63,7 @@ class EmailService:
             )
             return backend
         except Exception as e:
-            print(f"Error configurando email backend para {email_usuario}: {e}")
+            logger.exception("Error configurando email backend para %s", email_usuario)
             # Si falla, usar la configuración por defecto
             return None
     
@@ -142,13 +141,11 @@ class EmailService:
     
     @staticmethod
     def _generar_token(solicitud_id, empleado_id, tipo):
-        """Genera un token de seguridad para aprobación por email"""
-        data = f"{solicitud_id}_{empleado_id}_{tipo}"
-        return hmac.new(
-            b'secret_key_change_this',  # Cambiar en producción
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
+        """Genera el token firmado del enlace de aprobación por email.
+
+        La firma vive en `services/tokens_aprobacion.py` (fuente única).
+        """
+        return tokens_aprobacion.generar(solicitud_id, empleado_id, tipo)
     
     @staticmethod
     def _generar_enlaces_aprobacion(solicitud):
@@ -430,7 +427,7 @@ class EmailService:
                 clave_idempotencia=f'aprob_sup_{solicitud.id}',
             )
         except Exception as e:
-            print(f"Error enviando email de aprobación del supervisor: {e}")
+            logger.exception("Error enviando email de aprobación del supervisor")
 
     @staticmethod
     def _enviar_email_aprobacion_receptor(solicitud, receptor, comentario_respuesta=None):
@@ -461,7 +458,7 @@ class EmailService:
                 clave_idempotencia=f'aprob_rec_{solicitud.id}',
             )
         except Exception as e:
-            print(f"Error enviando email de aprobación del receptor: {e}")
+            logger.exception("Error enviando email de aprobación del receptor")
 
     @staticmethod
     def _enviar_email_rechazo_supervisor(solicitud, supervisor, comentario_respuesta=None):
@@ -492,7 +489,7 @@ class EmailService:
                 clave_idempotencia=f'rech_sup_{solicitud.id}',
             )
         except Exception as e:
-            print(f"Error enviando email de rechazo del supervisor: {e}")
+            logger.exception("Error enviando email de rechazo del supervisor")
 
     @staticmethod
     def _enviar_email_rechazo_receptor(solicitud, receptor, comentario_respuesta=None):
@@ -523,27 +520,12 @@ class EmailService:
                 clave_idempotencia=f'rech_rec_{solicitud.id}',
             )
         except Exception as e:
-            print(f"Error enviando email de rechazo del receptor: {e}") 
+            logger.exception("Error enviando email de rechazo del receptor") 
 
     @staticmethod
     def _verificar_token(solicitud, token, tipo):
-        """Verifica que el token sea válido"""
-        # Crear token esperado
-        if tipo == 'supervisor':
-            supervisor = solicitud.explorador_solicitante.supervisor
-            if not supervisor:
-                return False
-            data = f"{solicitud.id}_{supervisor.id}_{tipo}"
-        else:  # receptor
-            data = f"{solicitud.id}_{solicitud.explorador_receptor.id}_{tipo}"
-        
-        expected_token = hmac.new(
-            b'secret_key_change_this',  # Cambiar en producción
-            data.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return hmac.compare_digest(token, expected_token)
+        """Verifica el token del enlace de aprobación (fuente única)."""
+        return tokens_aprobacion.verificar(solicitud, token, tipo)
     
     @staticmethod
     def _enviar_email_cancelacion(solicitud):
@@ -568,4 +550,4 @@ class EmailService:
                 html_message=html_message
             )
         except Exception as e:
-            print(f"Error enviando email de cancelación: {e}") 
+            logger.exception("Error enviando email de cancelación") 

@@ -1,0 +1,47 @@
+{% extends "errors/_base_error.html" %}
+{# 400 · La petición llegó malformada (o con un Host no permitido). #}
+
+{% block body_variant %}400{% endblock %}
+{% block head_title %}Petición incorrecta{% endblock %}
+{% block watermark %}400{% endblock %}
+{% block eyebrow %}Error 400 · Petición incorrecta{% endblock %}
+{% block heading %}No pudimos interpretar esta petición{% endblock %}
+
+{% block lede %}
+Los datos que llegaron al servidor no tienen el formato esperado, así que la
+petición se descartó sin procesarla. Suele ocurrir con enlaces manipulados o
+con formularios que quedaron abiertos demasiado tiempo.
+{% endblock %}
+
+{% block hint %}
+<p class="hint">
+  <b>Prueba a empezar de nuevo desde el menú.</b>
+  Vuelve al inicio y navega hasta la sección que necesitas en lugar de reutilizar
+  el enlace anterior.
+</p>
+{% endblock %}
+
+{% block glyph %}
+<svg class="motif" viewBox="0 0 200 200" role="img" xmlns="http://www.w3.org/2000/svg">
+  <rect class="g-cell" x="12" y="8" width="176" height="14" rx="5"/>
+
+  <rect class="g-cell" x="12"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="30"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="80"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="80"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="130" width="52" height="40" rx="7"/>
+
+  <!-- Casilla deformada: los bordes no cierran como deberían. -->
+  <path class="g-fill" d="M79 84 122 78l6 38-47 6z"/>
+  <path class="g-cell g-cell--live" d="M79 84 122 78l6 38-47 6z"/>
+  <g class="pulse" transform="translate(0 1)">
+    <path class="g-ink" d="M100 90v12"/>
+    <circle cx="100" cy="110" r="1.6" fill="currentColor" stroke="none"/>
+  </g>
+</svg>
+{% endblock %}

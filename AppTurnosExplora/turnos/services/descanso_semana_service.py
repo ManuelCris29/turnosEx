@@ -39,6 +39,39 @@ class DescansoSemanaService:
         ).exists()
 
     @staticmethod
+    def es_dia_descanso_temporada(fecha: date) -> bool:
+        """
+        ¿`fecha` es uno de los días de descanso FIJADOS de la temporada (de CUALQUIER jornada)?
+
+        REGLA DE NEGOCIO: esos días solo se modifican desde el formulario de CAMBIO DESCANSO,
+        que para eso tiene sus cinco opciones (intercambiar el día, jornadas partidas, que me
+        cubran mi día, cambio de doblada, permiso de media jornada). Ningún otro formulario
+        puede tocarlos. El resto de la temporada SÍ queda disponible para los demás: esto veta
+        dos fechas por semana, no la temporada entera.
+
+        Se pregunta a nivel de FECHA y no de jornada a propósito: en una semana de temporada el
+        descanso de un grupo es el día de trabajo COMPLETO del otro, y los dos lados son
+        exactamente lo que el formulario de cambio de descanso intercambia. Una sola
+        comprobación cubre el par.
+
+        ⚠️ NO confundir con `DiaEspecial.es_temporada_en(fecha)` (usado por
+        `ct_permanente_helper._dia_calendario_no_apto`): ese marca la SEMANA de temporada; este
+        marca los DOS DÍAS de descanso que el supervisor fijó dentro de ella. Son conjuntos
+        distintos — comprobado el 07/08/2026: `_dia_calendario_no_apto(2026-09-15)` devuelve
+        None sobre un día que sí es descanso fijado de temporada.
+
+        Complementa `es_descanso_semana_manual`, que responde por UNA jornada ("¿descanso AM
+        este día?"); aquí interesa si la fecha pertenece al par, sea de quien sea.
+        """
+        if not fecha:
+            return False
+        if fecha.weekday() >= 5:  # el descanso de semana no aplica a fines de semana
+            return False
+        return DescansoSemanaManual.objects.filter(
+            fecha=fecha, activo=True, motivo=MOTIVO_ANUAL,
+        ).exists()
+
+    @staticmethod
     def descansos_anual(anio: int, motivo: str = MOTIVO_ANUAL) -> dict:
         """
         {fecha_iso: [jornadas]} de los descansos de semana del año DEL MOTIVO dado (para

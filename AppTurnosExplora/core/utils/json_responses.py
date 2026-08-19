@@ -1,7 +1,11 @@
 """
 Helpers para respuestas JSON estandarizadas
 """
+import logging
+
 from django.http import JsonResponse
+
+logger = logging.getLogger(__name__)
 
 
 def json_ok(payload=None, status=200):
@@ -58,5 +62,41 @@ def json_error(message, *, status=400, code=None, extra=None):
     if isinstance(extra, dict):
         data['extra'] = extra
     return JsonResponse(data, status=status)
+
+
+def json_error_inesperado(request, excepcion, mensaje, *, code='internal_error'):
+    """Cierra un `except Exception` de una API sin filtrar nada al cliente.
+
+    POR QUÉ EXISTE
+    --------------
+    El patrón que sustituye era este:
+
+        except Exception as e:
+            return JsonResponse({'error': f'Error al obtener festivos: {str(e)}'}, status=500)
+
+    `str(e)` de una excepción de base de datos no es un mensaje para el usuario:
+    es el error crudo del driver. Puede ser
+    `(1054, "Unknown column 'turnos_diaespecial.descripcion' in 'field list'")`,
+    que regala nombres reales de tabla y columna, o
+    `(2003, "Can't connect to MySQL server on 'swalp-prod.xxxx.rds.amazonaws.com'")`,
+    que expone el endpoint de RDS. Es CWE-209, la misma fuga que cierran las
+    páginas de error propias (ADR 007), por una vía que no pasa por ningún
+    handler de Django.
+
+    Al usuario le llega `mensaje` —escrito por nosotros, específico del endpoint
+    para no degradar la experiencia— y el código de referencia. La traza
+    completa va al log con ese mismo código.
+
+    Args:
+        request: para recuperar el `request_id` de la petición.
+        excepcion: la capturada; se registra con traza, no se muestra.
+        mensaje: qué decirle al usuario. Concreto, sin jerga y sin causa técnica.
+        code: código de error de la API.
+    """
+    request_id = getattr(request, 'request_id', None)
+    logger.exception('Fallo inesperado en API: %s', mensaje)
+
+    extra = {'request_id': request_id} if request_id else None
+    return json_error(mensaje, status=500, code=code, extra=extra)
 
 

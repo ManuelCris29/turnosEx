@@ -1,0 +1,47 @@
+{% extends "errors/_base_error.html" %}
+{# 404 · La casilla no existe en la grilla. #}
+
+{% block body_variant %}404{% endblock %}
+{% block head_title %}Página no encontrada{% endblock %}
+{% block watermark %}404{% endblock %}
+{% block eyebrow %}Error 404 · No encontrado{% endblock %}
+{% block heading %}Esta página no está en la grilla{% endblock %}
+
+{% block lede %}
+La dirección a la que has llegado no corresponde a ninguna sección de SWALP.
+Puede que el enlace esté mal escrito, que la página se haya movido o que el
+registro que buscabas ya no exista.
+{% endblock %}
+
+{% block hint %}
+<p class="hint">
+  <b>¿Llegaste desde un enlace de la aplicación o de un correo?</b>
+  Avísale al equipo de desarrollo indicando desde dónde hiciste clic, para que
+  podamos corregir el enlace.
+</p>
+{% endblock %}
+
+{% block glyph %}
+<svg class="motif" viewBox="0 0 200 200" role="img" xmlns="http://www.w3.org/2000/svg">
+  <rect class="g-cell" x="12" y="8" width="176" height="14" rx="5"/>
+
+  <rect class="g-cell" x="12"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="30"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="80"  width="52" height="40" rx="7"/>
+  <rect class="g-ghost" x="74" y="80"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="80"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="130" width="52" height="40" rx="7"/>
+
+  <!-- La casilla que se soltó de la grilla y flota fuera de sitio. -->
+  <g class="float" transform="translate(58 -46) rotate(-8 100 100)">
+    <rect class="g-fill" x="74" y="80" width="52" height="40" rx="7"/>
+    <rect class="g-cell g-cell--live" x="74" y="80" width="52" height="40" rx="7"/>
+    <path class="g-ink" d="M92 100h16M100 92v16" opacity=".55"/>
+  </g>
+</svg>
+{% endblock %}

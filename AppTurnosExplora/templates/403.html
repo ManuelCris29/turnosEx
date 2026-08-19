@@ -1,0 +1,49 @@
+{% extends "errors/_base_error.html" %}
+{# 403 · La casilla existe, pero está cerrada para este usuario. #}
+
+{% block body_variant %}403{% endblock %}
+{% block head_title %}Acceso denegado{% endblock %}
+{% block watermark %}403{% endblock %}
+{% block eyebrow %}Error 403 · Acceso denegado{% endblock %}
+{% block heading %}No tienes permiso para entrar aquí{% endblock %}
+
+{% block lede %}
+Tu usuario está correctamente identificado, pero su rol no incluye el acceso a
+esta sección. No es un fallo del sistema: es la configuración de permisos
+haciendo su trabajo.
+{% endblock %}
+
+{% block hint %}
+<p class="hint">
+  <b>¿Deberías tener acceso?</b>
+  Habla con tu supervisor para que revise los permisos asignados a tu rol en
+  <i>Administración → Roles y Permisos</i>.
+</p>
+{% endblock %}
+
+{% block glyph %}
+<svg class="motif" viewBox="0 0 200 200" role="img" xmlns="http://www.w3.org/2000/svg">
+  <rect class="g-cell" x="12" y="8" width="176" height="14" rx="5"/>
+
+  <rect class="g-cell" x="12"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="30"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="30"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="80"  width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="80"  width="52" height="40" rx="7"/>
+
+  <rect class="g-cell" x="12"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="74"  y="130" width="52" height="40" rx="7"/>
+  <rect class="g-cell" x="136" y="130" width="52" height="40" rx="7"/>
+
+  <!-- La casilla bloqueada: sólida, con el candado montado encima. -->
+  <rect class="g-fill" x="74" y="80" width="52" height="40" rx="7"/>
+  <rect class="g-cell g-cell--live" x="74" y="80" width="52" height="40" rx="7"/>
+  <g transform="translate(0 -4)">
+    <path class="g-ink" d="M91 98v-7a9 9 0 0 1 18 0v7"/>
+    <rect class="g-fill" x="86" y="98" width="28" height="22" rx="5"/>
+    <rect class="g-ink" x="86" y="98" width="28" height="22" rx="5"/>
+    <path class="g-ink pulse" d="M100 105v8"/>
+  </g>
+</svg>
+{% endblock %}

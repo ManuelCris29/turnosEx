@@ -216,6 +216,35 @@ aws ecs execute-command --cluster swalp-cluster --task <task-id> \
 - [ ] `/admin/` sin el error de zona horaria (RDS ya trae las tablas TZ).
 - [ ] Logs visibles en CloudWatch (`/ecs/swalp`).
 
+**Alertas (no dejar para después):**
+- [ ] **Alarma del cierre semanal.** La comprobación del cierre falla **ABIERTA** a propósito: si se
+      rompe, la solicitud se acepta sin validar y lo único que queda es un `CRITICAL` en el log
+      (`solicitudes/services/solicitud_orchestrator.py:154-162`). Sin alarma, el cierre queda
+      desactivado de hecho y **nadie se entera** — no hay error visible, solo empiezan a colarse
+      solicitudes fuera de plazo.
+      ```bash
+      aws sns create-topic --name swalp-alertas
+      aws sns subscribe --topic-arn <arn> --protocol email --notification-endpoint <correo>
+
+      aws logs put-metric-filter --log-group-name /ecs/swalp \
+        --filter-name swalp-cierre-inoperativo \
+        --filter-pattern '"CIERRE SEMANAL INOPERATIVO"' \
+        --metric-transformations metricName=CierreSemanalInoperativo,metricNamespace=SWALP,metricValue=1,defaultValue=0
+
+      aws cloudwatch put-metric-alarm --alarm-name swalp-cierre-semanal-inoperativo \
+        --namespace SWALP --metric-name CierreSemanalInoperativo \
+        --statistic Sum --period 300 --evaluation-periods 1 --threshold 1 \
+        --comparison-operator GreaterThanOrEqualToThreshold \
+        --treat-missing-data notBreaching --alarm-actions <arn>
+      ```
+      Umbral **1**: una sola aparición ya significa que el cierre no protege nada.
+      Detalle y la variante para EC2: [manual técnico § 13.6](../../manual_tecnico.md).
+- [ ] **Alarma genérica** con el patrón `?ERROR ?CRITICAL` sobre el mismo grupo de logs, para no
+      depender de haber previsto cada texto concreto.
+- [ ] Prueba de que la alarma funciona: publica una línea de prueba en el grupo de logs
+      (`aws logs put-log-events` con el texto `CIERRE SEMANAL INOPERATIVO`) y comprueba que
+      llega el correo. **Una alarma sin probar no es una alarma.**
+
 ---
 
 ## FASE 11 — CD (despliegue continuo, opcional)

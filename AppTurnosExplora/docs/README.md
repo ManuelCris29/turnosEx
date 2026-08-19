@@ -11,8 +11,19 @@ carpeta `docs/` que estaba en la raíz del repo; ya no existe una segunda copia.
 | **[manual_tecnico.md](./manual_tecnico.md)** | Desarrolladores: arquitectura, patrones aplicados, reglas de negocio con su cita en código, zonas frágiles. |
 | **[INVENTARIO_DOCUMENTAL.md](./INVENTARIO_DOCUMENTAL.md)** | Qué está documentado, qué falta y qué está sin verificar. |
 
-Versiones en Word de los dos manuales: [04-guias/manuales/](./04-guias/manuales/)
-(artefactos generados — se editan en el Markdown, nunca en el `.docx`).
+Versiones en Word de los dos manuales: [04-guias/manuales/](./04-guias/manuales/).
+Versiones en **PDF**: [pdf/](./pdf/) — `Manual_Usuario.pdf` y `Manual_Tecnico.pdf`.
+
+Ambos formatos son **artefactos generados**: se editan en el Markdown, nunca en el
+`.docx` ni en el `.pdf`. Los mantienen los subagentes `subagen-user` y `subagen-dev`
+(ver `.claude/agents/`), que regeneran el PDF con:
+
+```bash
+python .claude/skills/project-documentation-master/scripts/md_to_pdf.py \
+  AppTurnosExplora/docs/manual_usuario.md \
+  AppTurnosExplora/docs/pdf/Manual_Usuario.pdf \
+  --titulo "Manual de Usuario" --subtitulo "AppTurnos / SWALP"
+```
 
 ## Estructura
 

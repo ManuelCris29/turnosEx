@@ -1745,7 +1745,7 @@ function enviarSolicitudCTPermanente() {
                         Swal.fire({ icon: 'error', title: 'No se pudo enviar', text: (d2 && (d2.error || d2.message)) || 'Error al procesar la solicitud.' });
                     }
                 })
-                .catch(() => Swal.fire({ icon: 'error', title: 'Error', text: 'Ocurrió un error de red.' }));
+                .catch(() => Swal.fire({ icon: 'error', title: 'Error', html: CodigoReferencia.htmlMensaje('Ocurrió un error de red.') }));
             });
         } else {
             // Mostrar error

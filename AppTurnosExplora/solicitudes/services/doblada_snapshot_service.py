@@ -7,6 +7,7 @@ una doblada, y reconciliar las dobladas vigentes tras una cancelación.
 from datetime import date
 import logging
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from solicitudes.models import SolicitudCambio, DobladaDetalle
@@ -317,7 +318,28 @@ class DobladaSnapshotService:
         reaplicadas = set()
         for s in DobladaSnapshotService._candidatas_ordenadas(
                 fechas, exploradores, excluir_solicitud_id):
-            DobladaSnapshotService._reaplicar_una(s, fechas)
+            # Una solicitud vigente que YA NO ENCAJA con el calendario actual no puede tumbar la
+            # cancelación de OTRA. Los servicios de aplicación tienen guardias de negocio (patrón
+            # 39: "no le inventes un turno a quien ese día descansa"), y desde aquí se re-aplican
+            # SIN re-validar, así que una de ellas puede levantar ValidationError legítimamente.
+            # Sin este `try`, ese error subía y abortaba la transacción entera: el usuario se
+            # quedaba sin poder cancelar por culpa de una solicitud ajena que él no puede arreglar.
+            #
+            # La reconciliación es REPARACIÓN best-effort, no una validación: si una pieza no se
+            # puede recolocar, se registra y se sigue con las demás. Se captura SOLO
+            # ValidationError (precondición de negocio incumplida); cualquier otro fallo —de BD, de
+            # programación— sigue propagándose, porque ahí sí conviene abortar.
+            try:
+                DobladaSnapshotService._reaplicar_una(s, fechas)
+            except ValidationError as e:
+                logger.error(
+                    "Reconciliación: la solicitud aprobada %s (%s) NO se pudo re-aplicar sobre %s "
+                    "y se OMITE para no bloquear la cancelación en curso. Su efecto queda sin "
+                    "materializar y hay que revisarla a mano. Motivo: %s",
+                    s.id, s.tipo_cambio.nombre if s.tipo_cambio else '?',
+                    sorted(fechas), getattr(e, 'messages', [str(e)])[0],
+                )
+                continue
             reaplicadas.add(s.id)
 
         # La reconciliación acaba de reescribir turnos: los `snapshot_turnos_resultantes` de las

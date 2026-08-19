@@ -17,6 +17,25 @@
     color: #34495e !important;
 }
 
+/* Los avisos que se pasan como `text:` (no `html:`) llegan con saltos de línea
+   reales. Sin esto se verían como un párrafo corrido y el código de referencia
+   quedaría pegado al mensaje de error. Ver static/js/utils/codigo-referencia.js */
+.swal2-html-container {
+    white-space: pre-line;
+}
+
+/* El código de referencia dentro de un aviso: monoespaciado y seleccionable de
+   un vistazo, porque el usuario tiene que transcribirlo. */
+.swal2-html-container code {
+    padding: .1rem .35rem;
+    border-radius: 5px;
+    background: #eef1f6;
+    color: #16202e;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    letter-spacing: .03em;
+    user-select: all;
+}
+
 .swal2-confirm {
     background: linear-gradient(135deg, #007bff, #0056b3) !important;
     border-radius: 25px !important;

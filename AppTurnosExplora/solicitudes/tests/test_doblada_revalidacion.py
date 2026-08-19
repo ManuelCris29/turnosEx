@@ -28,8 +28,13 @@ class DobladaPagoJornadaRealTest(MatrizDobladasTestCase):
         # Solicitante AM, receptor PM (contrarios).
         self._asignar_jornada_base(self.emisor, self.jornada_am)
         self._asignar_jornada_base(self.receptor, self.jornada_pm)
-        # Fecha de pago en temporada: descansa AM → emisor(AM) descansa, receptor(PM) queda DOBLADA.
-        DescansoSemanaManual.objects.create(fecha=FECHA_PAGO, jornada=self.jornada_am, activo=True)
+        # Fecha de pago con descanso manual: descansa AM → emisor(AM) descansa, receptor(PM) DOBLADA.
+        # `motivo='otro'` a propósito: los días de descanso FIJADOS de temporada
+        # (`motivo='temporada'`, el valor por defecto) están vetados para la doblada — solo se
+        # cambian desde CAMBIO DESCANSO. Lo que este test comprueba es otra cosa: que la
+        # validación mire la jornada REAL (`estado_dia`) y no la base.
+        DescansoSemanaManual.objects.create(
+            fecha=FECHA_PAGO, jornada=self.jornada_am, activo=True, motivo='otro')
         cache.clear()
         datos = self._datos(tipo_cambio=self.tipo_doblada, jornada_cubre_en_pago='AM')
         ok, msg = self.strategy.validar_solicitud(datos)
@@ -486,7 +491,10 @@ class DobladaPermJornadaRealTest(TestCase):
         from turnos.models import DescansoSemanaManual, Turno
         from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm, _es_dia_descanso
         m = self._martes()[0]
-        DescansoSemanaManual.objects.create(fecha=m, jornada=self.am, activo=True)  # config: AM descansa
+        # config: AM descansa. `motivo='otro'` porque un descanso FIJADO de temporada está vetado
+        # para la doblada permanente por regla de calendario, y taparía lo que se comprueba aquí:
+        # que la fuente de verdad (estado_dia) gana sobre la configuración.
+        DescansoSemanaManual.objects.create(fecha=m, jornada=self.am, activo=True, motivo='otro')
         Turno.objects.create(explorador=self.sol, fecha=m, jornada=self.am, sala=self.sala, tipo_cambio='CAMBIO DESCANSO')
         cache.clear()
         # Fuente de verdad: trabaja AM de verdad → NO descansa (ni por _es_dia_descanso ni por elegibilidad).
