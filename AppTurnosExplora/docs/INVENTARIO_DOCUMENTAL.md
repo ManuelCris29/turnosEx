@@ -15,7 +15,7 @@ comprobación, el estado es **sin verificar**.
 | Área | Estado | Dónde está | Qué falta |
 |---|---|---|---|
 | Arquitectura técnica | completo | [03-arquitectura/ARQUITECTURA.md](./03-arquitectura/ARQUITECTURA.md), [adr/](./03-arquitectura/adr/) | Nada crítico; ahora se enlaza desde el manual técnico |
-| Decisiones técnicas (ADR) | completo | [adr/001](./03-arquitectura/adr/001-service-layer-y-orchestrator.md) a [005](./03-arquitectura/adr/005-pendientes-aws.md) | — |
+| Decisiones técnicas (ADR) | completo | [adr/001](./03-arquitectura/adr/001-service-layer-y-orchestrator.md) a [008](./03-arquitectura/adr/008-reconciliacion-best-effort.md) | — |
 | Reglas de negocio de solicitudes | parcial | [05-referencia/solicitudes/](./05-referencia/solicitudes/) | Cubre CT sencillo y dobladas a fondo; cambio de descanso, D FDS y CT permanente estaban dispersos |
 | Dobladas | completo | [solicitudes/dobladas/](./05-referencia/solicitudes/dobladas/) (14 archivos) | Muy detallado, pero orientado a incidencias concretas, no a lectura de principio a fin |
 | Turnos (fuente de verdad) | completo | [05-referencia/turnos/](./05-referencia/turnos/) | — |

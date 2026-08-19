@@ -1,5 +1,31 @@
 # 🚀 Guía Rápida: Reaplicar Doblada Fallida
 
+> ## ⚠️ Antes de ejecutar `reaplicar_doblada`: comprueba el día
+>
+> **Este comando NO valida nada.** Entra directamente al servicio de aplicación, saltándose
+> las validaciones del formulario, la re-validación de la aprobación y la guardia LIFO. Escribe
+> los turnos tal como diga la solicitud, aunque el día ya no encaje con la realidad.
+>
+> El riesgo es real porque este comando se usa justo cuando algo está descuadrado, y el día pudo
+> cambiar desde que la doblada se aprobó (al compañero le cancelaron su jornada, entró en
+> temporada, le movieron el descanso…).
+>
+> **Qué puede pasar:** si el ACREEDOR ya no trabaja la fecha de pago, algunas modalidades de pago
+> dejan al deudor cubriendo jornadas que nadie iba a trabajar — acaba con AM+PM (y sus 30 minutos
+> de deuda corporativa) por un turno que no existía. El comando termina diciendo
+> `✅ Doblada de pago aplicada`: el fallo es **silencioso**.
+>
+> **Antes de ejecutarlo, comprueba a mano:**
+> 1. Que el **acreedor TRABAJE** la fecha de pago (mírala en Mis Turnos, no la jornada asignada:
+>    la jornada base dice "es AM" aunque ese día descanse).
+> 2. Que el **deudor** siga teniendo sentido en la fecha de cesión.
+> 3. Usa **siempre `--dry-run` primero** y lee la salida; no des por bueno el `✅`.
+>
+> Si el día ya no encaja, **no reapliques**: la doblada debe rehacerse con otra fecha de pago.
+>
+> Algunas modalidades ya se niegan solas (lanzan un error explicando el problema), pero **no
+> todas**. Ver `PROTECTION_PATTERNS.md` (patrón 39) y el manual técnico, § 16.2.
+
 ## TL;DR (Resumen Ultra-Rápido)
 
 **Problema**: Solicitud Mariana → Vanesa aprobada, pero no se ven las dobladas en "Mis Turnos"  

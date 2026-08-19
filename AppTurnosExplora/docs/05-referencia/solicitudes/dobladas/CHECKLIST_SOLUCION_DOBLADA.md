@@ -30,7 +30,20 @@
   - [ ] Turnos AM+PM para Vanesa en fecha de cesión
   - [ ] Turnos AM+PM para Mariana en fecha de pago
 
-### Paso 3: Simular Reaplicación (Dry-Run)
+### Paso 3: Comprobar que el día SIGUE encajando ⚠️ (obligatorio)
+
+> `reaplicar_doblada` **no valida nada**: se salta las validaciones del formulario, la
+> re-validación de la aprobación y la guardia LIFO. Si el día cambió desde que la doblada se
+> aprobó, escribe turnos incorrectos **y termina diciendo `✅`**. El fallo es silencioso.
+
+- [ ] Mirar en **Mis Turnos** si el **ACREEDOR trabaja** la fecha de pago
+      (⚠️ no vale la jornada asignada: dice "es AM" aunque ese día descanse)
+- [ ] ¿El acreedor **descansa** ese día? → **NO reapliques.** La doblada debe rehacerse con otra
+      fecha de pago: si se reaplica, el deudor acaba cubriendo una jornada que nadie iba a
+      trabajar (AM+PM y 30 min de deuda por un turno inexistente)
+- [ ] Comprobar que la fecha de cesión sigue teniendo sentido para el deudor
+
+### Paso 3b: Simular Reaplicación (Dry-Run)
 - [ ] Ejecutar: `python manage.py reaplicar_doblada <ID> --dry-run`
 - [ ] Revisar que las operaciones planeadas sean correctas
 - [ ] ¿Todo se ve bien? → Continuar al Paso 4
