@@ -1,6 +1,6 @@
 # Sello de revision de documentacion. Lo lee .claude/hooks/docs-desactualizados.sh
 # y lo escribe .claude/hooks/sellar-docs.sh. No editar a mano.
 #
-# Sellado: 2026-08-18 19:19 en la rama fix/cambio-descanso-temporada
-commit=063030da24a2beaea482d4effe3c6bef523b9549
-arbol=54920c7db487339e615bbd99b49112d5a9eaff37
+# Sellado: 2026-08-18 19:35 en la rama main
+commit=8322618e5822b10075652e26479a6fe467d5bfbb
+arbol=e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
