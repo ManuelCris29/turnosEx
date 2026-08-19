@@ -836,7 +836,11 @@ decidir qué mitad del sábado cubrirás.
    (él conserva PM)** o **Jornada PM (él conserva AM)**.
    <!-- fuente: templates/solicitudes/solicitar_doblada.html -->
 4. Elige el **Compañero que te Cubrirá**. Solo aparecen compañeros con jornada contraria
-   disponibles para esa fecha.
+   disponibles para esa fecha. Se esconde a quien ese día ya queda trabajando la mañana y
+   la tarde —pedirle la doblada sería un triple turno—, pero sí aparece quien ese día
+   descansa por haber cedido su jornada en otra doblada, incluido quien descansa
+   precisamente porque te cedió el día a ti.
+   <!-- fuente: solicitudes/services/doblada_filtro_service.py:54-66,94-113 -->
 5. Selecciona la **Fecha de Pago**: el día que devuelves el favor.
 6. Si el pago cae en sábado y ese día tú estás libre pero tu compañero sí trabaja, aparece
    el aviso **Pago en Sábado** y debes indicar en **¿Qué mitad del sábado cubrirás tú?** la
@@ -880,6 +884,8 @@ decidir qué mitad del sábado cubrirás.
 | Pago en **sábado** | Debes elegir qué mitad cubres; si cubres las dos, hay que fijar además un día de la semana de devolución <!-- fuente: solicitudes/services/strategies/doblada_strategy.py --> |
 | Pago en **sábado en el que el compañero descansa** | No sirve como fecha de pago: no hay jornada suya que cubrir. No se te pide la mitad del sábado y la vista previa lo rechaza <!-- fuente: static/js/cambio-turno/solicitar_doblada.js; solicitudes/services/doblada_pago_service.py:100 --> |
 | Cesión y pago **sábado por sábado** | No permitido: para eso está la doblada de fin de semana |
+| Compañero que ese día **trabaja mañana y tarde** | No aparece en la lista: ya está doblado y no puede asumir otra jornada <!-- fuente: solicitudes/services/doblada_filtro_service.py:94-113 --> |
+| Compañero que ese día **descansa por haber cedido su jornada** | Sí aparece: tiene el día libre y puede cubrirte <!-- fuente: solicitudes/services/doblada_filtro_service.py:54-66 --> |
 
 **9. Qué valida la pantalla al momento.**
 
@@ -1885,6 +1891,7 @@ Cambios recientes que afectan a lo que ves en pantalla.
 | En **Doblada Permanente** se explica por qué un compañero no cubre una fecha | Los motivos aparecen junto a cada fecha descartada <!-- fuente: commit 4dd6cd6 --> |
 | Un rol parecido a "Supervisor" ya no concede permisos de supervisor | Solo el rol exacto **Supervisor** ve el menú de administración <!-- fuente: commits f9e82e3, 727f1f8 --> |
 | Las sanciones se levantan, no se borran | Queda el registro de la sanción y de cuándo se levantó <!-- fuente: commit 0e541c1 --> |
+| En **Doblada**, la lista de compañeros esconde a quien ya trabaja mañana y tarde | Antes se escondía por error a quien ese día descansaba por haber cedido su jornada. Ahora aparecen en el desplegable compañeros libres que antes no se mostraban, incluido quien descansa porque te cedió el día a ti <!-- fuente: solicitudes/services/doblada_filtro_service.py:54-66 --> |
 | En **PDH**, la fecha de pago la decide el supervisor | Se retiró una validación que rechazaba fechas legítimas <!-- fuente: commit 9bf81f8 --> |
 
 <!-- fuente: git log del repositorio, commits 0e541c1 … 40a7ed8 -->

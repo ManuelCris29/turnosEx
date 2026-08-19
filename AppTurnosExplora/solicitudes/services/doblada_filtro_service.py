@@ -114,8 +114,8 @@ class DobladaFiltroService:
 
         logger.debug(
             f"Filtrados {len(empleados_list) - len(empleados_disponibles)} empleados "
-            f"con doblada activa en {fecha_obj} "
-            f"(solicitudes={len(empleados_con_doblada_receptor)}, "
+            f"que quedan doblados en {fecha_obj} "
+            f"(receptores={len(empleados_con_doblada_receptor)}, "
             f"turnos={len(empleados_con_doblada_turno)})"
         )
 
