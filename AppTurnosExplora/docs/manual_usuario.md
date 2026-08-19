@@ -838,11 +838,19 @@ decidir qué mitad del sábado cubrirás.
 4. Elige el **Compañero que te Cubrirá**. Solo aparecen compañeros con jornada contraria
    disponibles para esa fecha.
 5. Selecciona la **Fecha de Pago**: el día que devuelves el favor.
-6. Si el pago cae en sábado, indica en **¿Qué mitad del sábado cubrirás tú?** la jornada
-   que asumes.
-7. Si el compañero tiene doblada ese día, indica en **¿Qué jornada le cubres?** qué parte
+6. Si el pago cae en sábado y ese día tú estás libre pero tu compañero sí trabaja, aparece
+   el aviso **Pago en Sábado** y debes indicar en **¿Qué mitad del sábado cubrirás tú?** la
+   jornada que asumes: él trabaja la otra mitad. Si tu compañero también descansa ese
+   sábado, ni el aviso ni esa pregunta aparecen, porque no hay ninguna jornada suya que
+   cubrir; la **Vista Previa del Acuerdo** te dirá que esa fecha de pago no sirve.
+   <!-- fuente: static/js/cambio-turno/solicitar_doblada.js (sincronizarSelectorPagoSabado) -->
+7. Revisa la **Vista Previa del Acuerdo** antes de enviar: si el recuadro es azul
+   (**Resumen del Acuerdo**), el acuerdo es válido; si es rojo (**No se puede enviar la
+   solicitud**), corrige lo que indique el motivo.
+   <!-- fuente: static/js/cambio-turno/solicitar_doblada.js (verificarCoincidenciaPago) -->
+8. Si el compañero tiene doblada ese día, indica en **¿Qué jornada le cubres?** qué parte
    asumes.
-8. Escribe **Comentarios** y pulsa **Enviar Solicitud**.
+9. Escribe **Comentarios** y pulsa **Enviar Solicitud**.
 
 <!-- fuente: templates/solicitudes/solicitar_doblada.html; static/js/cambio-turno/solicitar_doblada.js -->
 
@@ -854,7 +862,7 @@ decidir qué mitad del sábado cubrirás.
 | **Jornada a Ceder** | **Jornada AM (él conserva PM)** o **Jornada PM (él conserva AM)** | Solo si ese día doblas | Ninguna | Define qué mitad cedes |
 | **Compañero que te Cubrirá** | Un nombre de la lista | Sí | *Selecciona un compañero...* | Determina qué fechas de pago son válidas |
 | **Fecha de Pago** | Día en que devuelves, mismo mes | Sí | Vacío | Puede abrir los selectores de jornada |
-| **¿Qué mitad del sábado cubrirás tú?** | **AM (Mañana)** o **PM (Tarde)** | Solo si el pago es sábado | Ninguna | Define tu carga ese sábado |
+| **¿Qué mitad del sábado cubrirás tú?** | **AM (Mañana)** o **PM (Tarde)** | Solo si el pago es sábado, tú estás libre ese día y el compañero sí trabaja | Ninguna | Define tu carga ese sábado <!-- fuente: static/js/cambio-turno/solicitar_doblada.js (sincronizarSelectorPagoSabado) --> |
 | **¿Qué jornada le cubres?** | AM, PM o toda la doblada | Solo si él dobla ese día | Ninguna | Define cuánto asumes |
 | **Comentarios** | El motivo | Sí | Vacío | Nada |
 
@@ -870,6 +878,7 @@ decidir qué mitad del sábado cubrirás.
 | **Intercambiar mi doblada por la de un compañero** | Eliges como fecha de pago el día de la doblada de él. No se cede jornada: cada uno toma la doblada del otro. <!-- fuente: templates/solicitudes/solicitar_doblada.html --> |
 | Cesión y pago en **festivo** | Solo si ambas fechas son festivos del mismo mes <!-- fuente: solicitudes/services/validators/doblada_validator.py:240 --> |
 | Pago en **sábado** | Debes elegir qué mitad cubres; si cubres las dos, hay que fijar además un día de la semana de devolución <!-- fuente: solicitudes/services/strategies/doblada_strategy.py --> |
+| Pago en **sábado en el que el compañero descansa** | No sirve como fecha de pago: no hay jornada suya que cubrir. No se te pide la mitad del sábado y la vista previa lo rechaza <!-- fuente: static/js/cambio-turno/solicitar_doblada.js; solicitudes/services/doblada_pago_service.py:100 --> |
 | Cesión y pago **sábado por sábado** | No permitido: para eso está la doblada de fin de semana |
 
 **9. Qué valida la pantalla al momento.**
@@ -892,6 +901,19 @@ decidir qué mitad del sábado cubrirás.
 - *"Indica qué jornada (AM o PM) del compañero cubres en la fecha de pago."*
 - En el modo de intercambio: *"Solo aparecen compañeros que tienen una doblada (AM + PM)
   ese día."* y *"El día de la doblada del compañero debe ser distinto al de la tuya."*
+
+En cuanto completas **Fecha de Pago** y **Compañero que te Cubrirá**, la **Vista Previa del
+Acuerdo** se pronuncia: si el acuerdo es válido verás el recuadro azul **Resumen del
+Acuerdo**; si el sistema ya sabe que lo rechazará, verás en su lugar un recuadro rojo **No
+se puede enviar la solicitud** con el motivo, sin tener que pulsar **Enviar Solicitud** para
+enterarte. Ocurre, por ejemplo, cuando los dos descansan en la fecha de pago, cuando el
+compañero descansa ese día o cuando ese día ambos tenéis la misma jornada.
+<!-- fuente: static/js/cambio-turno/solicitar_doblada.js (verificarCoincidenciaPago) -->
+
+Si el pago cae en sábado, el aviso **Pago en Sábado** y la pregunta por la mitad solo
+aparecen cuando el compañero sí trabaja ese sábado. Si él descansa, no aparecen: no existe
+mitad que repartir.
+<!-- fuente: static/js/cambio-turno/solicitar_doblada.js (sincronizarSelectorPagoSabado) -->
 
 <!-- fuente: static/js/cambio-turno/solicitar_doblada.js -->
 
@@ -921,7 +943,25 @@ correctamente. Se han enviado notificaciones al supervisor y al compañero."*
 <!-- fuente: solicitudes/services/solicitud_orchestrator.py:674-677 -->
 
 Al aprobarse, el día de la cesión te queda libre y el de pago queda registrado como tu
-devolución.
+devolución. Las condiciones se vuelven a comprobar en ese momento: si entre el envío y la
+aprobación el compañero dejó de trabajar el sábado de pago, la solicitud no se aplica y se
+avisa con *"&lt;Nombre&gt; no trabaja el sábado DD/MM/AAAA: ese día descansa, así que no hay
+jornada suya que cubrir y no se le puede pagar la doblada. La doblada debe rehacerse con otra
+fecha de pago."* Ese aviso lo ve quien aprueba, no tú: por eso no pide elegir una fecha, sino
+que deja constancia de que la solicitud debe volver a enviarse con otra fecha de pago.
+<!-- fuente: solicitudes/services/doblada_pago_service.py:144 -->
+
+La misma comprobación se aplica cuando el pago cae **entre semana**. Si al aplicarse la
+doblada resulta que el compañero descansa ese día, el sistema se detiene y avisa con
+*"&lt;Nombre&gt; &lt;Apellido&gt; no trabaja el DD/MM/AAAA: ese día descansa, así que no
+tiene una jornada que cubrirle para pagar la doblada. La doblada debe rehacerse con otra
+fecha de pago."* Antes, en algunos casos, la doblada seguía adelante y le dejaba a esa
+persona un turno en un día libre sin que nadie se enterara.
+<!-- fuente: solicitudes/services/doblada_pago_service.py:302,536 -->
+
+Rellenando el formulario no deberías toparte con este aviso: al enviar ya se comprueba que
+el compañero trabaje la fecha de pago. Aparece sobre todo cuando ese día cambió entre el
+envío y la aprobación, o cuando un administrador rehace una doblada por su cuenta.
 
 **12. Cómo confirmar que quedó bien.**
 En **Mis Solicitudes**, estado **Pendiente** y luego **Aprobada**. En **Mis Turnos**, el
@@ -955,6 +995,8 @@ para reasignar el día que falta.
 | "El año … aún no tiene publicada la alternancia de fines de semana, así que no se puede saber quién trabaja ese sábado. Pídele al supervisor que la publique." | Falta la programación anual | Avisa al supervisor |
 | "Para pagar en sábado debes seleccionar una jornada válida (AM, PM o ambas)." | Falta la mitad del sábado | Elige AM, PM o ambas |
 | "Al cubrir ambas jornadas el sábado, debes elegir el día de la semana en que el compañero te devolverá la jornada." | Falta el día de devolución en semana | Selecciónalo |
+| "&lt;Nombre&gt; no trabaja el sábado DD/MM/AAAA: ese día descansa, así que no hay jornada suya que cubrir y no se le puede pagar la doblada. La doblada debe rehacerse con otra fecha de pago." | Al aprobarse, el compañero ya no trabaja ese sábado (cambió su programación o cedió el día). Lo ve quien aprueba | Envía la solicitud de nuevo con otra fecha de pago |
+| "&lt;Nombre&gt; &lt;Apellido&gt; no trabaja el DD/MM/AAAA: ese día descansa, así que no tiene una jornada que cubrirle para pagar la doblada. La doblada debe rehacerse con otra fecha de pago." | Al aplicarse la doblada, el compañero ya no trabaja esa fecha de pago entre semana. Lo ve quien aprueba | Envía la solicitud de nuevo con otra fecha de pago |
 | "El día de pago en semana debe ser de lunes a viernes." | Elegiste fin de semana | Corrige |
 | "El día de pago en semana no puede ser festivo ni de mantenimiento." | Fecha no operativa | Elige otra |
 | "Ya tienes una solicitud pendiente que afecta el … (como cesión o como pago). Debes esperar a que sea aprobada o cancelada antes de enviar otra que use ese día." | Solapamiento con otra solicitud tuya | Espera o cancela la anterior |
@@ -1389,8 +1431,24 @@ acciones del supervisor no pasan por esta comprobación.
 
 Una solicitud pasa primero por el compañero y después por el supervisor. En el momento de
 cada aprobación el sistema vuelve a comprobar las reglas: si la situación cambió desde que
-se envió —una sanción nueva, un turno modificado— la aprobación se rechaza con el motivo.
+se envió —una sanción nueva, un turno modificado— la aprobación no se realiza y verás el
+motivo.
 <!-- fuente: solicitudes/services/solicitud_aprobacion_service.py ("No se puede aprobar: …") -->
+
+Cuando eso ocurre, el aviso que lees empieza por "No se puede aprobar: la solicitud ya no
+es válida con el estado actual." y a continuación cita el motivo entre la palabra
+**Motivo:** y la aclaración "(instrucciones dirigidas a quien la envió)".
+<!-- fuente: solicitudes/services/solicitud_aprobacion_service.py:130-134 -->
+
+Ese motivo está redactado para quien envió la solicitud, no para ti. Por eso suena a orden
+—"Elige otra fecha de pago.", "Elige otro día de la semana."— y por eso va entre
+paréntesis la aclaración: tú no puedes cambiar nada de una solicitud ya enviada.
+<!-- fuente: solicitudes/services/solicitud_aprobacion_service.py:123-129 -->
+
+Lo que te toca hacer es **rechazar** la solicitud. Al rechazarla, tu compañero recibe el
+aviso y puede volver a enviarla corrigiendo lo que indica el motivo. El propio texto
+termina diciéndotelo: "Recházala para que pueda rehacerse."
+<!-- fuente: solicitudes/services/solicitud_aprobacion_service.py:130-134 -->
 
 Por eso conviene aprobar pronto y no dejar solicitudes semanas pendientes.
 
@@ -1439,6 +1497,7 @@ pueden aparecer en cualquiera de los seis.
 | "Ya habías aprobado esta solicitud como compañero." | Doble clic en aprobar | Ninguna acción <!-- fuente: solicitudes/services/solicitud_aprobacion_service.py --> |
 | "No tienes permisos para aprobar esta solicitud" | No eres ni el compañero ni el supervisor | Avisa a quien corresponda <!-- fuente: solicitudes/services/solicitud_aprobacion_service.py --> |
 | "Estás sancionado y no puedes aceptar ni participar en solicitudes de cambio de turno." | Te sancionaron mientras la solicitud estaba pendiente | Habla con tu supervisor <!-- fuente: solicitudes/services/solicitud_aprobacion_service.py --> |
+| "No se puede aprobar: la solicitud ya no es válida con el estado actual. Motivo: … (instrucciones dirigidas a quien la envió). Recházala para que pueda rehacerse." | Lo ves al aprobar: la situación cambió desde que se envió la solicitud y ya no cumple las reglas. El motivo citado está escrito para quien la envió, no para ti | Recházala; tu compañero podrá enviarla de nuevo corregida. Ver el apartado 6.5 <!-- fuente: solicitudes/services/solicitud_aprobacion_service.py:130-134 --> |
 | "No se puede aprobar: … está sancionado y no puede participar en la solicitud." | Uno de los dos fue sancionado después de enviarla | Se resuelve al levantar la sanción <!-- fuente: solicitudes/services/solicitud_aprobacion_service.py --> |
 | "Token inválido o expirado" | El enlace de **Aprobar** o **Rechazar** del correo ya no sirve. La propia página lista las cuatro causas posibles: han pasado más de 30 días desde que recibiste el correo, el enlace se copió mal o fue modificado, el enlace no era para ti (o te cambiaron de supervisor después de enviarse), o la solicitud ya fue procesada. La página se titula "No se pudo procesar la solicitud" | Entra a la aplicación y resuelve la solicitud desde **Notificaciones** o **Gestión de Solicitudes**: el enlace del correo no es la única forma de aprobar o rechazar. La propia página te lo indica y te ofrece los botones **Ir al Dashboard** y **Ver Notificaciones**. Si en el recuadro **Detalles del Error** ves un **Código de referencia**, apúntalo antes de salir: ver el apartado 7.3 <!-- fuente: solicitudes/views/aprobacion_email.py:102,161,220,272; templates/solicitudes/error_token.html:41-72; core/utils/error_token.py (dias_validez, request_id) --> |
 | "No pudimos completar la operación por un fallo interno. El equipo de desarrollo ya tiene el registro del error." | En la misma página "No se pudo procesar la solicitud": el enlace del correo era válido, pero algo falló por dentro al procesarlo | Resuelve la solicitud desde **Notificaciones** o **Gestión de Solicitudes**. Apunta el **Código de referencia** del recuadro y repórtalo <!-- fuente: core/utils/error_token.py:32-35 (MENSAJE_INESPERADO) --> |

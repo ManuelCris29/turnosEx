@@ -354,6 +354,12 @@ revalidación contra el estado actual, porque entre la creación y la aprobació
 cambiar. La cancelación deshace exactamente lo aplicado usando el snapshot capturado antes de
 aplicar, y solo si las dos guardias lo permiten.
 
+El paso `reconciliar` del diagrama —re-aplicar las dobladas que siguen aprobadas en esos días— es
+**reparación best-effort, no una validación**: se re-aplica **sin re-validar**, así que una
+solicitud vigente que ya no encaje con el calendario actual puede levantar `ValidationError` desde
+los guardias de negocio de los servicios de aplicación. Cuando pasa, esa candidata se **omite** y
+se registra; la cancelación en curso continúa. Política y consecuencia operativa en § 16.2.
+
 ### 3.4 Patrones aplicados y por qué
 
 **Strategy — un archivo por tipo de solicitud.** Los seis tipos comparten la mayor parte del flujo
@@ -395,7 +401,7 @@ perdía el correo en silencio.
 
 Todo el catálogo de protecciones —bloqueo pesimista, snapshot-once, deuda idempotente, guardias que
 fallan cerrado, invariantes en la base de datos— vive en **`PROTECTION_PATTERNS.md`** (raíz del
-repositorio, 37 patrones). Se resume en [§ 16](#16-zonas-frágiles-y-bugs-conocidos).
+repositorio, 39 patrones). Se resume en [§ 16](#16-zonas-frágiles-y-bugs-conocidos).
 
 ### 3.5 Qué NO se hizo y por qué
 
@@ -432,7 +438,7 @@ C:\appTurnos\                       raíz del repositorio
 │   ├── Dockerfile
 │   ├── docker-compose.local.yml    app + MySQL efímero
 │   └── docker-compose.hostdb.yml   app contra tu MySQL del host
-├── PROTECTION_PATTERNS.md          38 patrones de concurrencia, idempotencia y seguridad
+├── PROTECTION_PATTERNS.md          39 patrones de concurrencia, idempotencia y seguridad
 ├── instructivos\                   fuentes de negocio en .docx / .mwb
 └── docker-compose.yml              ⚠ solo SonarQube, NO la aplicación
 ```
@@ -715,7 +721,7 @@ fuente de verdad del calendario está en [05-referencia/turnos/](./05-referencia
 9. **Efectos secundarios.** Marca ambas aprobaciones con su fecha, transiciona a `aprobada`, fija `fecha_resolucion`, captura el snapshot previo, materializa los turnos, genera deudas y encola los correos.
 10. **Servicios.** `AprobarAmbosRolesUseCase` → `SolicitudAprobacionService` → `SolicitudFactory.revalidar_para_aprobar` (`solicitudes/services/solicitud_factory.py:293,308`) → servicio de aplicación del tipo.
 11. **Tests.** Suite de aprobación en `solicitudes/tests/`.
-12. **Gotchas.** La revalidación puede fallar aunque la solicitud fuera legal al crearse: entre la creación y la aprobación el mundo cambió. Ese rechazo tardío es intencional, no un fallo.
+12. **Gotchas.** La revalidación puede fallar aunque la solicitud fuera legal al crearse: entre la creación y la aprobación el mundo cambió. Ese rechazo tardío es intencional, no un fallo. El mensaje que se devuelve **no** es el de la validación en crudo: se reencuadra en la costura (`solicitud_aprobacion_service.py:130-134`, ver § 7.4).
 
 #### `GET /solicitudes/cobertura-candidatos/`
 
@@ -763,8 +769,9 @@ fuente de verdad del calendario está en [05-referencia/turnos/](./05-referencia
 | `solicitud_request_parser.py` | Convierte el `POST` en el dict de datos que entienden las estrategias | orquestador |
 | `cambio_descanso_aplicacion_service.py` | Materializa y revierte CAMBIO DESCANSO. Contiene `_marcar_reemplazadas` (`:310-349`), donde vive "la última aprobada gana por día" | `CambioDescansoStrategy`, cancelación |
 | `doblada_aplicacion_service.py`, `doblada_permanente_aplicacion_service.py`, `d_fds_aplicacion_service.py` | Lo mismo para DOBLADA, DOBLADA PERMANENTE y D FDS | sus estrategias |
-| `doblada_snapshot_service.py` | Captura y restaura snapshots de turnos; reconciliación de días colaterales (`:299,563`) | servicios de aplicación |
-| `deuda_service.py`, `deuda_corporativa_service.py`, `doblada_deuda_service.py`, `doblada_pago_service.py` | Generan, cancelan y saldan deudas | servicios de aplicación, PDH |
+| `doblada_snapshot_service.py` | Captura y restaura snapshots de turnos; reconciliación de días colaterales. `reconciliar_dobladas_aprobadas` (`:279`) re-aplica las dobladas vigentes **sin re-validarlas**, así que una que ya no encaje con el calendario actual puede levantar `ValidationError` desde los guardias de negocio del patrón 39. Es **reparación best-effort, no validación**: la llamada a `_reaplicar_una` va envuelta en `try/except ValidationError` (`:332-342`), se registra con `logger.error` (id de solicitud, tipo, fechas y motivo) y se **continúa** con las demás, para que nunca impida una cancelación legítima. Se captura **solo** `ValidationError`; cualquier otro fallo —de BD o de programación— sigue propagándose. Consecuencia operativa en § 16.2; decisión razonada en el [ADR 008](./03-arquitectura/adr/008-reconciliacion-best-effort.md) y generalizada como patrón 40 de `PROTECTION_PATTERNS.md` | servicios de aplicación |
+| `deuda_service.py`, `deuda_corporativa_service.py`, `doblada_deuda_service.py` | Generan, cancelan y saldan deudas | servicios de aplicación, PDH |
+| `doblada_pago_service.py` | Aplica el día de pago de una doblada. `aplicar_doblada_pago` es `@transaction.atomic` (`:23-24`) y despacha a una rama por modalidad: sábado (`_aplicar_pago_sabado`, `:97`), `jornada_cubre_en_pago` AMBAS/media, cesión parcial, `jornada_cedida` y fallback (`:63-94`). Tres ramas **validan antes de escribir** que el acreedor trabaje el día de pago: sábado (`:137-149`, § 8.3), `jcp_media` (`:300-307`) y `jornada_cedida` en su rama **parcial** (`:534-541`, dentro del `else` de `cesion_completa`, no al inicio del método). Las tres usan `BaseValidator._explorador_trabaja`. Las otras tres —`jcp_ambas`, `cesion_parcial` y el fallback— **no tienen guardia propia**; el cierre es **parcial** y el motivo de por qué no puede extenderse —medido, no razonado— está en § 16.2 | servicios de aplicación, PDH |
 | `cierre_solicitudes_service.py` | Calcula la ventana de cierre semanal: `cutoff_para_fecha` (`:123`), `fecha_bloqueada` (`:140`), `validar_fechas` (`:148`) | `SolicitudOrchestrator.verificar_cierre` |
 | `email_outbox_service.py` | Encola y reclama filas del outbox por UPDATE condicional | servicios de aplicación, comando `procesar_email_outbox` |
 | `email_service.py` | Plantillas, enlaces firmados y backend SMTP | outbox |
@@ -798,7 +805,7 @@ fuente de verdad del calendario está en [05-referencia/turnos/](./05-referencia
 | `services/validators/base_validator.py` | Reglas comunes a casi todos los tipos: día de mantenimiento con la precedencia de temporada (`:66`), `es_dia_temporada` (`:394-409`) y descanso de semana manual (`:419`) |
 | `services/validators/ct_validator.py` | Reglas del cambio de turno sencillo |
 | `services/validators/ct_permanente_validator.py` | Filtra los días no aptos del rango —fines de semana, festivos, mantenimiento, temporada, descansos y días comprometidos— y rechaza si no queda ninguno (`:186,219`) |
-| `services/validators/doblada_validator.py` | Días especiales de doblada: los festivos de lunes a viernes y la temporada **sí** están permitidos (`:173-197`); y el caso del deudor que descansa el día de pago (`:393`) |
+| `services/validators/doblada_validator.py` | Días especiales de doblada: los festivos de lunes a viernes y la temporada **sí** están permitidos (`:173-197`); el receptor que descansa el día de pago —casos 1.5/1.8 de la matriz— en `validar_receptor_tiene_jornada_en_fecha_pago` (`:271-292`), llamado desde `strategies/doblada_strategy.py:240`; y el caso del deudor que descansa el día de pago (`:393`) |
 | `services/solicitud_validator.py` | Validación de nivel de solicitud, por encima del tipo |
 
 ### 7.3 Tareas programadas, outbox y comandos de gestión
@@ -815,7 +822,7 @@ No hay Celery ni broker: el único trabajo diferido son los correos, resuelto co
 | `actualizar_codigos_estrategia` | Sincroniza `TipoSolicitudCambio.codigo_estrategia` | tras tocar el catálogo |
 | `archivar_solicitudes_antiguas` | Mueve solicitudes viejas | periódico |
 | `cancelar_deudas_fin_semana`, `cancelar_deudas_huerfanas` | Saneamiento de deudas | puntual |
-| `reaplicar_doblada`, `corregir_doblada_cesion_total` | Reparación manual | puntual |
+| `reaplicar_doblada` (`:257`), `corregir_doblada_cesion_total` (`:73`) | Reparación manual. ⚠ **Llaman a `aplicar_doblada_pago` sin validar y sin pasar por la guardia LIFO**, y se ejecutan cuando el día ya está descuadrado — el momento de más riesgo. `verificar_doblada.py:381` sugiere el de reaplicación al detectar errores. Ver § 16.2 | puntual |
 | `verificar_doblada`, `verificar_integridad_dobladas`, `verificar_efecto_aplicado`, `validar_dobladas_junio`, `validar_jornadas`, `test_factory`, `test_verificar_doblada_jeison`, `validar_fix_doblada_jeison` | Diagnóstico | manual |
 
 **Comandos de `turnos`** (`turnos/management/commands/`): `archivar_turnos_antiguos`,
@@ -827,6 +834,41 @@ sistema; ver § 16.
 
 El manual de operación del outbox está en
 [MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md).
+
+### 7.4 La costura donde el mensaje cambia de destinatario
+
+Los mensajes de validación nacieron en el formulario y están escritos en imperativo para **quien
+envía**: "Elige otra fecha de pago", "Realiza primero un cambio de turno sencillo". Los ~13 de
+DOBLADA viven en `solicitudes/services/validators/doblada_validator.py`. El problema aparece en la
+aprobación: `SolicitudAprobacionService` llama a `SolicitudFactory.revalidar_para_aprobar`
+(`solicitudes/services/solicitud_aprobacion_service.py:120`) y, si falla, quien lee el mensaje es
+el **aprobador**, que no puede ejecutar ninguna de esas instrucciones — la solicitud ya existe y él
+solo puede aprobarla o rechazarla.
+
+**Decisión: no se reescriben los mensajes; se reencuadran una sola vez en la costura.** El
+`return` de fallo es hoy (`solicitud_aprobacion_service.py:130-134`):
+
+```python
+return False, (
+    f"No se puede aprobar: la solicitud ya no es válida con el estado actual. "
+    f"Motivo: {msg_reval} "
+    f"(instrucciones dirigidas a quien la envió). Recházala para que pueda rehacerse."
+)
+```
+
+Antes devolvía `f"No se puede aprobar: {msg_reval}"`. El porqué de no tocar los 13 literales está
+comentado en el propio código (`:123-129`) y se sostiene en tres razones:
+
+| Razón | Dónde se comprueba |
+|---|---|
+| Son literales **documentados** en el manual de usuario | [manual_usuario.md](./manual_usuario.md), tabla de errores de doblada (`:976`) y nota de estilo (`:1431`); origen del literal en `doblada_validator.py:267` |
+| Hay tests que verifican **subcadenas** de esos mensajes | `solicitudes/tests/test_matriz_dobladas.py:2121,2600,2727` |
+| `CancelarSolicitudView` decide el **código HTTP** inspeccionando el texto (`'más reciente' in msg`) | `solicitudes/views/aprobacion_views.py:64-72`; ver § 16.2 |
+
+Es la regla 5 del patrón 39 de `PROTECTION_PATTERNS.md`: un mensaje que atraviesa dos rutas no
+puede dar instrucciones de rol. Cuando el mensaje sí es propio del servicio de escritura —el guard
+de sábado— se aplica la regla en origen y se describe el problema en vez de ordenar nada
+(`solicitudes/services/doblada_pago_service.py:144-150`).
 
 ---
 
@@ -867,6 +909,7 @@ Cinco reglas atraviesan los seis formularios. Son el núcleo del dominio.
 | P2 | **No se encadenan cambios de descanso.** Solo se cede el descanso de temporada original; un intercambio nuevo cancela el anterior en vez de apilarse | `cambio_descanso_aplicacion_service.py:373` (documenta por qué no se marcan reemplazos cuando la solicitud no estaba aplicada) y `services/strategies/cambio_descanso_strategy.py:444` | `solicitudes/tests/test_politica_temporada.py` | Se pierde el rastro de a quién pertenece el descanso original |
 | P3 | **Los días de descanso de temporada solo se tocan desde CAMBIO DESCANSO.** Son dos fechas por semana, no la temporada entera: el resto de la temporada sigue disponible para los demás formularios | Regla y motivo en `turnos/services/descanso_semana_service.py:42-60` (`es_dia_descanso_temporada`); rechazo en `solicitudes/services/strategies/doblada_strategy.py:189-197` | `solicitudes/tests/test_politica_temporada.py:222` | Un formulario ajeno cede un descanso fijado y el cómputo semanal de CAMBIO DESCANSO deja de cuadrar |
 | P4 | **Reversión al cancelar.** Cancelar restaura `snapshot_turnos_previos` y cancela las deudas generadas, dentro de una ventana de 30 minutos desde `fecha_resolucion`, y solo si pasan la guardia LIFO y la de integridad | `solicitudes/use_cases/cancelar_solicitud.py:20` (`VENTANA_CANCELACION_MINUTOS = 30`), `:206-249`, `:254-287` (LIFO), `:289-300` (integridad), `:474` (`_revertir_por_tipo`) | Commit `40a7ed8`: reversión de las cinco opciones de temporada | Se pisa el cambio de otra persona: se restaura un turno que el compañero ya no tiene |
+| P4b | **La reconciliación posterior a una cancelación es best-effort, no todo-o-nada.** Restaurado el snapshot, `reconciliar_dobladas_aprobadas` re-aplica **sin re-validar** las solicitudes aprobadas vigentes de esos días. Si una ya no encaja con el calendario actual y levanta `ValidationError`, se **omite** —no entra en el conjunto de reaplicadas, así que su `snapshot_turnos_resultantes` tampoco se refresca—, se registra a nivel `ERROR` y el bucle sigue. Ninguna solicitud ajena puede bloquear la cancelación de otra. Solo se captura `ValidationError`; cualquier otra excepción propaga y aborta | `solicitudes/services/doblada_snapshot_service.py:279` (método), `:332-342` (`try/except` + `logger.error`), `:343` (`reaplicadas.add` fuera del `try`) | `TestReconciliacionNoTumbaLaCancelacion` (`solicitudes/tests/test_matriz_dobladas.py:3051`, caso `test_una_doblada_que_ya_no_encaja_no_impide_cancelar_otra` en `:3072`) | Queda una solicitud **aprobada** cuyo efecto **no está materializado** en turnos. Consta en el log de ERROR (id, tipo, fechas, motivo) y lo detecta `python manage.py verificar_efecto_aplicado`, que además lo repara con `--reparar`. Lo que falta es la **alerta**: hoy hay que ejecutar el comando o leer el log (§ 16.2, § 18 fila 22, [ADR 008](./03-arquitectura/adr/008-reconciliacion-best-effort.md)) |
 | P5 | **Re-validación al aprobar.** Antes de aplicar nada se vuelve a validar contra el estado actual, porque entre la creación y la aprobación el mundo pudo cambiar | `solicitudes/services/solicitud_aprobacion_service.py:120` → `solicitudes/services/solicitud_factory.py:293,308` → `services/strategies/base_strategy.py:84` | Suite de aprobación en `solicitudes/tests/` | Se aplica un acuerdo que ya era ilegal cuando se aprobó |
 
 ### 8.3 Reglas por área
@@ -879,6 +922,9 @@ Cinco reglas atraviesan los seis formularios. Son el núcleo del dominio.
 | No existen dobladas abiertas: `fecha_pago` es obligatoria | `solicitudes/models.py:387-389` | Deuda sin vencimiento |
 | Cada doblada acumula 30 minutos de deuda corporativa | `solicitudes/models.py:641,663-666` | El consolidado no refleja lo trabajado |
 | Un intercambio de dobladas (`es_intercambio=True`) **no genera ni altera deudas**: es un swap de días | `solicitudes/models.py:403-408` | Deuda inventada |
+| **No se paga una doblada en un sábado que el receptor descansa.** Si no trabaja, no hay jornada suya que cubrir. Se valida dos veces: aguas arriba en `doblada_validator.py:271-292` (desde `doblada_strategy.py:240`) y **dentro del servicio, antes de cualquier escritura**, en `doblada_pago_service.py:137-149`, porque al servicio se entra desde tres rutas —creación, re-validación al aprobar y aprobación por enlace de correo— y no puede confiar en que alguien mirara. `aplicar_doblada_pago` es `@transaction.atomic` (`:23`), así que el `ValidationError` no deja estado a medias. El mensaje **describe el problema y no ordena una acción** ("La doblada debe rehacerse con otra fecha de pago", `:147-148`): lo lee tanto el solicitante al enviar como el aprobador al aprobar, y el aprobador no puede cambiar la fecha. El motivo está comentado en el código (`:141-143`) para que no se "mejore" de vuelta a un imperativo. **En la web es defensa en profundidad**: creación y aprobación re-validan, y la reconciliación, que re-aplica sin validar, solo corre dentro de un `revertir(...)` protegido por la guardia LIFO. Fuera de la web **no**: los comandos de gestión `reaplicar_doblada` (`solicitudes/management/commands/reaplicar_doblada.py:257`) y `corregir_doblada_cesion_total` (`:73`) entran al servicio sin validar y sin LIFO, así que ahí este guard es el único que hay. Por eso vive donde está la escritura. El mismo guard existe ya para dos ramas de pago entre semana (`:300-307`, `:534-541`); las otras dos siguen sin él por un motivo de diseño que se explica en § 16.2. El bug **real y demostrado** que apareció de camino es otro: la doble cobertura de la fila siguiente, alcanzable por aprobación normal. Cubierto por `solicitudes/tests/test_matriz_dobladas.py:2635` (`TestPagoSabadoReceptorDescansa`: `:2702` rechazo y ausencia de turno creado, `:2722` contraprueba del reparto legítimo) | El reparto de sábado, que le quita al receptor la mitad cubierta y le **crea** la contraria si no la tiene, le inventa un turno en un día libre |
+| **Excepción**: que el receptor no tenga turnos ese sábado es legítimo si la **otra mitad del día ya la cubre otra doblada aprobada**, **la pague quien la pague**. Un único helper decide, `DobladaPagoService._mitad_contraria_cubierta_por_otra_doblada(solicitud, receptor, fecha_pago, jornada_sel)`: filtra por `explorador_receptor`, tipo `DOBLADA`/`D_FDS`, `estado='aprobada'`, misma `doblada__fecha_pago` y `doblada__jornada_pago_sabado` contraria, excluyendo la propia solicitud. **No filtra por `explorador_solicitante`**: que dos deudores distintos cubran cada mitad del sábado del acreedor es legítimo y ya está modelado en el dominio — `DescansoPorSolicitudService` atribuye el descanso del receptor acumulando las mitades de **todas** las solicitudes en que es receptor esa fecha, con `{'AM','PM'} <= e['parciales']`, sin mirar quién paga cada una | Helper: `solicitudes/services/doblada_pago_service.py:97-121`; consumido por el guard (`:137-138`) y por la rama `_contraria_tambien_cubierta` del reparto (`:223-224`). Atribución del descanso: `solicitudes/services/descanso_solicitud_service.py:162,203-211`.<br>**No confundir con `_otra_mitad_pagada`** (`doblada_pago_service.py:198-204`): esa consulta se parece mucho y pregunta lo contrario — el sujeto es el **deudor** ("¿ya trabajo yo la otra mitad de este sábado?"), no el acreedor, y por eso **sí** filtra por `explorador_solicitante` y **no** filtra por receptor: las dos mitades pueden pagarse a personas distintas. Están deliberadamente separadas y el motivo está comentado en el código (`:193-197`); unificarlas rompe una de las dos | Con el filtro por mismo deudor fallaban dos cosas: el reparto **recreaba** al receptor la mitad que otro deudor ya cubría (dos personas en el mismo turno) y el guard rechazaba re-aplicaciones legítimas (reconciliación, re-validación al aprobar, aprobación por enlace). Sentinelas: `solicitudes/tests/test_matriz_dobladas.py:2759` y `:2795` |
+| **Tampoco se paga una doblada entre semana a un acreedor que descansa — pero solo dos de las cuatro ramas lo comprueban.** Guard con `BaseValidator._explorador_trabaja(receptor, fecha_pago)` en `_aplicar_pago_jcp_media`, al inicio y antes de escribir (`solicitudes/services/doblada_pago_service.py:300-307`), y en `_aplicar_pago_jornada_cedida` **dentro de su rama parcial**, el `else` de `tipo_cesion == 'cesion_completa'` (`:534-541`) — deliberadamente ahí y no al inicio del método. Mismo texto en las dos: "…no trabaja el DD/MM/AAAA: ese día descansa, así que no tiene una jornada que cubrirle para pagar la doblada. La doblada debe rehacerse con otra fecha de pago." Solo estas dos porque **conservan** una jornada al acreedor: al re-aplicar, `_explorador_trabaja` ve un turno real y el guard no salta. `cesion_parcial`, el fallback y `jornada_cedida` con `cesion_completa` dejan al acreedor sin turnos por diseño y el guard bloquearía su propia re-aplicación **ya en la primera aplicación** — medido, § 16.2. Cubierto por `TestGuardPagoEntreSemana` (`solicitudes/tests/test_matriz_dobladas.py:2948`, rechazos en `:2988` y `:3030`, regresión de re-aplicación en `:3005`) | Guard: `doblada_pago_service.py:300-307` y `:534-541`; motivo comentado en `:284-299` y `:528-533` | **Corrección respecto a versiones anteriores de este manual:** el daño de las ramas sin guardia **no** es "fabricarle un turno al acreedor". Auditado empíricamente con un acreedor que descansa por alternancia de fin de semana: al acreedor **no se le inventa nada**, se queda sin turnos, que es lo correcto. El perjudicado es el **deudor**, que acaba con **AM+PM** cubriendo jornadas que nadie iba a trabajar y, al quedar doblado, carga además los **30 minutos de deuda corporativa**: trabaja de más por un turno inexistente. La rama de control `jcp_media` quedó **bloqueada** correctamente por su guard en esa misma medición |
 | CT PERMANENTE solo de lunes a viernes | `solicitudes/models.py:330-349` (`CambioPermanenteDia.save`) | Turnos permanentes en fin de semana |
 | DOBLADA PERMANENTE no permite domingos | `solicitudes/models.py:490` | Ídem |
 | Un solo turno **activo** por (explorador, fecha, jornada) | `turnos/models.py:80-83`, garantizado por la base de datos | La persona aparece dos veces en la misma jornada y el consolidado cuenta doble |
@@ -1455,6 +1501,58 @@ python .claude/skills/project-documentation-master/scripts/md_to_pdf.py \
 Requiere Microsoft Word (usa COM). El PDF **nunca** se edita a mano: se regenera desde el
 Markdown, que es la fuente de verdad.
 
+Si Word aborta con *"no podemos guardar el archivo porque es de solo lectura"*, casi siempre hay un
+**visor con el PDF abierto** bloqueando la escritura (Adobe Reader lo hace); ciérralo y repite. El
+atributo del archivo puede seguir siendo normal, así que el mensaje despista.
+
+#### El aviso automático de documentación desfasada
+
+Un hook `Stop` (`.claude/hooks/docs-desactualizados.sh`) avisa al terminar una sesión de trabajo
+cuando la documentación pudo quedarse atrás. Emite **dos** avisos distintos, que conviene no
+confundir:
+
+| Aviso | Cómo se decide | Qué hacer |
+|---|---|---|
+| Falta exportar | El `.md` es más nuevo que su PDF (por fecha de archivo: son dos artefactos del mismo árbol) | Regenerar el PDF con el comando de arriba |
+| Código sin revisar | El commit actual o el trabajo sin confirmar no coinciden con el **sello** `docs/.revisado-hasta` | Juzgar si esos cambios afectan a los manuales, actuar en consecuencia y **sellar** |
+
+Sellar una revisión —tanto si hubo que escribir algo como si se concluyó que no hacía falta—:
+
+```bash
+bash .claude/hooks/sellar-docs.sh
+```
+
+El sello guarda dos datos: el `commit` revisado y una huella **por contenido** del código aún sin
+confirmar. La segunda línea es la que evita el ruido: sin ella, cualquier rama con trabajo en curso
+dejaría el aviso saltando en cada sesión hasta commitear.
+
+**Por qué un sello y no la fecha de los PDF** (que es como funcionaba antes): el `mtime` no
+sobrevive a git — `git clone` escribe todos los archivos con la hora del clon, y `checkout`, `pull`
+o `stash pop` lo revuelven igual, así que el resultado pasaba a depender del orden de escritura.
+Además confundía *"el PDF está viejo"* con *"falta documentación"*: un cambio de código sin efecto
+en los manuales dejaba el aviso saltando para siempre, porque revisarlo y concluir "no hacía falta"
+no dejaba rastro. Y un aviso que salta siempre se acaba ignorando siempre.
+
+**Dos limitaciones conocidas, ambas a propósito:**
+
+1. **Los hooks no se versionan.** `.gitignore:44` ignora `.claude/` entero, así que
+   `docs-desactualizados.sh` y `sellar-docs.sh` viven solo en la máquina de quien los escribió; el
+   sello sí se versiona. Sacar `hooks/` de esa regla **no basta**: el hook lo dispara el bloque
+   `"Stop"` de `.claude/settings.json`, también ignorado, y ese archivo mezcla la configuración del
+   proyecto con ~200 líneas de permisos locales (rutas de la máquina, scripts de depuración). Si
+   algún día el repo lo trabaja más de una persona, la forma correcta es versionar `hooks/` **y**
+   `settings.json`, moviendo antes el allowlist de permisos a `settings.local.json`, que sí es
+   personal. Hacerlo a medias deja scripts en el árbol que nadie ejecuta.
+2. **La lista de archivos "sin commitear" peca de larga.** El sello guarda una huella del conjunto,
+   no la lista de archivos, así que el hook sabe *que* algo cambió pero no *cuál* respecto a la
+   última revisión: enumera todo lo modificado frente a `HEAD`. Con lo ya commiteado no ocurre (ahí
+   compara `sello..HEAD` y es exacto). Nunca oculta un archivo que cambió; muestra de más. Se
+   corregiría guardando `archivo:hash` en el sello, a cambio de un sello de decenas de líneas que
+   ensucia cada diff — no compensa con el volumen actual.
+
+Un cambio que solo toca tests **no** dispara el aviso: la especificación de rutas excluye
+`tests/`, `migrations/`, `docs/` y los estáticos de terceros.
+
 ### 12.6 Desplegar
 
 Ver § 13 y los checklists de [05-referencia/deployment/](./05-referencia/deployment/).
@@ -1809,8 +1907,8 @@ cobertura no se midió en esta pasada: ver § 18.
 | [004](./03-arquitectura/adr/004-variables-de-entorno-django-environ.md) | Variables de entorno con django-environ | Configuración fuera del código, un único `settings.py` |
 | [005](./03-arquitectura/adr/005-pendientes-aws.md) | Pendientes para despliegue en AWS | Lista de trabajo de infraestructura |
 | [006](./03-arquitectura/adr/006-tokens-firmados-para-aprobacion-por-correo.md) | `django.core.signing` para los tokens de aprobación por correo | Una credencial que actúa sin sesión se firma en un solo sitio con `SECRET_KEY` y caduca. Recoge por qué se descartaron el HMAC propio, la tabla de tokens gastados y la caché |
-
 | [007](./03-arquitectura/adr/007-paginas-de-error-propias-y-request-id.md) | Páginas de error propias e identificador de petición | Las pantallas técnicas de Django filtraban el URLconf completo y el traceback. Se sustituyen por cinco plantillas autocontenidas y se traza cada petición con un código opaco que el usuario puede reportar. Ver § 9.5 |
+| [008](./03-arquitectura/adr/008-reconciliacion-best-effort.md) | La reconciliación tras cancelar es una reparación best-effort | Un `ValidationError` de una solicitud ajena abortaba la cancelación entera y dejaba al usuario sin salida. Ahora esa pieza se omite y se registra. Contrapartida asumida: consistencia diferida, auditable con `verificar_efecto_aplicado`. Ver § 8.2 (P4b) y § 16.2 |
 
 Los cuatro primeros están fechados en 2026-06 y marcados **Implementado**; el 005 no lleva
 cabecera de estado y es una lista de pendientes, no una decisión cerrada.
@@ -1826,7 +1924,7 @@ que deberían tener el suyo: el patrón outbox, la `UniqueConstraint` con column
 
 ### 16.1 El catálogo de protecciones
 
-`PROTECTION_PATTERNS.md` (raíz del repositorio) recoge **37 patrones** aplicados, cada uno con
+`PROTECTION_PATTERNS.md` (raíz del repositorio) recoge **39 patrones** aplicados, cada uno con
 su motivo y el caso real que lo provocó. Es lectura obligatoria antes de tocar cualquier flujo
 de escritura. Los que más restringen lo que puedes hacer:
 
@@ -1847,6 +1945,43 @@ de escritura. Los que más restringen lo que puedes hacer:
 | 33 | Al re-aplicar, el conjunto de días afectados se **cierra** antes de escribir | Incluir los días colaterales |
 | 35 | La regla se valida sobre el campo que **manda al aplicar** | No sobre el que la declara |
 | 37 | Un desplegable de candidatos filtra por las **mismas fechas** que valida el envío | Selector y validación se cambian en el mismo commit |
+| 38 | Una credencial no se genera al vuelo: se inyecta y se verifica al arrancar | Ver § 9.5 y el [ADR 006](./03-arquitectura/adr/006-tokens-firmados-para-aprobacion-por-correo.md) |
+| 39 | **La guardia vive donde está la ESCRITURA, no solo en la estrategia** (`PROTECTION_PATTERNS.md:1585`) | Todo `*_aplicacion_service` / `*_pago_service` valida sus precondiciones antes de la primera escritura, aunque ya estén validadas aguas arriba; **lanza, no arregla**; y su mensaje no da instrucciones de rol. Ampliado con la auditoría de esta rama: la **puerta abierta son los comandos de gestión**, el cierre de `aplicar_doblada_pago` es **parcial** y con su motivo, el principio "**una guardia que consulta el estado posterior no sirve en un método cuyo efecto es cambiar ese estado**", y el aviso de **no mover** la guardia de `jornada_cedida` al inicio del método |
+
+La regla más generalizable del patrón 39 es la 4: **un `create()` dentro de un `if not
+...exists()` es la señal de alarma**. Pregúntate si ese registro falta porque *no debía existir*,
+en vez de tratarlo como un hueco que rellenar. Ese fue exactamente el bug del reparto de sábado:
+al acreedor que descansaba se le "completaba" la jornada ausente, inventándole un turno.
+
+⚠️ **Las cinco ramas restantes de `aplicar_doblada_pago` están auditadas y el cierre es PARCIAL.**
+`jcp_ambas` está limpia en este eje. `jcp_media` y `jornada_cedida` repetían la forma del bug de
+sábado y **ya llevan el guard** (`doblada_pago_service.py:300-307` y `:534-541`). `cesion_parcial`
+y el fallback **siguen expuestas**: no fabrican turno, pero validan con la jornada **base** en vez
+de con "¿trabaja?".
+
+**Qué daño hacen exactamente** (auditado empíricamente, con un acreedor que descansa por
+alternancia de fin de semana; corrige lo que decían versiones anteriores de este manual): al
+**acreedor no se le inventa ningún turno** — se queda sin turnos, que es lo correcto. El
+perjudicado es el **deudor**: termina con **AM+PM**, cubriendo jornadas que **nadie** iba a
+trabajar, y al quedar doblado se le generan además los **30 minutos de deuda corporativa**.
+Trabaja de más por un turno inexistente. En la misma medición, la rama de control `jcp_media`
+quedó **bloqueada** por su guard, como se esperaba.
+
+El LIFO **no las protege del todo**. Tapa la reconciliación, pero no los comandos de gestión
+`reaplicar_doblada` (`solicitudes/management/commands/reaplicar_doblada.py:257`) y
+`corregir_doblada_cesion_total` (`:73`), que llaman a `aplicar_doblada_pago` sin validar y sin
+pasar por el LIFO — y se ejecutan justo cuando un día ya está descuadrado.
+
+Por qué solo dos ramas y no cuatro: `cesion_parcial`, el fallback y `jornada_cedida` en
+`cesion_completa` dejan al acreedor **sin turnos por diseño**. Como `TurnoService.estado_dia`
+cuenta el descanso por solicitud aprobada y no admite excluir la solicitud en curso, el guard
+bloquearía su **propia re-aplicación**. Esto está **medido, no razonado**: se instrumentó
+`BaseValidator._explorador_trabaja(acreedor, fecha_pago)` **antes** de aplicar en esas ramas y ya
+devuelve `False`, porque en cuanto la solicitud pasa a `aprobada` `DescansoPorSolicitudService` le
+atribuye el descanso a **esa misma solicitud**. Es decir, el guard no bloquearía solo la
+re-aplicación: se bloquearía a sí mismo en la **primera** aplicación. No es "arriesgado": es que no
+funciona. Detalle, invariante y la solución pendiente
+(`snapshot_turnos_previos`) en § 16.2; la limitación viva, en § 18, filas 19 y 20.
 
 El archivo tiene además una matriz de patrones por flujo (`PROTECTION_PATTERNS.md:1087`), un
 checklist para flujos nuevos (`:1541`) y una sección de **deuda conocida pendiente de
@@ -1863,6 +1998,11 @@ verdad" del árbol documental. Ver § 18.
 | Reversión de una cancelación | Restaurar el snapshot pisa cambios ajenos si alguien tocó el día. Las dos guardias no ven permisos especiales, reprogramaciones ni ediciones del admin (`use_cases/cancelar_solicitud.py:289-300`) | No añadir rutas de escritura de turnos que salten los servicios de aplicación |
 | `Role` y `Jornada` | Se buscan **por nombre literal**. Renombrar "Supervisor" deja la operación sin supervisores; borrar `AM`/`PM` rompe el motor | Los `NOMBRES_PROTEGIDOS` lo impiden; no los ablandes (`empleados/models.py:73-85,19-23`) |
 | Turnos duplicados | El invariante se sostenía por la disciplina de delete-then-create repetida en unos quince sitios | Ahora lo garantiza la base de datos (`turnos/models.py:73-83`). No desactives esa constraint |
+| El reparto de sábado de una doblada | `_aplicar_pago_sabado` da por sentado que el receptor trabaja: le quita la mitad cubierta y le **crea** la contraria si no la tiene (`solicitudes/services/doblada_pago_service.py:124-135`). Con un receptor que descansa, eso no falla: escribe un turno falso. Y al servicio se entra desde tres rutas distintas, así que una validación solo en la estrategia no lo protege | Invariante: el guard de `:137-149` va **antes de cualquier escritura**. Su excepción y la rama `_contraria_tambien_cubierta` del reparto (`:223-224`) comparten ya **un único helper**, `_mitad_contraria_cubierta_por_otra_doblada` (`:97-121`): no vuelvas a duplicar el criterio. Y **no le añadas un filtro por `explorador_solicitante`**: reintroducirlo revive la doble cobertura cuando dos deudores distintos cubren cada mitad (test sentinela `solicitudes/tests/test_matriz_dobladas.py:2759`). Registrado como **patrón 39** de `PROTECTION_PATTERNS.md` (`:1585`) |
+| **Pago de doblada entre semana: dos ramas guardadas, dos todavía expuestas** (cierre parcial) | Cuatro ramas escribían el día de pago sin comprobar que el acreedor trabaje. **Ya guardadas:** `_aplicar_pago_jcp_media` (guard al inicio, `solicitudes/services/doblada_pago_service.py:300-307`) y `_aplicar_pago_jornada_cedida` en su rama **parcial** (guard dentro del `else` de `cesion_completa`, `:534-541`). Ambas usan `BaseValidator._explorador_trabaja` y lanzan `ValidationError` con el mismo texto que el de sábado ("…no trabaja el DD/MM/AAAA: ese día descansa… La doblada debe rehacerse con otra fecha de pago"). **Siguen expuestas:** `_aplicar_pago_cesion_parcial` (`:351-443`) y `_aplicar_pago_fallback` (`:565-640`), que **no le fabrican ningún turno al acreedor** —se queda sin turnos, que es lo correcto— pero validan con `JornadaService.get_jornada_explorador_fecha` — devuelve la jornada **BASE** ("esta persona es AM"), no si **trabaja** ese día; recibe una fecha, así que parece responder lo segundo y responde lo primero, y contesta `'AM'` igual un día de descanso. En `cesion_parcial` se entra a ese camino justo cuando el acreedor **no tiene turnos**, el aspecto de un día libre; el `raise` existente (`:389-393`) solo salta si nunca se le asignó jornada base, que es otra situación. **La puerta abierta son los comandos de gestión, no la reconciliación:** `reaplicar_doblada` (`solicitudes/management/commands/reaplicar_doblada.py:257`) y `corregir_doblada_cesion_total` (`:73`) llaman a `aplicar_doblada_pago` sin validar y sin pasar por el LIFO; `verificar_doblada.py:381` imprime el de reaplicación como sugerencia al detectar errores, y lo indican dos guías de operación (`docs/05-referencia/solicitudes/dobladas/CHECKLIST_SOLUCION_DOBLADA.md`, `GUIA_RAPIDA_REAPLICAR_DOBLADA.md`), que **ya llevan un aviso destacado**: `reaplicar_doblada` no valida nada, hay que comprobar en Mis Turnos que el acreedor **trabaje** la fecha de pago —la jornada asignada no sirve: dice "es AM" aunque ese día descanse— y si descansa **no** reaplicar. Es el momento de más riesgo: se ejecutan cuando el día **ya** está descuadrado. El LIFO solo tapa la vía de la reconciliación (`doblada_snapshot_service.py:463` dentro de un `revertir(...)`; `use_cases/cancelar_solicitud.py:182,223,254,420,444`).<br>**El daño, medido (corrige lo que decía este manual):** no es "le fabrican un turno al acreedor". Al acreedor **no se le inventa nada**: se queda sin turnos. El perjudicado es el **deudor**, que acaba con **AM+PM** cubriendo jornadas que nadie iba a trabajar y carga los **30 minutos de deuda corporativa** por quedar doblado. Trabaja de más por un turno inexistente | **Invariante 1 — por qué solo dos ramas.** `cesion_parcial`, el fallback y `jornada_cedida` con `cesion_completa` dejan al acreedor **sin turnos por diseño** (en `cesion_parcial` está escrito "El acreedor descansa", `:423-424`; `eliminar_turnos_explorador(receptor, ...)` en `:519` y `:632`). Como `TurnoService.estado_dia` incluye el descanso por solicitud aprobada y **no admite excluir la solicitud en curso**, al RE-aplicar la misma solicitud —que es exactamente lo que hace `reaplicar_doblada`— el acreedor consta descansando **por culpa de ella** y el guard bloquearía su propia re-aplicación. Una comprobación sobre el estado POSTERIOR no distingue "descansa porque yo lo dejé así" de "descansa porque no le tocaba". Y no es una sospecha: se **midió** `BaseValidator._explorador_trabaja(acreedor, fecha_pago)` **antes** de aplicar en esas ramas y ya devuelve `False`, porque con la solicitud en `aprobada` `DescansoPorSolicitudService` atribuye el descanso a **esa misma solicitud** (`solicitudes/services/descanso_solicitud_service.py:162,203-211`). El guard se bloquearía a sí mismo ya en la **primera** aplicación, no solo al repetirla. No es "arriesgado": no funciona. La solución correcta sería comparar contra `snapshot_turnos_previos` (el mundo anterior a aplicar): **no se ha hecho**, es un cambio de más calado y está sin decidir (§ 18, fila 20). **Invariante 2:** las dos guardadas lo son porque **conservan** una jornada al acreedor; al re-aplicar, `_explorador_trabaja` ve un turno real y el guard no salta. No muevas el guard de `jornada_cedida` al inicio del método: caería sobre `cesion_completa` y rompería su re-aplicación. **Invariante 3:** si se debilita el LIFO, las dos ramas expuestas quedan además sin la cobertura de la reconciliación. Lo fijan `TestLifoProtegeLaReconciliacion` (`solicitudes/tests/test_matriz_dobladas.py:2864`) y `TestGuardPagoEntreSemana` (`:2948`: rechazo en `:2988` y `:3030`, y la regresión `test_jcp_media_reaplicar_no_se_autoengana` en `:3005`, que demuestra que re-aplicar no se bloquea a sí mismo). Verificado que los dos tests de rechazo tienen dientes: neutralizando los guards, fallan. Sigue siendo señal del **patrón 39** |
+| La reconciliación tras cancelar (`reconciliar_dobladas_aprobadas`) | Re-aplica las dobladas vigentes de esos días **sin re-validarlas** (`solicitudes/services/doblada_snapshot_service.py:279`). Desde que los servicios de aplicación llevan guardias de negocio (patrón 39), una solicitud vigente que ya no encaja con el calendario actual levanta `ValidationError` al re-aplicarse — estado **demostrado empíricamente**: una doblada aprobada cuyo pago cae en un sábado donde el acreedor ya no trabaja. Antes ese error subía por el bucle y **abortaba la transacción de cancelación**: el usuario no podía cancelar por culpa de una solicitud ajena que él no puede arreglar | **Riesgo cerrado.** `_reaplicar_una` va dentro de un `try/except ValidationError` (`doblada_snapshot_service.py:332-342`): se registra con `logger.error` —id de solicitud, tipo, fechas y motivo— y se **continúa** con las demás. Razón: la reconciliación es **reparación best-effort, no una validación**; si una pieza no se puede recolocar se anota y se sigue, pero nunca debe impedir una cancelación legítima. Invariante: capturar **solo** `ValidationError` (precondición de negocio); cualquier otro fallo —BD, programación— debe seguir propagándose, porque ahí sí conviene abortar. No amplíes ese `except`. **Consecuencia operativa:** cuando ocurre, la solicitud sigue **aprobada** pero su efecto queda **sin materializar**, y no salta ningún aviso. El auditor **sí existe**: `python manage.py verificar_efecto_aplicado` lista las solicitudes aprobadas cuyo efecto ya no está en los turnos y `--reparar` las re-materializa; funciona precisamente porque el resultante de la omitida no se refrescó. La deuda que queda es la **alerta automática** sobre ese log de ERROR (§ 18). Razonado en el [ADR 008](./03-arquitectura/adr/008-reconciliacion-best-effort.md), junto con las alternativas descartadas (re-validar antes de re-aplicar, cancelar en cascada, marcar la solicitud como inválida). Test: `TestReconciliacionNoTumbaLaCancelacion` (`solicitudes/tests/test_matriz_dobladas.py:3051`, caso en `:3072`), verificado con dientes: cambiando el tipo de excepción capturada, falla |
+| Las dos consultas gemelas del sábado en `doblada_pago_service.py` | `_mitad_contraria_cubierta_por_otra_doblada` (`:97-121`) y `_otra_mitad_pagada` (`:198-204`) tienen casi el mismo `filter()` y preguntan cosas opuestas: la primera por el **acreedor** (¿alguien cubre su otra mitad?), la segunda por el **deudor** (¿ya trabajo yo la otra mitad?). Por eso una filtra por `explorador_receptor` y la otra por `explorador_solicitante`. Unificarlas "porque están duplicadas" rompe una de las dos | Invariante: se quedan separadas. El motivo está comentado en el código (`:193-197`) y en el aviso ⚠ del patrón 39. Hay además una **tercera** copia del criterio en `strategies/doblada_strategy.py:288-303` (`_es_complemento_sabado`), asimétrica a propósito y hoy verificada como inofensiva (§ 18, fila 17) |
+| Los dos selectores de pago de doblada | El de sábado y el de día de semana (`sincronizarSelectorPagoSabado` `:398` y `sincronizarOpcionesCubrePagoReceptorDoblada` `:444`, en `static/js/cambio-turno/solicitar_doblada.js`) resuelven la misma pregunta con datos que llegan en **dos respuestas asíncronas independientes** y en orden no garantizado (el receptor puede resolverse después de la fecha). Por eso la decisión de sábado se guarda en `sabadoDatosDeudor` (`:81`) y se reevalúa desde ambos flujos (`:1439`, `:1540`) | No devolver la lógica a un bloque inline dentro de un `.then`. Al cambiar la fecha de pago hay que resetear `sabadoDatosDeudor` junto a `estadoReceptorPago` (`:1064`). Patrón 37: si cambias el criterio del selector, cambias en el mismo commit el del backend |
 | Selectores de compañero | Un desplegable que filtra por criterios distintos a los que valida el envío ofrece candidatos que el backend tumba | Patrón 37; ocurrió en `9c429e3` y en `4dd6cd6` |
 | Caché de "Mis Turnos" | Con `LocMemCache` y varios workers, la invalidación limpia un solo proceso | `CACHE_URL` obligatorio en producción (`config/settings.py:279-296`) |
 | El shim de `window.fetch` | Está en el camino de **todas** las peticiones del frontend. Un `.catch` encadenado convertiría un fallo de red en promesa resuelta y los formularios dejarían de mostrar su aviso; devolver algo distinto de la `Response` original rompería a todos sus consumidores | Invariante: no encadenar `.catch`, no alterar argumentos ni respuesta, y mantener la lectura de la cabecera dentro del `try/catch` (`static/js/utils/codigo-referencia.js:89-107`). Candidato a patrón nuevo en `PROTECTION_PATTERNS.md` |
@@ -1898,12 +2038,27 @@ que actúa sin sesión se firma en un solo sitio, caduca y falla cerrada) y razo
 ## 17. Cambios técnicos relevantes
 
 Changelog para desarrolladores, del más reciente al más antiguo. Cada línea corresponde a un
-commit real del repositorio.
+commit real del repositorio, **salvo** las marcadas *(sin commit aún)*: ese trabajo sigue en el
+árbol de la rama `fix/cambio-descanso-temporada` y aún no se ha confirmado. Ninguno de los cuatro
+archivos que tocan —`doblada_pago_service.py`, `doblada_snapshot_service.py`,
+`test_matriz_dobladas.py` y `solicitar_doblada.js`— tiene todavía un commit en la rama, así que la
+marca es literal, no un descuido de redacción.
+
+### Aviso al elegir un día de pago que ya se trabaja AM+PM
+
+Commit `e93ce3b` (*fix(cobertura): avisar cuando el dia de pago ya se trabaja AM+PM*).
+
+| Cambio | Impacto |
+|---|---|
+| El aviso de "ese día ya doblas, no te queda jornada con la que pagar" se adelanta a la elección del día | `_validar_semana_cobertura` ya lo rechazaba, pero el usuario se enteraba al enviar, con el formulario entero relleno |
+| La sincronización del select compartido de compañero se limita a los sub-tipos que lo usan (`intercambio_dia` y `jornadas_partidas`) | En cobertura el compañero se elige en `cob-select-1` y el compartido está oculto y vacío: sincronizar contra él borraba la selección buena, y el formulario pedía un compañero que ya estaba elegido |
+| Tests en `solicitudes/tests/test_cambio_doblada_candidatos.py` | Regresión de ambas mitades |
 
 ### Páginas de error propias y trazabilidad de la petición
 
-Cambio **en el árbol de trabajo, todavía sin commit** al redactar esta entrada (rama
-`fix/cambio-descanso-temporada`). Detalle completo en § 9.5 y [ADR 007](./03-arquitectura/adr/007-paginas-de-error-propias-y-request-id.md).
+Commit `65c08ac` (*feat(errores): paginas de error propias y codigo de referencia por peticion*),
+rama `fix/cambio-descanso-temporada`. Detalle completo en § 9.5 y
+[ADR 007](./03-arquitectura/adr/007-paginas-de-error-propias-y-request-id.md).
 
 | Cambio | Impacto |
 |---|---|
@@ -1919,8 +2074,8 @@ Cambio **en el árbol de trabajo, todavía sin commit** al redactar esta entrada
 
 ### Seguridad de los enlaces de aprobación por correo
 
-Cambio **en el árbol de trabajo, todavía sin commit** al redactar esta entrada (rama
-`fix/cambio-descanso-temporada`).
+Commit `425ab8e` (*feat(seguridad): firmar los enlaces de aprobacion por correo*), rama
+`fix/cambio-descanso-temporada`.
 
 | Cambio | Impacto |
 |---|---|
@@ -1938,6 +2093,27 @@ Cambio **en el árbol de trabajo, todavía sin commit** al redactar esta entrada
 
 | Commit | Cambio | Impacto |
 |---|---|---|
+| *(sin commit aún)* | **El pago en sábado exige que el receptor trabaje ese día.** Guard nuevo al principio de `_aplicar_pago_sabado`, antes de escribir (`solicitudes/services/doblada_pago_service.py:137-149`), con la excepción de que la mitad contraria ya esté cubierta por otra doblada aprobada (`:97-121`) | Cierra la vía por la que la aprobación por enlace de correo y la re-validación al aprobar creaban un turno en un día de descanso del receptor. Nueva `TestPagoSabadoReceptorDescansa` (`solicitudes/tests/test_matriz_dobladas.py:2635`); suite en verde, 936 tests |
+| *(sin commit aún)* | **La mitad contraria del sábado la puede cubrir cualquier deudor, no solo el mismo.** Las dos consultas que expresaban el criterio por separado (excepción del guard y rama `_contraria_tambien_cubierta`) se unifican en `DobladaPagoService._mitad_contraria_cubierta_por_otra_doblada` (`solicitudes/services/doblada_pago_service.py:97-121`), que **deja de filtrar por `explorador_solicitante`**. Se reformula el `ValidationError` del guard: describe el problema en vez de ordenar "elige otra fecha", porque también lo lee el aprobador (`:144-150`) | Corrige un bug **preexistente** de doble cobertura —el reparto recreaba al acreedor la mitad que otro deudor ya cubría— y otro del guard —rechazaba re-aplicaciones legítimas (`reconciliar_dobladas_aprobadas`, re-validación al aprobar, enlace de correo) cuando el acreedor ya se había quedado sin turnos—. Nuevos tests en `TestPagoSabadoReceptorDescansa`: `solicitudes/tests/test_matriz_dobladas.py:2759` y `:2795`; suite en verde, 938 tests |
+| *(sin commit aún)* | **El mensaje de la re-validación al aprobar se reencuadra en la costura.** `SolicitudAprobacionService` ya no devuelve `f"No se puede aprobar: {msg_reval}"`: cita el motivo como tal, advierte de que las instrucciones son para quien envió y dice al aprobador qué puede hacer (`solicitudes/services/solicitud_aprobacion_service.py:130-134`) | Los ~13 mensajes de DOBLADA están en imperativo para quien envía y al aprobar los lee el aprobador, que no puede ejecutarlos. **No se reescribieron**: son literales documentados, hay tests que verifican subcadenas y `CancelarSolicitudView` decide el HTTP inspeccionando texto. Ver § 7.4 |
+| *(sin commit aún)* | **`_otra_mitad_pagada` queda marcada como deliberadamente NO unificada** con `_mitad_contraria_cubierta_por_otra_doblada`, con el porqué en el código (`doblada_pago_service.py:193-197`) | Se parecen y preguntan lo contrario: deudor vs. acreedor. Sin la nota, el próximo refactor las funde y rompe una de las dos. Ver § 16.2 |
+| *(sin commit aún)* | **Patrón 39 registrado** en `PROTECTION_PATTERNS.md:1585` ("la guardia vive donde está la ESCRITURA, no solo en la estrategia"), con cinco reglas y cuatro filas de registro de cambios | Cierra la fila 15 de § 18. Su regla 4 —`create()` dentro de `if not ...exists()` es señal de alarma— generaliza el bug del reparto de sábado. La limitación que registraba —"solo se auditó la rama de sábado"— quedó cerrada por la auditoría posterior de esta misma rama (§ 16.2) |
+| *(sin commit aún)* | **Auditadas las otras cinco ramas de `aplicar_doblada_pago`** (cierra la fila 16 de § 18). Resultado rama por rama: `_aplicar_pago_jcp_ambas` **limpia** en este eje (borra los turnos del acreedor y solo crea para el deudor, `doblada_pago_service.py:255-268`); `_aplicar_pago_jcp_media` (`:319-327`) y `_aplicar_pago_jornada_cedida` (`:507-517`) tienen la **misma forma** que el bug de sábado; `_aplicar_pago_cesion_parcial` (`:362`) y `_aplicar_pago_fallback` (`:538-552`) no fabrican turno pero validan con la jornada **base** en vez de con "¿trabaja?". **Sin cambio de comportamiento en esa tanda**: solo notas en el código | Auditoría. La conclusión de entonces —"ninguna tiene guardia propia y son inalcanzables gracias al LIFO, así que no se añaden guards"— **quedó revisada en la entrada siguiente**: el LIFO tapa la reconciliación, no los comandos de gestión |
+| *(sin commit aún)* | **Nueva `TestLifoProtegeLaReconciliacion`** (`solicitudes/tests/test_matriz_dobladas.py:2864`): `test_no_se_puede_cancelar_por_debajo_de_una_doblada_que_paga_ese_dia` (`:2902`) y su contraprueba sin solape de día (`:2931`) | Fija por test la barrera del LIFO. **Ya no es la única**: dos de esas cuatro ramas llevan guard propio desde la entrada de abajo, y el LIFO nunca cubrió los comandos de gestión. Suite en verde entonces, **941 tests** |
+| *(sin commit aún)* | **Matizado el encuadre del guard de sábado** (§ 8.3): en la web es **defensa en profundidad** —creación y aprobación re-validan, y la reconciliación la tapa el LIFO—, pero **fuera de la web es el único guard**: los comandos de gestión entran sin validar | El bug real y demostrado de esa tanda es el **otro**: la doble cobertura cuando dos deudores cubren cada mitad del sábado, alcanzable por aprobación normal sin reconciliación |
+| *(sin commit aún)* | **Guard del patrón 39 en DOS ramas de pago entre semana** — las únicas donde es demostrablemente seguro. `_aplicar_pago_jcp_media`: guard al inicio, antes de escribir (`solicitudes/services/doblada_pago_service.py:300-307`). `_aplicar_pago_jornada_cedida`: guard **dentro de su rama parcial** (el `else` de `tipo_cesion == 'cesion_completa'`, `:534-541`), no al inicio del método. Ambos con `BaseValidator._explorador_trabaja(receptor, fecha_pago)` y `ValidationError` con el texto "…no trabaja el DD/MM/AAAA: ese día descansa, así que no tiene una jornada que cubrirle para pagar la doblada. La doblada debe rehacerse con otra fecha de pago." | **Cambio de comportamiento real**, no comentarios. Motivo: los comandos `reaplicar_doblada` (`solicitudes/management/commands/reaplicar_doblada.py:257`) y `corregir_doblada_cesion_total` (`:73`) llaman a `aplicar_doblada_pago` **sin validar y sin LIFO**, y no son scripts olvidados: `verificar_doblada.py:381` sugiere el de reaplicación al detectar errores y dos guías de operación lo indican. Es el momento de más riesgo: el día ya está descuadrado. **Corrige la afirmación anterior**: el LIFO tapa la reconciliación, NO los comandos. **Cierre PARCIAL**: de las cuatro ramas expuestas, dos cubiertas y dos siguen expuestas |
+| *(sin commit aún)* | **Por qué solo dos ramas y no cuatro** (hallazgo de diseño, documentado en § 16.1 y § 16.2). `_aplicar_pago_cesion_parcial`, `_aplicar_pago_fallback` y `_aplicar_pago_jornada_cedida` en `cesion_completa` dejan al acreedor **sin turnos por diseño** (`doblada_pago_service.py:423-424`, `:519`, `:632`). Como `TurnoService.estado_dia` incluye el descanso por solicitud aprobada y no admite excluir la solicitud en curso, al re-aplicar la misma solicitud el guard **bloquearía su propia re-aplicación**. La solución correcta —comparar contra `snapshot_turnos_previos`— **no se ha hecho**: es de más calado y está sin decidir | Una comprobación sobre el estado POSTERIOR no distingue "descansa porque yo lo dejé así" de "descansa porque no le tocaba". Las dos ramas guardadas lo son porque **conservan** una jornada al acreedor. Queda en § 18, fila 20 |
+| *(sin commit aún)* | **Nueva `TestGuardPagoEntreSemana`** (`solicitudes/tests/test_matriz_dobladas.py:2948`): rechazo en `jcp_media` (`:2988`) y en `jornada_cedida` parcial (`:3030`), más la regresión `test_jcp_media_reaplicar_no_se_autoengana` (`:3005`) | La regresión es la clave: demuestra que re-aplicar **no** se bloquea a sí mismo. Se verificó que los dos de rechazo tienen dientes (neutralizando los guards, fallan). Suite en verde, **944 tests** |
+| *(sin commit aún)* | **Hallazgo menor registrado:** la rama guardada de `_aplicar_pago_jornada_cedida` solo se alcanza con `tipo_cesion` **vacío** — el despachador manda `cesion_parcial_am/pm` a `_aplicar_pago_cesion_parcial` (`doblada_pago_service.py:83-84`) y `cesion_completa` va por la rama que borra los turnos (`:518-519`). `TIPO_CESION_CHOICES` (`solicitudes/models.py:360-364`) solo tiene esos tres valores | Con producción arrancando limpia, esa combinación probablemente no se dé: el guard es barato pero **protege poco**. Se documenta para que nadie lo lea como cobertura real |
+| *(sin commit aún)* | **Verificada la asimetría de `_es_complemento_sabado`** (`strategies/doblada_strategy.py:288-303`) con test propio: `test_media_cubierta_no_compromete_el_sabado_del_acreedor` (`solicitudes/tests/test_matriz_dobladas.py:2823`) | Deja de ser duda abierta (fila 17 de § 18). Con una sola mitad cubierta el acreedor no está comprometido, así que la excepción ni se consulta. Suite en verde, **939 tests** |
+| *(sin commit aún)* | **Frontend de doblada**: la decisión del selector de pago en sábado sale del `.then` inline y pasa a `sincronizarSelectorPagoSabado()` (`static/js/cambio-turno/solicitar_doblada.js:398`), con estado propio `sabadoDatosDeudor` (`:81`) para sobrevivir al orden de llegada de las dos respuestas asíncronas. Nuevo criterio de ocultado `estadoReceptorPago === 'descansando'` (`:416`) | Alinea la rama de sábado con `sincronizarOpcionesCubrePagoReceptorDoblada` (`:444`), que ya miraba al receptor |
+| *(sin commit aún)* | El recuadro rojo "No se puede enviar la solicitud" se pinta para **cualquier** caso con `esRechazado`, no solo el del emisor sin jornada que ceder (`solicitar_doblada.js:2587`) | Los casos 1.2 / 1.5-1.8 / 1.6 de la matriz calculaban el mensaje solo para el envío mientras la pantalla mostraba el resumen en azul: el usuario descubría el rechazo al pulsar Enviar |
+| *(sin commit aún)* | **La reconciliación ya no puede tumbar una cancelación.** `reconciliar_dobladas_aprobadas` envuelve `_reaplicar_una` en `try/except ValidationError` (`solicitudes/services/doblada_snapshot_service.py:332-342`): registra con `logger.error` (id, tipo, fechas, motivo) y **continúa** con las demás. Se captura **solo** `ValidationError`; cualquier otro fallo sigue propagándose | **Cambio de comportamiento y riesgo CERRADO.** Desde que los servicios de aplicación tienen guardias de negocio (patrón 39), una solicitud vigente que ya no encaja con el calendario levanta `ValidationError` al re-aplicarse —estado **demostrado**: doblada aprobada cuyo pago cae en un sábado donde el acreedor ya no trabaja—, y ese error abortaba la transacción entera: el usuario no podía cancelar por culpa de una solicitud ajena. La reconciliación es **reparación best-effort, no validación**. Contrapartida: la solicitud omitida sigue **aprobada** con su efecto **sin materializar** y solo consta en los logs (§ 16.2, § 18). Test `TestReconciliacionNoTumbaLaCancelacion` (`solicitudes/tests/test_matriz_dobladas.py:3051`), verificado con dientes. Suite en verde, **945 tests** |
+| *(sin commit aún)* | **Corregida la caracterización del daño de las ramas sin guardia** (§ 8.3, § 16.1, § 16.2). Auditado empíricamente con un acreedor que descansa por alternancia de fin de semana | Lo que decía este manual —"le fabrican un turno al ACREEDOR"— es **falso** para `_aplicar_pago_cesion_parcial`, `_aplicar_pago_fallback` y `_aplicar_pago_jornada_cedida`/`cesion_completa`. Al acreedor no se le inventa nada: se queda sin turnos, que es lo correcto. El perjudicado es el **deudor**, que acaba con **AM+PM** cubriendo jornadas que nadie iba a trabajar y carga los **30 minutos de deuda corporativa**. La rama de control `jcp_media` quedó **bloqueada** por su guard |
+| *(sin commit aún)* | **El "no se puede poner el guard ahí" pasa de razonado a MEDIDO.** Se instrumentó `BaseValidator._explorador_trabaja(acreedor, fecha_pago)` **antes** de aplicar en esas ramas | Ya devuelve `False`: con la solicitud en `aprobada`, `DescansoPorSolicitudService` le atribuye el descanso a **esa misma solicitud**. El guard no bloquearía solo la re-aplicación: se bloquearía a sí mismo en la **primera** aplicación. No es "arriesgado", es que **no funciona**. Refuerza § 16.2 y la fila 20 de § 18 |
+| *(sin commit aún)* | **Verificaciones que descartan riesgos** (medidas, no supuestas): el guard de `jcp_media` **no estorba** en el caso normal —con un acreedor con doblada real se aplica sin problema—; el **ciclo completo** funciona —dos personas con jornadas simples (AM y PM) → doblada aprobada (uno queda AM+PM, el otro descansa, en cesión y en pago) → cancelación → **ambos** vuelven a sus jornadas simples en **los dos días**, pasando por la reconciliación y sin error—; y **ningún formulario queda bloqueado** por los cambios de UI | Los cambios de UI solo ocultan un panel que no aplicaba y adelantan un aviso de rechazo que ya existía |
+| *(sin commit aún)* | **Avisos añadidos a las guías de operación**: `docs/05-referencia/solicitudes/dobladas/GUIA_RAPIDA_REAPLICAR_DOBLADA.md` y `CHECKLIST_SOLUCION_DOBLADA.md` | `reaplicar_doblada` **no valida nada**: antes de usarlo hay que comprobar en Mis Turnos que el acreedor **trabaje** la fecha de pago (la jornada asignada no sirve: dice "es AM" aunque ese día descanse); si descansa, **no reaplicar**. Es la mitigación por procedimiento de las tres ramas que siguen sin guard (§ 18, fila 20) |
+| *(sin commit aún)* | **Patrón 39 ampliado** en `PROTECTION_PATTERNS.md` | Añade la puerta de los comandos de gestión, el cierre **parcial** con su motivo, el principio "una guardia que consulta el estado **posterior** no sirve en un método cuyo efecto es **cambiar** ese estado" y el aviso de no mover la guardia de `jornada_cedida` al inicio del método |
 | `40a7ed8` | Tests de la reversión de las 5 opciones de temporada | Cubre P4 sobre CAMBIO DESCANSO |
 | `5bd991c` | El select de compañero manda sobre la variable en memoria | Frontend: `static/js/cambio-turno/solicitar_cambio_descanso.js` |
 | `4bddab7` | **Los días de descanso fijados de temporada solo se cambian desde CAMBIO DESCANSO** | Regla P3. Añade `DescansoSemanaService.es_dia_descanso_temporada` (`turnos/services/descanso_semana_service.py:42`) y el rechazo en `doblada_strategy.py:189-197` |
@@ -1999,6 +2175,13 @@ configuración de SonarQube, la cobertura y las correcciones del triaje.
 | 11 | Frecuencia real del cron de `procesar_email_outbox` en producción | [MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md) | No está en el código: es configuración de infraestructura |
 | 12 | Si la sección "deuda conocida pendiente de decisión" de `PROTECTION_PATTERNS.md:1731` sigue vigente | `PROTECTION_PATTERNS.md` | Se leyó el índice, no el contenido completo de esa sección |
 | 13 | Si `CierreSolicitudesConfig.habilitado` está activo en el entorno real | `solicitudes/models.py:802` | El valor por defecto es `False`; el estado real es un dato de producción |
+| 20 | **(Sucesora parcial de la 19.)** `_aplicar_pago_cesion_parcial`, `_aplicar_pago_fallback` y `_aplicar_pago_jornada_cedida` en `cesion_completa` **siguen sin guard** y no pueden llevar el del patrón 39 tal cual: dejan al acreedor sin turnos por diseño, y `TurnoService.estado_dia` no sabe excluir la solicitud en curso, así que el guard bloquearía su propia re-aplicación (`reaplicar_doblada`). La solución correcta —comparar contra `snapshot_turnos_previos`, el mundo ANTES de aplicar— **está sin decidir y sin implementar**. **SIGUE ABIERTA.** Precisiones de esta pasada: (a) el guard no es "arriesgado", es que **no funciona** — medido: `_explorador_trabaja` ya devuelve `False` **antes** de la primera aplicación, porque la propia solicitud aprobada le atribuye el descanso; (b) el daño real **no** es inventarle un turno al acreedor, sino dejar al **deudor** con AM+PM y 30 minutos de deuda corporativa por jornadas que nadie iba a trabajar; (c) solo se llega por **consola** (comandos de gestión), y esas dos guías ya llevan aviso destacado — mitigación por procedimiento, no cierre | `solicitudes/services/doblada_pago_service.py:351-443` (`cesion_parcial`, nota en `:364-386`), `:518-519` (`cesion_completa`) y `:565-640` (fallback, nota en `:579-583`); `snapshot_turnos_previos` en `solicitudes/models.py` | Es un cambio de calado (cambia el criterio de qué estado se consulta al aplicar) y afecta a la reconciliación y a los comandos de reparación. No se aborda en esta tanda |
+| 21 | Si la rama parcial de `_aplicar_pago_jornada_cedida` —la que acaba de recibir guard— es **alcanzable en la práctica**. Solo se entra con `tipo_cesion` vacío: el despachador manda `cesion_parcial_am/pm` a otra rama (`doblada_pago_service.py:83-84`) y `cesion_completa` va por la que borra los turnos (`:518-519`), y `TIPO_CESION_CHOICES` (`solicitudes/models.py:360-364`) solo tiene esos tres valores | `doblada_pago_service.py:62-94`, `:518-540`; `solicitudes/models.py:360-364` | Habría que auditar los datos de producción, que arranca limpia. El guard es barato, pero **protege poco**: no se ha demostrado que la combinación se dé |
+| 22 | **Deuda operativa, parcialmente cubierta:** cuando la reconciliación omite una solicitud que no pudo re-aplicar (`doblada_snapshot_service.py:332-342`), esa solicitud sigue **aprobada** con su efecto **sin materializar**. **El comando de verificación ya existe** —`verificar_efecto_aplicado` compara `snapshot_turnos_resultantes` contra los turnos reales y repara con `--reparar`—, y detecta estos casos porque el resultante de la omitida no se refresca (`:343`). Lo que sigue abierto es la **alerta**: hay que acordarse de ejecutarlo o leer el log | `solicitudes/services/doblada_snapshot_service.py:279,332-342,343`; `solicitudes/management/commands/verificar_efecto_aplicado.py` | Falta una alarma de CloudWatch sobre el patrón `Reconciliación:` del log de ERROR (el grupo y el filtrado por `request_id` ya existen, ADR 007), o `verificar_efecto_aplicado` en tarea programada. Decisión y contrapartidas en el [ADR 008](./03-arquitectura/adr/008-reconciliacion-best-effort.md) |
+| ~~19~~ | ~~No se ha barrido toda forma de llegar a `_aplicar_pago_cesion_parcial` y `_aplicar_pago_fallback` con un acreedor que descansa: solo se descartó la vía de la reconciliación (la tapa el LIFO)~~ | **PARCIALMENTE RESUELTA** — apareció la vía que faltaba: los comandos de gestión `reaplicar_doblada` (`solicitudes/management/commands/reaplicar_doblada.py:257`) y `corregir_doblada_cesion_total` (`:73`) llaman a `aplicar_doblada_pago` sin validar y **sin pasar por el LIFO**, y son operación documentada (`verificar_doblada.py:381` los sugiere). Dos ramas se cerraron con guard (`jcp_media`, `jornada_cedida` parcial); estas dos no. Sucesora: fila **20** | Ya no es una duda de alcanzabilidad: la vía existe y está documentada como procedimiento de reparación |
+| ~~16~~ | ~~Si las otras ramas de `aplicar_doblada_pago` (`jcp_ambas`, `jcp_media`, `cesion_parcial`, `jornada_cedida`, fallback) tienen el mismo punto ciego que tenía la de sábado~~ | **RESUELTA** — auditadas las cinco. `jcp_ambas` **limpia** en este eje; `jcp_media` y `jornada_cedida` repetían la forma del bug de sábado y **ya llevan guard** (`doblada_pago_service.py:300-307`, `:534-541`); `cesion_parcial` y `fallback` no fabrican turno pero validan con la jornada **base** y **siguen expuestas**. Detalle e invariantes en § 16.2 | La conclusión de entonces ("inalcanzables por el LIFO, no se añaden guards") **era falsa**: el LIFO tapa la reconciliación, no los comandos de gestión. Cierre **parcial**: 2 de 4. Limitaciones vivas: filas 20 y 21 |
+| ~~15~~ | ~~Si el guard de sábado merece entrar en `PROTECTION_PATTERNS.md` como patrón propio~~ | **RESUELTO** — registrado como **patrón 39** en `PROTECTION_PATTERNS.md:1585`, con cinco reglas y cuatro filas en el registro de cambios | Se leyó el archivo: no lo cubría el patrón 25 (fallar cerrado habla del sentido de la decisión, no de dónde vive la guardia) |
+| ~~17~~ | ~~Tercera copia del criterio en `_es_complemento_sabado`: falta decidir si autorizar también en la estrategia el caso de dos deudores distintos~~ | **RESUELTO** — la asimetría es **inofensiva** y queda fijada con test: `test_media_cubierta_no_compromete_el_sabado_del_acreedor` (`solicitudes/tests/test_matriz_dobladas.py:2823`) | `_es_complemento_sabado` (`strategies/doblada_strategy.py:288-304`) solo se consulta cuando el acreedor **ya está comprometido**, y para estarlo hacen falta las **dos** mitades del sábado cubiertas. Con una sola mitad cubierta el acreedor sigue trabajando la otra: no hay bloqueo que esquivar y el segundo deudor —aunque sea otra persona— pasa la validación sin necesitar la excepción. El test comprueba las dos direcciones (media cubierta → NO comprometido; ambas → SÍ) y se caerá avisando si la atribución de descanso pasara a marcar el día con media jornada cubierta. **Siguen existiendo tres copias del criterio**: no las unifiques (§ 16.2) |
 | ~~14~~ | ~~Si la `SECRET_KEY` procede de una sola entrada de Secrets Manager/SSM o de un valor por tarea~~ | **RESUELTO** — sí procede de una sola entrada; ver § 9.2 | La auditoría lo resolvió con fuentes del propio repositorio: el checklist de Fargate crea `swalp/SECRET_KEY` como secreto único y lo inyecta vía `secrets:` del task definition, y la ruta EC2 es de instancia única. Además la aplicación **no puede** generar una clave propia |
 
 ---
