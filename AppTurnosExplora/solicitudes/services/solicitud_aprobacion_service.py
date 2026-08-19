@@ -120,7 +120,18 @@ class SolicitudAprobacionService:
         ok_reval, msg_reval = SolicitudFactory.revalidar_para_aprobar(solicitud)
         if not ok_reval:
             logger.warning("Re-validación falló para solicitud ID %d: %s", solicitud.id, msg_reval)
-            return False, f"No se puede aprobar: {msg_reval}"
+            # Los mensajes de validación están escritos para QUIEN ENVÍA ("elige otra fecha de
+            # pago", "realiza primero un cambio de turno sencillo"…) porque nacieron en el
+            # formulario. Aquí los lee el APROBADOR, que no puede ejecutar ninguna de esas
+            # instrucciones: la solicitud ya existe y él solo puede aprobarla o rechazarla.
+            # En vez de reescribir los ~13 mensajes (son literales documentados, y hay lógica que
+            # inspecciona su texto), se reencuadra UNA vez aquí: el motivo se cita como tal y se
+            # dice qué puede hacer quien está leyendo.
+            return False, (
+                f"No se puede aprobar: la solicitud ya no es válida con el estado actual. "
+                f"Motivo: {msg_reval} "
+                f"(instrucciones dirigidas a quien la envió). Recházala para que pueda rehacerse."
+            )
 
         # Backstop de sanción: si CUALQUIER parte (solicitante o receptor) está sancionada en el
         # momento de materializar el cambio, no se aplica. La sanción es automática por deuda y
