@@ -62,6 +62,7 @@ venvturnos/
 /*.jpeg
 /*.svg
 /*.txt
+/*.docx
 !/requirements.txt
 /refactorizacionpendi/
 *check_files.sh
