@@ -74,6 +74,11 @@
     // mitad LIBRE ('AM'|'PM'). En ese caso no hay elección: se oculta el selector genérico "elige
     // AM o PM" (redundante y confuso junto al aviso) y se fija esta mitad para el envío.
     let sabadoSoloMitadLibre = null;
+    // Alternancia del DEUDOR en el sábado de pago, tal como la devuelve obtener-turno-explorador:
+    // { correspondeTrabajar, jornadaTrabaja } o null si la respuesta no traía el dato. Se guarda
+    // porque `sincronizarSelectorPagoSabado` también corre al resolverse el RECEPTOR, que llega en
+    // otra respuesta y puede hacerlo después.
+    let sabadoDatosDeudor = null;
 
     // Variables globales
     let flatpickrCesion = null;
@@ -381,6 +386,55 @@
                 }
             })
             .catch(() => { /* si falla la comprobación, el guard del backend sigue protegiendo */ });
+    }
+
+    /**
+     * Decide qué se muestra para el pago en sábado: el selector AM/PM, el mensaje "no necesario",
+     * o nada. Está extraído en una función (y no inline tras cargar al deudor) porque depende de
+     * DOS respuestas que llegan por separado: la del deudor (su alternancia) y la del receptor (si
+     * ese sábado trabaja). El receptor puede resolverse DESPUÉS de la fecha, así que se re-evalúa
+     * desde ambos sitios.
+     */
+    function sincronizarSelectorPagoSabado() {
+        if (sabadoSoloMitadLibre) {
+            // Sábado con una mitad ya comprometida: no hay elección, se paga con la mitad libre.
+            // El aviso amarillo lo explica; aquí solo se oculta el selector genérico y se fija.
+            aplicarSabadoMitadLibre(sabadoSoloMitadLibre);
+            return;
+        }
+        if (sabadoPagoComprometido) {
+            // Ese sábado ya está comprometido por otra doblada: no mostrar selector ni "no necesario"
+            // (el aviso ya está visible y el envío queda bloqueado).
+            mostrarOpcionesPagoSabado(false);
+            mostrarMensajeNoNecesarioPagoSabado(false);
+            return;
+        }
+        // El compañero DESCANSA ese sábado: no hay ninguna jornada suya que cubrir, así que no hay
+        // pago posible y no hay "mitad" que elegir. Sin este guard el panel aparecía igualmente y
+        // afirmaba algo falso ("tu compañero trabaja la otra"), invitando a rellenar un acuerdo que
+        // el backend rechaza al enviar. El motivo real se lo dice la matriz de casos (1.2 / 1.5-1.8).
+        if (estadoReceptorPago === 'descansando') {
+            mostrarOpcionesPagoSabado(false);
+            mostrarMensajeNoNecesarioPagoSabado(false);
+            return;
+        }
+        if (sabadoDatosDeudor) {
+            if (sabadoDatosDeudor.correspondeTrabajar) {
+                mostrarOpcionesPagoSabado(false);
+                mostrarMensajeNoNecesarioPagoSabado(true);
+                // Marcar la jornada que corresponde (para que el backend reciba jornada_pago_sabado al enviar)
+                const radioAuto = document.querySelector(
+                    `input[name="jornada_pago_sabado"][value="${sabadoDatosDeudor.jornadaTrabaja}"]`);
+                if (radioAuto) radioAuto.checked = true;
+            } else {
+                mostrarOpcionesPagoSabado(true);
+                mostrarMensajeNoNecesarioPagoSabado(false);
+                limpiarSeleccionPagoSabado();
+            }
+        } else {
+            mostrarOpcionesPagoSabado(false);
+            mostrarMensajeNoNecesarioPagoSabado(false);
+        }
     }
 
     /**
@@ -1006,6 +1060,8 @@
                 // No usar estado del receptor de la fecha anterior hasta que llegue el nuevo fetch
                 estadoReceptorPago = null;
                 ultimaJornadaReceptorPago = null;
+                // Tampoco la alternancia del deudor: llega en el fetch de la nueva fecha.
+                sabadoDatosDeudor = null;
                 // ¿La fecha de pago es festivo? En festivo se cubre el día completo → sin selector AM/PM.
                 if (window.DatepickerFestivos && window.DatepickerFestivos.cargarDiasFestivos) {
                     window.DatepickerFestivos.cargarDiasFestivos().then(festivos => {
@@ -1376,32 +1432,11 @@
             // IMPORTANTE: usar corresponde_trabajar_sabado (tu GRUPO/alternancia), NO data.turno.jornada,
             // porque otra doblada pudo dejarte un turno que coincide con el grupo que trabaja y daría un
             // falso "ya te corresponde trabajar".
-            if (sabadoSoloMitadLibre) {
-                // Sábado con una mitad ya comprometida: no hay elección, se paga con la mitad libre.
-                // El aviso amarillo lo explica; aquí solo se oculta el selector genérico y se fija.
-                aplicarSabadoMitadLibre(sabadoSoloMitadLibre);
-            } else if (sabadoPagoComprometido) {
-                // Ese sábado ya está comprometido por otra doblada: no mostrar selector ni "no necesario"
-                // (el aviso ya está visible y el envío queda bloqueado).
-                mostrarOpcionesPagoSabado(false);
-                mostrarMensajeNoNecesarioPagoSabado(false);
-            } else if (data.jornada_trabaja_sabado !== undefined) {
-                const correspondeTrabajarSabado = data.corresponde_trabajar_sabado === true;
-                if (correspondeTrabajarSabado) {
-                    mostrarOpcionesPagoSabado(false);
-                    mostrarMensajeNoNecesarioPagoSabado(true);
-                    // Marcar la jornada que corresponde (para que el backend reciba jornada_pago_sabado al enviar)
-                    const radioAuto = document.querySelector(`input[name="jornada_pago_sabado"][value="${data.jornada_trabaja_sabado}"]`);
-                    if (radioAuto) radioAuto.checked = true;
-                } else {
-                    mostrarOpcionesPagoSabado(true);
-                    mostrarMensajeNoNecesarioPagoSabado(false);
-                    limpiarSeleccionPagoSabado();
-                }
-            } else {
-                mostrarOpcionesPagoSabado(false);
-                mostrarMensajeNoNecesarioPagoSabado(false);
-            }
+            sabadoDatosDeudor = (data.jornada_trabaja_sabado !== undefined)
+                ? { correspondeTrabajar: data.corresponde_trabajar_sabado === true,
+                    jornadaTrabaja: data.jornada_trabaja_sabado }
+                : null;
+            sincronizarSelectorPagoSabado();
             // Tras actualizar estado/jornada re-evaluar matriz de pago y bloque "cubre doblada receptor".
             sincronizarOpcionesCubrePagoReceptorDoblada();
         })
@@ -1500,6 +1535,9 @@
                 estadoReceptorPago = 'descansando';
                 renderTurnoYSalas(null, turnoReceptorPagoDetalles, salasReceptorPagoDetalles, false, [], { contexto: 'receptor' });
             }
+            // Ya se conoce si el receptor trabaja ese día: re-evaluar el selector de sábado, que
+            // depende de ello (si el compañero descansa, no hay mitad que elegir).
+            sincronizarSelectorPagoSabado();
             sincronizarOpcionesCubrePagoReceptorDoblada();
             verificarCoincidenciaPago();
         })
@@ -2540,7 +2578,13 @@
                     // El compañero tiene UNA sola jornada ese día: se cubre exactamente esa.
                     lineaPagoDoblada = `El día <strong>${fechaPagoFormateada}</strong> <strong>tú</strong> cubrirás la jornada <strong>${ultimaJornadaReceptorPago}</strong> de <strong>${empleadoReceptorNombre}</strong> (su único turno ese día) como pago de la doblada.`;
                 }
-                if (emisorSinJornadaParaCederEnCesion) {
+                // Cualquier caso RECHAZADO de la matriz se muestra ya en la vista previa, no solo el
+                // del emisor sin jornada que cederEn. Antes el resto (1.2 ambos descansando, 1.5/1.8
+                // receptor descansando, 1.6 misma jornada…) calculaba su mensaje, lo guardaba en
+                // `mensajeRechazoPago` para el envío… y mientras tanto pintaba el "Resumen del
+                // Acuerdo" en azul, prometiendo un acuerdo válido. El usuario solo descubría el
+                // rechazo al pulsar Enviar.
+                if (emisorSinJornadaParaCederEnCesion || esRechazado) {
                     resumenAcuerdo.innerHTML = `
                     <div class="alert alert-danger mb-0">
                         <strong>No se puede enviar la solicitud</strong><br>
