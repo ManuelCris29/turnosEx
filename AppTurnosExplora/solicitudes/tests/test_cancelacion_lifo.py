@@ -14,7 +14,7 @@ from django.utils import timezone
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
-from solicitudes.views.aprobacion_views import CancelarSolicitudView
+from solicitudes.views.aprobacion_views import CancelarSolicitudView, ResponderCancelacionView
 from solicitudes.models import DeudaCorporativa, DobladaDetalle
 from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
 from solicitudes.tests.test_matriz_dobladas import (
@@ -73,11 +73,34 @@ class CancelacionLIFOTest(TestCase):
                 f"{self.carlos.id}:{xi}": [{'jornada_nombre': 'PM', 'sala_id': self.sala.id, 'tipo_cambio': None}],
             })
 
-    def _cancelar(self, solicitud, quien):
-        req = self.factory.post(f'/solicitudes/cancelar/{solicitud.id}/')
+    def _pedir(self, solicitud, quien):
+        """El solicitante pide la cancelación. Esto NO cancela: abre la petición."""
+        req = self.factory.post(f'/solicitudes/cancelar-solicitud/{solicitud.id}/',
+                                {'motivo': 'Me surgió un imprevisto.'})
         req.user = quien.user
         resp = CancelarSolicitudView.as_view()(req, solicitud_id=solicitud.id)
         return resp.status_code, json.loads(resp.content)
+
+    def _responder(self, solicitud, receptor, accion='aprobar'):
+        """El receptor responde. Aprobar es lo único que revierte los turnos."""
+        req = self.factory.post(f'/solicitudes/cancelar-solicitud/{solicitud.id}/responder/',
+                                {'accion': accion, 'comentario_respuesta': 'De acuerdo.'})
+        req.user = receptor.user
+        resp = ResponderCancelacionView.as_view()(req, solicitud_id=solicitud.id)
+        return resp.status_code, json.loads(resp.content)
+
+    def _cancelar(self, solicitud, quien):
+        """
+        Ciclo completo de cancelación: el solicitante la pide y el receptor la aprueba.
+
+        Las guardias (LIFO, integridad) se comprueban en los DOS pasos, así que un bloqueo
+        puede aparecer en cualquiera de ellos; se devuelve el primero que falle.
+        """
+        code, body = self._pedir(solicitud, quien)
+        if code != 200:
+            return code, body
+        solicitud.refresh_from_db()
+        return self._responder(solicitud, solicitud.explorador_receptor)
 
     def test_la_cancelacion_registra_su_propia_hora(self):
         """
@@ -85,9 +108,9 @@ class CancelacionLIFOTest(TestCase):
 
         Antes no se guardaba en ninguna parte: `fecha_resolucion` conservaba la hora de la
         aprobación y el correo de cancelación la mostraba rotulada como "Fecha de Cancelación",
-        así que informaba una hora hasta 30 minutos anterior a la real (el tamaño de la ventana).
-        Y `fecha_resolucion` no se puede reutilizar: de ella se miden la ventana de 30 minutos y el
-        orden de la guardia LIFO.
+        así que informaba una hora anterior a la real (hasta lo que durase la ventana).
+        Y `fecha_resolucion` no se puede reutilizar: de ella se miden el plazo para pedir la
+        cancelación y el orden de la guardia LIFO.
         """
         aprobacion = self.B.fecha_resolucion
         antes = timezone.now()
@@ -99,8 +122,8 @@ class CancelacionLIFOTest(TestCase):
         self.assertIsNotNone(self.B.fecha_cancelacion, 'la cancelación no dejó hora')
         self.assertGreaterEqual(self.B.fecha_cancelacion, antes)
         self.assertEqual(self.B.fecha_resolucion, aprobacion,
-                         'la hora de aprobación no puede sobrescribirse: de ella dependen la '
-                         'ventana de 30 minutos y la guardia LIFO')
+                         'la hora de aprobación no puede sobrescribirse: de ella dependen el '
+                         'plazo para pedir la cancelación y la guardia LIFO')
 
     def test_lifo(self):
         # Cancelar A (el viejo) → bloqueado por existir B más reciente sobre Mariana en X.
@@ -121,6 +144,137 @@ class CancelacionLIFOTest(TestCase):
         self.assertEqual(code, 200, body)
         self.A.refresh_from_db()
         self.assertEqual(self.A.estado, 'cancelada')
+
+
+    def test_pedir_cancelacion_no_cancela_nada(self):
+        """
+        Pedir la cancelación de una APROBADA deja el cambio vigente.
+
+        Es el núcleo del acuerdo: los turnos del receptor ya se movieron con su visto bueno, así
+        que el solicitante no puede deshacerlos por su cuenta. Hasta que el receptor responda,
+        todo sigue exactamente como estaba.
+        """
+        code, body = self._pedir(self.B, self.mariana)
+        self.assertEqual(code, 200, body)
+
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.estado, 'aprobada', 'el cambio debe seguir vigente')
+        self.assertEqual(self.B.cancelacion_estado, 'pendiente')
+        self.assertIsNone(self.B.fecha_cancelacion)
+        self.assertEqual(self.B.cancelacion_solicitada_por_id, self.mariana.id)
+
+    def test_pedir_cancelacion_sin_motivo_se_rechaza(self):
+        """
+        El motivo es obligatorio en todas las acciones que mueven turnos.
+
+        Es lo único que le llega al receptor explicando por qué le piden deshacer un cambio
+        que ya aceptó, así que se valida en el servidor: quitar el `required` del formulario
+        no debe bastar para saltárselo.
+        """
+        req = self.factory.post(f'/solicitudes/cancelar-solicitud/{self.B.id}/', {'motivo': '   '})
+        req.user = self.mariana.user
+        resp = CancelarSolicitudView.as_view()(req, solicitud_id=self.B.id)
+        body = json.loads(resp.content)
+
+        self.assertEqual(resp.status_code, 400, body)
+        self.assertEqual(body.get('code'), 'comentario_requerido')
+        self.B.refresh_from_db()
+        self.assertFalse(self.B.cancelacion_estado, 'no debe quedar petición abierta')
+
+    def test_responder_cancelacion_sin_comentario_se_rechaza(self):
+        """Misma regla para quien responde: aprobar o rechazar exige decir por qué."""
+        self._pedir(self.B, self.mariana)
+
+        req = self.factory.post(f'/solicitudes/cancelar-solicitud/{self.B.id}/responder/',
+                                {'accion': 'aprobar'})
+        req.user = self.B.explorador_receptor.user
+        resp = ResponderCancelacionView.as_view()(req, solicitud_id=self.B.id)
+        body = json.loads(resp.content)
+
+        self.assertEqual(resp.status_code, 400, body)
+        self.assertEqual(body.get('code'), 'comentario_requerido')
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.estado, 'aprobada', 'el cambio sigue vigente')
+
+    def test_solo_el_receptor_puede_responder(self):
+        """Un tercero no decide sobre un acuerdo que no es suyo."""
+        self._pedir(self.B, self.mariana)
+        code, body = self._responder(self.B, self.jhon)
+        self.assertEqual(code, 403, body)
+
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.cancelacion_estado, 'pendiente')
+
+    def test_receptor_rechaza_y_el_cambio_queda_firme(self):
+        """
+        Rechazar cierra el asunto: el cambio sigue vigente y no se vuelve a pedir.
+
+        Si se pudiera reintentar, el receptor quedaría expuesto a que le insistan hasta que ceda;
+        la salida es un cambio nuevo o la cancelación del supervisor.
+        """
+        self._pedir(self.B, self.mariana)
+        code, body = self._responder(self.B, self.carlos, accion='rechazar')
+        self.assertEqual(code, 200, body)
+
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.estado, 'aprobada')
+        self.assertEqual(self.B.cancelacion_estado, 'rechazada')
+
+        # Y no se puede volver a pedir.
+        code, body = self._pedir(self.B, self.mariana)
+        self.assertEqual(code, 400, body)
+        self.assertEqual(body.get('code'), 'cancelacion_cerrada')
+
+    def test_receptor_aprueba_y_se_revierte(self):
+        """Aprobar es lo único que cancela y revierte."""
+        self._pedir(self.B, self.mariana)
+        code, body = self._responder(self.B, self.carlos)
+        self.assertEqual(code, 200, body)
+
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.estado, 'cancelada')
+        self.assertEqual(self.B.cancelacion_estado, 'aprobada')
+        self.assertEqual(self.B.cancelacion_respondida_por_id, self.carlos.id)
+
+    def test_la_peticion_caduca_si_el_receptor_no_responde(self):
+        """
+        Pasado el plazo, el silencio del receptor deja el cambio firme.
+
+        Lo contrario —que caducara cancelando— haría que ignorar la notificación le costara el
+        turno que había aceptado.
+        """
+        from core.constants import VENTANA_RESPONDER_CANCELACION_HORAS
+
+        self._pedir(self.B, self.mariana)
+        self.B.refresh_from_db()
+        SolicitudCambio.objects.filter(id=self.B.id).update(
+            cancelacion_solicitada_en=(timezone.now()
+                                       - timedelta(hours=VENTANA_RESPONDER_CANCELACION_HORAS + 1))
+        )
+
+        code, body = self._responder(self.B, self.carlos)
+        self.assertEqual(code, 400, body)
+
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.estado, 'aprobada', 'el cambio queda firme')
+        self.assertEqual(self.B.cancelacion_estado, 'caducada')
+
+    def test_no_se_puede_pedir_pasado_el_plazo_del_solicitante(self):
+        """El solicitante tiene 24 h desde la aprobación; después es cosa del supervisor."""
+        from core.constants import VENTANA_PEDIR_CANCELACION_HORAS
+
+        SolicitudCambio.objects.filter(id=self.B.id).update(
+            fecha_resolucion=(timezone.now()
+                              - timedelta(hours=VENTANA_PEDIR_CANCELACION_HORAS + 1))
+        )
+        self.B.refresh_from_db()
+
+        code, body = self._pedir(self.B, self.mariana)
+        self.assertEqual(code, 400, body)
+        self.assertEqual(body.get('code'), 'ventana_expirada')
+
+        self.B.refresh_from_db()
+        self.assertEqual(self.B.cancelacion_estado, '')
 
 
 class CancelacionDesdeGestionTest(MatrizDobladasTestCase):

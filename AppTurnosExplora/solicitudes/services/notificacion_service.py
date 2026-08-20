@@ -624,6 +624,78 @@ class NotificacionService:
         EmailService._enviar_email_cancelacion(solicitud)
 
     @staticmethod
+    def crear_notificacion_peticion_cancelacion(solicitud):
+        """
+        Avisa al RECEPTOR de que el solicitante pide cancelar un cambio YA APROBADO.
+
+        Es una notificación que exige acción, no un aviso informativo: hasta que el receptor
+        responda el cambio sigue vigente, y si no responde a tiempo la petición caduca. Por eso
+        el mensaje dice explícitamente que el cambio sigue en pie y que hay un plazo.
+        """
+        if not solicitud.explorador_receptor_id:
+            return
+
+        from core.constants import VENTANA_RESPONDER_CANCELACION_HORAS
+
+        fecha_str = NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)
+        tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'Cambio de turno'
+        quien = (f"{solicitud.explorador_solicitante.nombre} "
+                 f"{solicitud.explorador_solicitante.apellido}")
+        motivo = f"\n\nMotivo: {solicitud.cancelacion_motivo}" if solicitud.cancelacion_motivo else ''
+
+        Notificacion.objects.create(
+            destinatario=solicitud.explorador_receptor,
+            tipo='solicitud_cambio',
+            titulo='Te piden cancelar un cambio ya aprobado',
+            mensaje=(
+                f"{quien} pide cancelar el cambio del día {fecha_str} que ya habías aprobado.\n\n"
+                f"Tipo de solicitud: {tipo_nombre}{motivo}\n\n"
+                f"El cambio SIGUE VIGENTE hasta que respondas. Tienes "
+                f"{VENTANA_RESPONDER_CANCELACION_HORAS} horas para aprobar o rechazar la "
+                f"cancelación; si no respondes, el cambio queda firme."
+            ),
+            solicitud=solicitud,
+        )
+
+    @staticmethod
+    def crear_notificacion_respuesta_cancelacion(solicitud, receptor, aprobada):
+        """
+        Avisa al SOLICITANTE de la respuesta del receptor.
+
+        Se notifica igual si aprueba que si rechaza: en un caso su turno vuelve al original y en
+        el otro no, y esa diferencia decide qué día trabaja. Un rechazo es definitivo, así que el
+        mensaje dice cuál es la salida en vez de dejarlo esperando.
+        """
+        fecha_str = NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)
+        tipo_nombre = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else 'Cambio de turno'
+        quien = f"{receptor.nombre} {receptor.apellido}"
+
+        if aprobada:
+            titulo = 'Cancelación aprobada'
+            cuerpo = (
+                f"{quien} aprobó la cancelación del cambio del día {fecha_str}.\n\n"
+                f"Tipo de solicitud: {tipo_nombre}\n\n"
+                f"Los turnos volvieron a como estaban antes del cambio."
+            )
+        else:
+            titulo = 'Cancelación rechazada'
+            cuerpo = (
+                f"{quien} rechazó la cancelación del cambio del día {fecha_str}, así que el "
+                f"cambio sigue vigente y queda firme.\n\n"
+                f"Tipo de solicitud: {tipo_nombre}\n\n"
+                f"No se puede volver a pedir la cancelación. Si necesitas volver a tu turno "
+                f"original, solicita un cambio nuevo o consulta con tu supervisor."
+            )
+
+        Notificacion.objects.create(
+            destinatario=solicitud.explorador_solicitante,
+            tipo='solicitud_cambio',
+            titulo=titulo,
+            mensaje=cuerpo,
+            solicitud=solicitud,
+        )
+
+    @staticmethod
     def crear_notificacion_gestion(solicitud, supervisor, accion, vincular=True):
         """
         Avisa a AMBAS partes de que un supervisor intervino su solicitud desde gestión.

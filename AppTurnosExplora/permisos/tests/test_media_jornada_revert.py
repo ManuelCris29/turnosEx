@@ -48,6 +48,11 @@ class MediaJornadaRevertTest(TestCase):
         self.client = Client()
         self.client.force_login(self.user)
 
+        # Quien responde la petición de cancelación: `es_supervisor()` acepta is_staff.
+        self.user_supervisor = User.objects.create_user('mj.supervisor', password='x', is_staff=True)
+        self.client_supervisor = Client()
+        self.client_supervisor.force_login(self.user_supervisor)
+
     # ------------------------------------------------------------------ utils
     def _estado(self):
         return {
@@ -73,8 +78,19 @@ class MediaJornadaRevertTest(TestCase):
         return PermisoEspecial.objects.get(pk=permiso.pk)
 
     def _cancelar(self):
-        return self.client.post(
-            reverse('permisos_media_jornada_cancelar', args=[self.permiso.pk])
+        """
+        Ciclo completo: el dueño pide la cancelación y el supervisor la aprueba.
+
+        Un permiso aprobado ya movió turnos, así que el dueño no lo deshace solo: aquí la
+        contraparte es el supervisor, porque el permiso no tiene receptor.
+        """
+        self.client.post(
+            reverse('permisos_media_jornada_cancelar', args=[self.permiso.pk]),
+            {'motivo': 'Me surgió un imprevisto.'},
+        )
+        return self.client_supervisor.post(
+            reverse('permisos_media_jornada_cancelar_responder', args=[self.permiso.pk]),
+            {'accion': 'aprobar', 'comentario': 'De acuerdo.'},
         )
 
     # ------------------------------------------------------------------ tests

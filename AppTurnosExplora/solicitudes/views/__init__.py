@@ -45,6 +45,7 @@ __all__ = [
     "RechazarSolicitudView",
     "RechazarSolicitudReceptorView",
     "CancelarSolicitudView",
+    "ResponderCancelacionView",
     "AprobarSolicitudAmbosView",
     "AprobarSolicitudEmailView",
     "RechazarSolicitudEmailView",

@@ -1,4 +1,14 @@
-﻿/**
+﻿// Literales servidos por la plantilla (ver window.MSG_COMENTARIOS): el aviso del
+// navegador debe ser palabra por palabra el que devuelve el servidor para el mismo fallo.
+// Literales servidos por la plantilla. El respaldo sale del helper común (genérico a
+// propósito): repetir aquí el texto exacto recrearía la copia que este cambio elimina.
+const MSG = window.MSG_COMENTARIOS || (function () {
+    const r = window.ComentarioObligatorio.RESPALDO;
+    return { comentario: r, motivo: r };
+})();
+
+
+/**
  * Muestra por qué falló una cancelación.
  *
  * Dos cosas que no eran obvias:
@@ -501,10 +511,13 @@ function renderizarDetalleSolicitud(data) {
 }
 
 function cancelarSolicitud(solicitudId) {
-    Swal.fire({
+    ComentarioObligatorio.swal({
         title: '¿Cancelar solicitud?',
         text: 'Esta acción cancelará tu solicitud. ¿Estás seguro?',
         icon: 'warning',
+        etiqueta: 'Motivo',
+        marcador: '¿Por qué la cancelas?',
+        error: MSG.motivo,
         showCancelButton: true,
         confirmButtonColor: '#ffc107',
         cancelButtonColor: '#6c757d',
@@ -514,6 +527,7 @@ function cancelarSolicitud(solicitudId) {
         if (result.isConfirmed) {
             const formData = new FormData();
             formData.append('csrfmiddlewaretoken', window.CSRF_TOKEN);
+            formData.append('motivo', (result.value || '').trim());
             // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
             LoadingUI.mostrar('Cancelando solicitud...');
 
@@ -562,100 +576,108 @@ function cancelarSolicitud(solicitudId) {
 // ============================================================
 // Cancelación de solicitudes APROBADAS (ventana de 30 minutos)
 // ============================================================
-const VENTANA_CANCELACION_MS = 30 * 60 * 1000; // 30 minutos en milisegundos
+// Plazo del solicitante para PEDIR la cancelación de una solicitud aprobada.
+// Debe coincidir con VENTANA_PEDIR_CANCELACION_HORAS (core/constants.py): aquí sólo se usa
+// para el contador y para no enviar peticiones que el servidor va a rechazar igualmente.
+const VENTANA_CANCELACION_MS = 24 * 60 * 60 * 1000; // 24 horas
 
-function cancelarSolicitudAprobada(solicitudId, fechaResolucionIso) {
+function formatearRestante(ms) {
+    const horas = Math.floor(ms / 3600000);
+    const mins = Math.floor((ms % 3600000) / 60000);
+    return horas > 0 ? `${horas}h ${mins}m` : `${mins}m`;
+}
+
+// Cancelar una solicitud APROBADA no la cancela: se lo PIDE al compañero, que ya había
+// aceptado el cambio y tiene sus turnos movidos. Hasta que responda, el cambio sigue vigente.
+function cancelarSolicitudAprobada(solicitudId, fechaResolucionIso, nombreReceptor) {
     const fechaResolucion = new Date(fechaResolucionIso);
-    const ahora = new Date();
-    const transcurrido = ahora - fechaResolucion;
+    const transcurrido = new Date() - fechaResolucion;
 
     if (transcurrido > VENTANA_CANCELACION_MS) {
         Swal.fire({
             icon: 'warning',
-            title: 'Ventana de cancelación expirada',
-            text: 'Solo puedes cancelar una solicitud aprobada dentro de los 30 minutos posteriores a su aprobación. Este tiempo ya venció.',
+            title: 'Plazo de cancelación expirado',
+            text: 'Solo puedes pedir la cancelación dentro de las 24 horas posteriores a la aprobación. Pídele a tu supervisor que la cancele.',
         });
         return;
     }
 
-    const minutosRestantes = Math.floor((VENTANA_CANCELACION_MS - transcurrido) / 60000);
-    const segundosRestantes = Math.floor(((VENTANA_CANCELACION_MS - transcurrido) % 60000) / 1000);
+    const restante = formatearRestante(VENTANA_CANCELACION_MS - transcurrido);
+    const compañero = nombreReceptor ? `<strong>${nombreReceptor}</strong>` : 'tu compañero';
 
-    Swal.fire({
-        title: '¿Cancelar solicitud aprobada?',
-        html: `Esta acción revertirá todos los cambios de turno y deudas generados por esta solicitud.<br><br>
-               <strong>Tiempo restante para cancelar: ${minutosRestantes}m ${segundosRestantes}s</strong><br><br>
-               Esta operación no se puede deshacer.`,
-        icon: 'warning',
+    ComentarioObligatorio.swal({
+        title: 'Pedir la cancelación',
+        html: `Este cambio ya fue aprobado y los turnos están aplicados, así que ${compañero} debe
+               estar de acuerdo en cancelarlo.<br><br>
+               Se le enviará la petición y tendrá 24 horas para responder.
+               <strong>El cambio sigue vigente hasta que la apruebe.</strong><br><br>
+               <small>Te quedan ${restante} para pedirla.</small>`,
+        icon: 'question',
+        etiqueta: 'Motivo',
+        marcador: 'Cuéntale por qué necesitas cancelarlo...',
+        error: MSG.motivo,
         showCancelButton: true,
         confirmButtonColor: '#dc3545',
         cancelButtonColor: '#6c757d',
-        confirmButtonText: 'Sí, cancelar y revertir',
+        confirmButtonText: 'Enviar petición',
         cancelButtonText: 'No, mantener'
     }).then((result) => {
-        if (result.isConfirmed) {
-            const formData = new FormData();
-            formData.append('csrfmiddlewaretoken', window.CSRF_TOKEN);
-            // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
-            LoadingUI.mostrar('Cancelando y revirtiendo cambios...');
+        if (!result.isConfirmed) return;
 
-            fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
-                method: 'POST',
-                body: formData,
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    Swal.fire({
-                        icon: 'success',
-                        title: '¡Solicitud cancelada y cambios revertidos!',
-                        text: data.message,
-                        timer: 4000,
-                        timerProgressBar: true,
-                        showConfirmButton: false,
-                        position: 'top-end',
-                        toast: true
-                    }).then(() => { location.reload(); });
-                } else {
-                    mostrarErrorCancelacion(data, 'No se pudo cancelar la solicitud.');
-                }
-            })
-            .catch(() => {
+        const formData = new FormData();
+        formData.append('csrfmiddlewaretoken', window.CSRF_TOKEN);
+        formData.append('motivo', (result.value || '').trim());
+        // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
+        LoadingUI.mostrar('Enviando petición de cancelación...');
+
+        fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
                 Swal.fire({
-                    icon: 'error',
-                    title: 'Error de conexión',
-                    text: 'No se pudo cancelar la solicitud. Inténtalo de nuevo.',
-                });
+                    icon: 'success',
+                    title: 'Petición enviada',
+                    text: data.message,
+                    confirmButtonText: 'Entendido'
+                }).then(() => { location.reload(); });
+            } else {
+                mostrarErrorCancelacion(data, 'No se pudo pedir la cancelación.');
+            }
+        })
+        .catch(() => {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error de conexión',
+                text: 'No se pudo pedir la cancelación. Inténtalo de nuevo.',
             });
-        }
+        });
     });
 }
 
-// Actualizar contadores en botones de cancelar aprobadas
+// Contador del plazo para PEDIR la cancelación (24 h desde la aprobación).
 function actualizarContadoresCancelacion() {
     const botones = document.querySelectorAll('.btn-cancelar-aprobada');
     botones.forEach(btn => {
         const fechaUnix = parseInt(btn.dataset.fechaResolucion) * 1000;
-        const fechaResolucion = new Date(fechaUnix);
-        const ahora = new Date();
-        const transcurrido = ahora - fechaResolucion;
-        const restante = VENTANA_CANCELACION_MS - transcurrido;
+        const restante = VENTANA_CANCELACION_MS - (new Date() - new Date(fechaUnix));
         const span = btn.querySelector('.countdown-cancelar');
 
         if (restante <= 0) {
             btn.disabled = true;
-            btn.title = 'Ventana de cancelación expirada (30 min)';
+            btn.title = 'Plazo para pedir la cancelación expirado (24 h)';
             if (span) span.textContent = 'Expirado';
-        } else {
-            const mins = Math.floor(restante / 60000);
-            const segs = Math.floor((restante % 60000) / 1000);
-            if (span) span.textContent = `Cancelar (${mins}:${String(segs).padStart(2, '0')})`;
+        } else if (span) {
+            span.textContent = `Pedir cancelación (${formatearRestante(restante)})`;
         }
     });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
     actualizarContadoresCancelacion();
-    setInterval(actualizarContadoresCancelacion, 1000);
+    // Cada minuto basta: el plazo es de 24 h y el texto solo muestra horas y minutos.
+    setInterval(actualizarContadoresCancelacion, 60000);
 });

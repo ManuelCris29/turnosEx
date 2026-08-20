@@ -1,23 +1,34 @@
 """
 Use Case: CancelarSolicitud
 
-Encapsula la regla de negocio de cancelación:
-- Pendiente: puede cancelar sin restricción de tiempo.
-- Aprobada: solo dentro de la ventana de 30 minutos (guardia LIFO).
-- Cualquier otro estado: no se puede cancelar.
+Cancelar deshace un acuerdo, y quién puede deshacerlo depende de si ese acuerdo llegó a existir:
 
-Extrae toda la lógica de negocio que estaba en CancelarSolicitudView
-y la coloca en la capa de aplicación correcta.
+- PENDIENTE: nadie aceptó todavía, no hay nada aplicado. El solicitante la retira solo.
+- APROBADA: el receptor ya dijo que sí y los turnos ya se movieron —los suyos también—. El
+  solicitante NO la cancela por su cuenta: PIDE la cancelación y el receptor la aprueba o la
+  rechaza. Mientras tanto el cambio sigue vigente.
+
+Plazos (ver `core.constants`): el solicitante tiene 24 h desde la aprobación para pedirla, y el
+receptor 24 h desde la petición para responder. Si el receptor no responde, la petición caduca y
+el cambio queda firme: nadie se queda sin el turno que aceptó por el silencio del otro.
+
+Un rechazo o una caducidad son definitivos —no se vuelve a pedir—. La salida es un cambio nuevo
+o que un supervisor lo cancele desde Gestión (`execute_supervisor`, que no pasa por el receptor:
+es una intervención administrativa, no una parte del acuerdo).
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Tuple
 
+from core.constants import (
+    EstadoCancelacion,
+    VENTANA_PEDIR_CANCELACION_HORAS,
+    VENTANA_RESPONDER_CANCELACION_HORAS,
+)
+
 if TYPE_CHECKING:
     from empleados.models import Empleado
 
-
-VENTANA_CANCELACION_MINUTOS = 30
 
 # Formato de fecha de los mensajes al usuario (dd/mm/aaaa).
 _FMT_FECHA = '%d/%m/%Y'
@@ -25,7 +36,16 @@ _FMT_FECHA = '%d/%m/%Y'
 
 class CancelarSolicitudUseCase:
 
-    def execute(self, solicitud_id: int, solicitante: "Empleado") -> Tuple[bool, str]:
+    def execute(self, solicitud_id: int, solicitante: "Empleado",
+                motivo: str = '') -> Tuple[bool, str]:
+        """
+        Acción del SOLICITANTE sobre su propia solicitud.
+
+        Si está pendiente la retira en el acto. Si ya está aprobada NO la cancela: registra la
+        PETICIÓN de cancelación y deja la decisión en manos del receptor. En ese caso el segundo
+        elemento de la tupla lo dice explícitamente — la vista lo devuelve tal cual al usuario,
+        que si no creería que su cambio ya se deshizo.
+        """
         from django.db import transaction
         from django.utils import timezone
         from datetime import date as _date
@@ -70,10 +90,8 @@ class CancelarSolicitudUseCase:
                     return True, 'Solicitud cancelada correctamente'
 
                 if solicitud.estado == 'aprobada':
-                    ok, msg = self._cancelar_aprobada(solicitud, solicitante, timezone)
-                    if not ok:
-                        return False, msg
-                    return True, 'Solicitud cancelada correctamente'
+                    # Ya hay acuerdo y turnos aplicados: se pide, no se cancela.
+                    return self._pedir_cancelacion(solicitud, solicitante, motivo, timezone)
 
                 return False, f'No se puede cancelar una solicitud en estado "{solicitud.estado}".'
 
@@ -83,8 +101,9 @@ class CancelarSolicitudUseCase:
     def execute_supervisor(self, solicitud_id: int, supervisor: "Empleado",
                            permitir_cierre_administrativo: bool = True) -> Tuple[bool, str]:
         """
-        Cancelación desde GESTIÓN. El supervisor no tiene la ventana de 30 minutos —esa limita al
-        explorador—, pero sí las guardas que protegen los datos.
+        Cancelación desde GESTIÓN. El supervisor no pasa por el acuerdo —ni pide la cancelación
+        ni espera al receptor, y tampoco le corren los plazos de 24 h: es una intervención
+        administrativa—, pero sí le aplican las guardas que protegen los datos.
 
         Antes esta acción solo cambiaba el estado: la solicitud quedaba "cancelada" y los turnos
         seguían aplicados, así que el horario mostraba un intercambio que ya no existía.
@@ -93,7 +112,7 @@ class CancelarSolicitudUseCase:
 
         1. PENDIENTE — nunca se aplicó: basta con cancelarla.
         2. APROBADA y ningún día ha pasado — se revierte todo (turnos, deudas y reconciliación) y
-           se cancela. Es lo mismo que hace el explorador en su ventana.
+           se cancela. Es la misma reversión que dispara el receptor al aprobar una cancelación.
         3. APROBADA y TODOS los días ya pasaron — se cancela SIN revertir: la gente ya trabajó esos
            días y borrar sus turnos sería reescribir el historial. Queda como cierre administrativo.
         4. APROBADA con días pasados Y futuros — se bloquea. Revertir borraría lo ya trabajado y no
@@ -203,53 +222,205 @@ class CancelarSolicitudUseCase:
         except SolicitudCambio.DoesNotExist:
             return False, 'Solicitud no encontrada.'
 
-    def _cancelar_aprobada(self, solicitud, solicitante, timezone) -> Tuple[bool, str]:
-        from django.db.models import Q
-        from datetime import date as _date
-        from solicitudes.models import SolicitudCambio
-        from solicitudes.domain.estado_machine import transicionar
+    # ------------------------------------------------------------------
+    # Cancelación consensuada de una solicitud APROBADA
+    # ------------------------------------------------------------------
+
+    def _pedir_cancelacion(self, solicitud, solicitante, motivo, timezone):
+        """
+        Registra la petición de cancelación. NO toca turnos ni estado: la solicitud sigue
+        'aprobada' y vigente hasta que el receptor responda.
+
+        Las guardias LIFO y de integridad se comprueban YA, antes de molestar al receptor: si la
+        reversión es imposible, la petición nunca llega a existir y el solicitante se entera al
+        instante en vez de esperar un sí que no se podría cumplir. Se vuelven a comprobar al
+        aprobar, porque entre una cosa y otra pueden pasar hasta 24 horas.
+        """
+        if solicitud.cancelacion_estado == EstadoCancelacion.PENDIENTE:
+            receptor = solicitud.explorador_receptor
+            return False, (
+                f'Ya pediste cancelar esta solicitud. Está esperando la respuesta de '
+                f'{receptor.nombre} {receptor.apellido}.'
+            )
+        if solicitud.cancelacion_estado in EstadoCancelacion.TERMINALES:
+            return False, self._mensaje_cancelacion_cerrada(solicitud)
+
+        if not solicitud.explorador_receptor_id:
+            return False, ('No se puede cancelar: esta solicitud no tiene receptor registrado. '
+                           'Pídele a tu supervisor que la cancele desde Gestión.')
 
         if not solicitud.fecha_resolucion:
             return False, 'No se puede cancelar: la solicitud no tiene fecha de aprobación registrada.'
 
-        minutos = (timezone.now() - solicitud.fecha_resolucion).total_seconds() / 60
-        if minutos > VENTANA_CANCELACION_MINUTOS:
+        horas = (timezone.now() - solicitud.fecha_resolucion).total_seconds() / 3600
+        if horas > VENTANA_PEDIR_CANCELACION_HORAS:
             return False, (
-                f'Ya no es posible cancelar esta solicitud. Solo se puede cancelar dentro de los '
-                f'{VENTANA_CANCELACION_MINUTOS} minutos posteriores a su aprobación '
-                f'(han pasado {int(minutos)} minutos).'
+                f'Ya no es posible cancelar esta solicitud. Solo se puede pedir la cancelación '
+                f'dentro de las {VENTANA_PEDIR_CANCELACION_HORAS} horas posteriores a su '
+                f'aprobación (han pasado {int(horas)} horas). Pídele a tu supervisor que la '
+                f'cancele desde Gestión.'
             )
 
-        bloqueo = self.bloqueo_lifo(solicitud)
+        # Días ya trabajados: revertirlos reescribiría el historial. Mismo criterio que gestión.
+        if self.fechas_ya_cumplidas(solicitud):
+            return False, ('No se puede cancelar: esta solicitud ya se cumplió, en todo o en '
+                           'parte. Consulta con tu supervisor.')
+
+        bloqueo = self.bloqueo_lifo(solicitud) or self.bloqueo_integridad(solicitud)
         if bloqueo:
             return False, bloqueo
 
-        bloqueo = self.bloqueo_integridad(solicitud)
-        if bloqueo:
-            return False, bloqueo
+        solicitud.cancelacion_estado = EstadoCancelacion.PENDIENTE
+        solicitud.cancelacion_solicitada_por = solicitante
+        solicitud.cancelacion_solicitada_en = timezone.now()
+        solicitud.cancelacion_motivo = (motivo or '').strip() or None
+        solicitud.save(update_fields=[
+            'cancelacion_estado', 'cancelacion_solicitada_por',
+            'cancelacion_solicitada_en', 'cancelacion_motivo',
+        ])
 
-        self._revertir_por_tipo(solicitud)
-
-        # La reversión BORRA los turnos materializados (y los recrea con ids nuevos). Los FK
-        # turno_origen/turno_destino apuntaban a esos turnos borrados; en BD ya quedaron NULL
-        # (on_delete=SET_NULL), pero este objeto en memoria conserva el id viejo. Sincronizamos
-        # para no reescribir un id inexistente al guardar (evita IntegrityError al cancelar CT).
-        try:
-            solicitud.refresh_from_db(fields=['turno_origen', 'turno_destino'])
-        except Exception:
-            solicitud.turno_origen = None
-            solicitud.turno_destino = None
-
-        transicionar(solicitud, 'cancelada', save=False)
-        # `fecha_resolucion` se queda con la hora de APROBACIÓN (la ventana de 30 min y la guardia
-        # LIFO se miden desde ahí); la hora de la cancelación va en su propio campo.
-        solicitud.fecha_cancelacion = timezone.now()
-        solicitud.comentario = (
-            f"{solicitud.comentario or ''}\n\n"
-            f"Cancelada por el solicitante dentro de la ventana de {VENTANA_CANCELACION_MINUTOS} minutos."
+        receptor = solicitud.explorador_receptor
+        return True, (
+            f'Se envió tu solicitud de cancelación a {receptor.nombre} {receptor.apellido}. '
+            f'El cambio sigue vigente hasta que la apruebe. Tiene '
+            f'{VENTANA_RESPONDER_CANCELACION_HORAS} horas para responder.'
         )
-        solicitud.save()
-        return True, 'ok'
+
+    def responder_cancelacion(self, solicitud_id, receptor, aprueba, motivo=''):
+        """
+        Respuesta del RECEPTOR a una petición de cancelación.
+
+        Aprobar es lo único que revierte los turnos: hasta aquí el cambio estuvo vigente.
+        Rechazar (o dejar caducar el plazo) deja el cambio FIRME y cierra el asunto: no se
+        vuelve a pedir; para eso está un cambio nuevo o la cancelación del supervisor.
+        """
+        from django.db import transaction
+        from django.utils import timezone
+
+        from solicitudes.models import SolicitudCambio
+        from solicitudes.domain.estado_machine import transicionar
+        from solicitudes.domain.bloqueo_partes import bloquear_partes
+
+        try:
+            with transaction.atomic():
+                solicitud = (
+                    SolicitudCambio.objects
+                    .select_for_update()
+                    .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio',
+                                    'doblada', 'doblada_permanente', 'cambio_permanente')
+                    .get(id=solicitud_id)
+                )
+
+                if solicitud.explorador_receptor_id != receptor.id:
+                    return False, 'No eres el receptor de esta solicitud.'
+
+                if solicitud.cancelacion_estado != EstadoCancelacion.PENDIENTE:
+                    if solicitud.cancelacion_estado in EstadoCancelacion.TERMINALES:
+                        return False, self._mensaje_cancelacion_cerrada(solicitud)
+                    return False, 'Esta solicitud no tiene ninguna cancelación pendiente.'
+
+                if solicitud.estado != 'aprobada':
+                    return False, (f'La solicitud ya está '
+                                   f'{solicitud.get_estado_display().lower()}.')
+
+                if self._caducar_si_vencida(solicitud, timezone):
+                    return False, (
+                        f'El plazo de {VENTANA_RESPONDER_CANCELACION_HORAS} horas para responder '
+                        f'ya venció, así que el cambio quedó firme.'
+                    )
+
+                # Se bloquea a las partes por lo mismo que en el resto de cancelaciones: se LEE
+                # el estado (guardias) y después se ESCRIBE (reversión).
+                bloquear_partes(solicitud)
+
+                ahora = timezone.now()
+                solicitud.cancelacion_respondida_por = receptor
+                solicitud.cancelacion_respondida_en = ahora
+                quien = f"{receptor.nombre} {receptor.apellido}"
+                nota_motivo = f" Motivo: {motivo.strip()}" if (motivo or '').strip() else ''
+
+                if not aprueba:
+                    solicitud.cancelacion_estado = EstadoCancelacion.RECHAZADA
+                    solicitud.cancelacion_motivo = (
+                        f"{solicitud.cancelacion_motivo or ''}\n\nCancelación rechazada por "
+                        f"{quien}.{nota_motivo}"
+                    ).strip()
+                    solicitud.save(update_fields=[
+                        'cancelacion_estado', 'cancelacion_respondida_por',
+                        'cancelacion_respondida_en', 'cancelacion_motivo',
+                    ])
+                    return True, 'Rechazaste la cancelación. El cambio sigue vigente.'
+
+                # Aprobar: se vuelven a comprobar las guardias, porque entre la petición y ahora
+                # pudo entrar otro cambio sobre los mismos días.
+                bloqueo = self.bloqueo_lifo(solicitud) or self.bloqueo_integridad(solicitud)
+                if bloqueo:
+                    return False, bloqueo
+
+                if self.fechas_ya_cumplidas(solicitud):
+                    return False, ('No se puede cancelar: estos días ya se trabajaron. '
+                                   'Consulta con tu supervisor.')
+
+                self._revertir_por_tipo(solicitud)
+
+                # La reversión BORRA los turnos materializados (y los recrea con ids nuevos). Los
+                # FK turno_origen/turno_destino apuntaban a esos turnos borrados; en BD ya
+                # quedaron NULL (on_delete=SET_NULL), pero este objeto en memoria conserva el id
+                # viejo. Sincronizamos para no reescribir un id inexistente al guardar.
+                try:
+                    solicitud.refresh_from_db(fields=['turno_origen', 'turno_destino'])
+                except Exception:
+                    solicitud.turno_origen = None
+                    solicitud.turno_destino = None
+
+                transicionar(solicitud, 'cancelada', save=False)
+                # `fecha_resolucion` se queda con la hora de APROBACIÓN (de ahí cuelgan la ventana
+                # y el orden LIFO); la hora de la cancelación va en su propio campo.
+                solicitud.fecha_cancelacion = ahora
+                solicitud.cancelacion_estado = EstadoCancelacion.APROBADA
+                solicitud.comentario = (
+                    f"{solicitud.comentario or ''}\n\n"
+                    f"Cancelación pedida por el solicitante y aprobada por {quien}.{nota_motivo}"
+                )
+                solicitud.save()
+                return True, ('Cancelación aprobada: la solicitud se canceló y los turnos '
+                              'volvieron a su estado anterior.')
+
+        except SolicitudCambio.DoesNotExist:
+            return False, 'Solicitud no encontrada.'
+
+    def _caducar_si_vencida(self, solicitud, timezone) -> bool:
+        """
+        Marca CADUCADA la petición si el receptor se pasó del plazo. Devuelve True si caducó.
+
+        La caducidad se evalúa al leerla o al responderla, no con un proceso de fondo: una
+        petición vencida no tiene ningún efecto pendiente que aplicar (el cambio simplemente
+        sigue vigente), así que basta con reconocerla cuando alguien la mira.
+        """
+        if solicitud.cancelacion_estado != EstadoCancelacion.PENDIENTE:
+            return False
+        if not solicitud.cancelacion_solicitada_en:
+            return False
+        horas = (timezone.now() - solicitud.cancelacion_solicitada_en).total_seconds() / 3600
+        if horas <= VENTANA_RESPONDER_CANCELACION_HORAS:
+            return False
+        solicitud.cancelacion_estado = EstadoCancelacion.CADUCADA
+        solicitud.save(update_fields=['cancelacion_estado'])
+        return True
+
+    @staticmethod
+    def _mensaje_cancelacion_cerrada(solicitud) -> str:
+        """Por qué ya no se puede volver a pedir la cancelación de esta solicitud."""
+        if solicitud.cancelacion_estado == EstadoCancelacion.RECHAZADA:
+            return ('El receptor ya rechazó la cancelación de esta solicitud, así que el cambio '
+                    'quedó firme. Si necesitas volver a tu turno original, solicita un cambio '
+                    'nuevo o consulta con tu supervisor.')
+        if solicitud.cancelacion_estado == EstadoCancelacion.CADUCADA:
+            return (f'La cancelación caducó: el receptor no respondió dentro de las '
+                    f'{VENTANA_RESPONDER_CANCELACION_HORAS} horas y el cambio quedó firme. Si '
+                    f'necesitas volver a tu turno original, solicita un cambio nuevo o consulta '
+                    f'con tu supervisor.')
+        return 'Esta solicitud ya fue cancelada.'
 
     def bloqueo_lifo(self, solicitud) -> str | None:
         """

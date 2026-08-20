@@ -20,6 +20,74 @@
             </p>
         </div>
 
+        <!-- Cancelaciones que esperan mi respuesta.
+             Van en su propia tarjeta y no en la tabla de abajo porque no son solicitudes
+             pendientes: son cambios YA APROBADOS y vigentes cuya cancelación me están pidiendo.
+             Mientras no responda, el turno que acepté sigue siendo mío. -->
+        {% if cancelaciones_pendientes %}
+        <div class="main-card" style="margin-bottom: 1.5rem; border-left: 4px solid #dc3545;">
+            <div class="card-header-custom">
+                <h3>
+                    <i class="fas fa-hand-paper"></i>
+                    Cancelaciones que esperan tu respuesta
+                </h3>
+            </div>
+            <div class="table-container">
+                <p class="text-muted" style="padding: 0 1.25rem;">
+                    Estos cambios <strong>siguen vigentes</strong>. Si no respondes dentro del plazo,
+                    quedan firmes.
+                </p>
+                <div class="table-responsive">
+                    <table class="table table-custom">
+                        <thead>
+                            <tr>
+                                <th>Solicitante</th>
+                                <th>Tipo</th>
+                                <th>Fecha del cambio</th>
+                                <th>Motivo</th>
+                                <th>Pedida el</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in cancelaciones_pendientes %}
+                            <tr>
+                                <td>{{ c.explorador_solicitante.nombre }} {{ c.explorador_solicitante.apellido }}</td>
+                                <td>{{ c.tipo_cambio.nombre }}</td>
+                                <td>{{ c.fecha_cambio_turno|date:"d/m/Y" }}</td>
+                                <td>
+                                    {% if c.cancelacion_motivo %}
+                                        <small>{{ c.cancelacion_motivo|truncatechars:60 }}</small>
+                                    {% else %}
+                                        <small class="text-muted">Sin motivo</small>
+                                    {% endif %}
+                                </td>
+                                <td><small>{{ c.cancelacion_solicitada_en|date:"d/m/Y H:i" }}</small></td>
+                                <td>
+                                    <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                                        <button class="btn btn-action btn-aprobar"
+                                                onclick="responderCancelacion({{ c.id }}, true)"
+                                                title="Aprobar la cancelación y revertir los turnos">
+                                            <i class="fas fa-check"></i>
+                                            Aprobar cancelación
+                                        </button>
+                                        <button class="btn btn-action btn-rechazar"
+                                                onclick="responderCancelacion({{ c.id }}, false)"
+                                                title="Rechazar: el cambio queda firme">
+                                            <i class="fas fa-times"></i>
+                                            Rechazar
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Card principal -->
         <div class="main-card">
             <div class="card-header-custom">
@@ -181,8 +249,10 @@
             <div class="modal-body">
                 <form id="accionSolicitudForm">
                     <div class="form-group">
-                        <label for="comentario_respuesta">Comentario (opcional):</label>
-                        <textarea class="form-control" id="comentario_respuesta" name="comentario_respuesta" rows="3" placeholder="Agrega un comentario sobre tu decisión..."></textarea>
+                        <label for="comentario_respuesta">Comentario <span class="text-danger">*</span></label>
+                        <textarea class="form-control" id="comentario_respuesta" name="comentario_respuesta" rows="3" required
+                                  maxlength="1000" placeholder="Explica tu decisión..."></textarea>
+                        <div class="invalid-feedback d-block" id="comentario_respuesta_error"></div>
                     </div>
                 </form>
             </div>
@@ -214,5 +284,9 @@
 
 {% block extra_js %}
 <script>window.CSRF_TOKEN = "{{ csrf_token }}";</script>
+{# Los textos los pone el servidor: son los mismos literales que devuelve al rechazar el
+   POST, para que el aviso de pantalla y el del sistema no se contradigan. #}
+<script>window.MSG_COMENTARIOS = {comentario: "{{ MSG_COMENTARIO|escapejs }}", motivo: "{{ MSG_MOTIVO|escapejs }}"};</script>
+<script src="{% static_v 'js/core/comentario_obligatorio.js' %}"></script>
 <script src="{% static_v 'js/solicitudes/solicitudes_pendientes_list.js' %}"></script>
 {% endblock %} 

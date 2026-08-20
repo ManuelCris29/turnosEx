@@ -2,6 +2,7 @@ from django.db import models
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 from simple_history.models import HistoricalRecords
+from core.constants import EstadoCancelacion
 
 
 class PDH(models.Model):
@@ -86,6 +87,14 @@ class PermisoEspecial(models.Model):
                                    related_name='permisos_supervisor',
                                    help_text='Supervisor que aprueba/rechaza.')
     comentario_supervisor = models.TextField(null=True, blank=True)
+    # De este campo cuelga el plazo para pedir la cancelación. NO sirve `actualizado_en`: es
+    # `auto_now`, así que cualquier guardado posterior (un comentario del supervisor, la propia
+    # petición de cancelación) reiniciaba el reloj de 24 h. Es el equivalente de
+    # `SolicitudCambio.fecha_resolucion`, que este modelo no tenía.
+    fecha_aprobacion = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Instante en que el permiso quedó APROBADO. Null si nunca se aprobó.'
+    )
     # --- Solo tipo MEDIA_JORNADA_TEMPORADA (día completo de temporada partido en dos) ---
     jornada_trabaja = models.CharField(
         max_length=2, choices=[('AM', 'AM'), ('PM', 'PM')], null=True, blank=True,
@@ -102,6 +111,28 @@ class PermisoEspecial(models.Model):
         help_text='Turnos previos del empleado en fecha_inicio y fecha_compensacion antes de aplicar '
                   'el permiso aprobado (mismo formato que DobladaDetalle). Permite revertir.'
     )
+    # --- Cancelación consensuada ----------------------------------------------------------
+    # Un permiso aprobado ya movió turnos (y, si hay quien cubra, los de otra persona), así que
+    # el dueño no lo cancela solo: lo PIDE y su supervisor lo confirma. Aquí la contraparte es
+    # el supervisor, porque el permiso no tiene receptor. Mientras está pendiente el permiso
+    # sigue en estado APROBADO y los turnos no se tocan.
+    cancelacion_estado = models.CharField(
+        max_length=10, choices=EstadoCancelacion.CHOICES, default=EstadoCancelacion.NINGUNA,
+        blank=True,
+        help_text='Estado de la petición de cancelación. Vacío si nunca se pidió cancelar.'
+    )
+    cancelacion_solicitada_por = models.ForeignKey(
+        Empleado, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='permisos_cancelacion_pedida'
+    )
+    cancelacion_solicitada_en = models.DateTimeField(null=True, blank=True)
+    cancelacion_respondida_por = models.ForeignKey(
+        Empleado, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='permisos_cancelacion_respondida'
+    )
+    cancelacion_respondida_en = models.DateTimeField(null=True, blank=True)
+    cancelacion_motivo = models.TextField(null=True, blank=True)
+
     creado_en = models.DateTimeField(auto_now_add=True)
     actualizado_en = models.DateTimeField(auto_now=True)
     historial = HistoricalRecords()

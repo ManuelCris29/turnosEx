@@ -1,5 +1,5 @@
 """
-Tests del REVERT de CT permanente al cancelar dentro de los 30 min.
+Tests del REVERT de CT permanente al cancelar de acuerdo con el receptor.
 
 CT permanente crea turnos `CT PERMANENTE` en un rango recurrente. Al cancelar, debe hacer
 un BORRADO DIRIGIDO: borra solo sus turnos CT PERMANENTE, respetando un CT sencillo que

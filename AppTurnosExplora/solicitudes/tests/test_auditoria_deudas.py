@@ -206,6 +206,7 @@ class TestGuardiaLIFOProtegeLaPermanente(AuditoriaDeudasTestCase):
         from django.utils import timezone
         from solicitudes.models import DobladaPermanenteDetalle
         from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+        from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         martes = _martes_futuro()
         clave = f"{self.receptor.id}:{martes.isoformat()}"
@@ -247,7 +248,7 @@ class TestGuardiaLIFOProtegeLaPermanente(AuditoriaDeudasTestCase):
         )
 
         doblada = SolicitudCambio.objects.get(id=doblada.id)
-        ok, msg = CancelarSolicitudUseCase().execute(doblada.id, self.solicitante)
+        ok, msg = cancelar_con_acuerdo(doblada, self.solicitante)
 
         self.assertFalse(ok, 'no debe permitir cancelar por debajo de un cambio más reciente')
         self.assertIn('más reciente', msg)

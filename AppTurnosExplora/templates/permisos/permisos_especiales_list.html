@@ -98,21 +98,58 @@
                 <td>{% if p.supervisor %}{{ p.supervisor.nombre }} {{ p.supervisor.apellido }}{% else %}—{% endif %}</td>
                 <td style="white-space:nowrap;">
                   {% if es_supervisor and p.estado == 'PENDIENTE' %}
-                    <form method="post" action="{% url 'permisos_especiales_aprobar' p.id %}" class="d-inline">
+                    <form method="post" action="{% url 'permisos_especiales_aprobar' p.id %}" class="d-inline"
+                          data-comentario-campo="comentario" data-comentario-error="{{ MSG_COMENTARIO }}" data-comentario-label="Comentario"
+                          data-comentario-titulo="Aprobar el permiso"
+                          data-comentario-texto="Se acumularán las horas de este permiso. Explica tu decisión.">
                       {% csrf_token %}<input type="hidden" name="accion" value="aprobar">
                       <button class="pg-btn pg-btn-success pg-btn-sm" title="Aprobar"><i class="fas fa-check"></i></button>
                     </form>
-                    <form method="post" action="{% url 'permisos_especiales_aprobar' p.id %}" class="d-inline">
+                    <form method="post" action="{% url 'permisos_especiales_aprobar' p.id %}" class="d-inline"
+                          data-comentario-campo="comentario" data-comentario-error="{{ MSG_COMENTARIO }}" data-comentario-label="Motivo del rechazo"
+                          data-comentario-titulo="Rechazar el permiso"
+                          data-comentario-texto="El explorador verá este motivo.">
                       {% csrf_token %}<input type="hidden" name="accion" value="rechazar">
                       <button class="pg-btn pg-btn-warn pg-btn-sm" title="Rechazar"><i class="fas fa-times"></i></button>
                     </form>
                   {% endif %}
                   {% if p.tipo == 'MEDIA_JORNADA_TEMPORADA' and p.estado == 'APROBADO' %}
-                    <form method="post" action="{% url 'permisos_media_jornada_cancelar' p.id %}" class="d-inline"
-                          onsubmit="return confirm('¿Cancelar este permiso? Se restaurarán los turnos de esos días.');">
-                      {% csrf_token %}
-                      <button class="pg-btn pg-btn-warn pg-btn-sm" title="Cancelar permiso"><i class="fas fa-ban"></i></button>
-                    </form>
+                    {% comment %}
+                    Un permiso aprobado ya movió turnos: el dueño PIDE la cancelación y el
+                    supervisor la confirma. El supervisor sigue cancelando directo.
+                    {% endcomment %}
+                    {% if p.cancelacion_estado == 'pendiente' %}
+                      {% if es_supervisor and p.empleado_id != mi_empleado_id %}
+                        <form method="post" action="{% url 'permisos_media_jornada_cancelar_responder' p.id %}" class="d-inline"
+                              data-comentario-campo="comentario" data-comentario-error="{{ MSG_COMENTARIO }}" data-comentario-label="Comentario"
+                              data-comentario-titulo="¿Aprobar la cancelación?"
+                              data-comentario-texto="Se restaurarán los turnos de esos días.">
+                          {% csrf_token %}<input type="hidden" name="accion" value="aprobar">
+                          <button class="pg-btn pg-btn-success pg-btn-sm" title="Aprobar la cancelación que pidió el explorador"><i class="fas fa-check"></i></button>
+                        </form>
+                        <form method="post" action="{% url 'permisos_media_jornada_cancelar_responder' p.id %}" class="d-inline"
+                              data-comentario-campo="comentario" data-comentario-error="{{ MSG_COMENTARIO }}" data-comentario-label="Motivo del rechazo"
+                              data-comentario-titulo="¿Rechazar la cancelación?"
+                              data-comentario-texto="El permiso quedará firme y no se podrá volver a pedir.">
+                          {% csrf_token %}<input type="hidden" name="accion" value="rechazar">
+                          <button class="pg-btn pg-btn-warn pg-btn-sm" title="Rechazar la cancelación: el permiso queda firme"><i class="fas fa-times"></i></button>
+                        </form>
+                      {% else %}
+                        <span class="pg-chip pg-chip-gray" title="Tu supervisor aún no responde">Cancelación pendiente</span>
+                      {% endif %}
+                    {% elif p.cancelacion_estado == 'rechazada' %}
+                      <span class="pg-chip pg-chip-no" title="Tu supervisor rechazó la cancelación: el permiso quedó firme">Cancelación rechazada</span>
+                    {% elif p.cancelacion_estado == 'caducada' %}
+                      <span class="pg-chip pg-chip-gray" title="Nadie respondió a tiempo: el permiso quedó firme">Cancelación caducada</span>
+                    {% else %}
+                      <form method="post" action="{% url 'permisos_media_jornada_cancelar' p.id %}" class="d-inline"
+                            data-comentario-campo="motivo" data-comentario-error="{{ MSG_MOTIVO }}" data-comentario-label="Motivo"
+                            data-comentario-titulo="{% if es_supervisor and p.empleado_id != mi_empleado_id %}Cancelar este permiso{% else %}Pedir la cancelación{% endif %}"
+                            data-comentario-texto="{% if es_supervisor and p.empleado_id != mi_empleado_id %}Se restaurarán los turnos de esos días.{% else %}Se le pedirá a tu supervisor que lo cancele. El permiso sigue vigente hasta que responda.{% endif %}">
+                        {% csrf_token %}
+                        <button class="pg-btn pg-btn-warn pg-btn-sm" title="{% if es_supervisor and p.empleado_id != mi_empleado_id %}Cancelar permiso{% else %}Pedir la cancelación a tu supervisor{% endif %}"><i class="fas fa-ban"></i></button>
+                      </form>
+                    {% endif %}
                   {% endif %}
                   {% if es_supervisor or p.estado == 'PENDIENTE' %}
                     <a href="{% url 'permisos_especiales_delete' p.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar"
@@ -136,5 +173,7 @@
 {% if sancion_msg %}
 <script src="{% static_v 'js/permisos/permisos_especiales_list.js' %}"></script>
 {% endif %}
+<script src="{% static_v 'js/core/comentario_obligatorio.js' %}"></script>
+<script src="{% static_v 'js/permisos/comentario_obligatorio.js' %}"></script>
 {% endblock %}
 

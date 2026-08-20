@@ -1,4 +1,14 @@
-﻿let solicitudActual = null;
+﻿// Literales servidos por la plantilla (ver window.MSG_COMENTARIOS): el aviso del
+// navegador debe ser palabra por palabra el que devuelve el servidor para el mismo fallo.
+// Literales servidos por la plantilla. El respaldo sale del helper común (genérico a
+// propósito): repetir aquí el texto exacto recrearía la copia que este cambio elimina.
+const MSG = window.MSG_COMENTARIOS || (function () {
+    const r = window.ComentarioObligatorio.RESPALDO;
+    return { comentario: r, motivo: r };
+})();
+
+
+let solicitudActual = null;
 let accionActual = null;
 let rolActual = null;
 
@@ -121,11 +131,79 @@ function aprobarSolicitudAmbos(solicitudId) {
     });
 }
 
+// Respuesta del receptor a una petición de cancelación. Aprobar revierte los turnos;
+// rechazar deja el cambio firme y no se puede volver a pedir, así que se advierte.
+function responderCancelacion(solicitudId, aprobar) {
+    const config = aprobar
+        ? {
+            title: 'Aprobar la cancelación',
+            html: `Los turnos de ambos volverán a como estaban antes del cambio.<br><br>
+                   Esta operación no se puede deshacer.`,
+            confirmButtonText: 'Sí, cancelar el cambio',
+            confirmButtonColor: '#dc3545',
+        }
+        : {
+            title: 'Rechazar la cancelación',
+            html: `El cambio seguirá vigente y quedará <strong>firme</strong>:
+                   tu compañero no podrá volver a pedir su cancelación.`,
+            confirmButtonText: 'Sí, mantener el cambio',
+            confirmButtonColor: '#198754',
+        };
+
+    ComentarioObligatorio.swal({
+        ...config,
+        icon: 'warning',
+        etiqueta: 'Comentario',
+        marcador: 'Explica tu decisión...',
+        error: MSG.comentario,
+        showCancelButton: true,
+        cancelButtonColor: '#6c757d',
+        cancelButtonText: 'Volver'
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+
+        const formData = new FormData();
+        formData.append('csrfmiddlewaretoken', window.CSRF_TOKEN);
+        formData.append('accion', aprobar ? 'aprobar' : 'rechazar');
+        formData.append('comentario_respuesta', (result.value || '').trim());
+        LoadingUI.mostrar(aprobar ? 'Cancelando y revirtiendo cambios...' : 'Registrando tu respuesta...');
+
+        fetch(`/solicitudes/cancelar-solicitud/${solicitudId}/responder/`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                Swal.fire({
+                    icon: 'success',
+                    title: aprobar ? 'Cancelacion aprobada' : 'Cancelación rechazada',
+                    text: data.message,
+                    confirmButtonText: 'Entendido'
+                }).then(() => { location.reload(); });
+            } else {
+                mostrarErrorCancelacion(data, 'No se pudo registrar tu respuesta.');
+            }
+        })
+        .catch(() => {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error de conexión',
+                text: 'No se pudo registrar tu respuesta. Inténtalo de nuevo.',
+            });
+        });
+    });
+}
+
 function cancelarSolicitud(solicitudId) {
-    Swal.fire({
+    ComentarioObligatorio.swal({
         title: '¿Cancelar solicitud?',
         text: 'Esta acción cancelará la solicitud. ¿Estás seguro?',
         icon: 'warning',
+        etiqueta: 'Motivo',
+        marcador: '¿Por qué la cancelas?',
+        error: MSG.motivo,
         showCancelButton: true,
         confirmButtonColor: '#ffc107',
         cancelButtonColor: '#6c757d',
@@ -135,6 +213,7 @@ function cancelarSolicitud(solicitudId) {
         if (result.isConfirmed) {
             const formData = new FormData();
             formData.append('csrfmiddlewaretoken', window.CSRF_TOKEN);
+            formData.append('motivo', (result.value || '').trim());
             // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
             LoadingUI.mostrar('Cancelando solicitud...');
 
@@ -661,15 +740,27 @@ function renderizarDetalleSolicitud(data) {
 $('#confirmarAccion').click(function() {
     if (!solicitudActual || !accionActual) return;
 
+    // El comentario es obligatorio: es lo único que le llega al otro explicando la decisión.
+    const $comentario = $('#comentario_respuesta');
+    const comentario = ($comentario.val() || '').trim();
+    if (!comentario) {
+        $comentario.addClass('is-invalid').focus();
+        $('#comentario_respuesta_error').text(MSG.comentario);
+        return;
+    }
+    $comentario.removeClass('is-invalid');
+    $('#comentario_respuesta_error').text('');
+
     // Evitar doble envío: si el botón ya está procesando, ignorar clics extra.
     const $btnConfirmar = $(this);
     if ($btnConfirmar.prop('disabled')) return;
     $btnConfirmar.prop('disabled', true).data('textoPrevio', $btnConfirmar.text()).text('Procesando...');
 
-    const comentario = $('#comentario_respuesta').val();
     const formData = new FormData();
     formData.append('csrfmiddlewaretoken', window.CSRF_TOKEN);
-    formData.append('comentario', comentario);
+    // El nombre lo fija el backend: 'comentario_respuesta'. Antes se enviaba como
+    // 'comentario' y el comentario del supervisor se perdía en el camino.
+    formData.append('comentario_respuesta', comentario);
 
     let url = '';
     if (rolActual === 'receptor') {
@@ -701,7 +792,8 @@ $('#confirmarAccion').click(function() {
     .then(response => response.json())
     .then(data => {
         $('#accionSolicitudModal').modal('hide');
-        $('#comentario_respuesta').val('');
+        $('#comentario_respuesta').val('').removeClass('is-invalid');
+        $('#comentario_respuesta_error').text('');
         
         if (data.success) {
             Swal.fire({

@@ -5,6 +5,7 @@ from .views import (
     PermisoEspecialPermanenteCreateView, PermisoEspecialAprobarView,
     PermisoEspecialResolverEmailView, PermisoEspecialDeleteView,
     MediaJornadaTemporadaCreateView, PermisoMediaJornadaCancelView,
+    PermisoMediaJornadaCancelResponderView,
 )
 
 urlpatterns = [
@@ -23,4 +24,8 @@ urlpatterns = [
          name='permisos_media_jornada_create'),
     path('permisos-especiales/media-jornada/<int:pk>/cancelar/', PermisoMediaJornadaCancelView.as_view(),
          name='permisos_media_jornada_cancelar'),
+    # El supervisor aprueba o rechaza la cancelación de un permiso ya aprobado.
+    path('permisos-especiales/media-jornada/<int:pk>/cancelar/responder/',
+         PermisoMediaJornadaCancelResponderView.as_view(),
+         name='permisos_media_jornada_cancelar_responder'),
 ]

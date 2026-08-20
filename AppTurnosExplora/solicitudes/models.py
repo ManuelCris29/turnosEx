@@ -5,7 +5,7 @@ from turnos.models import Turno
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
-from core.constants import EstadoSolicitud
+from core.constants import EstadoSolicitud, EstadoCancelacion
 
 class Notificacion(models.Model):
     """Modelo para representar notificaciones del sistema."""
@@ -163,6 +163,37 @@ class SolicitudCambio(models.Model):
         help_text='Instante en que se canceló la solicitud (por el explorador dentro de su ventana '
                   'de 30 min, o por gestión). Null si nunca se canceló.'
     )
+    # --- Cancelación consensuada ---------------------------------------------------------
+    # Cancelar una solicitud APROBADA deshace un acuerdo de dos: la pide el solicitante y la
+    # confirma el receptor. Mientras `cancelacion_estado` es 'pendiente' el `estado` sigue
+    # siendo 'aprobada' a propósito — los turnos continúan aplicados y todas las consultas que
+    # filtran por 'aprobada' (guardia LIFO, Mis Turnos, reconciliación) siguen viéndola vigente.
+    cancelacion_estado = models.CharField(
+        max_length=10, choices=EstadoCancelacion.CHOICES, default=EstadoCancelacion.NINGUNA,
+        blank=True,
+        help_text='Estado de la petición de cancelación. Vacío si nunca se pidió cancelar.'
+    )
+    cancelacion_solicitada_por = models.ForeignKey(
+        Empleado, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='cancelaciones_pedidas',
+        help_text='Quién pidió cancelar (normalmente el solicitante).'
+    )
+    cancelacion_solicitada_en = models.DateTimeField(
+        null=True, blank=True,
+        help_text='Instante de la PETICIÓN de cancelación. Desde aquí corre el plazo de '
+                  'respuesta de la contraparte.'
+    )
+    cancelacion_respondida_por = models.ForeignKey(
+        Empleado, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='cancelaciones_respondidas',
+        help_text='Quién aprobó o rechazó la cancelación.'
+    )
+    cancelacion_respondida_en = models.DateTimeField(null=True, blank=True)
+    cancelacion_motivo = models.TextField(
+        null=True, blank=True,
+        help_text='Motivo que dio quien pidió cancelar, y/o la respuesta de la contraparte.'
+    )
+
     comentario = models.TextField(null=True, blank=True)
     aprobado_receptor = models.BooleanField(default=False)
     fecha_aprobacion_receptor = models.DateTimeField(null=True, blank=True)

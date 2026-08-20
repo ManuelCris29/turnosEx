@@ -121,3 +121,45 @@ MAPA_SOLICITUD_A_TURNO = {
     TipoSolicitud.DOBLADA: TipoCambioTurno.DOBLADA,
     TipoSolicitud.D_FDS: TipoCambioTurno.D_FDS,
 }
+
+
+class EstadoCancelacion:
+    """
+    Valores de `SolicitudCambio.cancelacion_estado` y `PermisoEspecial.cancelacion_estado`.
+
+    Cancelar una solicitud YA APROBADA deshace un acuerdo entre dos personas, así que no puede
+    ser un acto unilateral del solicitante: se PIDE y la otra parte la aprueba o la rechaza.
+    Mientras la petición está pendiente el cambio sigue vigente (los turnos no se tocan): sólo
+    la aprobación de la contraparte dispara la reversión.
+
+    Estados terminales: aprobada, rechazada, caducada. Ninguno vuelve a 'pendiente' — un rechazo
+    o una caducidad dejan el cambio FIRME, y la única salida es un cambio nuevo o que un
+    supervisor lo cancele desde Gestión.
+    """
+
+    NINGUNA = ''            # nunca se pidió cancelar
+    PENDIENTE = 'pendiente'  # pedida, esperando a la contraparte
+    APROBADA = 'aprobada'    # la contraparte aceptó: la solicitud quedó cancelada
+    RECHAZADA = 'rechazada'  # la contraparte se negó: el cambio queda firme
+    CADUCADA = 'caducada'    # la contraparte no respondió a tiempo: el cambio queda firme
+
+    CHOICES = [
+        (NINGUNA, '—'),
+        (PENDIENTE, 'Cancelación pendiente'),
+        (APROBADA, 'Cancelación aprobada'),
+        (RECHAZADA, 'Cancelación rechazada'),
+        (CADUCADA, 'Cancelación caducada'),
+    ]
+
+    TERMINALES = frozenset({APROBADA, RECHAZADA, CADUCADA})
+
+
+# Plazo del SOLICITANTE para pedir la cancelación de una solicitud aprobada, contado desde
+# `fecha_resolucion` (la aprobación). Antes eran 30 minutos y la cancelación era inmediata;
+# al necesitar la respuesta de la otra parte, 30 min no alcanzan para que nadie conteste.
+VENTANA_PEDIR_CANCELACION_HORAS = 24
+
+# Plazo de la CONTRAPARTE para responder, contado desde `cancelacion_solicitada_en`.
+# Agotado el plazo la petición caduca y el cambio queda firme (nadie pierde su turno por
+# el silencio del otro).
+VENTANA_RESPONDER_CANCELACION_HORAS = 24

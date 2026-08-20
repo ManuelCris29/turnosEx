@@ -118,14 +118,36 @@
                                                 Cancelar
                                             </button>
                                             {% elif solicitud.estado == 'aprobada' and solicitud.fecha_resolucion %}
-                                            <button class="btn btn-action btn-cancelar btn-cancelar-aprobada"
-                                                    onclick="cancelarSolicitudAprobada({{ solicitud.id }}, '{{ solicitud.fecha_resolucion|date:"c" }}')"
-                                                    data-solicitud-id="{{ solicitud.id }}"
-                                                    data-fecha-resolucion="{{ solicitud.fecha_resolucion|date:'U' }}"
-                                                    title="Cancelar (solo disponible 30 min tras aprobación)">
-                                                <i class="fas fa-clock"></i>
-                                                <span class="countdown-cancelar" id="countdown-{{ solicitud.id }}">Cancelar</span>
-                                            </button>
+                                                {% comment %}
+                                                Una aprobada no se cancela sola: se le PIDE al receptor, que ya
+                                                aceptó el cambio. Por eso aquí no hay un botón "Cancelar" salvo
+                                                que no haya ninguna petición en curso ni cerrada.
+                                                {% endcomment %}
+                                                {% if solicitud.cancelacion_estado == 'pendiente' %}
+                                                <span class="badge badge-custom badge-pendiente" title="El receptor aún no responde">
+                                                    <i class="fas fa-hourglass-half"></i>
+                                                    Cancelación pendiente
+                                                </span>
+                                                {% elif solicitud.cancelacion_estado == 'rechazada' %}
+                                                <span class="badge badge-custom badge-rechazada" title="El receptor rechazó la cancelación: el cambio quedó firme">
+                                                    <i class="fas fa-times"></i>
+                                                    Cancelación rechazada
+                                                </span>
+                                                {% elif solicitud.cancelacion_estado == 'caducada' %}
+                                                <span class="badge badge-custom badge-cancelada" title="El receptor no respondió a tiempo: el cambio quedó firme">
+                                                    <i class="fas fa-hourglass-end"></i>
+                                                    Cancelación caducada
+                                                </span>
+                                                {% else %}
+                                                <button class="btn btn-action btn-cancelar btn-cancelar-aprobada"
+                                                        onclick="cancelarSolicitudAprobada({{ solicitud.id }}, '{{ solicitud.fecha_resolucion|date:"c" }}', '{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}')"
+                                                        data-solicitud-id="{{ solicitud.id }}"
+                                                        data-fecha-resolucion="{{ solicitud.fecha_resolucion|date:'U' }}"
+                                                        title="Pedirle al receptor que cancele (24 h tras la aprobación)">
+                                                    <i class="fas fa-clock"></i>
+                                                    <span class="countdown-cancelar" id="countdown-{{ solicitud.id }}">Pedir cancelación</span>
+                                                </button>
+                                                {% endif %}
                                             {% endif %}
                                             <button class="btn btn-action btn-ver" onclick="verDetalleSolicitud({{ solicitud.id }})">
                                                 <i class="fas fa-eye"></i>
@@ -190,5 +212,9 @@
      páginas. La línea del CDN que había aquí cargaba una SEGUNDA copia encima, dejando esta
      página con una versión distinta a la del resto del sitio. -->
 <script>window.CSRF_TOKEN = "{{ csrf_token }}";</script>
+{# Los textos los pone el servidor: son los mismos literales que devuelve al rechazar el
+   POST, para que el aviso de pantalla y el del sistema no se contradigan. #}
+<script>window.MSG_COMENTARIOS = {comentario: "{{ MSG_COMENTARIO|escapejs }}", motivo: "{{ MSG_MOTIVO|escapejs }}"};</script>
+<script src="{% static_v 'js/core/comentario_obligatorio.js' %}"></script>
 <script src="{% static_v 'js/solicitudes/mis_solicitudes_list.js' %}"></script>
 {% endblock %} 

@@ -6,7 +6,7 @@ from .views import (
     CambioTurnoInicioView, SolicitarCambioTurnoView, ObtenerEmpleadosDisponiblesView, ObtenerTurnoExploradorView,
     ObtenerJornadasRangoView, ObtenerCambioAprobadoView, ProcesarSolicitudView, NotificacionesListView, MarcarNotificacionLeidaView,
     MisSolicitudesListView, SolicitudesPendientesListView, AprobarSolicitudView, RechazarSolicitudView,
-    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, AprobarSolicitudAmbosView,
+    AprobarSolicitudReceptorView, RechazarSolicitudReceptorView, CancelarSolicitudView, ResponderCancelacionView, AprobarSolicitudAmbosView,
     AprobarSolicitudEmailView, RechazarSolicitudEmailView, AprobarSolicitudReceptorEmailView, RechazarSolicitudReceptorEmailView,
     ObtenerDetalleSolicitudView, PrevisualizarCTPermanenteView, PrevisualizarDobladaPermanenteView,
     DiasDisponiblesDobladaPermanenteView,
@@ -66,6 +66,8 @@ urlpatterns = [
     path('rechazar-solicitud-receptor/<int:solicitud_id>/', RechazarSolicitudReceptorView.as_view(), name='rechazar_solicitud_receptor'),
     path('aprobar-solicitud-ambos/<int:solicitud_id>/', AprobarSolicitudAmbosView.as_view(), name='aprobar_solicitud_ambos'),
     path('cancelar-solicitud/<int:solicitud_id>/', CancelarSolicitudView.as_view(), name='cancelar_solicitud'),
+    # El receptor aprueba o rechaza la cancelación de una solicitud ya aprobada.
+    path('cancelar-solicitud/<int:solicitud_id>/responder/', ResponderCancelacionView.as_view(), name='responder_cancelacion'),
     
     # CAMBIO DE TURNO
     path('cambio-turno/', CambioTurnoInicioView.as_view(), name='cambio_turno_inicio'),

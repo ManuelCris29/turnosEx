@@ -1,5 +1,5 @@
 """
-Tests del REVERT de Cambio de Turno sencillo (CT) al cancelar dentro de los 30 min.
+Tests del REVERT de Cambio de Turno sencillo (CT) al cancelar de acuerdo con el receptor.
 
 CT intercambia las jornadas de solicitante y receptor el mismo día. Al cancelar, debe
 restaurar los turnos previos desde el snapshot capturado al aplicar.
@@ -168,6 +168,7 @@ class CTRevertTest(TestCase):
         """
         from django.utils import timezone
         from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+        from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         Turno.objects.create(explorador=self.sol, fecha=self.fecha, jornada=self.am, sala=self.sala)
         Turno.objects.create(explorador=self.rec, fecha=self.fecha, jornada=self.pm, sala=self.sala)
@@ -182,7 +183,7 @@ class CTRevertTest(TestCase):
         self.assertIsNotNone(sol.turno_origen_id, "El apply debió enlazar turno_origen")
 
         # Cancelar por el flujo completo: NO debe explotar y debe restaurar los turnos.
-        okc, msgc = CancelarSolicitudUseCase().execute(sol.id, self.sol)
+        okc, msgc = cancelar_con_acuerdo(sol, self.sol)
         self.assertTrue(okc, f"La cancelación falló: {msgc}")
         sol.refresh_from_db()
         self.assertEqual(sol.estado, 'cancelada')

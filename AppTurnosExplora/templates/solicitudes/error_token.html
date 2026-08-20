@@ -40,9 +40,11 @@
 
                         <div class="alert alert-warning">
                             <h5><i class="fas fa-info-circle"></i> Detalles del Error</h5>
-                            {# `mensaje` es SIEMPRE texto redactado por nosotros. Nunca el
-                               texto de una excepción: eso va al log, y aquí solo se enseña
-                               el código de referencia. Ver core/utils/error_token.py #}
+                            {% comment %}
+                            `mensaje` es SIEMPRE texto redactado por nosotros. Nunca el
+                            texto de una excepción: eso va al log, y aquí solo se enseña
+                            el código de referencia. Ver core/utils/error_token.py
+                            {% endcomment %}
                             <p class="mb-0">{{ mensaje }}</p>
                             {% if request_id %}
                             <hr>

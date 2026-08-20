@@ -171,3 +171,41 @@ class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
             
             return solicitudes_combined
         return SolicitudCambio.objects.none()
+
+    def get_context_data(self, **kwargs):
+        """
+        Añade las CANCELACIONES que esperan mi respuesta como receptor.
+
+        No caben en el queryset principal: esas solicitudes están 'aprobada', no 'pendiente'
+        —el cambio sigue vigente mientras decido—, así que se listan aparte. Sin esto la
+        petición no tendría dónde verse y caducaría siempre por no haberla mostrado.
+        """
+        context = super().get_context_data(**kwargs)
+        context['cancelaciones_pendientes'] = self._cancelaciones_pendientes()
+        return context
+
+    def _cancelaciones_pendientes(self):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from core.constants import EstadoCancelacion, VENTANA_RESPONDER_CANCELACION_HORAS
+
+        if not hasattr(self.request.user, 'empleado'):
+            return SolicitudCambio.objects.none()
+
+        # Las vencidas se excluyen aquí en vez de marcarlas: el estado CADUCADA lo escribe quien
+        # intenta responder (`_caducar_si_vencida`). Listar una que ya no se puede responder solo
+        # daría un botón que falla.
+        limite = timezone.now() - timedelta(hours=VENTANA_RESPONDER_CANCELACION_HORAS)
+        return (
+            SolicitudCambio.objects
+            .filter(
+                estado='aprobada',
+                cancelacion_estado=EstadoCancelacion.PENDIENTE,
+                cancelacion_solicitada_en__gte=limite,
+                explorador_receptor=self.request.user.empleado,
+            )
+            .select_related('explorador_solicitante', 'explorador_receptor', 'tipo_cambio')
+            .order_by('cancelacion_solicitada_en')
+        )

@@ -284,13 +284,13 @@ class TestLIFOFallaCerradoSinSnapshot(HuecosTestCase):
         return SolicitudCambio.objects.get(id=sol.id)
 
     def test_sin_snapshot_no_se_puede_cancelar_bajo_un_cambio_mas_reciente(self):
-        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+        from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         clave = f"{self.solicitante.id}:{self.fecha.isoformat()}"
         antigua = self._solicitud(10, snapshot=None, comentario='antigua sin snapshot')
         self._solicitud(2, snapshot={clave: []}, comentario='reciente')
 
-        ok, msg = CancelarSolicitudUseCase().execute(antigua.id, self.solicitante)
+        ok, msg = cancelar_con_acuerdo(antigua, self.solicitante)
 
         self.assertFalse(ok, 'sin snapshot la guardia debe fallar cerrado, no saltarse')
         self.assertIn('más reciente', msg)
@@ -298,17 +298,17 @@ class TestLIFOFallaCerradoSinSnapshot(HuecosTestCase):
 
     def test_sin_snapshot_y_sin_conflicto_si_se_puede_cancelar(self):
         """Fallar cerrado no puede volverse "bloquear siempre": sin conflicto real, se cancela."""
-        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+        from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         sola = self._solicitud(10, snapshot=None, comentario='única sobre el día')
-        ok, msg = CancelarSolicitudUseCase().execute(sola.id, self.solicitante)
+        ok, msg = cancelar_con_acuerdo(sola, self.solicitante)
 
         self.assertTrue(ok, msg)
         self.assertEqual(SolicitudCambio.objects.get(id=sola.id).estado, 'cancelada')
 
     def test_sin_snapshot_un_cambio_posterior_en_OTRO_dia_no_bloquea(self):
         """El conflicto es por (persona, día): otro día de las mismas personas no cuenta."""
-        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+        from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         antigua = self._solicitud(10, snapshot=None, comentario='antigua sin snapshot')
         otra_fecha = self.fecha + timedelta(days=7)
@@ -321,7 +321,7 @@ class TestLIFOFallaCerradoSinSnapshot(HuecosTestCase):
         SolicitudCambio.objects.filter(id=posterior.id).update(
             fecha_resolucion=timezone.now() - timedelta(minutes=2))
 
-        ok, msg = CancelarSolicitudUseCase().execute(antigua.id, self.solicitante)
+        ok, msg = cancelar_con_acuerdo(antigua, self.solicitante)
         self.assertTrue(ok, msg)
 
 

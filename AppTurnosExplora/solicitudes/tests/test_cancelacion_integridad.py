@@ -23,7 +23,7 @@ from django.utils import timezone
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
-from solicitudes.views.aprobacion_views import CancelarSolicitudView
+from solicitudes.views.aprobacion_views import CancelarSolicitudView, ResponderCancelacionView
 from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
@@ -85,9 +85,27 @@ class CancelacionIntegridadTest(TestCase):
 
     # ------------------------------------------------------------------ helpers
     def _cancelar_explorador(self, quien=None):
-        req = self.factory.post(f'/solicitudes/cancelar/{self.solicitud.id}/')
+        """
+        Ciclo completo: el solicitante pide la cancelación y el receptor la aprueba.
+
+        La guardia de integridad corre en los DOS pasos —entre uno y otro pueden pasar horas—,
+        así que un bloqueo puede saltar en cualquiera; se devuelve el primero que falle.
+        """
+        req = self.factory.post(f'/solicitudes/cancelar-solicitud/{self.solicitud.id}/',
+                                {'motivo': 'Me surgió un imprevisto.'})
         req.user = (quien or self.mariana).user
         resp = CancelarSolicitudView.as_view()(req, solicitud_id=self.solicitud.id)
+        code, body = resp.status_code, json.loads(resp.content)
+        if code != 200:
+            return code, body
+
+        self.solicitud.refresh_from_db()
+        req = self.factory.post(
+            f'/solicitudes/cancelar-solicitud/{self.solicitud.id}/responder/',
+            {'accion': 'aprobar', 'comentario_respuesta': 'De acuerdo.'},
+        )
+        req.user = self.solicitud.explorador_receptor.user
+        resp = ResponderCancelacionView.as_view()(req, solicitud_id=self.solicitud.id)
         return resp.status_code, json.loads(resp.content)
 
     def _turnos(self, empleado):

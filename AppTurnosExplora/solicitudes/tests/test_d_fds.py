@@ -675,6 +675,7 @@ class DFDSElegibilidadPorEstadoRealTest(DFDSBaseTest):
     def test_guardia_lifo_impide_deshacer_el_eslabon_intermedio(self):
         """La cadena solo se deshace en orden inverso; eso es lo que la mantiene consistente."""
         from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+        from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         s1 = self._aprobar_y_aplicar()
         tercero = self._nuevo_empleado('lifo.fds', '1111', self.am)
@@ -687,6 +688,6 @@ class DFDSElegibilidadPorEstadoRealTest(DFDSBaseTest):
             fecha_pago=pago_rec.strftime('%Y-%m-%d'),
         ))
 
-        ok, msg = CancelarSolicitudUseCase().execute(s1.id, self.solicitante)
+        ok, msg = cancelar_con_acuerdo(s1, self.solicitante)
         self.assertFalse(ok, 'No debe poder cancelarse el eslabón anterior de la cadena')
         self.assertIn('más reciente', msg)
