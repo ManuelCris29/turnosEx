@@ -53,7 +53,7 @@ class DiasFestivosView(LoginRequiredMixin, View):
             # Si no está instalada la biblioteca, retornar vacío
             # El frontend usará su cálculo JavaScript como respaldo
             pass
-        except Exception as e:
+        except Exception:
             # En caso de error, continuar sin festivos calculados
             import logging
             logger = logging.getLogger(__name__)

@@ -129,7 +129,7 @@ class AperturaAnioMiddlewareTest(TestCase):
         Jornada.objects.create(nombre='PM', hora_inicio='14:00:00', hora_fin='22:00:00')
         # Configuración que bloquea HOY: el año siguiente está vacío.
         cfg = AperturaAnioConfig.obtener()
-        hoy = date.today()
+        _hoy = date.today()
         cfg.inicio_bloqueo_dia, cfg.inicio_bloqueo_mes = 1, 1
         cfg.inicio_recordatorio_dia, cfg.inicio_recordatorio_mes = 1, 1
         cfg.save()

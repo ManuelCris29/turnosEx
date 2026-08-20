@@ -46,7 +46,6 @@ class CTValidator:
             fecha: Fecha a validar
             es_cambio_permanente: Si es True, validar estrictamente (NO permitir domingos)
         """
-        from datetime import datetime
 
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)
@@ -69,7 +68,6 @@ class CTValidator:
         Args:
             fecha: Fecha a validar
         """
-        from datetime import datetime
 
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)

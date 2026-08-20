@@ -6,12 +6,10 @@ frameworks externos ni servicios. Puede ser testeado sin base de datos.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from .estado_machine import TRANSICIONES, ESTADOS_TERMINALES
-from .jornada import es_jornada_valida, normalizar_jornada
 
 
 # ---------------------------------------------------------------------------

@@ -204,12 +204,20 @@ class TurnoContextService:
             estado = estados_semana.get(fecha)
 
             if estado:
-                trabaja = estado.get('trabaja', False)
+                # PENDIENTE DE REVISIÓN DE DOMINIO (auditoría 2026-08, §3): `trabaja` se
+                # calcula aquí y en el `else`, pero NUNCA se usa: el dict de abajo no lleva
+                # esa clave y el consumidor deduce si se trabaja a partir de `jornada`. Si
+                # alguna vez llega un estado con jornada y `trabaja=False`, el consumidor
+                # vería un nombre de jornada y concluiría que la persona trabaja — que es
+                # justo el fallo de los patrones #28 y #29 de PROTECTION_PATTERNS.md ("un
+                # hueco no da error: da un dato FALSO"). NO se toca sin decidir antes cuál
+                # es el comportamiento correcto; borrarlo a secas perdería la pista.
+                trabaja = estado.get('trabaja', False)  # noqa: F841
                 jornada_nombre = estado.get('jornada') or 'Descanso'
                 fuente = estado.get('fuente', 'base')
                 tipo = 'asignado' if fuente == 'turno' else 'predeterminado'
             else:
-                trabaja = False
+                trabaja = False  # noqa: F841 - ver la nota de la rama `if`
                 jornada_nombre = 'Descanso'
                 tipo = 'predeterminado'
 

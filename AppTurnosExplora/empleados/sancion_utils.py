@@ -4,7 +4,6 @@ Utilidades de sanciones.
 Una sanción tiene un rango de fechas durante el cual el explorador NO puede
 realizar ninguna solicitud (cambio de turno ni permiso).
 """
-from datetime import date as _date
 
 from django.db.models import Q
 from django.utils import timezone

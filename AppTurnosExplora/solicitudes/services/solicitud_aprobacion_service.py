@@ -7,7 +7,7 @@ from django.utils import timezone
 from solicitudes.models import SolicitudCambio
 from .solicitud_factory import SolicitudFactory
 from .notificacion_service import NotificacionService
-from solicitudes.domain.estado_machine import transicionar, EstadoTransicionError
+from solicitudes.domain.estado_machine import transicionar
 import logging
 
 logger = logging.getLogger(__name__)

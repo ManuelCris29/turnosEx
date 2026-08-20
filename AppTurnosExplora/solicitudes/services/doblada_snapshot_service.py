@@ -8,7 +8,6 @@ from datetime import date
 import logging
 
 from django.core.exceptions import ValidationError
-from django.db import transaction
 
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
@@ -289,8 +288,6 @@ class DobladaSnapshotService:
         Solo se re-aplica el lado (cesión o pago) que cae en una fecha afectada.
         No genera deudas (eso es responsabilidad de DobladaDeudaService).
         """
-        from django.db.models import Q
-        from solicitudes.models import SolicitudCambio
 
         if not afectados:
             return

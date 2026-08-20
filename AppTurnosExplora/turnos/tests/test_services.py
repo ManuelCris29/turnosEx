@@ -4,9 +4,9 @@ Tests para servicios de turnos
 from django.test import TestCase
 from django.contrib.auth.models import User
 from empleados.models import Empleado, Jornada
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
+from turnos.models import AsignarJornadaExplorador, Sala
 from turnos.services.turno_service import TurnoService
-from datetime import date, timedelta
+from datetime import timedelta
 from django.utils import timezone
 
 

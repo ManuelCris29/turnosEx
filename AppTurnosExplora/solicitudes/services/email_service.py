@@ -62,7 +62,7 @@ class EmailService:
                 fail_silently=False
             )
             return backend
-        except Exception as e:
+        except Exception:
             logger.exception("Error configurando email backend para %s", email_usuario)
             # Si falla, usar la configuración por defecto
             return None
@@ -321,7 +321,7 @@ class EmailService:
                 logger.error(f"No se puede enviar email: solicitante {solicitud_completa.explorador_solicitante.nombre} no tiene email válido")
                 return False
             
-            subject = f"Confirmación de solicitud de cambio de turno"
+            subject = "Confirmación de solicitud de cambio de turno"
             
             try:
                 html_message = render_to_string('solicitudes/emails/confirmacion_solicitud.html', {
@@ -426,7 +426,7 @@ class EmailService:
                 # la clave impide encolar un segundo aviso del mismo hecho.
                 clave_idempotencia=f'aprob_sup_{solicitud.id}',
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Error enviando email de aprobación del supervisor")
 
     @staticmethod
@@ -457,7 +457,7 @@ class EmailService:
                 html_message=html_message,
                 clave_idempotencia=f'aprob_rec_{solicitud.id}',
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Error enviando email de aprobación del receptor")
 
     @staticmethod
@@ -488,7 +488,7 @@ class EmailService:
                 html_message=html_message,
                 clave_idempotencia=f'rech_sup_{solicitud.id}',
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Error enviando email de rechazo del supervisor")
 
     @staticmethod
@@ -519,7 +519,7 @@ class EmailService:
                 html_message=html_message,
                 clave_idempotencia=f'rech_rec_{solicitud.id}',
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Error enviando email de rechazo del receptor") 
 
     @staticmethod
@@ -549,5 +549,5 @@ class EmailService:
                 recipient_list=[solicitud.explorador_receptor.email],
                 html_message=html_message
             )
-        except Exception as e:
+        except Exception:
             logger.exception("Error enviando email de cancelación") 

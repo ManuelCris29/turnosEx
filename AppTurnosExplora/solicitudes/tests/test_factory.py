@@ -6,9 +6,7 @@ from solicitudes.models import TipoSolicitudCambio
 from solicitudes.services.solicitud_factory import SolicitudFactory
 from solicitudes.services.strategies import (
     CambioTurnoStrategy,
-    CTPermanenteStrategy,
-    DobladaStrategy,
-    DFDSStrategy
+    CTPermanenteStrategy
 )
 
 

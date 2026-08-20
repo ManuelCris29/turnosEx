@@ -35,7 +35,6 @@ logger = logging.getLogger(__name__)
 def _as_date(fecha):
     """Normaliza a date: acepta date o str 'YYYY-MM-DD'."""
     if isinstance(fecha, str):
-        from datetime import datetime
         return DateUtils.parse_date(fecha)
     return fecha
 

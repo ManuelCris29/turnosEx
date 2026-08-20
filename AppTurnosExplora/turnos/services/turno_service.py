@@ -5,10 +5,7 @@ Responsabilidad única: Obtener y procesar información de turnos de exploradore
 """
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from turnos.models import AsignarJornadaExplorador, Turno
-from turnos.services.jornada_service import JornadaService
-from core.utils.jornada_utils import JornadaUtils
-from datetime import datetime, timedelta
-from django.db.models import Q
+from datetime import timedelta
 import re
 import logging
 from core.interfaces import ITurnoService
@@ -254,7 +251,6 @@ class TurnoService(ITurnoService):
 
         `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
         """
-        from datetime import datetime as _dt
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)
         return TurnoService._descanso_por_solicitud(empleado, fecha, excluir_id=excluir_id)
@@ -359,7 +355,6 @@ class TurnoService(ITurnoService):
         Devuelve False si la fecha no es festivo de semana, si no hay jornada base, o si
         al empleado le toca descansar (dobla el grupo contrario).
         """
-        from datetime import datetime as _dt
         from turnos.models import DiaEspecial
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)
@@ -416,7 +411,6 @@ class TurnoService(ITurnoService):
         y el análisis completo, con las opciones de arreglo, en
         `docs/05-referencia/turnos/PUNTO_CIEGO_TEMPORADA_ESTADO_DIA.md`.
         """
-        from datetime import datetime as _dt
         from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador
         from turnos.services.descanso_semana_service import DescansoSemanaService
 

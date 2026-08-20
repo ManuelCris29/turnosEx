@@ -1,18 +1,13 @@
 import logging
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.http import JsonResponse
-from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
 from core.mixins import AdminRequiredMixin
-from ..models import Turno, DiaEspecial, AsignarJornadaExplorador, DescansoSemanaManual
-from ..forms import TemporadasAnualForm, DiasEspecialesAnualForm
-from ..services.temporada_service import TemporadaService
-from ..services.dia_especial_service import DiaEspecialService
-from datetime import timedelta, date
+from ..models import DiaEspecial, DescansoSemanaManual
 from django.utils import timezone
 import json
 

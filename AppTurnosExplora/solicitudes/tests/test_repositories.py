@@ -7,7 +7,6 @@ from datetime import date, timedelta
 
 from django.test import TestCase
 from django.contrib.auth.models import User
-from django.utils import timezone
 
 from empleados.models import Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio

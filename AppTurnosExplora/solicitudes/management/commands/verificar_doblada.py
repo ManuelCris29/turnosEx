@@ -135,10 +135,10 @@ class Command(BaseCommand):
             if turnos_solicitante_cesion:
                 if detalle.tipo_cesion == 'cesion_completa':
                     self.stdout.write(self.style.WARNING(
-                        f'     ⚠️  Tiene turnos (debería descansar en cesión completa):'
+                        '     ⚠️  Tiene turnos (debería descansar en cesión completa):'
                     ))
                 else:
-                    self.stdout.write(f'     • Tiene turnos (cesión parcial):')
+                    self.stdout.write('     • Tiene turnos (cesión parcial):')
                 for turno in turnos_solicitante_cesion:
                     self.stdout.write(
                         f'       - Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre} | '

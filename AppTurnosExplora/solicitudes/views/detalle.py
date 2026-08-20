@@ -1,25 +1,9 @@
-from django.shortcuts import render, get_object_or_404
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from django.shortcuts import get_object_or_404
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.urls import reverse_lazy
-from django.db.models import Q
-from core.mixins import AdminRequiredMixin
-from core.services import get_turno_service
-from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, Notificacion, SolicitudCambio, CambioPermanenteDetalle
-from ..services.solicitud_service import SolicitudService
-from ..services.solicitud_factory import SolicitudFactory
-from ..services.permiso_service import PermisoService
-from ..services.notificacion_service import NotificacionService
+from ..models import SolicitudCambio
 from django.utils import timezone
-import hashlib
-import hmac
 import logging
-from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -162,7 +146,6 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
                     datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los días hábiles'
                 
                 # Calcular fechas aplicables y excluidas
-                from datetime import datetime as _dt
                 from ..services.ct_permanente_helper import calcular_fechas_aplicables_y_excluidas_ct_permanente
                 fechas_aplicables, fechas_excluidas = calcular_fechas_aplicables_y_excluidas_ct_permanente(
                     detalle,

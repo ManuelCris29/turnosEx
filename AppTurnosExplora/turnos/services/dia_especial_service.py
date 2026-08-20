@@ -3,10 +3,10 @@ Servicio para gestionar días especiales (festivos y mantenimiento) por año.
 Responsabilidad única: Gestión de festivos y mantenimiento por año y mes.
 """
 from django.db import transaction
-from django.db.models import Q, Count, Max
+from django.db.models import Count, Max
 from turnos.models import DiaEspecial
 from datetime import date, timedelta
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Set
 import logging
 from turnos.services.temporada_service import TemporadaService
 from core.utils.festivos_colombia import CalculadoraFestivos

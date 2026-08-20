@@ -9,7 +9,7 @@ from django.db.models import QuerySet
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
-from datetime import date, datetime
+from datetime import date
 import logging
 from core.utils.date_utils import DateUtils
 
@@ -192,7 +192,6 @@ class DobladaFiltroService:
         Obtiene empleados activos que están en descanso en la fecha dada.
         Un empleado descansa si no tiene turnos y su jornada calculada es None/Descanso.
         """
-        from turnos.services.jornada_service import JornadaService
         from turnos.services.turno_service import TurnoService
 
         fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha

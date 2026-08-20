@@ -7,7 +7,7 @@ ese mismo día, el levantamiento —que consistía en dejar `fecha_fin` en ayer�
 dejaba con la fecha de fin ANTES de la de inicio, un rango que el propio `clean()`
 del modelo prohíbe, y de paso borraba la duración original.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.test import TestCase

@@ -1,25 +1,8 @@
-from django.shortcuts import render, get_object_or_404
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.urls import reverse_lazy
-from django.db.models import Q
-from core.mixins import AdminRequiredMixin
-from core.services import get_turno_service
-from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, Notificacion, SolicitudCambio, CambioPermanenteDetalle
-from ..services.solicitud_service import SolicitudService
+from ..models import TipoSolicitudCambio
 from ..services.solicitud_factory import SolicitudFactory
-from ..services.permiso_service import PermisoService
-from ..services.notificacion_service import NotificacionService
-from django.utils import timezone
-import hashlib
-import hmac
 import logging
-from django.core.cache import cache
 from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
@@ -233,7 +216,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
     """
 
     def get(self, request):
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         import json
         from django.core.exceptions import ValidationError
         from empleados.models import Empleado
@@ -396,7 +379,7 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
 
     def get(self, request):
         import json
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         from ..services.ct_permanente_helper import (
             _motivo_no_doblada_perm, precargar_ct_permanente,
         )
@@ -463,7 +446,7 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
 
     def get(self, request):
         import json
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         from empleados.models import Empleado
         from ..services.ct_permanente_helper import (
             _jornada_doblada_perm, _motivo_no_cubre_companero,

@@ -8,12 +8,10 @@ Uso:
     python manage.py verificar_integridad_dobladas --email admin@example.com
 """
 from django.core.management.base import BaseCommand
-from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
-from solicitudes.models import SolicitudCambio, DobladaDetalle
+from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
-from empleados.models import Empleado
 import logging
 
 logger = logging.getLogger(__name__)
@@ -108,7 +106,7 @@ class Command(BaseCommand):
                 
                 # Intentar reparar si está habilitado
                 if reparar:
-                    self.stdout.write(f"   🔧 Intentando reparar...")
+                    self.stdout.write("   🔧 Intentando reparar...")
                     resultado = self.reparar_solicitud(solicitud)
                     if resultado['exito']:
                         self.stdout.write(self.style.SUCCESS(f"      ✅ {resultado['mensaje']}"))

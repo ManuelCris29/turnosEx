@@ -19,7 +19,6 @@ Reutiliza:
 """
 
 from typing import Dict, Any, Tuple, Optional
-from datetime import datetime
 import logging
 
 from django.core.exceptions import ValidationError
@@ -29,6 +28,8 @@ from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.utils.date_utils import DateUtils
+# A nivel de módulo, no dentro de la función: los tests parchean `localdate`
+# alcanzando el módulo por aquí (`patch.object(_d_fds_mod.timezone, 'localdate')`).
 from django.utils import timezone
 
 
@@ -122,7 +123,6 @@ class DFDSStrategy(SolicitudStrategy):
                 return False, "La fecha de pago debe ser un fin de semana (sábado o domingo)"
 
             # 4. Fechas no pasadas / coherencia
-            from django.utils import timezone
             hoy = timezone.localdate()
             # Al CREAR, la cesión tampoco puede ser HOY: el día ya está en curso (mismo criterio
             # que la fecha de pago). Al re-validar para APROBAR solo se exige que no sea pasada,

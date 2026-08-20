@@ -6,7 +6,6 @@ Responsabilidad única: Consultar y filtrar solicitudes según diferentes criter
 from django.db.models import Q
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from core.utils.date_utils import DateUtils
-from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)

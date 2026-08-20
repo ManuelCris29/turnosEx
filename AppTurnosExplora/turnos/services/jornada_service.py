@@ -3,10 +3,8 @@ Servicio para gestión de jornadas de exploradores.
 
 Responsabilidad única: Obtener y calcular jornadas de exploradores para fechas específicas.
 """
-from datetime import datetime
 from empleados.models import Empleado
 from turnos.models import Turno, AsignarJornadaExplorador
-from core.services.cache_service import CacheService, CACHE_TTL_LONG
 import logging
 from core.utils.date_utils import DateUtils
 

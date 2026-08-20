@@ -6,7 +6,6 @@ según el tipo de solicitud. No contiene lógica de negocio.
 """
 import json
 import logging
-from datetime import datetime
 from django.utils import timezone
 from core.utils.date_utils import DateUtils
 

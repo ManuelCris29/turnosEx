@@ -3,10 +3,10 @@ Servicio para gestionar días de temporada.
 Responsabilidad única: Gestión de temporadas por año y mes.
 """
 from django.db import transaction
-from django.db.models import Q, Count, Max
+from django.db.models import Count, Max
 from turnos.models import DiaEspecial
 from datetime import date
-from typing import List, Dict, Optional
+from typing import List, Dict
 import logging
 
 logger = logging.getLogger(__name__)

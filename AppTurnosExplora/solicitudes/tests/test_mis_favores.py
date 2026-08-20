@@ -8,7 +8,7 @@ Ojo con los estados: como la fecha de pago se pacta en la MISMA solicitud, la de
 'pagada'. Por eso la pantalla muestra el historial y no una lista de "lo que debes", que estaría
 siempre vacía.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 from django.contrib.auth.models import User
 from django.test import TestCase

@@ -7,7 +7,7 @@ from empleados.models import Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
 from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import AsignarJornadaExplorador
-from datetime import date, timedelta
+from datetime import timedelta
 from django.utils import timezone
 
 

@@ -1,15 +1,13 @@
 from django.shortcuts import render, redirect
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView, ListView, UpdateView
-from django.db.models import Q
 from django.contrib import messages
 from django.urls import reverse
 from core.mixins import AdminRequiredMixin, es_supervisor
-from ..models import Turno, DiaEspecial, AsignarJornadaExplorador, DescansoSemanaManual
+from ..models import DiaEspecial
 from ..forms import TemporadasAnualForm, DiasEspecialesAnualForm
 from ..services.temporada_service import TemporadaService
 from ..services.dia_especial_service import DiaEspecialService
-from datetime import timedelta, date
 from django.utils import timezone
 
 # Create your views here.

@@ -123,7 +123,7 @@ class ReflejoMisTurnosTest(TestCase):
     # ------------------------------------------------------------------- tests
     def test_ct_sencillo_refleja(self):
         f = self._dia_semana(0)  # lunes
-        sol = self._crear_y_aplicar(self.tipos['CAMBIO TURNO'], {
+        _sol = self._crear_y_aplicar(self.tipos['CAMBIO TURNO'], {
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['CAMBIO TURNO'], 'comentario': 'test',
             'fecha_cambio_turno': f.strftime('%Y-%m-%d'),
@@ -136,7 +136,7 @@ class ReflejoMisTurnosTest(TestCase):
         fp = self._dia_semana(2, desde=fc + timedelta(days=1))  # otro día, mismo mes habitualmente
         if fp.month != fc.month:
             fp = self._dia_semana(2, desde=fc.replace(day=1))
-        sol = self._crear_y_aplicar(self.tipos['DOBLADA'], {
+        _sol = self._crear_y_aplicar(self.tipos['DOBLADA'], {
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['DOBLADA'], 'comentario': 'test',
             'fecha_cambio_turno': fc.strftime('%Y-%m-%d'), 'fecha_pago': fp.strftime('%Y-%m-%d'),
@@ -150,7 +150,7 @@ class ReflejoMisTurnosTest(TestCase):
 
     def test_d_fds_refleja(self):
         ces, pago = self._findes_fds()
-        sol = self._crear_y_aplicar(self.tipos['D FDS'], {
+        _sol = self._crear_y_aplicar(self.tipos['D FDS'], {
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['D FDS'], 'comentario': 'test',
             'fecha_cambio_turno': ces.strftime('%Y-%m-%d'), 'fecha_pago': pago.strftime('%Y-%m-%d'),
@@ -164,7 +164,7 @@ class ReflejoMisTurnosTest(TestCase):
     def test_ct_permanente_refleja(self):
         fi = self._dia_semana(0)             # lunes
         ff = fi + timedelta(days=10)
-        sol = self._crear_y_aplicar(self.tipos['CT PERMANENTE'], {
+        _sol = self._crear_y_aplicar(self.tipos['CT PERMANENTE'], {
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['CT PERMANENTE'], 'comentario': 'test',
             'fecha_inicio': fi.strftime('%Y-%m-%d'), 'fecha_fin': ff.strftime('%Y-%m-%d'),
@@ -186,7 +186,7 @@ class ReflejoMisTurnosTest(TestCase):
         # último día del mes de fi (sigue incluyendo el lunes y el martes de esa semana).
         ultimo_dia_mes = date(fi.year, fi.month, calendar.monthrange(fi.year, fi.month)[1])
         ff = min(fi + timedelta(days=13), ultimo_dia_mes)
-        sol = self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {
+        _sol = self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
             'tipo_cambio': self.tipos['DOBLADA PERMANENTE'], 'comentario': 'test',
             'fecha_inicio': fi.strftime('%Y-%m-%d'), 'fecha_fin': ff.strftime('%Y-%m-%d'),

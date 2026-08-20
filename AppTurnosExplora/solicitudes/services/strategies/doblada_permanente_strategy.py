@@ -7,7 +7,6 @@ devuelve el favor doblándose en los días de devolución. Misma regla de negoci
 que la doblada (jornadas contrarias, sin domingos ni festivos), pero recurrente.
 """
 from typing import Dict, Any, Tuple, Optional
-from datetime import datetime
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -15,9 +14,7 @@ from django.db import transaction
 from solicitudes.models import SolicitudCambio, DobladaPermanenteDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from turnos.services.jornada_service import JornadaService
 from core.utils.date_utils import DateUtils
-from django.utils import timezone
 
 
 def _csv(dias):

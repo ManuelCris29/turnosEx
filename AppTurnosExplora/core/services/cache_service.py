@@ -2,7 +2,7 @@
 Servicio centralizado para gestión de cache
 """
 from django.core.cache import cache
-from typing import Callable, Any, Optional
+from typing import Callable, Any
 import logging
 
 logger = logging.getLogger(__name__)

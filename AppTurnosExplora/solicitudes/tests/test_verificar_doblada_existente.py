@@ -100,7 +100,7 @@ class VerificarDobladaExistenteTest(TestCase):
         )
         
         # Crear detalle de doblada
-        detalle_doblada = DobladaDetalle.objects.create(
+        _detalle_doblada = DobladaDetalle.objects.create(
             solicitud=solicitud_doblada,
             fecha_pago=date(2026, 2, 18),  # Fecha de pago diferente
             jornada_cedida='AM',

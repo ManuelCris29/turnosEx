@@ -205,7 +205,6 @@ class TestGuardiaLIFOProtegeLaPermanente(AuditoriaDeudasTestCase):
     def test_no_deja_cancelar_si_una_permanente_posterior_toca_el_mismo_dia(self):
         from django.utils import timezone
         from solicitudes.models import DobladaPermanenteDetalle
-        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
         from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         martes = _martes_futuro()

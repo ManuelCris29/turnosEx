@@ -11,7 +11,7 @@ Acceso: staff o rol Supervisor (AdminRequiredMixin). La persona afectada (deudor
 notificación; el otro explorador no se ve afectado.
 """
 import logging
-from datetime import date, timedelta
+from datetime import date
 import calendar
 
 from django.contrib import messages

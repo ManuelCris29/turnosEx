@@ -6,9 +6,7 @@ from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
 from turnos.models import Turno, AsignarJornadaExplorador
 from solicitudes.models import SolicitudCambio
-from solicitudes.services.solicitud_service import SolicitudService
 from datetime import date
-from collections import defaultdict
 
 
 class Command(BaseCommand):
@@ -35,7 +33,6 @@ class Command(BaseCommand):
         """Obtiene la jornada que tenía un turno en una fecha específica usando el historial"""
         try:
             # Intentar obtener el estado del turno en la fecha de resolución usando el historial
-            from simple_history.utils import get_history_manager_for_model
             history = turno.historia.all()
             
             # Buscar el registro histórico más cercano ANTES de la fecha de resolución
@@ -127,7 +124,7 @@ class Command(BaseCommand):
             jornada_solicitante_antes = self.obtener_jornada_actual(solicitante, fecha, estado_turnos)
             jornada_receptor_antes = self.obtener_jornada_actual(receptor, fecha, estado_turnos)
             
-            self.stdout.write(f"\n  Estado ANTES del cambio:")
+            self.stdout.write("\n  Estado ANTES del cambio:")
             self.stdout.write(f"    {solicitante.nombre}: {jornada_solicitante_antes.nombre if jornada_solicitante_antes else 'N/A'}")
             self.stdout.write(f"    {receptor.nombre}: {jornada_receptor_antes.nombre if jornada_receptor_antes else 'N/A'}")
             
@@ -150,7 +147,6 @@ class Command(BaseCommand):
             # El problema es que si el turno fue actualizado después, la jornada actual puede no ser la correcta
             # Solución: usar el historial para obtener el estado del turno justo después de la resolución
             
-            fecha_resolucion = solicitud.fecha_resolucion if solicitud.fecha_resolucion else solicitud.fecha_solicitud
             
             # Para obtener las jornadas DESPUÉS del cambio, usamos la lógica del cambio de turno:
             # - El solicitante DESPUÉS debe tener la jornada que tenía el receptor ANTES
@@ -170,7 +166,7 @@ class Command(BaseCommand):
             jornada_solicitante_despues = jornada_solicitante_despues_esperada
             jornada_receptor_despues = jornada_receptor_despues_esperada
             
-            self.stdout.write(f"\n  Estado DESPUÉS del cambio:")
+            self.stdout.write("\n  Estado DESPUÉS del cambio:")
             self.stdout.write(f"    {solicitante.nombre}: Esperado {jornada_solicitante_despues_esperada.nombre} (Turno ID: {turno_solicitante.id}, Estado actual: {jornada_solicitante_despues_mostrar.nombre})")
             self.stdout.write(f"    {receptor.nombre}: Esperado {jornada_receptor_despues_esperada.nombre} (Turno ID: {turno_receptor.id}, Estado actual: {jornada_receptor_despues_mostrar.nombre})")
             
@@ -183,7 +179,7 @@ class Command(BaseCommand):
             # Validar que las jornadas son correctas
             # El solicitante debe recibir la jornada del receptor (jornada_receptor_antes)
             # El receptor debe recibir la jornada del solicitante (jornada_solicitante_antes)
-            self.stdout.write(f"\n  Validación:")
+            self.stdout.write("\n  Validación:")
             valido = True
             
             # Validar solicitante: debe tener la jornada que tenía el receptor ANTES
@@ -215,7 +211,7 @@ class Command(BaseCommand):
                 self.stdout.write(f"    [OK] Trazabilidad: Solicitud anterior ID: {solicitud.solicitud_origen.id}")
             else:
                 if idx > 1:
-                    self.stdout.write(self.style.WARNING(f"    [ADVERTENCIA] No hay solicitud origen, pero este no es el primer cambio"))
+                    self.stdout.write(self.style.WARNING("    [ADVERTENCIA] No hay solicitud origen, pero este no es el primer cambio"))
             
             if valido:
                 cambios_validos += 1

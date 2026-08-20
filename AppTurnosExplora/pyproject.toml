@@ -36,3 +36,15 @@ extend-exclude = [
 
 [tool.ruff.lint]
 select = ["F", "E9"]
+
+[tool.ruff.lint.per-file-ignores]
+# En un __init__.py un import "sin usar" suele ser un re-export deliberado: el
+# paquete lo expone para que otros hagan `from paquete import X`. Borrarlo
+# rompe a los consumidores sin que falle nada en el propio archivo.
+#
+# F403/F405 (`from .x import *`) por el mismo motivo: solicitudes/views/__init__.py
+# y turnos/views/__init__.py son agregadores GENERADOS por
+# solicitudes/tools/split_views.py, que reúnen las vistas repartidas en varios
+# módulos bajo un solo espacio de nombres. El `import *` ahí es el patrón elegido,
+# no un descuido; ya venía marcado con `# noqa: F401,F403` en cada línea.
+"**/__init__.py" = ["F401", "F403", "F405"]

@@ -2,18 +2,16 @@ import logging
 
 from django.shortcuts import render
 from core.utils.error_token import render_error_token
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
+from django.views.generic import TemplateView, ListView, CreateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.core.exceptions import PermissionDenied
 from core.constants import (
     EstadoCancelacion,
     VENTANA_PEDIR_CANCELACION_HORAS,
     VENTANA_RESPONDER_CANCELACION_HORAS,
 )
-from .models import PDH, PermisoEspecial
+from .models import PermisoEspecial
 
 # Importar mixin común desde core
-from core.mixins import AdminRequiredMixin
 from core.utils.date_utils import DateUtils
 from core.utils.json_responses import json_error
 # Regla transversal: el comentario es obligatorio en toda acción que resuelve algo.
@@ -127,7 +125,6 @@ class PermisoEspecialListView(LoginRequiredMixin, ListView):
         # Filtro por fecha (día) — permisos que cubren ese día
         fecha = self.request.GET.get('fecha')
         if fecha:
-            from datetime import datetime
             try:
                 f = DateUtils.parse_date(fecha)
                 qs = qs.filter(fecha_inicio__lte=f, fecha_fin__gte=f)

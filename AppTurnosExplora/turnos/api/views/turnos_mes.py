@@ -6,7 +6,7 @@ from django.db.models import Q
 from turnos.models import Turno, AsignarJornadaExplorador
 from turnos.services.turno_service import TurnoService
 from core.utils.date_utils import DateUtils
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 
 class TurnosPorDiaView(LoginRequiredMixin, View):

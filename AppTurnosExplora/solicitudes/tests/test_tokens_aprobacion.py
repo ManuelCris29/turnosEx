@@ -63,7 +63,7 @@ class NoSePuedeFabricarTests(TestCase):
         import hashlib
         import hmac
 
-        data = f"1_10_supervisor"
+        data = "1_10_supervisor"
         viejo = hmac.new(
             b'secret_key_change_this', data.encode(), hashlib.sha256
         ).hexdigest()

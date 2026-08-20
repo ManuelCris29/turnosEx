@@ -8,7 +8,6 @@ its own strategy that inherits from this base class.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Tuple, Optional
-from django.core.exceptions import ValidationError
 from solicitudes.models import SolicitudCambio
 from empleados.models import Empleado
 from core.services import get_empleado_disponibilidad_service, get_turno_service

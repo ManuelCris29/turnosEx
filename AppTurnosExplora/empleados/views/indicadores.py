@@ -12,7 +12,6 @@ class IndicadoresView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
     template_name = 'empleados/indicadores.html'
 
     def get_context_data(self, **kwargs):
-        import json
         from ..services.indicadores_service import IndicadoresService
         ctx = super().get_context_data(**kwargs)
         explorador = self.request.GET.get('explorador') or None

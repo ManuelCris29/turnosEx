@@ -135,7 +135,7 @@ class SancionListView(LoginRequiredMixin, ListView):
 def _invalidar_turnos_cache_sancion(sancion):
     """Refresca Mis Turnos del explorador para que la sanción se vea al instante."""
     try:
-        from datetime import date, timedelta
+        from datetime import timedelta
         from core.services.cache_service import CacheService
         hoy = timezone.localdate()
         # Para indefinidas, cubrir hasta el mes actual (no solo +365 días desde inicio)

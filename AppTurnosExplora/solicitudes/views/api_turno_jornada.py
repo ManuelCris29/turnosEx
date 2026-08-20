@@ -1,26 +1,10 @@
-from django.shortcuts import render, get_object_or_404
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.urls import reverse_lazy
-from django.db.models import Q
-from core.mixins import AdminRequiredMixin
 from core.services import get_turno_service
-from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, Notificacion, SolicitudCambio, CambioPermanenteDetalle
-from ..services.solicitud_service import SolicitudService
+from ..models import TipoSolicitudCambio, SolicitudCambio
 from ..services.solicitud_factory import SolicitudFactory
-from ..services.permiso_service import PermisoService
-from ..services.notificacion_service import NotificacionService
-from django.utils import timezone
 from core.utils.date_utils import DateUtils
-import hashlib
-import hmac
 import logging
-from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +26,6 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             # Si se solicita jornada base, obtener directamente de AsignarJornadaExplorador
             if jornada_base:
                 from turnos.models import AsignarJornadaExplorador
-                from datetime import datetime
                 from empleados.models import Empleado
                 
                 fecha_obj = DateUtils.parse_date(fecha)
@@ -100,7 +83,6 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             # CORRECCIÓN: Detectar si el explorador tiene doblada (AM + PM) en esta fecha
             # IMPORTANTE: Solo es doblada si hay TURNOS ASIGNADOS (AM+PM), no solo jornada predeterminada
             from turnos.models import Turno
-            from datetime import datetime
             
             fecha_obj = DateUtils.parse_date(fecha)
             turnos_en_fecha = Turno.objects.filter(
@@ -333,7 +315,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 )
             
             return json_ok(response_data)
-        except Exception as e:
+        except Exception:
             logger.exception('Error en ObtenerTurnoExploradorView')
             return json_error('Error al procesar la solicitud', status=500, code='internal_error')
 
@@ -394,7 +376,7 @@ class VerificarCoincidenciaJornadasView(LoginRequiredMixin, View):
             
         except Empleado.DoesNotExist:
             return json_error('Empleado no encontrado', status=404, code='empleado_not_found')
-        except Exception as e:
+        except Exception:
             logger.exception('Error en VerificarCoincidenciaJornadasView')
             return json_error('Error al procesar la solicitud', status=500, code='internal_error')
 
@@ -415,7 +397,7 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                             status=400, code='missing_params')
         
         try:
-            from datetime import datetime, date, timedelta
+            from datetime import timedelta
             from turnos.services.jornada_service import JornadaService
             import json
             
@@ -451,7 +433,6 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                     fecha_actual += timedelta(days=1)
             
             # Obtener jornada para cada fecha
-            from django.utils import formats
             dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
             
             from turnos.models import Turno, Jornada
@@ -570,7 +551,6 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
             return json_error('Usuario no tiene empleado asociado', status=400, code='no_empleado')
         
         try:
-            from datetime import datetime
             from django.db.models import Q
             from turnos.models import Turno
             
@@ -634,7 +614,7 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
                     }
                 })
                 
-        except Exception as e:
+        except Exception:
             logger.exception('Error en ObtenerCambioAprobadoView')
             return json_error('Error al verificar cambio aprobado', status=500, code='internal_error')
 

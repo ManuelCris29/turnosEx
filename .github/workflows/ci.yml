@@ -116,15 +116,39 @@ jobs:
           if-no-files-found: warn
 
   lint:
-    name: Lint y seguridad (informativo)
+    name: Lint (bloqueante)
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: AppTurnosExplora
-    # De momento NO bloquea. El baseline de ruff ronda los 1.000-1.500 avisos
-    # (E501 ~637, F401 ~437) y frenar los merges desde el día uno solo
-    # conseguiría que se ignorara el job entero. Se endurece por familias de
-    # reglas, limpiando una y añadiéndola al `select` de pyproject.toml.
+    # BLOQUEANTE desde el 2026-08-19: el baseline de las reglas activas
+    # (select = ["F", "E9"]) quedó en CERO al limpiar los 470 imports sin usar.
+    # A partir de aquí no se trata de saldar deuda vieja sino de no crear nueva,
+    # y para eso el job tiene que frenar. Al ampliar el `select` en
+    # pyproject.toml, limpiar la familia ANTES de añadirla.
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar ruff
+        run: pip install ruff
+
+      - name: ruff
+        run: ruff check .
+
+  seguridad:
+    name: Seguridad (informativo)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AppTurnosExplora
+    # Separado de `lint` y NO bloqueante a propósito: pip-audit depende del
+    # boletín de CVE publicado, así que una vulnerabilidad nueva en una
+    # dependencia dejaría de golpe todos los merges bloqueados por algo que no
+    # ha cambiado en el código. Se quiere el aviso, no el freno.
     continue-on-error: true
 
     steps:
@@ -135,10 +159,7 @@ jobs:
           python-version: "3.12"
 
       - name: Instalar herramientas
-        run: pip install ruff bandit pip-audit
-
-      - name: ruff (resumen)
-        run: ruff check . --statistics
+        run: pip install bandit pip-audit
 
       - name: bandit
         run: bandit -c pyproject.toml -r . -ll

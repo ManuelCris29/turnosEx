@@ -1,6 +1,4 @@
 from solicitudes.models import Notificacion
-from empleados.models import Empleado
-from datetime import datetime
 from django.utils import timezone
 import logging
 from solicitudes.services.email_service import EmailService
@@ -13,7 +11,6 @@ class NotificacionService:
     def _convertir_fecha(fecha):
         """Convierte fecha a objeto date si es string"""
         if isinstance(fecha, str):
-            from datetime import datetime
             return DateUtils.parse_date(fecha)
         return fecha
 
@@ -194,7 +191,7 @@ class NotificacionService:
     @staticmethod
     def _crear_notificacion_receptor(solicitud):
         """Crea notificación para el compañero receptor"""
-        titulo = f"Solicitud de cambio de turno recibida"
+        titulo = "Solicitud de cambio de turno recibida"
         mensaje = f"""
         {solicitud.explorador_solicitante.nombre} {solicitud.explorador_solicitante.apellido} 
         te ha enviado una solicitud de cambio de turno para el día {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)}.
@@ -254,7 +251,7 @@ class NotificacionService:
     @staticmethod
     def _crear_notificacion_solicitante(solicitud):
         """Crea notificación para el solicitante (para que pueda ver el estado)"""
-        titulo = f"Solicitud de cambio de turno enviada"
+        titulo = "Solicitud de cambio de turno enviada"
         mensaje = f"""
         Has enviado una solicitud de cambio de turno a {solicitud.explorador_receptor.nombre} {solicitud.explorador_receptor.apellido}
         para el día {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)}.

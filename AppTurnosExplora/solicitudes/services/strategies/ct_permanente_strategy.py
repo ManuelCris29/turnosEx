@@ -6,12 +6,12 @@ which are requests for permanent shift changes.
 """
 
 import logging
-from typing import Dict, Any, Tuple, Optional, List, Set
-from datetime import date, timedelta
+from typing import Dict, Any, Tuple, Optional, List
+from datetime import date
 from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from core.services import get_empleado_disponibilidad_service, get_turno_service
+from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
 from core.constants import TipoCambioTurno
 
@@ -162,8 +162,6 @@ class CTPermanenteStrategy(SolicitudStrategy):
             Tuple of (solicitud_instance, message)
         """
         try:
-            from django.utils import timezone
-            from datetime import datetime
             
             explorador_solicitante = datos.get('explorador_solicitante')
             explorador_receptor = datos.get('explorador_receptor')
@@ -233,7 +231,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             try:
                 from ..notificacion_service import NotificacionService
                 NotificacionService.crear_notificacion_solicitud(solicitud)
-            except Exception as e:
+            except Exception:
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.exception("Error creando notificaciones para CT PERMANENTE")

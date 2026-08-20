@@ -21,7 +21,7 @@ Ejemplos:
 """
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from solicitudes.models import SolicitudCambio, DobladaDetalle
+from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
 from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 from core.services.cache_service import CacheService

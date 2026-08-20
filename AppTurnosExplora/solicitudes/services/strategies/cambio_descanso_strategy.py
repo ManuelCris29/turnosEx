@@ -17,7 +17,6 @@ MODALIDAD ENTRE SEMANA (Temporada):
   sub-modalidades; ver _validar_semana_comun).
 """
 from typing import Dict, Any, Tuple, Optional
-from datetime import datetime
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -25,9 +24,7 @@ from django.db import transaction
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from turnos.services.jornada_service import JornadaService
 from core.utils.date_utils import DateUtils
-from django.utils import timezone
 
 
 class CambioDescansoStrategy(SolicitudStrategy):

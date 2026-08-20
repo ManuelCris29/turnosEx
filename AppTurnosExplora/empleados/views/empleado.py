@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import SetPasswordForm
 from django.views import View
-from django.views.generic import ListView, DetailView, UpdateView, TemplateView
+from django.views.generic import ListView, DetailView, UpdateView
 from django.views.generic.edit import DeleteView
 from django import forms
 from django.contrib import messages
@@ -185,7 +185,6 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
 
     def post(self, request):
         from turnos.models import AsignarJornadaExplorador
-        from datetime import date
         form = self.form_class(request.POST)
         if form.is_valid():
             usuario_existente = form.cleaned_data.get('usuario_existente')

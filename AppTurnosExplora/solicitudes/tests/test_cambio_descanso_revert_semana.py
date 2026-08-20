@@ -34,8 +34,6 @@ from datetime import timedelta
 from django.utils import timezone
 
 from solicitudes.models import SolicitudCambio, DeudaCorporativa
-from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
-from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
 from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 from turnos.models import Turno, DescansoSemanaManual
 
