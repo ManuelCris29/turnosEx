@@ -24,7 +24,7 @@ correcciones produjo y qué no pudo comprobarse:
 
 ---
 
-## Veredicto: **52 % de adherencia a buenas prácticas**
+## Veredicto: **55 % de adherencia a buenas prácticas**
 
 | Dimensión | Peso | Nota | Comentario |
 |---|---|---|---|
@@ -33,16 +33,23 @@ correcciones produjo y qué no pudo comprobarse:
 | Código limpio | 15 % | **4,0** | Naming y docstrings excelentes; tamaños de función catastróficos |
 | Tests | 15 % | **6,5** | 959 tests reales, 65 % cobertura, sin factories ni `conftest.py` |
 | Seguridad y configuración | 10 % | **8,0** | Lo mejor del proyecto junto con la documentación |
-| Tooling / CI | 10 % | **3,0** | Sonar y bandit configurados pero **sin CI: nada es automático** |
+| Tooling / CI | 10 % | **6,0** | *Corregido:* el CI existía (falso positivo de la 1ª pasada). Faltaba linter y pre-commit |
 | Frontend | 5 % | **3,0** | 47 scripts globales, duplicación masiva |
 | Documentación | 5 % | **9,0** | Manuales, ADRs, docstrings que explican el *porqué*. Ejemplar |
 
-**Total ponderado: 5,20 / 10 → 52 %**
+**Total ponderado: 5,50 / 10 → 55 %** *(revisado al alza tras retirar dos falsos positivos; ver §5.1 y §4)*
 
 Lectura honesta: **no es un proyecto mal hecho, es un proyecto bien pensado y mal contenido.** Alguien diseñó
 las capas correctas (`domain/`, `repositories/`, `use_cases/`, `strategies/`, interfaces en `core/interfaces`)
 y luego la presión de entrega hizo que la lógica se depositara donde era más rápido escribirla. La brecha entre
 la arquitectura *declarada* y la *ejecutada* es el hallazgo central.
+
+> ⚠️ **Nota metodológica (2026-08-19).** Dos hallazgos de la primera pasada resultaron falsos positivos —
+> «no hay system check para la caché» (§5.1) y «no hay CI» (§4)— por la **misma causa raíz**: la exploración
+> se limitó a `AppTurnosExplora/` cuando la raíz real del repositorio es su directorio padre, y no leyó
+> `core/checks.py`. Ambos están retirados y marcados en su sitio. La nota global subió de 52 % a 55 %.
+> Cualquier hallazgo futuro sobre "esto no existe" debe verificarse contra la raíz del repo antes de darse
+> por bueno.
 
 ---
 
@@ -150,14 +157,15 @@ corazón transaccional: `solicitud_orchestrator.py:314,358,450`. Y `print()` en 
 
 ---
 
-## 4. Tests y tooling (6,5 / 3,0)
+## 4. Tests y tooling (6,5 / 6,0)
 
 - **65,19 % de cobertura de línea** (`coverage.xml`, 18.569/28.484), sin cobertura de ramas.
 - 959 funciones `test_` en 91 archivos. Volumen serio.
 - **Puntos ciegos:** `permisos` **38,6 %**, `solicitudes/domain` **23,7 %**, `empleados/repositories` **0 %**, `solicitudes/management/commands` **3,5 %**, `scripts/**` 0 % (excluido de `testpaths`, 18 tests huérfanos).
 - **Sin `conftest.py` en todo el repo** ni `factory_boy`: cada test construye objetos a mano → duplicación de setup.
 - Integración: **1 solo test** (`integration_tests/integration/test_solicitud_flow.py`) frente a 950+ unitarios.
-- **Sin CI (`.github/` no existe), sin linter (ni ruff, black, flake8 ni mypy), sin pre-commit.** `pyproject.toml` tiene 14 líneas y solo configura bandit. Sonar y bandit se ejecutan a mano.
+- ~~**Sin CI (`.github/` no existe)**~~ **HALLAZGO RETIRADO (falso positivo).** El CI **sí existía**: `.github/workflows/ci.yml` en la **raíz del repositorio** (`C:ppTurnos`), no dentro de `AppTurnosExplora/`. Corre desde el commit `cd57317` con MySQL 8.0, carga de tablas TZ, `manage.py check`, `check --deploy` con entorno de producción simulado y `pytest`. **La auditoría exploró solo el subdirectorio del proyecto Django y no la raíz del repo** — misma causa que el falso positivo de `core.E001` (§5.1). Lo que sí faltaba y se añadió el 2026-08-19: ejecución en todas las ramas (antes solo `main`), `-n auto`, gate de cobertura y job de lint.
+- **Sin linter (ni ruff, black, flake8 ni mypy) y sin pre-commit** — esto sí era cierto. Corregido el 2026-08-19: `[tool.ruff]` en `pyproject.toml` y `.pre-commit-config.yaml` en la raíz del repo.
 - `sonar.python.version=3.14` vs `python:3.12-slim` en el Dockerfile: desalineado.
 - `pytest.ini` usa `--disable-warnings`. *Preciso tras Context7:* el flag no desactiva la captura, solo **oculta el resumen** al final de la corrida — los `DeprecationWarning` se registran pero nadie los ve. La doc de Django insiste en resolverlos *antes* de actualizar y recuerda que Python los silencia por defecto, por lo que hay que forzarlos con `-Wa` / `PYTHONWARNINGS`. El arreglo es un `filterwarnings` en `pytest.ini`, no quitar el flag. Política de deprecación confirmada: lo obsoleto en 5.2 (LTS) se elimina en **Django 6.1**.
 
@@ -306,7 +314,7 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 ## Hoja de ruta recomendada (para cuando decidas ejecutar)
 
 **Fase 0 — Red de seguridad (1-2 semanas). Sin esto, refactorizar es a ciegas.**
-1. `.github/workflows/ci.yml`: pytest + gate de cobertura ≥65 % + bandit + `pip-audit`.
+1. ~~Crear `.github/workflows/ci.yml`.~~ **Ya existía**; ampliado el 2026-08-19 con ejecución en todas las ramas, `-n auto`, gate de cobertura ≥64 % y job de lint (ruff + bandit + pip-audit).
 2. `ruff` (lint + format) en `pyproject.toml` + `pre-commit`. Coste bajo: hoy no hay ningún linter.
 3. `conftest.py` raíz con fixtures compartidos (empleado, turno, solicitud) — habilita todo lo demás.
 4. Subir `permisos` (38 %) y `solicitudes/domain` (24 %) al 70 % **antes** de tocar su código.

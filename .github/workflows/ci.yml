@@ -4,11 +4,18 @@ name: CI
 # Corre en cada push y PR a main: valida configuración de Django y ejecuta
 # la suite de tests (pytest) contra un MySQL real, igual que en local.
 
+# Corre en CUALQUIER rama, no solo en main. Un CI que solo se entera al abrir el
+# PR no sirve de red de seguridad mientras se refactoriza: el objetivo es saber
+# que algo se rompió en el push que lo rompió, no tres días después.
 on:
   push:
-    branches: [ main ]
+    branches: [ '**' ]
   pull_request:
-    branches: [ main ]
+
+# Dos pushes seguidos a la misma rama: cancela la corrida anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -92,5 +99,49 @@ jobs:
           CACHE_URL: redis://localhost:6379/1   # no se conecta: solo se valida el backend
         run: python manage.py check --deploy
 
+      # -n auto reparte la suite entre los núcleos del runner (pytest-django da a
+      # cada worker su propia base test_*_gwN, así que no se pisan).
+      # El gate de cobertura arranca en 64: el baseline medido es 65,19 %, y se
+      # sube 5 puntos por fase de refactor. Sin `.`, respeta los testpaths de
+      # pytest.ini y no recoge los test_*.py sueltos de scripts/.
       - name: Ejecutar tests (pytest)
-        run: pytest
+        run: pytest -n auto --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=64
+
+      - name: Publicar coverage.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: AppTurnosExplora/coverage.xml
+          if-no-files-found: warn
+
+  lint:
+    name: Lint y seguridad (informativo)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AppTurnosExplora
+    # De momento NO bloquea. El baseline de ruff ronda los 1.000-1.500 avisos
+    # (E501 ~637, F401 ~437) y frenar los merges desde el día uno solo
+    # conseguiría que se ignorara el job entero. Se endurece por familias de
+    # reglas, limpiando una y añadiéndola al `select` de pyproject.toml.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Instalar herramientas
+        run: pip install ruff bandit pip-audit
+
+      - name: ruff (resumen)
+        run: ruff check . --statistics
+
+      - name: bandit
+        run: bandit -c pyproject.toml -r . -ll
+
+      - name: pip-audit
+        run: pip-audit -r requirements.txt

@@ -6,17 +6,22 @@
 #
 # Instalación (una vez):  pip install pre-commit && pre-commit install
 # Pasar por todo el repo: pre-commit run --all-files
+#
+# Este archivo va en la RAÍZ del repositorio (pre-commit solo lo busca ahí),
+# mientras que el proyecto Django vive en AppTurnosExplora/. Por eso los hooks
+# de Python se limitan a esa subcarpeta con `files:`.
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.8.6
     hooks:
-      # Reglas y exclusiones salen de [tool.ruff] en pyproject.toml.
+      # Reglas y exclusiones salen de AppTurnosExplora/pyproject.toml.
       #
       # SIN --fix a propósito: informa y bloquea, pero no reescribe. En Django hay
       # imports que existen por efecto secundario (registro de señales, modelos) y
       # borrarlos automáticamente rompe cosas que no dan error de sintaxis. La
       # limpieza de F401 se hará por lotes revisando el diff (Sesión 2).
       - id: ruff
+        files: ^AppTurnosExplora/
       #
       # `ruff-format` queda FUERA por ahora. Es un formateador y este proyecto
       # nunca ha tenido uno: la primera vez que se tocara cada archivo se
