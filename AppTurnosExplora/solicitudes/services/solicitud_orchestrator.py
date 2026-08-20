@@ -453,26 +453,31 @@ class SolicitudOrchestrator:
         # Si la solicitud llega por el flujo antiguo (solo días de la semana, sin fechas), hay que
         # EXPANDIR el rango para tener fechas que comprobar; si no, la lista iba vacía y el cierre
         # no se validaba en absoluto por esa vía.
+        # FALLA CERRADO (patrón #25 de PROTECTION_PATTERNS.md). Antes, una fecha que no
+        # parseaba se CAÍA de `_cierre_fechas` en silencio: el cierre semanal no la
+        # comprobaba y podía colarse una solicitud sobre una ventana cerrada.
+        #
+        # Auditado antes de cerrarlo: `solicitar_doblada_permanente.js:586` solo envía el
+        # `value` de los checkboxes marcados —fechas ISO que genera el propio servidor—, así
+        # que ningún envío legítimo trae aquí una cadena vacía ni un valor corrupto. Lo único
+        # que se empieza a rechazar es un POST malformado, que es justo lo que debe rechazarse.
+        #
+        # El bucle solo corre en el flujo por fechas: en el antiguo (por weekday) el resultado
+        # se descartaba y se recalculaba, así que parsear allí era trabajo tirado.
         _cierre_fechas = []
-        for _s in list(ces_fechas) + list(dev_fechas):
-            try:
-                _cierre_fechas.append(DateUtils.parse_date(_s))
-            except (ValueError, TypeError):
-                # OJO — esto FALLA ABIERTO y contradice el patrón #25 de
-                # PROTECTION_PATTERNS.md ("sin el dato, bloquear; nunca dejar pasar en
-                # silencio"): una fecha que no parsea se cae de `_cierre_fechas`, así que
-                # el cierre semanal NO la comprueba y podría colarse una solicitud sobre
-                # una ventana cerrada.
-                # No se cambia a "fallar cerrado" sin decidirlo antes: habría que confirmar
-                # que ningún formulario manda entradas vacías o parciales por diseño, o se
-                # empezarían a rechazar peticiones legítimas. De momento se hace VISIBLE.
-                # Solo se avisa de valores no vacíos: una cadena vacía es "sin dato", no un
-                # dato corrupto, y avisar de eso sería ruido.
-                if _s:
+        if usa_fechas:
+            for _s in list(ces_fechas) + list(dev_fechas):
+                try:
+                    _cierre_fechas.append(DateUtils.parse_date(_s))
+                except (ValueError, TypeError):
                     logger.warning(
-                        'Fecha no parseable (%r) descartada del cierre semanal: ese día NO se '
-                        'comprueba contra la ventana de cierre', _s)
-        if not usa_fechas:
+                        'Fecha no parseable (%r) en la doblada permanente: se RECHAZA la '
+                        'solicitud (no se puede comprobar la ventana de cierre)', _s)
+                    return json_error(
+                        'Una de las fechas seleccionadas no es válida, así que no se puede '
+                        'comprobar si cae en una semana cerrada. Vuelve a marcar las fechas.',
+                        status=400, code='validation_error')
+        else:
             _cierre_fechas = cls._expandir_weekdays_doblada_perm(post, fecha_inicio, fecha_fin)
         cierre_resp = cls.verificar_cierre(_cierre_fechas)
         if cierre_resp:

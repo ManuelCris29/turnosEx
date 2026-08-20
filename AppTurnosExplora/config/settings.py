@@ -362,10 +362,26 @@ AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
 # intermediario, este número SUBE o el bloqueo por IP vuelve a ser inservible.
 # En desarrollo no hay proxy: 0.
 #
-# VERIFICAR EN STAGING antes de producción (ver docs de despliegue):
-#   from axes.helpers import get_client_ip_address
-# debe devolver la IP real del cliente, no la del balanceador.
+# VERIFICAR EN STAGING antes de producción:
+#   python manage.py verificar_ip_cliente
+# debe decir que axes ve la IP real del cliente, no la del balanceador.
 AXES_IPWARE_PROXY_COUNT = env.int('AXES_IPWARE_PROXY_COUNT', default=1 if IS_PRODUCTION else 0)
+
+# Sin esto, lo de arriba NO SIRVE DE NADA, y es un fallo silencioso.
+#
+# El valor por defecto de axes es ("REMOTE_ADDR",) —solo la IP de la conexión—, así
+# que aunque django-ipware esté instalado y el número de proxies sea correcto, axes
+# nunca miraría X-Forwarded-For y seguiría viendo la IP del balanceador para todo el
+# mundo. Se detectó al escribir `verificar_ip_cliente`: la configuración "correcta"
+# resolvía la IP del ALB.
+#
+# Se activa SOLO cuando hay un intermediario declarado, y el motivo es de seguridad,
+# no de limpieza: si se confía en X-Forwarded-For sin proxy delante, cualquier cliente
+# puede inventarse la cabecera y cambiar de "IP" en cada intento, con lo que el bloqueo
+# por IP deja de existir. Con proxy, el balanceador reescribe la cabecera y el cliente
+# no la controla.
+if AXES_IPWARE_PROXY_COUNT:
+    AXES_IPWARE_META_PRECEDENCE_ORDER = ['HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR']
 
 AXES_RESET_ON_SUCCESS = True
 AXES_VERBOSE = False

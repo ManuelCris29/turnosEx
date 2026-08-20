@@ -2,7 +2,9 @@ asgiref==3.11.0
 cffi==2.0.0
 cryptography==50.0.0
 Django==5.2.17
-django-axes==7.0.1
+# El extra [ipware] NO es opcional aquí: sin django-ipware, axes ignora los ajustes
+# AXES_IPWARE_* y resuelve siempre REMOTE_ADDR (la IP del balanceador). Ver settings.py.
+django-axes[ipware]==7.0.1
 django-cors-headers==4.9.0
 django-csp==4.0
 django-environ==0.14.0

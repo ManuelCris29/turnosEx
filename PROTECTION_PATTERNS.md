@@ -758,6 +758,20 @@ return self._pares_derivados_de_fechas(solicitud)  # fechas propias de la solici
 - Test: `test_auditoria_huecos.py` - `TestLIFOFallaCerradoSinSnapshot` (incluye los dos controles:
   sin conflicto real SÍ se puede cancelar, y un cambio posterior en OTRO día no bloquea —
   "fallar cerrado" no puede degenerar en "bloquear siempre")
+- `base_validator.py` - `validar_no_dia_mantenimiento()`: una fecha ilegible ya no salta la
+  regla entera; lanza `ValidationError`. Antes la protección dependía del ORDEN DE LLAMADA
+  (las strategies parsean antes), no de sí misma
+- `solicitud_orchestrator.py` - `_procesar_doblada_permanente_multi()`: una fecha ilegible ya
+  no se cae de la lista del cierre semanal; se rechaza la solicitud. Antes ese día no se
+  comprobaba contra la ventana cerrada
+- Test: `test_auditoria_fail_open.py` (6, con sus controles)
+
+**Variante de este patrón: la guardia que está PUESTA pero es INERTE.** `AXES_IPWARE_PROXY_COUNT`
+estaba configurado y no hacía nada, porque `django-ipware` no estaba instalado (axes lo trae como
+extra opcional) y porque `AXES_IPWARE_META_PRECEDENCE_ORDER` por defecto solo mira `REMOTE_ADDR`.
+El check `core.E003` daba luz verde leyendo los AJUSTES. Lección: **una guardia se verifica
+EJECUTÁNDOLA, no leyendo su configuración** — se destapó con `manage.py verificar_ip_cliente`, que
+resuelve una IP de verdad. De ahí salió `core.E004`.
 
 ---
 
@@ -1888,6 +1902,9 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | Re-aplicar un CAMBIO DESCANSO ya no marca reemplazos (`marcar_reemplazos=False`) | #33 | La reconciliación convertía en 'reemplazada' una solicitud vigente: un re-aplicador debe ser puro en turnos |
 | | Nuevo comando `verificar_efecto_aplicado` (auditoría + `--reparar`) | #33, #30 | Una guardia protege el momento; hacía falta encontrar lo que ya se escapó. Detectó y reparó la #554 |
 | | La reconciliación re-aplica en UNA pasada ordenada por `fecha_resolucion`, no en tres bloques por modelo | #33 | Una doblada permanente aprobada en junio se re-materializaba después de una D FDS aprobada en julio y le ganaba el día cedido: la persona volvía a trabajarlo mientras su sustituto también lo tenía asignado |
+| **2026-08-20** | Cerrados los dos *fail-open* que quedaban (mantenimiento y cierre semanal) | #25 | Una fecha ilegible saltaba la validación de día de mantenimiento ENTERA y se caía de la comprobación de ventana cerrada. Auditados los llamadores antes de cerrar: ningún envío legítimo se rechaza |
+| | `django-axes[ipware]` pasa a ser dependencia obligatoria + `AXES_IPWARE_META_PRECEDENCE_ORDER` | #25 | `AXES_IPWARE_PROXY_COUNT` estaba puesto y era INERTE: axes resolvía la IP del balanceador. Detrás del ALB, 5 fallos de cualquiera bloquean a la plantilla entera |
+| | Nuevo check `core.E004` y comando `verificar_ip_cliente` | #25 | `core.E003` validaba los ajustes, no el resultado: aprobaba una configuración que no protegía nada |
 | | `refrescar_resultantes` solo refresca las solicitudes que la reconciliación acaba de re-aplicar | #33, #30 | Refrescaba a toda vigente que compartiera un día: si su efecto estaba roto, grababa el estado roto como propio y cegaba a la guardia de integridad Y a la auditoría (la #554 llegó a afirmar que una D FDS había dejado un turno `CAMBIO DESCANSO`) |
 | | `verificar_efecto_aplicado --solicitud N --reparar` repara aunque no detecte desajuste | #33 | Un resultante ya corrompido vuelve invisible el daño; la reparación no puede depender de la misma referencia que está mal |
 | | En Mis Turnos, un día de FINDE trabajado dice `DÍA COMPLETO (AM + PM)`, no `DOBLADA` | — | En finde el día es AM+PM por definición: "doblada" afirmaba un esfuerzo extra inexistente, con deuda de 30 min asociada en la cabeza del explorador. Mismo vocabulario que el formulario de D FDS |

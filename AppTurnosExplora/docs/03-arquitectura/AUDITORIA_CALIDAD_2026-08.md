@@ -349,10 +349,8 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 >   (iba a stdout sin traza ni `request_id`, se perdía del pipeline); los 3 de
 >   `api_disponibles_ct_preview.py` eran duplicados literales del `logger` de la línea de encima y se borraron.
 > - **`except: pass`: 12 → 4, y los 4 restantes documentados uno a uno.** No se cambió ningún flujo de
->   control: solo se añadió visibilidad. Dos merecen decisión de dominio y quedan marcados en el código:
->   `solicitud_orchestrator.py` (una fecha no parseable se cae del cierre semanal, que entonces NO la
->   comprueba) y `base_validator.py` (una fecha no parseable **salta entera** la validación de día de
->   mantenimiento). Ambos son *fail-open* contra el patrón #25 de `PROTECTION_PATTERNS.md`.
+>   control: solo se añadió visibilidad. Dos eran *fail-open* contra el patrón #25 y quedaron marcados a la
+>   espera de decisión de dominio: **ya están cerrados** (ver el bloque de la Sesión 5, abajo).
 > - **Deprecación que rompía en Django 6.0:** `solicitudes/models.py` usaba `CheckConstraint(check=...)`,
 >   eliminado en 6.0. Cambiado a `condition=` (sin migración nueva). Estaba emitiéndose desde hacía tiempo y
 >   `--disable-warnings` lo ocultaba — exactamente lo que este informe señalaba en §4.
@@ -373,6 +371,40 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 > - **NO se rotó la contraseña de `docker-compose.hostdb.yml`:** es de una base local ya inicializada con
 >   ella; cambiarla rompería el entorno de desarrollo a cambio de nada, porque el valor viejo sigue en el
 >   historial de git de todas formas. Lo que importa es que la de producción nunca se versione.
+
+> ✅ **SESIÓN 5 — cierre de los pendientes de la Fase 1 (2026-08-20).** Los cuatro puntos que quedaban:
+>
+> - **Los dos *fail-open* del patrón #25, CERRADOS.** No se cerraron a ciegas: primero se auditaron los
+>   llamadores, que es lo que convertía la decisión en técnica y no de negocio.
+>   - `validar_no_dia_mantenimiento()`: sus **tres** llamadores ya garantizan fecha parseable
+>     (`cambio_turno_strategy.py:67` rechaza el vacío y la `:75` parsea antes; `d_fds_strategy.py:154-155`
+>     pasan `strftime()` de objetos `date`). La rama era inalcanzable por el flujo normal, así que cerrarla
+>     **no rechaza ninguna petición legítima** — pero deja la garantía viviendo en la validación y no en el
+>     orden de llamada.
+>   - Cierre semanal de la doblada permanente: `solicitar_doblada_permanente.js:586` solo envía el `value`
+>     de checkboxes marcados (fechas ISO generadas por el servidor). Lo único que se empieza a rechazar es
+>     un POST malformado, que es justo lo que debe rechazarse.
+>   - 6 tests nuevos (`test_auditoria_fail_open.py`), con **prueba negativa**: 3 fallan contra el código
+>     anterior. Incluyen los controles del #25 — "fallar cerrado" no puede degenerar en "bloquear siempre".
+> - **🔴 `AXES_IPWARE_PROXY_COUNT` estaba puesto y era INERTE. Fallo de la Fase 1, corregido aquí.**
+>   `django-ipware` **no estaba instalado** —axes lo trae como extra opcional (`django-axes[ipware]`)— y sin
+>   él `get_client_ip_address` ignora todos los ajustes `AXES_IPWARE_*` y devuelve `REMOTE_ADDR`. Además,
+>   `AXES_IPWARE_META_PRECEDENCE_ORDER` por defecto vale `("REMOTE_ADDR",)`, así que ni instalándolo se
+>   miraría `X-Forwarded-For`. Detrás del ALB eso es **exactamente la denegación de servicio que la Fase 1
+>   creía haber evitado**, y `core.E003` la aprobaba. Confirmado contra la doc oficial vía Context7.
+>   Corregido: extra obligatorio en `requirements.txt`, `AXES_IPWARE_META_PRECEDENCE_ORDER` activo **solo**
+>   cuando hay proxy declarado (confiar en la cabecera sin proxy permitiría falsear la IP en cada intento) y
+>   **check nuevo `core.E004`** que caza las dos causas. 9 tests más.
+>   *Lección, anotada en `PROTECTION_PATTERNS.md`: una guardia se verifica EJECUTÁNDOLA, no leyendo su
+>   configuración.* Lo destapó `manage.py verificar_ip_cliente`, comando nuevo que resuelve una IP de verdad.
+> - **`docker build` REAL ejecutado** (Docker Desktop arrancado): imagen de 916 MB, `appuser` no root
+>   (uid 1000), 2 406 estáticos recolectados, bundle CA de RDS presente, Python 3.12.14, gunicorn 23.0.0.
+>   El `HEALTHCHECK` se probó **dentro del contenedor**: devuelve `400 DisallowedHost` y **exit 0**, tal
+>   como se diseñó. Ya no es una afirmación del comentario: está comprobado.
+> - **axes en staging:** queda un paso humano, pero ya no a mano. `python manage.py verificar_ip_cliente`
+>   dice si axes ve al cliente o al balanceador, y trae el procedimiento con tráfico real.
+>
+> Suite: **991 tests** (976 → 991). ruff en cero. `check --deploy` limpio en configuración de producción.
 
 **Fase 1 — Endurecimiento de producción (~3-4 días).** *Reestimada dos veces: al alza por el bloqueante de
 proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda la verificación en staging.*

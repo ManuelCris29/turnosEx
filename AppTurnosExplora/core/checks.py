@@ -127,6 +127,75 @@ def axes_ve_la_ip_real_del_cliente(app_configs, **kwargs):
     ]
 
 
+@register(deploy=True)
+def axes_puede_leer_la_ip_reenviada(app_configs, **kwargs):
+    """
+    `AXES_IPWARE_PROXY_COUNT` puede estar puesto y NO HACER NADA. Dos motivos:
+
+    1. django-ipware no está instalado. axes lo trae como EXTRA opcional
+       (`django-axes[ipware]`); sin él, `get_client_ip_address` ignora todos los
+       ajustes AXES_IPWARE_* y devuelve `REMOTE_ADDR` directamente
+       (axes/helpers.py: `if use_ipware:` ... else fallback).
+    2. `AXES_IPWARE_META_PRECEDENCE_ORDER` no incluye 'HTTP_X_FORWARDED_FOR'. Su
+       valor por defecto en axes es `("REMOTE_ADDR",)`, así que ni con ipware
+       instalado se llega a mirar la cabecera que trae la IP del cliente.
+
+    En ambos casos axes ve la IP DEL BALANCEADOR para toda la plantilla, que es
+    exactamente lo que `core.E003` pretende evitar. Sin este check, E003 da luz
+    verde a una configuración inerte: el peor resultado posible, porque la
+    protección parece puesta y no lo está. Se descubrió con
+    `manage.py verificar_ip_cliente`, que ejecuta la resolución REAL en vez de
+    leer los ajustes.
+
+    Por eso este check exige que, si se declara que hay proxies, la resolución de
+    IP funcione de verdad.
+    """
+    if not getattr(settings, 'IS_PRODUCTION', False):
+        return []
+
+    if 'ip_address' not in _parametros_de_bloqueo():
+        return []
+
+    if not getattr(settings, 'AXES_IPWARE_PROXY_COUNT', None):
+        return []  # de esa combinación ya responde core.E003
+
+    # Un AXES_CLIENT_IP_CALLABLE propio sustituye a ipware por completo.
+    if getattr(settings, 'AXES_CLIENT_IP_CALLABLE', None):
+        return []
+
+    try:
+        import ipware.ip  # noqa: F401
+        ipware_ok = True
+    except ImportError:
+        ipware_ok = False
+
+    cabeceras = getattr(settings, 'AXES_IPWARE_META_PRECEDENCE_ORDER', ('REMOTE_ADDR',))
+    lee_reenviada = 'HTTP_X_FORWARDED_FOR' in tuple(cabeceras)
+
+    if ipware_ok and lee_reenviada:
+        return []
+
+    if not ipware_ok:
+        causa = ('django-ipware NO está instalado, así que axes ignora '
+                 'AXES_IPWARE_PROXY_COUNT y usa REMOTE_ADDR.')
+        arreglo = 'Instala el extra:  django-axes[ipware]==7.0.1  en requirements.txt.'
+    else:
+        causa = ("AXES_IPWARE_META_PRECEDENCE_ORDER no incluye 'HTTP_X_FORWARDED_FOR' "
+                 "(por defecto axes solo mira REMOTE_ADDR).")
+        arreglo = ("Define AXES_IPWARE_META_PRECEDENCE_ORDER = "
+                   "['HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'].")
+
+    return [
+        Error(
+            'AXES_IPWARE_PROXY_COUNT está configurado pero axes NO puede leer la IP '
+            'real del cliente: el bloqueo por IP alcanzaría a toda la plantilla.',
+            hint=f'{causa} {arreglo} Comprueba el resultado con: '
+                 f'python manage.py verificar_ip_cliente',
+            id='core.E004',
+        )
+    ]
+
+
 def _parametros_de_bloqueo():
     """
     Aplana AXES_LOCKOUT_PARAMETERS, que admite dos formas.

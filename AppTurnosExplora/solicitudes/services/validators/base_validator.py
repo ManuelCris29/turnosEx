@@ -87,15 +87,24 @@ class BaseValidator:
             logger.error('turnos.models.DiaEspecial no importable: la validación de día de '
                          'mantenimiento NO se ha ejecutado')
         except ValueError:
-            # FALLA ABIERTO, y contradice el patrón #25 de PROTECTION_PATTERNS.md: con una
-            # fecha que no parsea, la regla "no se cambian turnos en día de mantenimiento"
-            # se salta ENTERA. El comentario original decía "otra validación la manejará", y
-            # probablemente es cierto —las strategies parsean la fecha antes—, pero aquí no
-            # está garantizado, así que la protección depende del orden de llamada.
-            # No se cambia a fallar cerrado sin comprobar antes qué llamadores pasan cadenas
-            # sueltas; de momento deja rastro en vez de silencio.
-            logger.warning('Fecha %r no parseable: se OMITE la validación de día de '
-                           'mantenimiento para esa fecha', fecha)
+            # FALLA CERRADO (patrón #25 de PROTECTION_PATTERNS.md). Antes se tragaba el error
+            # y la regla "no se cambian turnos en día de mantenimiento" se saltaba ENTERA, con
+            # lo que la protección dependía del ORDEN DE LLAMADA y no de sí misma.
+            #
+            # Auditado antes de cerrarlo: los tres llamadores ya garantizan fecha parseable
+            #   - cambio_turno_strategy.py:67  rechaza el valor vacío
+            #   - cambio_turno_strategy.py:75  parsea ANTES de llegar aquí
+            #   - d_fds_strategy.py:154-155    pasan strftime() de objetos date
+            # así que hoy esta rama es inalcanzable por el flujo normal y cerrarla no rechaza
+            # ninguna petición legítima. Se cierra igualmente para que la garantía viva AQUÍ:
+            # un cuarto llamador que pase una cadena suelta debe encontrarse un rechazo, no un
+            # hueco silencioso en la validación.
+            logger.warning('Fecha %r no parseable: se BLOQUEA el cambio (no se puede comprobar '
+                           'si es día de mantenimiento)', fecha)
+            raise ValidationError(
+                'No se ha podido interpretar la fecha de la solicitud, así que no es posible '
+                'comprobar si es un día de mantenimiento. Vuelve a elegir la fecha.'
+            ) from None
 
     # ===== VALIDACIONES ESPECÍFICAS PARA CAMBIO TURNO (CT) =====
 
