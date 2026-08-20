@@ -62,3 +62,8 @@ class TestHealth:
 
     def test_solo_acepta_get(self, client):
         assert client.post(reverse('health')).status_code == 405
+
+
+def test_PRUEBA_NEGATIVA_BORRAR():
+    """Fallo deliberado para verificar que el CI se pone rojo. Se revierte enseguida."""
+    assert 1 == 2, "prueba negativa del CI"
