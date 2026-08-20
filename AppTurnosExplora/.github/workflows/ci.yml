@@ -1,0 +1,149 @@
+name: CI
+
+# Se ejecuta en cada push a cualquier rama y en cada PR. La idea es enterarse de
+# que algo se rompió en la rama de trabajo, no al abrir el PR.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Si se empuja dos veces seguidas a la misma rama, cancela la corrida anterior.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Credenciales de la base EFÍMERA del runner. No son secretos: el contenedor
+  # vive lo que dura el job y no es accesible desde fuera.
+  DB_NAME: appturnos_ci
+  DB_USER: root
+  DB_PASSWORD: ci_root_pw
+
+jobs:
+  tests:
+    name: Tests (Python 3.12 · MySQL 8.0)
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_pw
+          MYSQL_DATABASE: appturnos_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci_root_pw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+
+    env:
+      # --- Las 7 obligatorias de config/settings.py (sin default: si faltan, no arranca) ---
+      SECRET_KEY: ci-secret-key-no-usar-fuera-del-runner
+      DB_NAME: appturnos_ci
+      DB_USER: root
+      DB_PASSWORD: ci_root_pw
+      EMAIL_HOST_USER: ci@example.invalid
+      EMAIL_HOST_PASSWORD: ci-not-a-real-password
+      DEFAULT_FROM_EMAIL: ci@example.invalid
+      # --- Entorno ---
+      # 'development' mantiene SECURE_HTTPS y EMAIL_SEND_ASYNC en False, y mete
+      # debug_toolbar en INSTALLED_APPS: por eso se instala requirements-dev.txt.
+      ENVIRONMENT: development
+      DEBUG: 'False'
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3306'
+      # DB_SSL_CA y CACHE_URL se dejan SIN definir a propósito:
+      # sin TLS contra un MySQL local y con LocMemCache, que es lo que usan los tests.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # 3.12 = la versión del Dockerfile. El desarrollo local va en 3.14; este
+          # job existe justamente para detectar lo que funcione allí y aquí no.
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      # ---------------------------------------------------------------------
+      # Tablas de zona horaria de MySQL.
+      #
+      # USE_TZ=True + MySQL hace que Django traduzca fechas con CONVERT_TZ, que
+      # devuelve NULL si mysql.time_zone_name está vacía. La imagen mysql:8.0 NO
+      # las trae pobladas (RDS sí). Sin esto, los tests de fechas fallan con
+      # resultados falsos, no con un error claro.
+      # Ver docs/05-referencia/deployment/MANUAL_DOCKER_LOCAL.md
+      # ---------------------------------------------------------------------
+      - name: Cargar tablas de zona horaria en MySQL
+        run: |
+          CID=$(docker ps --filter "ancestor=mysql:8.0" --format '{{.ID}}' | head -1)
+          if [ -z "$CID" ]; then
+            echo "::error::No se encontró el contenedor del servicio MySQL"
+            exit 1
+          fi
+          docker exec "$CID" sh -c \
+            'mysql_tzinfo_to_sql /usr/share/zoneinfo 2>/dev/null | mysql -uroot -p"$MYSQL_ROOT_PASSWORD" mysql'
+
+      - name: Verificar que las zonas horarias quedaron cargadas
+        run: |
+          CID=$(docker ps --filter "ancestor=mysql:8.0" --format '{{.ID}}' | head -1)
+          COUNT=$(docker exec "$CID" sh -c \
+            'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B -e "SELECT COUNT(*) FROM mysql.time_zone_name;"')
+          echo "Zonas horarias cargadas: $COUNT"
+          if [ "$COUNT" -lt 100 ]; then
+            echo "::error::Las tablas de zona horaria están vacías o incompletas ($COUNT). CONVERT_TZ devolvería NULL."
+            exit 1
+          fi
+
+      - name: Comprobaciones de Django
+        run: python manage.py check
+
+      # Respeta `testpaths` de pytest.ini. NO usar `pytest .`: recogería los
+      # test_*.py de scripts/, que son scripts sueltos, no tests de pytest.
+      - name: Suite de tests
+        run: pytest -n auto --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=64
+
+      - name: Publicar coverage.xml
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: warn
+
+  lint:
+    name: Lint y seguridad (informativo)
+    runs-on: ubuntu-latest
+    # De momento NO bloquea. El baseline es de ~1.000-1.500 avisos y frenar los
+    # merges desde el día uno solo conseguiría que se ignorara el job entero.
+    # Se endurecerá por reglas, a medida que se limpie cada familia.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar herramientas
+        run: pip install ruff bandit pip-audit
+
+      - name: ruff (resumen)
+        run: ruff check . --statistics
+
+      - name: bandit
+        run: bandit -c pyproject.toml -r . -ll
+
+      - name: pip-audit
+        run: pip-audit -r requirements.txt

@@ -161,7 +161,10 @@
 
 ## 7. CI/CD — integración y despliegue continuos
 
-**CI (integración continua) — ✅ implementado.** Workflow `.github/workflows/ci.yml`: en cada push/PR a `main` levanta MySQL, carga las tablas de zona horaria, corre `manage.py check` y la suite `pytest`. Evita subir código roto a `main`.
+**CI (integración continua) — ✅ implementado** (2026-08-19). Workflow `.github/workflows/ci.yml`, dos jobs:
+
+- **`tests`** (bloqueante): en cada push a **cualquier** rama y en cada PR levanta MySQL 8.0, **carga las tablas de zona horaria** (la imagen no las trae y sin ellas `CONVERT_TZ` devuelve `NULL`), corre `manage.py check` y la suite `pytest -n auto` con gate de cobertura. Se ejecuta sobre **Python 3.12**, la versión del Dockerfile — el desarrollo local va en 3.14, y este job existe para detectar lo que funcione allí y no en producción.
+- **`lint`** (informativo, `continue-on-error`): `ruff --statistics`, `bandit` y `pip-audit`. No bloquea todavía: el baseline de ruff ronda los 1.000-1.500 avisos y se endurecerá por familias de reglas.
 
 **CD (despliegue continuo) — ⏳ pendiente, se hace al montar AWS.** Un segundo workflow `deploy.yml` que, al mergear a `main`, entre por SSH al EC2 y ejecute la actualización:
 `git pull → pip install -r requirements.txt → migrate → collectstatic → systemctl restart appturnosex`.

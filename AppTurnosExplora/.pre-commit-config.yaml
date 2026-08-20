@@ -1,0 +1,39 @@
+# Hooks que corren antes de cada commit, SOLO sobre los archivos tocados.
+#
+# Deliberadamente NO se ejecuta la suite de tests aquí: tarda ~3 minutos y un
+# hook que hace esperar tres minutos por commit acaba desactivado en una semana.
+# De la suite se encarga el CI (.github/workflows/ci.yml).
+#
+# Instalación (una vez):  pip install pre-commit && pre-commit install
+# Pasar por todo el repo: pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      # Reglas y exclusiones salen de [tool.ruff] en pyproject.toml.
+      #
+      # SIN --fix a propósito: informa y bloquea, pero no reescribe. En Django hay
+      # imports que existen por efecto secundario (registro de señales, modelos) y
+      # borrarlos automáticamente rompe cosas que no dan error de sintaxis. La
+      # limpieza de F401 se hará por lotes revisando el diff (Sesión 2).
+      - id: ruff
+      #
+      # `ruff-format` queda FUERA por ahora. Es un formateador y este proyecto
+      # nunca ha tenido uno: la primera vez que se tocara cada archivo se
+      # reformatearía entero, y esos diffs gigantes esconderían los cambios de
+      # lógica justo cuando más importa revisarlos. Se activará en una pasada
+      # propia, con su commit dedicado, cuando terminen las fases de refactor.
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      # Impide subir un .env o una clave privada por descuido.
+      - id: detect-private-key
+      # Un merge mal resuelto no debería llegar a un commit.
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace

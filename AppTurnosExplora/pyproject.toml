@@ -11,3 +11,28 @@ exclude_dirs = [
 ]
 
 # Uso: bandit -c pyproject.toml -r .
+
+# ---------------------------------------------------------------------------
+# ruff — linter y formateador.
+#
+# Arranque deliberadamente conservador: solo errores REALES (F = pyflakes,
+# E9 = errores de sintaxis/IO). El baseline completo del proyecto ronda los
+# 1.000-1.500 avisos, dominado por E501 (líneas largas, ~637) y F401 (imports
+# sin usar, ~437). Activar todo de golpe produce ruido que nadie lee.
+#
+# El plan es endurecerlo por familias, limpiando una y añadiéndola al `select`.
+# Uso: ruff check .            (revisar)
+#      ruff check . --fix      (arreglar lo autocorregible — revisar el diff)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = [
+    "*/migrations/*",
+    "scripts/",
+    "staticfiles/",
+    "venvturnos/",
+]
+
+[tool.ruff.lint]
+select = ["F", "E9"]
