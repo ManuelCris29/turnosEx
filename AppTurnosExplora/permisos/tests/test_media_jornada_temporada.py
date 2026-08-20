@@ -5,7 +5,7 @@ Este permiso llega por su propio endpoint, así que el gate del orquestador de s
 cubre: las validaciones de días pasados y de cierre semanal tienen que estar aquí. Estos tests
 cubren justo eso; el resto del flujo (día completo de temporada, compensación) vive en la vista.
 """
-from datetime import date, time, timedelta
+from datetime import time, timedelta
 
 from django.contrib.auth.models import User
 from django.test import TestCase, Client

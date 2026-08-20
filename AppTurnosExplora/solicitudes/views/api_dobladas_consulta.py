@@ -1,26 +1,9 @@
-from django.shortcuts import render, get_object_or_404
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.urls import reverse_lazy
-from django.db.models import Q
-from core.mixins import AdminRequiredMixin
-from core.services import get_turno_service
 from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, Notificacion, SolicitudCambio, CambioPermanenteDetalle
-from ..services.solicitud_service import SolicitudService
-from ..services.solicitud_factory import SolicitudFactory
-from ..services.permiso_service import PermisoService
-from ..services.notificacion_service import NotificacionService
-from django.utils import timezone
+from ..models import SolicitudCambio
 from core.utils.date_utils import DateUtils
-import hashlib
-import hmac
 import logging
-from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +79,6 @@ class ExploradoresConDobladaView(LoginRequiredMixin, View):
     actual y el caso A==B.
     """
     def get(self, request):
-        from datetime import datetime as _dt
         from turnos.services.turno_service import TurnoService as _TS
         fecha = request.GET.get('fecha')
         try:
@@ -145,7 +127,6 @@ class SabadoPagoComprometidoView(LoginRequiredMixin, View):
     Espejo en la UI del guard de DobladaStrategy.validar_solicitud (misma consulta).
     """
     def get(self, request):
-        from datetime import datetime as _dt
         fecha = request.GET.get('fecha')
         try:
             fecha_obj = DateUtils.parse_date(fecha)

@@ -15,7 +15,7 @@ Un día sin fila NO se inventa: se reporta como `sin_planificar` para que se vea
 año le falta la publicación, en vez de mostrar un turno que cambiará cuando se siembre.
 """
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from django.db import transaction
 
 from turnos.models import AsignacionEspecialManual

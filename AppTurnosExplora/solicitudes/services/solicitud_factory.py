@@ -12,10 +12,16 @@ The factory uses a multi-level lookup strategy:
 4. Fallback to default strategy
 """
 
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, TYPE_CHECKING
 import re
 import logging
 from solicitudes.models import TipoSolicitudCambio
+
+if TYPE_CHECKING:
+    # Solo para el chequeo estático: varias firmas anotan `solicitud: 'SolicitudCambio'`
+    # como cadena, pero el nombre no estaba importado en ningún sitio, así que la
+    # anotación no resolvía (ruff F821). En ejecución no se importa nada.
+    from solicitudes.models import SolicitudCambio  # noqa: F401
 from .strategies.base_strategy import SolicitudStrategy
 
 logger = logging.getLogger(__name__)

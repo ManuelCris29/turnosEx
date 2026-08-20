@@ -2,7 +2,6 @@
 Formularios para la gestión de días especiales y temporadas.
 """
 from django import forms
-from datetime import date
 
 from turnos.models import DiaEspecial
 

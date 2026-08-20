@@ -351,7 +351,6 @@ class CambioTurnoStrategy(SolicitudStrategy):
         from django.db import transaction
         from django.utils import timezone
         from turnos.models import Turno
-        from ..solicitud_service import SolicitudService
         
         try:
             logger.info(

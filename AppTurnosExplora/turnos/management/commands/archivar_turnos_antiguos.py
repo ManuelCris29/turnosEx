@@ -93,7 +93,7 @@ class Command(BaseCommand):
         
         # Resumen final
         self.stdout.write('')
-        self.stdout.write(self.style.SUCCESS(f'[OK] Archivado completado:'))
+        self.stdout.write(self.style.SUCCESS('[OK] Archivado completado:'))
         self.stdout.write(f'  - Turnos archivados: {turnos_archivados}')
         if turnos_errores > 0:
             self.stdout.write(self.style.ERROR(f'  - Errores: {turnos_errores}'))

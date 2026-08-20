@@ -9,7 +9,7 @@ Este script valida que:
 
 from django.core.management.base import BaseCommand
 from django.contrib.auth import get_user_model
-from solicitudes.models import SolicitudCambio, TipoCambioCambio, DobladaDetalle
+from solicitudes.models import SolicitudCambio, TipoCambioCambio
 from turnos.models import Turno
 from datetime import date
 from django.test import RequestFactory

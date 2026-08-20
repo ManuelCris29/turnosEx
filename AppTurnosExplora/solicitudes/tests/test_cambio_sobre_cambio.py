@@ -3,11 +3,10 @@ FASE 2.6: Management command para probar el escenario completo de cambio sobre c
 """
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
-from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import Turno
-from datetime import date, timedelta
+from datetime import timedelta
 import logging
 from django.utils import timezone
 
@@ -259,7 +258,7 @@ class Command(BaseCommand):
                 if solicitud_ac.solicitud_origen.id == solicitud_ab.id:
                     self.stdout.write('   [OK] Relación correcta: A->C apunta a A->B')
                 else:
-                    self.stdout.write(self.style.WARNING(f'   [ADVERTENCIA] Relación apunta a solicitud diferente'))
+                    self.stdout.write(self.style.WARNING('   [ADVERTENCIA] Relación apunta a solicitud diferente'))
             else:
                 self.stdout.write(self.style.WARNING('   [ADVERTENCIA] solicitud_origen no establecida'))
             
@@ -287,7 +286,7 @@ class Command(BaseCommand):
             
             # ===== RESUMEN FINAL =====
             self.stdout.write(self.style.SUCCESS('\n=== RESUMEN FINAL ==='))
-            self.stdout.write(f'\nSolicitudes creadas:')
+            self.stdout.write('\nSolicitudes creadas:')
             self.stdout.write(f'  - A->B (ID: {solicitud_ab.id}): {solicitud_ab.estado}')
             self.stdout.write(f'  - A->C (ID: {solicitud_ac.id}): {solicitud_ac.estado}')
             

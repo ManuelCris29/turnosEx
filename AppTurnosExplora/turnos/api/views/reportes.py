@@ -207,8 +207,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         from django.http import HttpResponse
         from openpyxl import Workbook
         from openpyxl.styles import (PatternFill, Font, Alignment,
-                                     Border, Side, GradientFill)
-        from openpyxl.utils import get_column_letter
+                                     Border, Side)
 
         MESES = ['', 'enero','febrero','marzo','abril','mayo','junio',
                  'julio','agosto','septiembre','octubre','noviembre','diciembre']

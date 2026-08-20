@@ -315,7 +315,6 @@ def _razones_exclusion_ct_permanente(
     (no tiene sentido cambiarle el turno a alguien en un día que ya pasó), pero NO la consulta
     del detalle de una solicitud histórica, que debe seguir mostrando lo que se aplicó.
     """
-    from datetime import date as _date
 
     razones = []
 

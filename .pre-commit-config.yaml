@@ -40,5 +40,12 @@ repos:
         args: [--maxkb=2048]
       - id: check-yaml
       - id: check-toml
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
+      #
+      # `end-of-file-fixer` y `trailing-whitespace` quedan FUERA a propósito.
+      # Parecen inofensivos, pero este proyecto tiene plantillas de texto en
+      # cadenas triple-comilla (el cuerpo de las notificaciones y correos, p. ej.
+      # solicitudes/services/notificacion_service.py:195). Ahí un espacio al final
+      # de línea NO es formato: es contenido que le llega al usuario. Se comprobó
+      # que el hook los estaba borrando dentro de esos literales.
+      # Además reescriben archivos ya modificados, mezclando ruido de espacios con
+      # los cambios de lógica justo cuando revisar el diff es la protección.

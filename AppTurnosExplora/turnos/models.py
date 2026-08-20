@@ -1,5 +1,14 @@
 from django.db import models
-from empleados.models import Empleado, Jornada, Sala, CompetenciaEmpleado, RestriccionEmpleado, SancionEmpleado
+# Los tres últimos NO se usan en este archivo: se RE-EXPORTAN. Hay código y tests
+# que hacen `from turnos.models import CompetenciaEmpleado`, así que quitarlos de
+# aquí los rompe aunque nada falle en este módulo. El `noqa` evita que un
+# `ruff --fix` vuelva a borrarlos.
+# Deuda: re-exportar modelos entre apps confunde sobre dónde vive cada cosa; lo
+# correcto sería que cada consumidor importe de `empleados.models` directamente.
+from empleados.models import (  # noqa: F401
+    Empleado, Jornada, Sala,
+    CompetenciaEmpleado, RestriccionEmpleado, SancionEmpleado,
+)
 from simple_history.models import HistoricalRecords
 
 from core.constants import TipoCambioTurno

@@ -1,7 +1,6 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from empleados.models import Empleado
-from turnos.models import Turno
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 

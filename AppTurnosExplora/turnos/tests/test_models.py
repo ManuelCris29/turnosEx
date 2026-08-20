@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.contrib.auth.models import User
 from empleados.models import Empleado, Jornada
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
-from datetime import date, timedelta
+from datetime import timedelta
 from django.utils import timezone
 
 

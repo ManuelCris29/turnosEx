@@ -48,11 +48,9 @@ class CancelarSolicitudUseCase:
         """
         from django.db import transaction
         from django.utils import timezone
-        from datetime import date as _date
 
         from solicitudes.models import SolicitudCambio
         from solicitudes.domain.estado_machine import transicionar
-        from solicitudes.repositories.solicitud_repository import SolicitudRepository
 
         try:
             with transaction.atomic():

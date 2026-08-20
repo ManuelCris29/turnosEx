@@ -6,8 +6,6 @@ Uso:
   python manage.py validar_dobladas_junio --fechas 2026-06-08 2026-06-15
 """
 from django.core.management.base import BaseCommand
-from django.db.models import Q
-from datetime import datetime
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
 from core.utils.date_utils import DateUtils
@@ -97,11 +95,11 @@ class Command(BaseCommand):
                 if det and det.tipo_cesion == 'cesion_completa':
                     if set(turnos_rec) != {'AM', 'PM'}:
                         self.stdout.write(self.style.WARNING(
-                            f'    Esperado: receptor con AM+PM (cesión completa).'
+                            '    Esperado: receptor con AM+PM (cesión completa).'
                         ))
                     if turnos_sol:
                         self.stdout.write(self.style.WARNING(
-                            f'    Esperado: solicitante sin turnos (descansa).'
+                            '    Esperado: solicitante sin turnos (descansa).'
                         ))
             else:
                 # Fecha de pago
@@ -111,11 +109,11 @@ class Command(BaseCommand):
                 if det and det.tipo_cesion == 'cesion_completa':
                     if set(turnos_sol) != {'AM', 'PM'}:
                         self.stdout.write(self.style.WARNING(
-                            f'    Esperado: solicitante con AM+PM (paga doblada).'
+                            '    Esperado: solicitante con AM+PM (paga doblada).'
                         ))
                     if turnos_rec:
                         self.stdout.write(self.style.WARNING(
-                            f'    Esperado: receptor sin turnos (descansa).'
+                            '    Esperado: receptor sin turnos (descansa).'
                         ))
 
         self.stdout.write('')

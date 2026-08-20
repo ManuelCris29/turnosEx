@@ -4,9 +4,9 @@ Tests de integración para flujo completo de solicitudes
 from django.test import TestCase
 from django.contrib.auth.models import User
 from empleados.models import Empleado, Jornada
-from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
+from solicitudes.models import TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador
-from datetime import date, timedelta
+from datetime import timedelta
 from django.utils import timezone
 
 

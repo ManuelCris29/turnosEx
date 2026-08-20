@@ -10,7 +10,6 @@ from django.contrib.auth import get_user_model
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
 from datetime import date
-import json
 
 User = get_user_model()
 

@@ -167,7 +167,6 @@ class CTRevertTest(TestCase):
         de revert no lo veía porque no llama al save() posterior del use case.
         """
         from django.utils import timezone
-        from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
         from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         Turno.objects.create(explorador=self.sol, fecha=self.fecha, jornada=self.am, sala=self.sala)

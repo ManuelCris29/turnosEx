@@ -13,7 +13,7 @@ from django.utils import timezone
 from empleados.models import Empleado, Jornada, CompetenciaEmpleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador, Sala
-from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO
+from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase, FECHA_PAGO
 from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
 
 

@@ -1,25 +1,11 @@
-from django.shortcuts import render, get_object_or_404
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from django.urls import reverse_lazy
 from django.db.models import Q
-from core.mixins import AdminRequiredMixin
-from core.services import get_turno_service
 from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, Notificacion, SolicitudCambio, CambioPermanenteDetalle
-from ..services.solicitud_service import SolicitudService
+from ..models import TipoSolicitudCambio, SolicitudCambio
 from ..services.solicitud_factory import SolicitudFactory
-from ..services.permiso_service import PermisoService
-from ..services.notificacion_service import NotificacionService
 from django.utils import timezone
-import hashlib
-import hmac
 import logging
-from django.core.cache import cache
 from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
@@ -80,7 +66,6 @@ class ObtenerExploradoresDobladaView(LoginRequiredMixin, View):
                     ).values_list('explorador_solicitante_id', flat=True)
                 )
 
-                from solicitudes.models import DobladaDetalle
                 ids_recibieron_pago = set(
                     SolicitudCambio.objects.filter(
                         tipo_cambio__nombre='DOBLADA',
@@ -144,7 +129,6 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             usuario_actual = request.user.empleado
             
             # Verificar si tiene doblada aprobada en esa fecha
-            from datetime import datetime
             fecha_obj = DateUtils.parse_date(fecha)
             
             # ✅ PRIORIDAD ABSOLUTA: Usar Turno como fuente de verdad única
@@ -472,7 +456,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                 'solicitud_id': None,
             })
             
-        except Exception as e:
+        except Exception:
             logger.exception("Error verificando doblada existente")
             return json_error('Error al verificar doblada existente', status=500, code='internal_error')
 
@@ -488,7 +472,6 @@ class ObtenerFechasDescansoView(LoginRequiredMixin, View):
     """
     def get(self, request):
         try:
-            from datetime import date
             from turnos.services.turno_service import TurnoService
             usuario_actual = request.user.empleado
 

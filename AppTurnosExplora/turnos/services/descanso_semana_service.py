@@ -6,7 +6,7 @@ con temporada/festivo el supervisor define manualmente el día de descanso por j
 (modelo DescansoSemanaManual). Este servicio resuelve esa consulta de forma centralizada.
 """
 import logging
-from datetime import date, datetime
+from datetime import date
 from collections import defaultdict
 from django.db import transaction
 from turnos.models import DescansoSemanaManual

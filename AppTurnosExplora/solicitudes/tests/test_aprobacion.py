@@ -3,11 +3,10 @@ Management command para probar el proceso de aprobación de solicitudes
 """
 from django.core.management.base import BaseCommand
 from django.contrib.auth.models import User
-from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.solicitud_service import SolicitudService
 from turnos.models import Turno
-from datetime import date, timedelta
+from datetime import timedelta
 import logging
 from django.utils import timezone
 

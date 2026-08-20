@@ -1,8 +1,5 @@
-from django.shortcuts import render, get_object_or_404
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.urls import reverse_lazy
-from core.mixins import AdminRequiredMixin
 from ..repositories.solicitud_repository import SolicitudRepository
 from ..use_cases.aprobar_solicitud import (
     AprobarComoReceptorUseCase,

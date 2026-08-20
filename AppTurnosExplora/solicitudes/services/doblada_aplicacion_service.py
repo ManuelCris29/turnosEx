@@ -4,11 +4,8 @@ Servicio para aplicar cambios de doblada.
 Responsabilidad única: Aplicar los cambios de turnos y generar deudas cuando
 una solicitud de doblada es aprobada.
 """
-from typing import Tuple
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from solicitudes.models import SolicitudCambio, DobladaDetalle
-from empleados.models import Empleado
 from turnos.models import Turno
 from turnos.services.jornada_service import JornadaService
 from turnos.services.doblada_turno_service import DobladaTurnoService
@@ -17,7 +14,6 @@ from .doblada_deuda_service import DobladaDeudaService
 from .doblada_pago_service import DobladaPagoService
 from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
 from core.constants import TipoCambioTurno
-from datetime import date, timedelta
 import logging
 
 logger = logging.getLogger(__name__)

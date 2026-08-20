@@ -1,7 +1,6 @@
 # COMENTADO TEMPORALMENTE - PermisoDetalle no existe
 # from solicitudes.models import PermisoDetalle, SolicitudCambio
 from solicitudes.models import SolicitudCambio
-from empleados.models import Empleado
 
 
 class PermisoService:

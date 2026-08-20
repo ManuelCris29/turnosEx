@@ -38,7 +38,6 @@ class CTPermanenteValidator:
         `validar_rango_completo_cambio_permanente` (con `excluir_pasadas`), que además exige que
         quede al menos uno aplicable.
         """
-        from datetime import date, datetime
 
         # Convertir a date si es string
         if isinstance(fecha_inicio, str):
@@ -131,7 +130,6 @@ class CTPermanenteValidator:
         Raises:
             ValidationError: Si no hay días seleccionados o son inválidos
         """
-        from datetime import datetime
 
         dias_seleccionados = dias_seleccionados or {}
         dias_semana = dias_seleccionados.get('dias_semana', [])
@@ -231,8 +229,7 @@ class CTPermanenteValidator:
             fecha_inicio: Fecha de inicio del cambio
             fecha_fin: Fecha de fin del cambio (opcional)
         """
-        from datetime import datetime
-        from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle
+        from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_inicio, str):
             fecha_inicio = DateUtils.parse_date(fecha_inicio)

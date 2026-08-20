@@ -29,7 +29,7 @@ class Command(BaseCommand):
                 fecha_prueba = date(2026, 1, 12)  # Lunes 12 de enero de 2026 (Reyes Magos trasladado)
                 es_festivo = calendario.es_festivo(fecha_prueba)
                 
-                self.stdout.write(self.style.SUCCESS(f'✓ Verificación exitosa'))
+                self.stdout.write(self.style.SUCCESS('✓ Verificación exitosa'))
                 self.stdout.write(f'  Fecha de prueba: {fecha_prueba}')
                 self.stdout.write(f'  ¿Es festivo? {es_festivo}')
                 

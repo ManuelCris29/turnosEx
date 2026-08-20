@@ -17,7 +17,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.test import TestCase, Client
+from django.test import TestCase
 
 from turnos.models import DiaEspecial
 from turnos.services.dia_especial_service import DiaEspecialService

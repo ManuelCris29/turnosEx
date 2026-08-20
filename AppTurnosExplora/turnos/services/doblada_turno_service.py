@@ -4,12 +4,11 @@ Servicio para gestión de turnos específicos de dobladas.
 Responsabilidad única: Crear y eliminar turnos relacionados con dobladas,
 manejando la lógica de salas y jornadas de forma centralizada.
 """
-from typing import Optional, Tuple
+from typing import Tuple
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from turnos.models import Turno, Jornada, Sala
 from empleados.models import Empleado
-from turnos.services.turno_service import TurnoService
 from core.constants import TipoCambioTurno
 from datetime import date
 import logging

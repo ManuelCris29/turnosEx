@@ -3,10 +3,8 @@ Servicio para gestión de disponibilidad de empleados.
 
 Responsabilidad única: Buscar y filtrar empleados según criterios de disponibilidad.
 """
-from django.db.models import Q
 from empleados.models import Empleado
 from turnos.models import Turno, AsignarJornadaExplorador
-from datetime import datetime
 import logging
 from core.interfaces import IEmpleadoDisponibilidadService
 from core.utils.date_utils import DateUtils
@@ -76,7 +74,6 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
             Lista de Empleado con jornada contraria
         """
         # Importar aquí para evitar dependencia circular
-        from turnos.services.jornada_service import JornadaService
         
         logger.info("get_empleados_jornada_contraria - Iniciando", extra={
             'fecha': fecha,
@@ -103,7 +100,6 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         # Jornada REAL del usuario ese día (fuente de verdad estado_dia, igual que Mis Turnos).
         # Si ese día trabaja DOBLADA (día completo) o descansa, no hay "jornada contraria"
         # para un CT sencillo: se devuelve vacío (la validación del servidor igual lo bloquearía).
-        from datetime import datetime as _dt
         from turnos.services.turno_service import TurnoService as _TS
         _fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
         _estado = _TS.estado_dia(empleado_actual, _fecha_obj)

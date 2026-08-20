@@ -6,7 +6,6 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 from datetime import timedelta
 from solicitudes.models import SolicitudCambio
-from django.db import transaction, models
 
 
 class Command(BaseCommand):

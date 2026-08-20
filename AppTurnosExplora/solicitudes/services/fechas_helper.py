@@ -4,7 +4,7 @@ Proporciona información sobre fechas aplicables, excluidas y validaciones
 para diferentes tipos de solicitudes.
 """
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Optional
 from empleados.models import Empleado
 from turnos.models import DiaEspecial
 from core.utils.jornada_utils import JornadaUtils
