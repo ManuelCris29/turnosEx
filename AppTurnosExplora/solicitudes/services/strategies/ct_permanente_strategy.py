@@ -14,6 +14,7 @@ from .base_strategy import SolicitudStrategy
 from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
 from core.constants import TipoCambioTurno
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -788,3 +789,32 @@ class CTPermanenteStrategy(SolicitudStrategy):
         except Exception as e:
             logger.error(f"Error obteniendo detalles de CT PERMANENTE: {e}")
             datos['fechas']['error'] = 'No se pudieron obtener los detalles del cambio permanente'
+
+    def validar_campos_requeridos(self, post):
+        """Campos obligatorios de CT PERMANENTE (movido del parser en la Fase 2)."""
+        if not post.get('empleado_receptor'):
+            return False, 'Debe seleccionar un compañero para el intercambio'
+        if not post.get('fecha_inicio'):
+            return False, 'La fecha de inicio es requerida'
+        if not post.get('fecha_fin'):
+            return False, 'La fecha de fin es requerida'
+        return True, ''
+
+    def parsear_datos(self, post, solicitante, receptor):
+        """
+        Traduce el POST de CT PERMANENTE (movido del parser en la Fase 2).
+        """
+        fecha_inicio = post.get('fecha_inicio')
+        try:
+            dias_seleccionados = json.loads(post.get('dias_seleccionados', '{}') or '{}')
+        except (json.JSONDecodeError, TypeError):
+            dias_seleccionados = {}
+        return {
+            'explorador_solicitante': solicitante,
+            'explorador_receptor': receptor,
+            'comentario': post.get('comentarios', ''),
+            'fecha_cambio_turno': fecha_inicio,
+            'fecha_inicio': fecha_inicio,
+            'fecha_fin': post.get('fecha_fin'),
+            'dias_seleccionados': dias_seleccionados,
+        }

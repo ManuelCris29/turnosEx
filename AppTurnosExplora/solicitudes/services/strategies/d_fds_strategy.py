@@ -494,3 +494,37 @@ class DFDSStrategy(SolicitudStrategy):
                 )
         except Exception as e:
             logger.error(f"Error obteniendo detalles de D FDS: {e}")
+
+    def validar_campos_requeridos(self, post):
+        """Campos obligatorios de D FDS (movido del parser en la Fase 2)."""
+        if not post.get('fecha_solicitud'):
+            return False, 'La fecha del fin de semana es requerida'
+        if not post.get('empleado_receptor'):
+            return False, 'Debe seleccionar el compañero que se doblará el fin de semana'
+        if not post.get('fecha_pago'):
+            return False, 'La fecha de pago es obligatoria (otro fin de semana del mismo mes).'
+        return True, ''
+
+    def parsear_datos(self, post, solicitante, receptor):
+        """
+        Traduce el POST de D FDS (movido del parser en la Fase 2).
+
+        En el parser los dos tipos compartían UNA rama. Al separarlos, el
+        diccionario queda idéntico a propósito: lo fija un test que compara
+        las dos salidas entre sí.
+        """
+        return {
+            'explorador_solicitante': solicitante,
+            'explorador_receptor': receptor,
+            'comentario': post.get('comentarios', ''),
+            'fecha_cambio_turno': post.get('fecha_solicitud'),
+            'fecha_pago': post.get('fecha_pago'),
+            # Sub-modalidades de CAMBIO DESCANSO entre semana (temporada)
+            'submodalidad_semana': post.get('submodalidad_semana'),
+            'tipo_cesion': post.get('tipo_cesion'),
+            'jornada_cedida': post.get('jornada_cedida'),
+            # Cobertura: jornada que YO cubro el día de pago (si estoy libre y el
+            # compañero trabaja ambas, puedo elegir AM o PM; si no, va la cedida).
+            'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
+            'fecha_creacion_solicitud': timezone.localdate(),
+        }

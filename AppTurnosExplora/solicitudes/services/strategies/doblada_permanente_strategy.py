@@ -18,6 +18,7 @@ from solicitudes.models import SolicitudCambio, DobladaPermanenteDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.utils.date_utils import DateUtils
+from django.utils import timezone
 
 
 def _csv(dias):
@@ -508,3 +509,32 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
         except Exception as e:
             logger.error(f"Error obteniendo detalles de DOBLADA PERMANENTE: {e}")
             datos['fechas']['error'] = 'No se pudieron obtener los detalles de la doblada permanente'
+
+    def validar_campos_requeridos(self, post):
+        """Campos obligatorios de DOBLADA PERMANENTE (movido del parser en la Fase 2)."""
+        if not post.get('fecha_inicio') or not post.get('fecha_fin'):
+            return False, 'El rango de fechas (inicio y fin) es obligatorio'
+        if not post.getlist('cesion_companero'):
+            return False, 'Agrega al menos un día de cesión con su compañero'
+        if not post.getlist('devolucion_companero'):
+            return False, 'Agrega al menos un día de devolución con su compañero'
+        return True, ''
+
+    def parsear_datos(self, post, solicitante, receptor):
+        """
+        Traduce el POST de DOBLADA PERMANENTE (movido del parser en la Fase 2).
+        """
+        dias_cesion = (post.getlist('dias_cesion')
+                       or [d for d in post.get('dias_cesion', '').split(',') if d.strip()])
+        dias_devolucion = (post.getlist('dias_devolucion')
+                           or [d for d in post.get('dias_devolucion', '').split(',') if d.strip()])
+        return {
+            'explorador_solicitante': solicitante,
+            'explorador_receptor': receptor,
+            'comentario': post.get('comentarios', ''),
+            'fecha_inicio': post.get('fecha_inicio'),
+            'fecha_fin': post.get('fecha_fin'),
+            'dias_cesion': [d for d in dias_cesion if str(d).strip()],
+            'dias_devolucion': [d for d in dias_devolucion if str(d).strip()],
+            'fecha_creacion_solicitud': timezone.localdate(),
+        }

@@ -201,6 +201,44 @@ class SolicitudStrategy(ABC):
         """
         return None
 
+    def validar_campos_requeridos(self, post) -> Tuple[bool, str]:
+        """
+        Comprueba que el POST traiga los campos obligatorios de ESTE tipo.
+
+        Falla rápido, antes de tocar la base de datos, y devuelve `(ok, mensaje)`
+        con un texto pensado para el usuario ("La fecha de cesión es requerida"),
+        no para el log.
+
+        Movido desde `SolicitudRequestParser.validate_required` en la Fase 2: allí
+        era una cadena `if tipo_nombre == ...` que había que editar por cada tipo
+        nuevo.
+
+        Por defecto exige lo mínimo común —compañero y fecha—, que es lo que pedía
+        la rama `else` de aquella cadena para CAMBIO TURNO y los tipos genéricos.
+        """
+        if not post.get('empleado_receptor'):
+            return False, 'Debe seleccionar un compañero para el intercambio'
+        if not post.get('fecha_solicitud'):
+            return False, 'La fecha es requerida'
+        return True, ''
+
+    def parsear_datos(self, post, solicitante, receptor) -> Dict[str, Any]:
+        """
+        Traduce el POST al diccionario que consume `crear_solicitud`.
+
+        Solo transforma y normaliza: no valida reglas de negocio ni escribe nada.
+        Quien llama añade después la clave 'tipo_cambio'.
+
+        Movido desde `SolicitudRequestParser.parse_datos` en la Fase 2. La
+        implementación por defecto reproduce la rama `else` de aquella cadena.
+        """
+        return {
+            'explorador_solicitante': solicitante,
+            'explorador_receptor': receptor,
+            'comentario': post.get('comentarios', ''),
+            'fecha_cambio_turno': post.get('fecha_solicitud'),
+        }
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.tipo_solicitud})"
     

@@ -1316,3 +1316,46 @@ class DobladaStrategy(SolicitudStrategy):
                         )
         except Exception as e:
             logger.error(f"Error obteniendo detalles de DOBLADA: {e}")
+
+    def validar_campos_requeridos(self, post):
+        """Campos obligatorios de DOBLADA (movido del parser en la Fase 2)."""
+        if not post.get('fecha_solicitud'):
+            return False, 'La fecha de cesión es requerida'
+        if not post.get('empleado_receptor'):
+            return False, 'Debe seleccionar un compañero para cubrir la doblada'
+        return True, ''
+
+    def parsear_datos(self, post, solicitante, receptor):
+        """
+        Traduce el POST de DOBLADA (movido del parser en la Fase 2).
+        """
+        fecha_solicitud = post.get('fecha_solicitud')
+        jornada_cedida = post.get('jornada_cedida')
+        # Cesión desde jornada simple: el formulario no manda la jornada y se deduce.
+        if not jornada_cedida and fecha_solicitud:
+            try:
+                from turnos.services.jornada_service import JornadaService
+                j = JornadaService.get_jornada_explorador_fecha(solicitante.id, fecha_solicitud)
+                jornada_cedida = j.nombre.upper()
+                logger.info("jornada_cedida inferida: %s para %s en %s",
+                            jornada_cedida, solicitante.nombre, fecha_solicitud)
+            except Exception:
+                logger.warning("No se pudo inferir jornada_cedida para %s en %s",
+                               solicitante.nombre, fecha_solicitud)
+
+        return {
+            'explorador_solicitante': solicitante,
+            'explorador_receptor': receptor,
+            'comentario': post.get('comentarios', ''),
+            'fecha_cambio_turno': fecha_solicitud,
+            'fecha_pago': post.get('fecha_pago'),
+            'jornada_cedida': jornada_cedida,
+            'jornada_pago_sabado': post.get('jornada_pago_sabado'),
+            'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
+            'fecha_pago_semana': post.get('fecha_pago_semana'),
+            'tipo_cesion': post.get('tipo_cesion', 'cesion_completa'),
+            # Intercambio de dobladas: swap de días doblados (sin deuda). Día A = cesión,
+            # día B = pago. Ambos deben tener DOBLADA en su día.
+            'es_intercambio': str(post.get('intercambio_doblada', '')).strip() in ('1', 'true', 'True', 'on'),
+            'fecha_creacion_solicitud': timezone.localdate(),
+        }
