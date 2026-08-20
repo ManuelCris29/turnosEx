@@ -247,12 +247,21 @@ class DobladaSnapshotService:
         tipo = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
 
         def pares(iterable_fechas):
-            return {(p, f) for p in personas for f in iterable_fechas if f}
+            # `tuple(...)` NO es decorativo: sin él, pasar un GENERADOR daba un
+            # resultado silenciosamente incompleto. La comprensión itera
+            # `iterable_fechas` una vez POR PERSONA, y un generador se agota en la
+            # primera, así que la segunda persona no aportaba ningún par. Se
+            # detectó el 2026-08-20 al escribir la red de caracterización previa
+            # al refactor: la rama de CAMBIO TURNO (línea de abajo) devolvía solo
+            # el par del solicitante, cuando su comentario dice que lo que aporta
+            # es justamente "la otra persona".
+            fechas_materializadas = tuple(iterable_fechas)
+            return {(p, f) for p in personas for f in fechas_materializadas if f}
 
         if det is None:
             # CAMBIO TURNO: re-materializa su único día, y escribe a AMBAS partes en él. El día ya
             # está en `fechas`; lo que aporta es la otra persona.
-            return pares(f for f in [solicitud.fecha_cambio_turno] if f in fechas)
+            return pares([f for f in [solicitud.fecha_cambio_turno] if f in fechas])
 
         if tipo == 'CAMBIO DESCANSO':
             # Reescribe su efecto completo, incluidos los días OPUESTOS del finde (sáb↔dom), que
