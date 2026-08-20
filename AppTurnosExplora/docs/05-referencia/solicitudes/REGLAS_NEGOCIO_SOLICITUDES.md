@@ -1,7 +1,29 @@
 # Reglas de Negocio y Casos Límite por Tipo de Solicitud
 
 > **Documento vivo.** Actualizar siempre que se agregue, modifique o elimine una regla de negocio o validación.
-> Última revisión: 2026-04-01 (cobertura explícita AM/PM/AMBAS en pago con receptor doblada)
+> Última revisión: 2026-08-19 (comentario obligatorio en toda decisión; textos y contrato unificados en core)
+
+---
+
+## Regla transversal: el comentario es obligatorio
+
+Toda acción que **resuelve** algo —aprobar, rechazar, cancelar o responder a una petición de
+cancelación— exige un comentario o motivo con contenido. No es una regla por formulario, así que
+no se repite en cada apartado de este documento: aplica a los seis tipos de solicitud y también a
+permisos especiales, reprogramación de dobladas y pago de horas.
+
+Se valida **en el servidor**, no solo en el formulario: el `required` del HTML es comodidad, no
+defensa. Un texto vacío devuelve `400` con `code: 'comentario_requerido'` — en solicitudes siempre,
+y en permisos para el cliente que pida JSON (el navegador conserva su mensaje y su redirect).
+
+Los textos de aviso salen de `core/utils/comentarios.py` y llegan a las plantillas por el context
+processor `core.context_processors.mensajes_comentario`, de forma que el navegador y el servidor
+avisan con las mismas palabras para la misma falta.
+
+Única excepción: la aprobación por enlace de correo electrónico, que es un GET de un clic y no
+tiene dónde escribir.
+
+Ver el manual técnico, § 8.2 principio **P6**, para los puntos de aplicación y los tests.
 
 ---
 
@@ -589,14 +611,14 @@ jornada).
 | Finde | Cada uno pasa a trabajar el día del otro, ambos findes. Nadie dobla. |
 | Entre semana | Depende de la sub-modalidad; solo `cobertura_misma_semana` puede dejar a alguien doblado (y ahí nacen los 30 min). |
 | Reemplazo | Si un día ya cedido se vuelve a ceder a un tercero, la solicitud anterior pasa a `reemplazada` (`_marcar_reemplazadas`, **solo fin de semana**). |
-| Snapshot | Se captura antes de mutar; la cancelación en 30 min restaura y reconcilia. |
+| Snapshot | Se captura antes de mutar; al aprobarse la cancelación (acuerdo de dos pasos, 24 h por plazo) se restaura y se reconcilia. |
 
 ### Casos especiales
 
 | Caso | Comportamiento |
 |---|---|
 | Día ya comprometido | En temporada no se reemplaza la solicitud previa: la **validación impide crear** la nueva mientras el día siga comprometido (`dia_comprometido_por_solicitud`). |
-| Ventana de 30 min | `dia_bloqueado_para_nuevo_cambio` mira si el descanso todavía puede revertirse; pasada la ventana, el día vuelve a estar disponible. |
+| Reintercambio del mismo día | `dia_bloqueado_para_nuevo_cambio` bloquea la fecha **solo** si hay un turno con `tipo_cambio` distinto de `CAMBIO DESCANSO` (DOBLADA, D FDS, CT…), y ese bloqueo es permanente. Un CAMBIO DESCANSO previo **no** bloquea: el día vuelve a estar disponible desde el primer minuto. El antiguo bloqueo de 30 min se retiró — ver [ADR 010](../../03-arquitectura/adr/010-dia-de-descanso-libre-tras-el-intercambio.md). |
 | Permisos de temporada | Un permiso de media jornada de temporada consume el día de descanso; el formulario lo explica en vez de mostrar un error genérico. |
 
 ### Pendientes / posibles mejoras

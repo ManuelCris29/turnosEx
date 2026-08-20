@@ -34,7 +34,10 @@ y la del supervisor. Hasta que ambas llegan, el calendario no cambia.
 | Crear solicitudes | Sí | Sí | Sí |
 | Aprobar o rechazar como compañero | Sí, cuando lo eligen a él | Sí | Sí |
 | Aprobar o rechazar como supervisor | No | Sí | Sí |
-| Cancelar sus propias solicitudes | Sí | Sí | Sí |
+| Retirar sus propias solicitudes pendientes | Sí | Sí | Sí |
+| Pedir la cancelación de un cambio ya aprobado | Sí, y decide el compañero | Sí | Sí |
+| Responder la petición de cancelación de un compañero | Sí, si es el receptor | Sí | Sí |
+| Cancelar cualquier solicitud sin consultar a nadie | No | Sí, desde **Gestión de Solicitudes** | Sí |
 | Ver y gestionar todas las solicitudes | No | Sí | Sí |
 | Registrar inasistencias y reprogramar | No | Sí | Sí |
 | Configurar el cierre semanal | No | Sí | Sí |
@@ -89,6 +92,10 @@ aprobaciones de una vez con la **Acción combinada**.
 | **Alternancia** | El reparto publicado de quién trabaja sábado y quién domingo. |
 | **Cobertura** | Que un compañero trabaje una jornada tuya sin que tú dejes de existir en el calendario. |
 | **Deuda** | Jornada que te cubrieron y todavía no has devuelto. |
+| **Solicitante** | Quien envía la solicitud. |
+| **Receptor** | El compañero al que le pides el cambio y que tiene que aceptarlo. Sus turnos también se mueven. |
+| **Petición de cancelación** | Ruego de deshacer un cambio **ya aprobado**. No lo cancela: lo decide el receptor (o, en un permiso, tu supervisor). Mientras tanto el cambio sigue vigente. <!-- fuente: core/constants.py (EstadoCancelacion) --> |
+| **Cambio firme** | Cambio aprobado cuya cancelación ya no se puede pedir: el receptor la rechazó o dejó vencer el plazo. <!-- fuente: core/constants.py (EstadoCancelacion.TERMINALES) --> |
 | **Sesión** | El periodo en que la aplicación te reconoce tras iniciar sesión. Al cerrar sesión termina. |
 | **Sanción** | Periodo en el que no puedes participar en ninguna solicitud. Se marca con ⚖️. <!-- fuente: static/js/mis_turnos.js:553 --> |
 | **Restricción** | Recomendación médica vigente en unas fechas. Se marca con 🚫. <!-- fuente: static/js/mis_turnos.js:525 --> |
@@ -197,11 +204,11 @@ en el apartado 7.2.
 | **Notificaciones / Solicitudes** | Centro de trámites: crear, consultar y aprobar | Todos |
 | **Cambios de Turno** | Lista de los tipos de solicitud disponibles | Todos |
 | **Mis Solicitudes** | Historial de todo lo que has enviado, con su estado | Todos |
-| **Solicitudes Pendientes** | Lo que espera tu aprobación | Todos |
+| **Solicitudes Pendientes** | Lo que espera tu aprobación, y las peticiones de cancelación de cambios ya aprobados que tienes que responder | Todos |
 | **Mis Favores** | Quién te cubrió en fin de semana y a quién cubriste tú | Todos |
 | **Notificaciones** | Avisos del sistema | Todos |
 | **Consolidado de Horas** | Recuento de horas | Todos |
-| **Permisos Especiales**, **Beneficios Utilizados** | Consulta de permisos y beneficios | Todos |
+| **Permisos Especiales**, **Beneficios Utilizados** | Consulta de permisos y beneficios. Ahí se pide y se responde la cancelación de un permiso de media jornada ya aprobado | Todos |
 | **Sanciones**, **Restricciones**, **Días Especiales** | Consulta de tu situación y del calendario | Todos |
 | **Indicadores** | Cuadro de indicadores | Todos |
 | **Gestión de Solicitudes** | Ver, reenviar, cancelar o eliminar cualquier solicitud | Supervisor |
@@ -255,17 +262,29 @@ En **Mis Solicitudes** cada fila tiene un estado.
 
 | Estado | Qué significa | Qué puedes hacer |
 |---|---|---|
-| **Pendiente** | Falta al menos una de las dos aprobaciones | Cancelar, sin límite de tiempo |
-| **Aprobada** | Compañero y supervisor aprobaron; el calendario ya cambió | Cancelar solo dentro de los 30 minutos siguientes |
+| **Pendiente** | Falta al menos una de las dos aprobaciones | **Cancelar**, sin límite de tiempo y en el acto |
+| **Aprobada** | Compañero y supervisor aprobaron; el calendario ya cambió | **Pedir cancelación** al compañero, dentro de las 24 horas siguientes |
 | **Rechazada** | Alguien la rechazó; nada cambia | Nada; envía otra si procede |
 | **Cancelada** | Se dio de baja | Nada |
 
 <!-- fuente: templates/solicitudes/mis_solicitudes_list.html (filtros Pendiente/Aprobada/Rechazada/Cancelada) -->
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (VENTANA_CANCELACION_MINUTOS = 30) -->
+<!-- fuente: core/constants.py (VENTANA_PEDIR_CANCELACION_HORAS = 24) -->
 
-En las filas aprobadas, el botón de cancelar muestra una cuenta atrás con el tiempo que te
-queda, y su descripción es *"Cancelar (solo disponible 30 min tras aprobación)"*.
-<!-- fuente: templates/solicitudes/mis_solicitudes_list.html:125-127 -->
+En las filas aprobadas, el botón muestra una cuenta atrás con el tiempo que te queda:
+**Pedir cancelación (7h 12m)**. Cuando el plazo se agota, el botón se apaga y dice
+*Expirado*.
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (actualizarContadoresCancelacion) -->
+
+Una solicitud aprobada **no se cancela sola**: se le pide al compañero. Por eso, cuando ya
+pediste la cancelación, en lugar del botón aparece una de estas tres etiquetas.
+
+| Etiqueta | Qué significa | Qué puedes hacer |
+|---|---|---|
+| **Cancelación pendiente** | El receptor todavía no responde. **El cambio sigue vigente** | Esperar su respuesta |
+| **Cancelación rechazada** | El receptor dijo que no; el cambio quedó firme | Solicitar un cambio nuevo, o pedírselo a tu supervisor |
+| **Cancelación caducada** | El receptor no respondió a tiempo; el cambio quedó firme | Lo mismo que arriba |
+
+<!-- fuente: templates/solicitudes/mis_solicitudes_list.html (badges cancelacion_estado) -->
 
 ---
 
@@ -275,7 +294,7 @@ Los seis formularios comparten el mismo camino de entrada, las mismas comprobaci
 previas y el mismo comportamiento al enviar. Cada ficha sigue la misma plantilla de 14
 puntos para que puedas compararlos.
 
-Antes de las fichas, tres cosas que valen para todos:
+Antes de las fichas, cuatro cosas que valen para todos:
 
 - **Comentario obligatorio.** Los seis exigen explicar el motivo.
   <!-- fuente: solicitudes/services/validators/base_validator.py:190 -->
@@ -284,6 +303,9 @@ Antes de las fichas, tres cosas que valen para todos:
   <!-- fuente: solicitudes/services/solicitud_orchestrator.py:164-187 -->
 - **Nada del día en curso.** El calendario de los formularios empieza en **mañana**.
   <!-- fuente: solicitudes/views/cambio_turno_pages.py (fecha_minima = hoy + 1 día en los cinco formularios que la fijan) -->
+- **Cancelar un cambio ya aprobado no depende solo de ti.** Se le pide al compañero, que
+  decide. Está explicado una sola vez, para los seis, en el apartado 6.3.
+  <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) -->
 
 ---
 
@@ -408,10 +430,17 @@ a **Aprobada**, ve a **Mis Turnos**: ese día mostrará la jornada nueva con la 
 <!-- fuente: templates/solicitudes/mis_solicitudes_list.html; static/js/mis_turnos.js:590-597 -->
 
 **13. Cómo cancelar o deshacer.**
-Mientras esté **Pendiente**, botón **Cancelar** en **Mis Solicitudes**, sin plazo. Ya
-**Aprobada**, solo dentro de los **30 minutos** siguientes a la aprobación. Al cancelar,
-las jornadas de ambos vuelven a como estaban.
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py -->
+Mientras esté **Pendiente**, botón **Cancelar** en **Mis Solicitudes**, sin plazo y en el
+acto. Ya **Aprobada**, el botón es **Pedir cancelación** y tienes **24 horas** desde la
+aprobación para usarlo; la decide tu compañero, que tiene otras **24 horas** para
+responder. Hasta que la apruebe, el cambio sigue vigente y las jornadas no se mueven. Solo
+con su aprobación las jornadas de ambos vuelven a como estaban. Ver el apartado 6.3.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion, responder_cancelacion) -->
+
+En los dos casos —retirar la pendiente y pedir la cancelación de la aprobada— la ventana
+pide un **Motivo \***. Si lo dejas en blanco no se envía nada y ves *"Escribe el
+motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada: inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
 
 **14. Errores posibles.**
 
@@ -554,10 +583,17 @@ recorre **Mis Turnos** por los meses del rango: los días marcados mostrarán la
 nueva.
 
 **13. Cómo cancelar o deshacer.**
-Pendiente: **Cancelar** sin plazo. Aprobada: **30 minutos**. Al cancelar se revierten
-todos los días del rango que aún no hayan pasado. Si algunos días ya se trabajaron y otros
-no, la cancelación queda bloqueada y hay que hablar con el supervisor.
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (execute_supervisor, caso 4) -->
+Pendiente: **Cancelar** sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
+las **24 horas** siguientes a la aprobación, y la decide tu compañero. Cuando la aprueba se
+revierten todos los días del rango que aún no hayan pasado. Si algunos días ya se
+trabajaron y otros no, la cancelación queda bloqueada y hay que hablar con el supervisor.
+Ver el apartado 6.3.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion; execute_supervisor, caso 4) -->
+
+En los dos casos —retirar la pendiente y pedir la cancelación de la aprobada— la ventana
+pide un **Motivo \***. Si lo dejas en blanco no se envía nada y ves *"Escribe el
+motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada: inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
 
 **14. Errores posibles.**
 
@@ -729,7 +765,10 @@ En modalidad **Fin de semana**:
   <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py -->
 - Que el compañero sea del grupo contrario y que ninguno de los dos trabaje ya el día que
   va a recibir.
-- Que no haya un cambio ya aplicado ese día ni un intercambio idéntico pendiente.
+- Que ese día no tenga aplicado un cambio de **otro tipo** (doblada, cambio de día de fin
+  de semana, cambio de turno o sus versiones permanentes) ni haya un intercambio idéntico
+  pendiente. Un intercambio de descanso anterior sobre ese día **no** lo bloquea.
+  <!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) -->
 
 En modalidad **Entre semana**:
 
@@ -759,10 +798,47 @@ no una doblada.
 <!-- fuente: static/js/mis_turnos.js:455,675-682 -->
 
 **13. Cómo cancelar o deshacer.**
-Pendiente: sin plazo. Aprobada: **30 minutos**. Al cancelar se revierten los dos días.
-Este formulario tiene una regla propia: si sobre ese día hay un cambio de descanso
-aprobado hace menos de 30 minutos, hay que cancelarlo primero.
-<!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py ("Ese día tiene un cambio de descanso reciente (dentro de los 30 min de aprobado)…") -->
+Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
+las **24 horas** siguientes a la aprobación; la decide tu compañero y solo su aprobación
+revierte los dos días. Ver el apartado 6.3.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) -->
+
+En los dos casos —retirar la pendiente y pedir la cancelación de la aprobada— la ventana
+pide un **Motivo \***. Si lo dejas en blanco no se envía nada y ves *"Escribe el
+motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada: inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
+
+Ten en cuenta una contrapartida propia de este formulario: un intercambio de descanso ya
+aplicado **no** reserva el día. Desde que se aplica, cualquiera puede volver a elegirlo
+para otro intercambio.
+<!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) -->
+
+Consecuencia práctica: si alguien vuelve a mover ese día antes de que se resuelva tu
+petición de cancelación, ya no podrás deshacer tu cambio y verás el aviso de que hay un
+cambio más reciente sobre ese día. Las 24 horas para pedir la cancelación siguen ahí, pero
+deshacerla deja de estar garantizada si el día se reutiliza.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (bloqueo_lifo) -->
+
+Distinto es que ese día tenga aplicado **otro tipo** de cambio (una doblada, un cambio de
+día de fin de semana, un cambio de turno, o sus versiones permanentes): en ese caso el día
+queda bloqueado siempre, sin ventana de tiempo, hasta que ese cambio se deshaga.
+<!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) -->
+
+Si elegiste la opción **Permiso media jornada**, no hay compañero: quien decide es tu
+supervisor. Aprobado el permiso, en **Permisos Especiales** el botón le pide a él la
+cancelación, con los mismos plazos de 24 y 24 horas, y el aviso te lo advierte: *"Se le
+pedirá a tu supervisor que lo cancele. El permiso sigue vigente hasta que responda.
+¿Continuar?"*. Las primeras 24 horas se cuentan desde el instante en que tu supervisor
+aprobó el permiso, y eso no cambia aunque después alguien edite el permiso o le añada una
+nota.
+<!-- fuente: permisos/models.py (fecha_aprobacion); permisos/views.py (_pedir_cancelacion: "aprobado_en = permiso.fecha_aprobacion or permiso.actualizado_en") -->
+
+Sobre **tu propio** permiso siempre se pide la cancelación, aunque además seas supervisor:
+la aplicación mira de quién es el permiso, no qué rol tiene quien pulsa. Y quien responde
+esa petición es el supervisor que aprobó ese permiso —o, si no consta ninguno, el tuyo—,
+no cualquier supervisor.
+<!-- fuente: permisos/views.py (PermisoMediaJornadaCancelView.post, _puede_responder_cancelacion, _supervisor_del_permiso) -->
+<!-- fuente: permisos/views.py (PermisoMediaJornadaCancelView._pedir_cancelacion); templates/permisos/permisos_especiales_list.html -->
 
 Los intercambios **no se encadenan**: solo se cede el descanso de temporada original. Para
 cambiar de nuevo, se cancela el anterior.
@@ -782,7 +858,7 @@ cambiar de nuevo, se cancela el anterior.
 | "El día de temporada modificado debe compensarse EN LA MISMA SEMANA. No se puede pagar en otra semana." | El día de pago es de otra semana | Elige uno de la misma semana |
 | "Los días deben ser distintos." | Elegiste el mismo día dos veces | Corrige |
 | "Ya enviaste este intercambio de descanso (mismos días). Está pendiente de aprobación." | Duplicado | Espera la respuesta |
-| "Ese día tiene un cambio de descanso reciente (dentro de los 30 min de aprobado). Cancélalo primero, o espera a que pase la ventana de cancelación para volver a intentar el intercambio." | Hay un cambio muy reciente | Cancélalo o espera |
+| "Ese día ya tiene un cambio aplicado (TIPOS). Para usarlo en un intercambio, primero hay que deshacer ese cambio: pídeselo a tu compañero si aún está en plazo, o a tu supervisor." | Ese día ya lo movió otro tipo de cambio; en lugar de TIPOS ves el nombre de ese cambio. Un intercambio de descanso anterior no da este aviso: no bloquea el día | Pide que se deshaga ese cambio, o elige otro día <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py (_trabaja_dia) --> |
 | "Tu compañero ya tiene el día completo ocupado; no puede cubrirte." | El compañero ya trabaja AM y PM | Elige otro compañero |
 | "Debes indicar qué jornada trabajarás tú ambos días (AM o PM)." | Falta el dato en jornadas partidas | Elige AM o PM |
 | "Para que una sola persona tome tu día completo usa «Intercambiar el día». En «Que me cubran mi día» elige Solo AM, Solo PM, o día completo con 2 compañeros." | Opción incompatible | Cambia de opción |
@@ -976,10 +1052,16 @@ semana o **DÍA COMPLETO (AM + PM)** en fin de semana.
 <!-- fuente: static/js/mis_turnos.js:459,742 -->
 
 **13. Cómo cancelar o deshacer.**
-Pendiente: sin plazo. Aprobada: **30 minutos**. Si uno de los dos días ya se trabajó y el
-otro no, la cancelación se bloquea; en ese caso el supervisor puede usar **Reprogramar**
-para reasignar el día que falta.
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (execute_supervisor, caso 4) -->
+Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
+las **24 horas** siguientes a la aprobación; la decide tu compañero. Si uno de los dos días
+ya se trabajó y el otro no, la cancelación se bloquea; en ese caso el supervisor puede usar
+**Reprogramar** para reasignar el día que falta. Ver el apartado 6.3.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion; execute_supervisor, caso 4) -->
+
+En los dos casos —retirar la pendiente y pedir la cancelación de la aprobada— la ventana
+pide un **Motivo \***. Si lo dejas en blanco no se envía nada y ves *"Escribe el
+motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada: inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
 
 **14. Errores posibles.**
 
@@ -1142,10 +1224,16 @@ por el rango: los días cedidos aparecen con ☕ y los de devolución como **DOB
 PM)**.
 
 **13. Cómo cancelar o deshacer.**
-Pendiente: sin plazo. Aprobada: **30 minutos**, y se revierte el rango completo. Si ya se
-trabajó parte del rango, la cancelación se bloquea y el supervisor debe usar
-**Reprogramar** para los días que faltan.
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py -->
+Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
+las **24 horas** siguientes a la aprobación; cuando tu compañero la aprueba se revierte el
+rango completo. Si ya se trabajó parte del rango, la cancelación se bloquea y el supervisor
+debe usar **Reprogramar** para los días que faltan. Ver el apartado 6.3.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) -->
+
+En los dos casos —retirar la pendiente y pedir la cancelación de la aprobada— la ventana
+pide un **Motivo \***. Si lo dejas en blanco no se envía nada y ves *"Escribe el
+motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada: inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
 
 Cancelar la solicitud de un compañero no cancela las de los demás: son solicitudes
 independientes.
@@ -1280,9 +1368,16 @@ que cubriste tú.
 <!-- fuente: templates/solicitudes/mis_favores.html; static/js/mis_turnos.js:742 -->
 
 **13. Cómo cancelar o deshacer.**
-Pendiente: sin plazo. Aprobada: **30 minutos**. Si el fin de semana cedido ya pasó y el de
-pago no, la cancelación se bloquea y el supervisor puede **Reprogramar**.
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py -->
+Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
+las **24 horas** siguientes a la aprobación; la decide tu compañero. Si el fin de semana
+cedido ya pasó y el de pago no, la cancelación se bloquea y el supervisor puede
+**Reprogramar**. Ver el apartado 6.3.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) -->
+
+En los dos casos —retirar la pendiente y pedir la cancelación de la aprobada— la ventana
+pide un **Motivo \***. Si lo dejas en blanco no se envía nada y ves *"Escribe el
+motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada: inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
 
 **14. Errores posibles.**
 
@@ -1400,26 +1495,127 @@ Dos formularios no funcionan en absoluto durante la temporada: el **cambio de tu
 permanente** y la **doblada permanente**.
 <!-- fuente: solicitudes/tests/test_politica_temporada.py -->
 
-### 6.3 Qué se revierte al cancelar y en qué plazo
+### 6.3 Sobre cancelar un cambio: qué se revierte, quién decide y en qué plazo
 
 Los seis formularios revierten lo que hicieron cuando se cancelan. Revertir significa
 devolver los turnos de las dos personas al estado exacto que tenían antes, y deshacer
 también las deudas y coberturas que el acuerdo hubiera generado.
 
-Los plazos son dos y no se mezclan:
+Lo que decide cómo se cancela es el estado, y los dos casos no se parecen en nada.
 
-- **Pendiente**: puedes cancelar cuando quieras. Nada se había aplicado, así que no hay
-  nada que revertir.
-- **Aprobada**: solo dentro de los **30 minutos** siguientes a la aprobación. Pasado ese
-  margen, el turno se considera comunicado y en firme.
+**Pendiente: la retiras tú, en el acto.** Nadie ha aceptado nada todavía y no hay turnos
+movidos, así que no hay nada que revertir ni a nadie a quien consultar. Botón **Cancelar**,
+sin plazo. Aun así, la ventana te pide un **Motivo \***: sin él la solicitud no
+se retira.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (execute, rama 'pendiente'); static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, inputValidator) -->
 
-<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (VENTANA_CANCELACION_MINUTOS = 30) -->
+**Aprobada: la pides, no la cancelas.** Un cambio aprobado es un acuerdo entre dos personas
+y los turnos de las dos ya se movieron. Deshacerlo por tu cuenta le quitaría a tu compañero
+un turno que ya cuenta como suyo, así que la decisión es de él. Tú envías la petición con
+el botón **Pedir cancelación**; él la aprueba o la rechaza.
+<!-- fuente: core/constants.py (EstadoCancelacion, docstring) -->
 
-El supervisor no tiene esa ventana de 30 minutos, pero sí las mismas protecciones sobre
+Lo más importante de todo, y lo que más confunde: **mientras el receptor no responda, el
+cambio sigue vigente**. Los turnos no se tocan. No organices tu día como si ya estuviera
+deshecho. Solo la aprobación del receptor revierte los turnos.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion: "NO toca turnos ni estado") -->
+
+Los plazos son dos, de 24 horas cada uno:
+
+| Plazo | De quién | Desde cuándo se cuenta | Qué pasa si vence |
+|---|---|---|---|
+| **24 horas** para pedir la cancelación | Del solicitante | Desde que la solicitud quedó aprobada | El botón se apaga; solo queda pedírselo al supervisor |
+| **24 horas** para responder | Del receptor | Desde que se pidió la cancelación | La petición **caduca** y el cambio queda firme |
+
+<!-- fuente: core/constants.py (VENTANA_PEDIR_CANCELACION_HORAS = 24, VENTANA_RESPONDER_CANCELACION_HORAS = 24) -->
+
+**Un no es definitivo.** Si el receptor rechaza, o si deja pasar sus 24 horas sin
+responder, el cambio queda **firme** y la cancelación **no se puede volver a pedir**.
+Quedan dos salidas: solicitar un cambio nuevo que devuelva las cosas a su sitio, o pedirle
+a tu supervisor que lo cancele desde **Gestión de Solicitudes**.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_mensaje_cancelacion_cerrada) -->
+
+Que la petición exista no garantiza que se pueda cumplir. El sistema comprueba las
+protecciones del apartado 6.1 dos veces: al pedirla —para no molestar al receptor con algo
+imposible— y otra vez al aprobarla, porque entre las dos cosas pueden pasar 24 horas y
+alguien puede haber tocado esos días.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (responder_cancelacion, segunda llamada a bloqueo_lifo/bloqueo_integridad) -->
+
+En el **cambio de día de descanso** esto tiene un efecto que conviene conocer: un
+intercambio aplicado no reserva sus días. Cualquiera puede volver a elegir ese día desde
+que el intercambio se aplica, y si lo hace antes de que se resuelva tu petición, la
+cancelación deja de ser posible: verás que hay un cambio más reciente sobre ese día. Los
+demás tipos de cambio sí bloquean el día mientras estén aplicados.
+<!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) -->
+
+**El permiso de media jornada de temporada funciona igual**, con una diferencia: ahí no hay
+compañero receptor, así que quien aprueba o rechaza la cancelación es **tu supervisor**.
+Mismos plazos y mismas consecuencias.
+<!-- fuente: permisos/views.py (PermisoMediaJornadaCancelView, PermisoMediaJornadaCancelResponderView) -->
+
+Tres precisiones sobre el permiso:
+
+1. Tus 24 horas para pedir la cancelación se cuentan **desde que el supervisor aprobó el
+   permiso**. Una edición posterior del permiso no reinicia el plazo.
+   <!-- fuente: permisos/models.py (fecha_aprobacion); permisos/views.py (PermisoMediaJornadaAprobarView, aprobación desde el enlace del correo) -->
+2. Si el permiso es **tuyo**, siempre pides la cancelación, aunque tengas rol de
+   supervisor: nadie decide sobre su propio permiso.
+   <!-- fuente: permisos/views.py (PermisoMediaJornadaCancelView.post: "if es_dueno") -->
+3. La respuesta le corresponde al supervisor **que aprobó ese permiso**; si no consta
+   ninguno, la puede responder cualquier supervisor, para que la petición no quede sin
+   respuesta y caduque siempre. En **Permisos Especiales**, los botones de aprobar y
+   rechazar la cancelación solo aparecen sobre el permiso de otra persona.
+   <!-- fuente: permisos/views.py (_puede_responder_cancelacion, _supervisor_del_permiso); templates/permisos/permisos_especiales_list.html -->
+
+**El supervisor sigue cancelando directo.** Cuando cancela desde **Gestión de Solicitudes**
+no pide permiso a nadie ni tiene ventana de tiempo, pero sí las mismas protecciones sobre
 los datos. Si todos los días de un acuerdo ya se trabajaron, puede cerrarlo sin revertir:
 el historial se conserva tal cual. Si unos días ya pasaron y otros no, no puede hacer
 ninguna de las dos cosas y la salida es reprogramar el día que falta.
 <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (execute_supervisor) -->
+
+#### Si eres el receptor: cómo respondes
+
+Las peticiones te llegan a **Solicitudes Pendientes**, en una tarjeta propia arriba del
+todo, titulada **Cancelaciones que esperan tu respuesta**. Está separada de la tabla de
+abajo a propósito: eso de ahí no son solicitudes por aprobar, son cambios ya vigentes que
+te piden deshacer. La tarjeta lo advierte: *"Estos cambios siguen vigentes. Si no respondes
+dentro del plazo, quedan firmes."*
+<!-- fuente: templates/solicitudes/solicitudes_pendientes_list.html (bloque cancelaciones_pendientes) -->
+
+De cada petición ves seis columnas: **Solicitante**, **Tipo**, **Fecha del cambio**,
+**Motivo**, **Pedida el** y **Acciones**. Y dos botones.
+
+1. **Aprobar cancelación**. El aviso dice *"Los turnos de ambos volverán a como estaban
+   antes del cambio."* y advierte que la operación no se puede deshacer. Es lo único que
+   revierte los turnos.
+2. **Rechazar**. El aviso dice *"El cambio seguirá vigente y quedará firme: tu compañero no
+   podrá volver a pedir su cancelación."*
+
+<!-- fuente: static/js/solicitudes/solicitudes_pendientes_list.js (responderCancelacion) -->
+
+En ambos casos la ventana pide un **Comentario \***. Es lo único que le llega a
+tu compañero explicando tu decisión, así que sin él no se envía la respuesta: verás el aviso
+*"Escribe un comentario explicando tu decisión."*
+<!-- fuente: static/js/solicitudes/solicitudes_pendientes_list.js (responderCancelacion, inputValidator); solicitudes/views/aprobacion_views.py (MSG_COMENTARIO) -->
+
+#### Qué avisos genera todo esto
+
+Son avisos dentro de la aplicación, en tu campana de notificaciones. Estos tres no se
+envían por correo.
+
+| Aviso | A quién le llega | Cuándo |
+|---|---|---|
+| **"Te piden cancelar un cambio ya aprobado"** | Al receptor | Al pedirse la cancelación. Recuerda que el cambio sigue vigente y cuántas horas tiene para responder |
+| **"Cancelación aprobada"** | Al solicitante | Cuando el receptor acepta. Los turnos ya volvieron a como estaban |
+| **"Cancelación rechazada"** | Al solicitante | Cuando el receptor se niega. Dice que el cambio queda firme y cuál es la salida |
+
+<!-- fuente: solicitudes/services/notificacion_service.py (crear_notificacion_peticion_cancelacion, crear_notificacion_respuesta_cancelacion) -->
+
+En el permiso de media jornada los avisos equivalentes son **"Te piden cancelar un permiso
+ya aprobado"** para el supervisor, y **"Cancelación de permiso aprobada"** o **"Cancelación
+de permiso rechazada"** para el dueño del permiso.
+<!-- fuente: permisos/views.py (_notificar_peticion_cancelacion_permiso, _notificar_respuesta_cancelacion_permiso) -->
 
 ### 6.4 Sobre el cierre semanal
 
@@ -1463,6 +1659,54 @@ que se envió el correo. Pasado ese plazo el enlace deja de funcionar y muestra 
 error; la solicitud sigue existiendo y se resuelve entrando a la aplicación.
 <!-- fuente: solicitudes/services/tokens_aprobacion.py (_max_age_segundos); config/settings.py:262 (APPROVAL_LINK_MAX_AGE_DAYS, por defecto 30) -->
 
+### 6.6 Sobre el comentario obligatorio en cada decisión
+
+Toda decisión que mueve turnos de otra persona deja constancia escrita. Aprobar, rechazar,
+cancelar o responder a una petición de cancelación exigen un comentario o un motivo: sin él
+la acción no se ejecuta.
+<!-- fuente: solicitudes/views/aprobacion_views.py (_texto_obligatorio); permisos/views.py (_texto_obligatorio) -->
+
+La razón es sencilla: quien recibe la decisión solo lee ese texto. Si va vacío, se entera de
+que le cambiaron el turno y no de por qué.
+<!-- fuente: solicitudes/views/aprobacion_views.py (comentario del bloque _texto_obligatorio) -->
+
+La comprobación se hace dos veces. La pantalla no te deja confirmar con el campo en blanco,
+y el sistema vuelve a comprobarlo al recibir la acción, así que no hay forma de saltárselo.
+<!-- fuente: static/js/solicitudes/solicitudes_pendientes_list.js; static/js/permisos/comentario_obligatorio.js; solicitudes/views/aprobacion_views.py -->
+
+Dónde aparece y con qué nombre. El asterisco rojo detrás de la etiqueta es la marca de
+campo obligatorio que usa toda la aplicación, también dentro de estas ventanas emergentes:
+<!-- fuente: static/js/core/comentario_obligatorio.js (marcarObligatorio) -->
+
+| Dónde | Acción | Nombre del campo |
+|---|---|---|
+| **Solicitudes Pendientes** | Aprobar o rechazar una solicitud, como compañero o como supervisor | **Comentario \*** <!-- fuente: templates/solicitudes/solicitudes_pendientes_list.html:252 --> |
+| **Solicitudes Pendientes** | Responder a una petición de cancelación | **Comentario \*** <!-- fuente: static/js/solicitudes/solicitudes_pendientes_list.js (responderCancelacion) --> |
+| **Mis Solicitudes** | Cancelar una solicitud pendiente, o pedir la cancelación de una aprobada | **Motivo \*** <!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud, cancelarSolicitudAprobada) --> |
+| **Permisos Especiales** | Aprobar un permiso | **Comentario \*** <!-- fuente: templates/permisos/permisos_especiales_list.html:102 --> |
+| **Permisos Especiales** | Rechazar un permiso, o rechazar su cancelación | **Motivo del rechazo \*** <!-- fuente: templates/permisos/permisos_especiales_list.html:109,131 --> |
+| **Permisos Especiales** | Cancelar un permiso, o pedir su cancelación | **Motivo \*** <!-- fuente: templates/permisos/permisos_especiales_list.html:146 --> |
+| **Reprogramaciones** | Registrar una inasistencia a un día de doblada | **Motivo \*** <!-- fuente: templates/solicitudes/reprogramacion_registrar.html:48 --> |
+| **PDH** | Registrar un pago de horas | **Nota \*** <!-- fuente: templates/empleados/pdh_create.html:58 --> |
+| **PDH** | Editar un pago ya registrado | **Nota \*** <!-- fuente: templates/empleados/pdh_edit.html:25, el asterisco lo pinta el bucle para todo campo obligatorio --> |
+
+En **Permisos Especiales** las acciones que antes solo preguntaban "¿estás seguro?" ahora
+abren una ventana donde escribes el texto. Si la dejas vacía, el aviso es el mismo que
+devuelve el sistema: *"Escribe un comentario explicando tu decisión."* al aprobar o rechazar,
+y *"Escribe el motivo de la cancelación."* al cancelar.
+<!-- fuente: static/js/permisos/comentario_obligatorio.js (data-comentario-error); templates/permisos/permisos_especiales_list.html:102,109,131,146; core/utils/comentarios.py (MSG_COMENTARIO, MSG_MOTIVO) -->
+
+El motivo de la inasistencia no se queda en la pantalla del supervisor: viaja dentro del
+aviso que recibe el explorador, entre paréntesis, junto a la fecha del día que no se cumplió.
+<!-- fuente: solicitudes/views/reprogramacion_views.py (_notificar: "No se cumplió tu día de doblada del … (motivo)") -->
+
+**La única excepción son los enlaces del correo.** Aprobar o rechazar desde el enlace que
+llega por correo sigue siendo de un clic y no pide ningún texto.
+<!-- fuente: solicitudes/views/aprobacion_email.py (AprobarSolicitudEmailView, RechazarSolicitudEmailView: resuelven en el GET) -->
+
+Los seis formularios de solicitud no cambiaron: su campo **Comentarios** ya era obligatorio.
+<!-- fuente: solicitudes/services/validators/base_validator.py:190 -->
+
 ---
 
 ## 7. Mensajes de error y qué hacer
@@ -1488,12 +1732,31 @@ pueden aparecer en cualquiera de los seis.
 | "El compañero seleccionado no existe." | La persona ya no está disponible | Recarga la página y vuelve a elegir <!-- fuente: solicitudes/services/solicitud_orchestrator.py:648 --> |
 | "Ingresa un comentario." | Falta el motivo | Escríbelo <!-- fuente: solicitudes/services/solicitud_orchestrator.py:372 --> |
 | "Debes ingresar un comentario para …" | Lo mismo, con el nombre del trámite | Escríbelo <!-- fuente: solicitudes/services/validators/base_validator.py:190 --> |
+| "Escribe un comentario explicando tu decisión." | Vas a aprobar o rechazar algo y dejaste el comentario en blanco | Escríbelo; sin él la decisión no se registra. Ver el apartado 6.6 <!-- fuente: solicitudes/views/aprobacion_views.py (MSG_COMENTARIO desde core/utils/comentarios.py); permisos/views.py:324,573 --> |
+| "Escribe el motivo de la cancelación." | Falta el motivo al cancelar o al pedir una cancelación | Escríbelo <!-- fuente: solicitudes/views/aprobacion_views.py (MSG_MOTIVO desde core/utils/comentarios.py); permisos/views.py:439 --> |
+| "Escribe el motivo de la inasistencia." | Falta el motivo al registrar una inasistencia | Escríbelo; el explorador lo recibe en su aviso <!-- fuente: solicitudes/views/reprogramacion_views.py:122 --> |
+| "Escribe una nota explicando el pago." | Falta la nota al registrar o editar un pago de horas | Escríbela <!-- fuente: empleados/views/pdh.py:134; empleados/forms.py (clean_comentario) --> |
 | "Error al procesar la solicitud" | Fallo interno; no es culpa de tus datos | Reinténtalo; si persiste, avisa a tu supervisor <!-- fuente: solicitudes/services/solicitud_orchestrator.py:25 --> |
 | "Ocurrió un error de red. Intenta de nuevo." | El envío no llegó a completarse | Comprueba **Mis Solicitudes** antes de reenviar. Si el aviso incluye un **Código de referencia**, apúntalo: ver el apartado 7.3 <!-- fuente: static/js/cambio-turno/solicitar_d_fds.js:442; solicitar_doblada_permanente.js:705 --> |
 | "Intenta de nuevo." bajo el título *Error de red* | Lo mismo, en **Cambio de Día de Descanso** | Igual que el anterior <!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js:1328,1362,1382 --> |
 | "Ocurrió un error de red." | Lo mismo, en **Cambio de Turno Permanente** y en **Doblada** | Igual que el anterior <!-- fuente: static/js/cambio-turno/solicitar_ct_permanente.js:1748; solicitar_doblada.js:2862 --> |
 | "Ocurrió un error al procesar la solicitud" | El envío de **Cambio de Turno** falló y el sistema no devolvió un motivo concreto | Comprueba **Mis Solicitudes** antes de reenviar <!-- fuente: static/js/cambio-turno/solicitar_cambio_turno.js:421 --> |
-| "Ya no es posible cancelar esta solicitud. Solo se puede cancelar dentro de los 30 minutos posteriores a su aprobación (han pasado N minutos)." | Se acabó la ventana | Habla con tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py --> |
+| "Ya no es posible cancelar esta solicitud. Solo se puede pedir la cancelación dentro de las 24 horas posteriores a su aprobación (han pasado N horas). Pídele a tu supervisor que la cancele desde Gestión." | Se acabó tu plazo para pedirla | Habla con tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
+| "Plazo de cancelación expirado" — "Solo puedes pedir la cancelación dentro de las 24 horas posteriores a la aprobación. Pídele a tu supervisor que la cancele." | Lo mismo, avisado por la propia pantalla antes de enviar nada | Habla con tu supervisor <!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitudAprobada) --> |
+| "Ya pediste cancelar esta solicitud. Está esperando la respuesta de …" | Ya hay una petición en curso | Espera la respuesta <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
+| "El receptor ya rechazó la cancelación de esta solicitud, así que el cambio quedó firme. Si necesitas volver a tu turno original, solicita un cambio nuevo o consulta con tu supervisor." | Un rechazo es definitivo | Solicita un cambio nuevo <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_mensaje_cancelacion_cerrada) --> |
+| "La cancelación caducó: el receptor no respondió dentro de las 24 horas y el cambio quedó firme. Si necesitas volver a tu turno original, solicita un cambio nuevo o consulta con tu supervisor." | Nadie respondió a tiempo | Solicita un cambio nuevo <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_mensaje_cancelacion_cerrada) --> |
+| "No se puede cancelar: esta solicitud no tiene receptor registrado. Pídele a tu supervisor que la cancele desde Gestión." | No hay a quién pedírsela | Habla con tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
+| "No se puede cancelar: esta solicitud ya se cumplió, en todo o en parte. Consulta con tu supervisor." | Alguno de los días ya se trabajó | Habla con tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
+| "El plazo de 24 horas para responder ya venció, así que el cambio quedó firme." | Al receptor, cuando responde tarde | Nada que hacer; el cambio es firme <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (responder_cancelacion) --> |
+| "No eres el receptor de esta solicitud." | Solo el receptor responde la petición | Nada que hacer <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (responder_cancelacion) --> |
+| "Esta solicitud no tiene ninguna cancelación pendiente." | Ya se resolvió, o nunca se pidió | Recarga **Solicitudes Pendientes** <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (responder_cancelacion) --> |
+| "No se puede cancelar: estos días ya se trabajaron. Consulta con tu supervisor." | Al aprobar la cancelación, los días ya pasaron | Habla con tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (responder_cancelacion) --> |
+| "Ya no puedes cancelar este permiso (pasaron más de 24 horas desde su aprobación). Pídele a tu supervisor que lo cancele." | Permiso de media jornada fuera de plazo | Habla con tu supervisor <!-- fuente: permisos/views.py (_pedir_cancelacion) --> |
+| "No se puede cancelar: los turnos de esos días ya fueron modificados por otro cambio. Cancela primero ese cambio y vuelve a intentarlo." | Permiso de media jornada; alguien tocó esos días | Cancela primero el cambio más reciente <!-- fuente: permisos/views.py (_pedir_cancelacion, _cancelar) --> |
+| "Solo un supervisor puede responder esta cancelación." | En un permiso decide el supervisor, no un compañero | Nada que hacer <!-- fuente: permisos/views.py (_puede_responder_cancelacion) --> |
+| "No puedes responder la cancelación de tu propio permiso: la decide tu supervisor." | Pediste cancelar tu permiso y quisiste responderte tú, teniendo rol de supervisor | Espera la respuesta de tu supervisor <!-- fuente: permisos/views.py (_puede_responder_cancelacion) --> |
+| "Esta cancelación la decide NOMBRE APELLIDO, que es quien aprobó el permiso." | Eres supervisor, pero no el de ese permiso; en lugar de NOMBRE APELLIDO ves el nombre de quien debe responder | Avisa a esa persona <!-- fuente: permisos/views.py (_puede_responder_cancelacion) --> |
 | "No puedes cancelar este cambio: hay otro más reciente sobre el mismo día (dd/mm). Cancela primero el cambio más reciente." | Los cambios se deshacen en orden inverso | Cancela primero el más nuevo <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (bloqueo_lifo) --> |
 | "No se puede cancelar: el turno de … ya fue modificado por otro cambio posterior a esta aprobación. Cancelar ahora dejaría un conflicto de jornadas, así que esta solicitud se mantiene vigente. Si necesitas volver a tu turno original, solicita un nuevo cambio de turno." | Alguien tocó ese día por otra vía | Solicita un cambio nuevo <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_mensaje_conflicto) --> |
 | "Solo puedes cancelar tus propias solicitudes" | Intentaste cancelar la de otra persona | Pídeselo a quien la creó <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py --> |
@@ -1749,11 +2012,51 @@ No. Si un día se modifica varias veces, vale el último cambio aprobado. Por es
 deshacer, hay que empezar por el más reciente.
 <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (bloqueo_lifo) -->
 
+**Si pedí cancelar un intercambio de descanso, ¿el día queda reservado hasta que respondan?**
+No. El día vuelve a estar disponible para todos en cuanto el intercambio se aplica. Si otra
+persona lo usa antes de que se resuelva tu petición, ya no podrás deshacer tu cambio.
+<!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) -->
+
 **¿Puedo cambiar el descanso de un fin de semana y no devolverlo?**
 No en la modalidad de fin de semana: la devolución es obligatoria y va en otro fin de
 semana del mismo mes. En la modalidad entre semana, la opción **Intercambiar el día** es un
 cambio simple sin deuda, pero sigue siendo un intercambio dentro de la misma semana.
 <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py -->
+
+**Pedí cancelar un cambio aprobado, ¿ya puedo contar con mi turno de siempre?**
+No. Mientras tu compañero no apruebe la cancelación, el cambio sigue vigente y tu turno es
+el nuevo. Solo cuando en **Mis Solicitudes** la fila pase a **Cancelada** y recibas el aviso
+**"Cancelación aprobada"** habrán vuelto los turnos a como estaban.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) -->
+
+**¿Por qué ya no hay botón de cancelar en una solicitud aprobada?**
+Porque una aprobada no se cancela sola: se pide. El botón se llama **Pedir cancelación** y
+solo aparece si no has pedido ninguna todavía y no han pasado 24 horas desde la aprobación.
+Si ya la pediste, en su lugar verás **Cancelación pendiente**, **rechazada** o **caducada**.
+<!-- fuente: templates/solicitudes/mis_solicitudes_list.html -->
+
+**Mi compañero rechazó la cancelación. ¿Puedo volver a pedirla?**
+No. Un rechazo, y también el silencio pasadas las 24 horas, dejan el cambio firme para
+siempre. Te quedan dos caminos: solicitar un cambio nuevo o pedirle a tu supervisor que lo
+cancele desde **Gestión de Solicitudes**.
+<!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_mensaje_cancelacion_cerrada) -->
+
+**¿Y si mi compañero simplemente no entra a la aplicación?**
+A las 24 horas de tu petición, esta caduca y el cambio queda firme. Se decidió así para que
+nadie pierda su turno por el silencio de otro. Si el asunto es urgente, habla con tu
+supervisor.
+<!-- fuente: core/constants.py (VENTANA_RESPONDER_CANCELACION_HORAS = 24) -->
+
+**¿Tengo que dar un motivo al pedir la cancelación?**
+Sí, es obligatorio. Tu compañero lo verá en su pantalla, y sin él la petición no se envía:
+sale el aviso *"Escribe el motivo de la cancelación."*
+<!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitudAprobada, inputValidator); solicitudes/views/aprobacion_views.py (MSG_MOTIVO) -->
+
+**¿Y para aprobar o rechazar? ¿Puedo dejar el comentario en blanco?**
+No. Aprobar, rechazar, cancelar y responder a una petición de cancelación piden siempre un
+comentario o un motivo. La única excepción son los enlaces de **Aprobar** y **Rechazar**
+del correo, que siguen resolviéndose de un clic y no piden nada escrito. Ver el apartado 6.6.
+<!-- fuente: solicitudes/views/aprobacion_views.py (_texto_obligatorio); solicitudes/views/aprobacion_email.py -->
 
 **¿Por qué mi calendario no muestra el cambio?**
 Porque falta una aprobación. Comprueba el estado en **Mis Solicitudes**.
@@ -1855,10 +2158,22 @@ Ana usa **Cambio de Día de Descanso**, modalidad **Entre semana**, opción **In
 día**: Beatriz toma el día completo de Ana y Ana el de Beatriz. Todo ocurre dentro de la
 misma semana y no genera deuda.
 
-**Caso 7 — Me arrepentí cinco minutos después de que aprobaran.**
-Diego entra en **Mis Solicitudes**, ve la cuenta atrás en el botón de cancelar y pulsa
-**Cancelar**. Los turnos suyos y de Sofía vuelven al estado anterior. Si hubiera esperado
-más de 30 minutos, el botón ya no funcionaría y tendría que hablar con su supervisora.
+**Caso 7 — Me arrepentí una hora después de que aprobaran.**
+Diego entra en **Mis Solicitudes**, ve la cuenta atrás en el botón **Pedir cancelación
+(23h 02m)** y lo pulsa. Escribe como motivo "me cuadró la cita médica" y confirma. La fila
+pasa a **Cancelación pendiente** y a Sofía le llega el aviso "Te piden cancelar un cambio
+ya aprobado". Ojo: hasta que Sofía responda, Diego sigue teniendo el turno cambiado. Sofía
+entra esa tarde en **Solicitudes Pendientes**, ve la tarjeta **Cancelaciones que esperan tu
+respuesta** y pulsa **Aprobar cancelación**: los turnos de los dos vuelven al estado
+anterior. Si Sofía hubiera pulsado **Rechazar**, o no hubiera entrado en 24 horas, el
+cambio habría quedado firme y Diego solo podría solicitar un cambio nuevo o hablar con su
+supervisora.
+
+**Caso 7 bis — Pedí la cancelación y nadie contestó.**
+Diego pide la cancelación el lunes a las 10:00. Sofía está de vacaciones y no entra. El
+martes a las 10:01 la petición caduca: la fila muestra **Cancelación caducada** y el cambio
+del jueves queda firme. Diego no puede volver a pedirla; le escribe a su supervisora, que
+sí puede cancelarlo desde **Gestión de Solicitudes**.
 
 **Caso 8 — Quiero cancelar un cambio antiguo.**
 Laura pactó un cambio para el 10/04 y después otro sobre el mismo día. Al intentar cancelar
@@ -1874,6 +2189,19 @@ Cambios recientes que afectan a lo que ves en pantalla.
 
 | Cambio | Qué significa para ti |
 |---|---|
+| **Cancelar un cambio aprobado ya no es cosa tuya sola: se le pide al compañero** | Antes cancelabas de inmediato y él se enteraba después. Ahora pulsas **Pedir cancelación** y él aprueba o rechaza. Aplica a los seis formularios. Ver el apartado 6.3 <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion, responder_cancelacion) --> |
+| **Mientras nadie responde, el cambio sigue vigente** | Pedir la cancelación no mueve ningún turno. Solo la aprobación del compañero los devuelve a como estaban <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
+| **El plazo pasó de 30 minutos a 24 horas** | Tienes 24 horas desde la aprobación para pedir la cancelación, y tu compañero otras 24 para responderte <!-- fuente: core/constants.py (VENTANA_PEDIR_CANCELACION_HORAS, VENTANA_RESPONDER_CANCELACION_HORAS) --> |
+| **Un rechazo, o el silencio, dejan el cambio firme** | No se puede volver a pedir la cancelación: o solicitas un cambio nuevo, o se lo pides a tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_mensaje_cancelacion_cerrada) --> |
+| **Tarjeta nueva en Solicitudes Pendientes: "Cancelaciones que esperan tu respuesta"** | Si eres el compañero, ahí ves quién pide qué, con qué motivo y desde cuándo, con los botones **Aprobar cancelación** y **Rechazar** <!-- fuente: templates/solicitudes/solicitudes_pendientes_list.html --> |
+| **En Mis Solicitudes hay tres etiquetas nuevas** | **Cancelación pendiente**, **Cancelación rechazada** y **Cancelación caducada** te dicen en qué punto está tu petición <!-- fuente: templates/solicitudes/mis_solicitudes_list.html --> |
+| **El permiso de media jornada de temporada sigue la misma regla** | Aprobado el permiso, ya no lo cancelas tú: lo pides y lo decide tu supervisor, con los mismos plazos <!-- fuente: permisos/views.py (PermisoMediaJornadaCancelView) --> |
+| **Las 24 horas del permiso cuentan desde su aprobación** | Antes el plazo se movía con cualquier edición posterior del permiso, así que podía alargarse solo. Ahora arranca en el momento en que tu supervisor lo aprueba, tanto desde su pantalla como desde el enlace del correo <!-- fuente: permisos/models.py (fecha_aprobacion); permisos/views.py --> |
+| **Sobre tu propio permiso siempre se pide la cancelación** | Antes, si eras explorador y además supervisor, cancelabas tu permiso de un clic. Ahora la decide otra persona, y no puedes responder tu propia petición <!-- fuente: permisos/views.py (PermisoMediaJornadaCancelView.post, _puede_responder_cancelacion) --> |
+| **La cancelación de un permiso la responde su supervisor** | Antes bastaba con tener rol de supervisor para decidir sobre el permiso de cualquiera. Ahora responde el supervisor que aprobó ese permiso; los botones de aprobar y rechazar solo salen sobre permisos ajenos <!-- fuente: permisos/views.py (_supervisor_del_permiso, _puede_responder_cancelacion); templates/permisos/permisos_especiales_list.html --> |
+| **Un intercambio de descanso ya no reserva el día durante 30 minutos** | Antes, tras aprobarse un intercambio, sus días quedaban bloqueados media hora: no se podían elegir en el selector de fines de semana ni al enviar el formulario. Ahora el día queda libre desde que se aplica el intercambio. A cambio, si alguien lo reutiliza antes de que se resuelva tu petición de cancelación, ya no podrás deshacer tu cambio <!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) --> |
+| **El aviso de día bloqueado en el cambio de descanso dice qué hacer** | Solo aparece cuando el día tiene aplicado otro tipo de cambio, y te indica que hay que deshacerlo primero, pidiéndoselo a tu compañero si aún está en plazo o a tu supervisor <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py (_trabaja_dia) --> |
+| **Tres avisos nuevos en la campana** | "Te piden cancelar un cambio ya aprobado", "Cancelación aprobada" y "Cancelación rechazada". Solo dentro de la aplicación; no se envían por correo <!-- fuente: solicitudes/services/notificacion_service.py --> |
 | Cinco pantallas de error propias, en español | Cuando algo falla ya no ves una pantalla técnica en inglés ni una página en blanco, sino una explicación clara con botones **Ir al inicio** y **Volver atrás**. Ver el apartado 7.2 <!-- fuente: templates/400.html, 403.html, 403_csrf.html, 404.html, 500.html; core/errors.py --> |
 | Cada pantalla de error muestra un **Código de referencia** con botón **Copiar** | Es lo único que tienes que incluir al reportar una incidencia; el detalle técnico llega solo al equipo. Ver el apartado 7.3 <!-- fuente: templates/errors/_base_error.html (bloque meta); core/errors.py:51-76 --> |
 | Los avisos de fallo al enviar una solicitud también muestran el **Código de referencia** | Antes el código solo salía en las pantallas de error a página completa. Ahora, si el envío falla y el servidor alcanzó a responder, el propio aviso trae el código en un recuadro. Afecta a los seis formularios. Ver el apartado 7.3 <!-- fuente: static/js/utils/codigo-referencia.js; templates/base.html:297 --> |
@@ -1887,11 +2215,16 @@ Cambios recientes que afectan a lo que ves en pantalla.
 | En **Doblada Permanente**, el choque con el compañero se mide por fecha | Los avisos de solapamiento son más precisos <!-- fuente: commit a7607d7 --> |
 | Ceder un festivo entero en **Doblada** cubre el día completo (AM + PM) | Al ceder un festivo, el compañero asume las dos jornadas <!-- fuente: commit 56eb793 --> |
 | En **Mis Turnos**, un día de fin de semana se llama **DÍA COMPLETO**, no **DOBLADA** | El texto ya no sugiere un esfuerzo extra donde no lo hay <!-- fuente: commit 0c3ccc8 --> |
-| Se registra la hora real de la cancelación | La cuenta atrás de los 30 minutos es exacta <!-- fuente: commit a437c41 --> |
+| Se registra la hora real de la cancelación | La cuenta atrás del plazo es exacta <!-- fuente: commit a437c41 --> |
 | En **Doblada Permanente** se explica por qué un compañero no cubre una fecha | Los motivos aparecen junto a cada fecha descartada <!-- fuente: commit 4dd6cd6 --> |
 | Un rol parecido a "Supervisor" ya no concede permisos de supervisor | Solo el rol exacto **Supervisor** ve el menú de administración <!-- fuente: commits f9e82e3, 727f1f8 --> |
 | Las sanciones se levantan, no se borran | Queda el registro de la sanción y de cuándo se levantó <!-- fuente: commit 0e541c1 --> |
 | En **Doblada**, la lista de compañeros esconde a quien ya trabaja mañana y tarde | Antes se escondía por error a quien ese día descansaba por haber cedido su jornada. Ahora aparecen en el desplegable compañeros libres que antes no se mostraban, incluido quien descansa porque te cedió el día a ti <!-- fuente: solicitudes/services/doblada_filtro_service.py:54-66 --> |
+| **El comentario dejó de ser opcional en todas las decisiones** | Aprobar, rechazar, cancelar o responder a una petición de cancelación piden ahora un comentario o un motivo obligatorio, en solicitudes, permisos, reprogramaciones y pagos de horas. Antes varios de esos campos decían "(opcional)". Ver el apartado 6.6 <!-- fuente: solicitudes/views/aprobacion_views.py (_texto_obligatorio); permisos/views.py (_texto_obligatorio) --> |
+| **En Permisos Especiales ya no basta con confirmar** | Aprobar, rechazar y cancelar un permiso, y responder a una petición de cancelación, abren una ventana donde escribes el motivo. Antes solo salía un "¿estás seguro?" y no se podía explicar nada <!-- fuente: static/js/permisos/comentario_obligatorio.js; templates/permisos/permisos_especiales_list.html --> |
+| **Cancelar una solicitud pendiente también pide motivo** | Antes se retiraba respondiendo sí o no; ahora escribes por qué <!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitud) --> |
+| **El motivo de la inasistencia llega al explorador** | Al registrar una inasistencia a un día de doblada, el motivo pasó a ser obligatorio y se incluye en el aviso que recibe quien faltó <!-- fuente: solicitudes/views/reprogramacion_views.py (_notificar) --> |
+| **En PDH la nota es obligatoria** | Al registrar o editar un pago de horas hay que explicar el pago; antes la nota era opcional <!-- fuente: empleados/forms.py (clean_comentario); empleados/views/pdh.py --> |
 | En **PDH**, la fecha de pago la decide el supervisor | Se retiró una validación que rechazaba fechas legítimas <!-- fuente: commit 9bf81f8 --> |
 
 <!-- fuente: git log del repositorio, commits 0e541c1 … 40a7ed8 -->
@@ -1916,6 +2249,10 @@ incluyeron como hechos en el manual.
 | Contenido de los documentos de negocio en formato Word de la carpeta de instructivos | Carpeta de instructivos del proyecto | Formato binario; su contenido no se pudo contrastar con lo implementado |
 | Si el usuario recibe alguna confirmación de que su incidencia fue registrada al reportar el código de referencia | Pantallas de error y avisos del sistema | No existe un canal de reporte dentro de la aplicación: el aviso al equipo se hace por fuera |
 | Si existe algún aviso automático cuando una solicitud lleva mucho tiempo pendiente | Servicio de notificaciones | No se encontró; el supervisor puede reenviar el aviso manualmente |
+| Si el receptor recibe algún recordatorio antes de que caduquen sus 24 horas para responder una cancelación | Servicio de notificaciones y tareas programadas | Solo se localizó el aviso del momento en que se pide; no hay ningún envío posterior |
+| Si el supervisor ve en alguna pantalla propia las cancelaciones pendientes de su equipo | Pantallas de gestión y de solicitudes pendientes | La tarjeta de cancelaciones se arma para quien figura como receptor; no se comprobó qué ve un supervisor que no lo sea |
+| Si el comentario que se escribe al aprobar o rechazar aparece también en el correo que recibe la otra persona, o solo dentro de la aplicación | Plantillas de correo del módulo de solicitudes | No se abrieron las plantillas de correo en esta revisión; solo se comprobó que el texto se guarda y se muestra en pantalla |
+| Qué ve exactamente un supervisor que tiene permisos aprobados antes de esta versión, sin fecha de aprobación guardada | Vista de cancelación de permisos | Para esos permisos antiguos el plazo se sigue midiendo desde la última modificación; no se pudo comprobar con datos reales cuántos quedan en esa situación |
 
 ---
 
