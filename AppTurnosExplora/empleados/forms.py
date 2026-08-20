@@ -369,12 +369,19 @@ class PDHForm(forms.ModelForm):
         }
         widgets = {
             'comentario': forms.Textarea(attrs={'class': 'form-control', 'rows': 2,
-                                                'placeholder': 'Nota opcional'}),
+                                                'placeholder': 'Explica el pago'}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['comentario'].required = False
+        # La nota es obligatoria: es el único rastro de por qué el líder autorizó el pago.
+        self.fields['comentario'].required = True
+
+    def clean_comentario(self):
+        comentario = (self.cleaned_data.get('comentario') or '').strip()
+        if not comentario:
+            raise forms.ValidationError('Escribe una nota explicando el pago.')
+        return comentario
 
 
 class EmpleadoUsuarioForm(forms.Form):

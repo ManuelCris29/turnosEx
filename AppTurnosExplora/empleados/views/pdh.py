@@ -105,7 +105,7 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         from permisos.pago_horas_service import PagoHorasService
         explorador_id = request.POST.get('explorador', '')
         fecha_str = request.POST.get('fecha', '')
-        comentario = request.POST.get('comentario', '')
+        comentario = (request.POST.get('comentario') or '').strip()
         keys = request.POST.getlist('deudas')
         datos = {'explorador': explorador_id, 'fecha': fecha_str,
                  'comentario': comentario, 'deudas': keys}
@@ -130,6 +130,8 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
             explorador = Empleado.objects.get(id=int(explorador_id))
         except Empleado.DoesNotExist:
             return self._error(request, 'Explorador no válido.', datos)
+        if not comentario:
+            return self._error(request, 'Escribe una nota explicando el pago.', datos)
 
         pdh, error = PagoHorasService.aplicar_pago(
             supervisor=supervisor,

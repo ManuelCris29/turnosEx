@@ -20,7 +20,9 @@
           {% csrf_token %}
           {% for field in form %}
             <div class="form-group">
-              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {# El asterisco lo pinta el bucle: la nota pasó a ser obligatoria y sin marca
+                 el usuario solo se enteraba al fallar el guardado. #}
+              <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %} <span class="text-danger">*</span>{% endif %}</label>
               {{ field }}
               {% if field.help_text %}<small class="form-text">{{ field.help_text }}</small>{% endif %}
               {% if field.errors %}<div class="text-danger small">{{ field.errors|striptags }}</div>{% endif %}

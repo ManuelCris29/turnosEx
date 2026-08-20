@@ -118,6 +118,9 @@ class RegistrarInasistenciaView(LoginRequiredMixin, AdminRequiredMixin, View):
         except ValueError:
             messages.error(request, 'Selecciona quién no cumplió y qué día.')
             return redirect('solicitudes:reprog_registrar', solicitud_id=solicitud_id)
+        if not motivo:
+            messages.error(request, 'Escribe el motivo de la inasistencia.')
+            return redirect('solicitudes:reprog_registrar', solicitud_id=solicitud_id)
         cand = next((c for c in self._candidatos(solicitud) if c['rol'] == rol), None)
         if not cand or fecha_original not in cand['fechas']:
             messages.error(request, 'La selección no es válida.')
@@ -126,7 +129,7 @@ class RegistrarInasistenciaView(LoginRequiredMixin, AdminRequiredMixin, View):
             supervisor = getattr(request.user, 'empleado', None)
             reprog = RS.registrar_inasistencia(
                 solicitud, cand['explorador'], supervisor=supervisor,
-                motivo=motivo or None, fecha_original=fecha_original)
+                motivo=motivo, fecha_original=fecha_original)
         except ValueError as e:
             messages.error(request, str(e))
             return redirect('solicitudes:reprog_registrar', solicitud_id=solicitud_id)
@@ -134,7 +137,7 @@ class RegistrarInasistenciaView(LoginRequiredMixin, AdminRequiredMixin, View):
             cand['explorador'],
             'Tienes un día de doblada pendiente por reprogramar',
             f"No se cumplió tu día de doblada del {fecha_original.strftime('%d/%m/%Y')}"
-            f"{' (' + motivo + ')' if motivo else ''}. Debes pagarlo doblando otro día; tu supervisor "
+            f" ({motivo}). Debes pagarlo doblando otro día; tu supervisor "
             f"lo organizará contigo. La deuda de 30 min de ese día quedó anulada y se recalculará en el día que dobles.",
         )
         messages.success(request, f'Inasistencia registrada. Ahora programa el día en que {cand["explorador"].nombre} pagará doblando.')

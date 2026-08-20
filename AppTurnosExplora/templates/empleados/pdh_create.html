@@ -55,8 +55,8 @@
           </div>
 
           <div class="form-group">
-            <label for="comentario">Nota (opcional)</label>
-            <textarea name="comentario" id="comentario" class="form-control" rows="2" placeholder="Nota opcional">{{ datos.comentario }}</textarea>
+            <label for="comentario">Nota <span class="text-danger">*</span></label>
+            <textarea name="comentario" id="comentario" class="form-control" rows="2" required maxlength="1000" placeholder="Explica el pago">{{ datos.comentario }}</textarea>
           </div>
 
           <div class="d-flex gap-2 mt-3">
