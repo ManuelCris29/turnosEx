@@ -31,12 +31,6 @@ from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
-# Ventana de cancelación de una solicitud aprobada (ver use_cases/cancelar_solicitud.py). Un
-# CAMBIO DESCANSO aplicado deja de poder revertirse pasado este tiempo: por eso, pasada la
-# ventana, el día que tocó ya puede volver a usarse en un NUEVO cambio de descanso sin riesgo
-# de romper un revert (ver `dia_bloqueado_para_nuevo_cambio`).
-VENTANA_CANCELACION_MINUTOS = 30
-
 
 def _as_date(fecha):
     """Normaliza a date: acepta date o str 'YYYY-MM-DD'."""
@@ -79,25 +73,21 @@ class CambioDescansoAplicacionService:
         return {'AM': Jornada.objects.get(nombre='AM'), 'PM': Jornada.objects.get(nombre='PM')}
 
     @staticmethod
-    def _mapa_descanso(empleado, fecha_inicio, fecha_fin, excluir_id=None, dentro_ventana=False):
+    def _mapa_descanso(empleado, fecha_inicio, fecha_fin, excluir_id=None):
         """
         Base común: { fecha: {'id','nombre'} del compañero } para los días en que el empleado
         DESCANSA por una solicitud de CAMBIO DESCANSO aprobada. `dias_en_descanso` expone solo las
         fechas (claves) y `companero_descanso` el compañero. Mantener ambos consistentes de aquí.
 
-        `dentro_ventana=True`: solo considera solicitudes cuya `fecha_resolucion` sigue dentro de
-        los 30 min de cancelación (uso: `dia_bloqueado_para_nuevo_cambio`, que necesita saber si el
-        descanso todavía puede revertirse; para mostrar info en "Mis Turnos" se usa el default).
-
         Atajo de un empleado sobre `_mapa_descanso_multi`: hay UNA sola implementación de la regla,
         así la versión batch (reporte del día) no puede divergir de la individual (Mis Turnos).
         """
         return CambioDescansoAplicacionService._mapa_descanso_multi(
-            [empleado], fecha_inicio, fecha_fin, excluir_id, dentro_ventana
+            [empleado], fecha_inicio, fecha_fin, excluir_id
         ).get(getattr(empleado, 'id', empleado), {})
 
     @staticmethod
-    def _mapa_descanso_multi(empleados, fecha_inicio, fecha_fin, excluir_id=None, dentro_ventana=False):
+    def _mapa_descanso_multi(empleados, fecha_inicio, fecha_fin, excluir_id=None):
         """
         Versión BATCH de `_mapa_descanso`: { emp_id: { fecha: compañero } } para VARIOS empleados
         en una sola tanda de consultas, en vez de N×empleado.
@@ -134,10 +124,6 @@ class CambioDescansoAplicacionService:
               .order_by(F('fecha_resolucion').desc(nulls_last=True), '-id'))
         if excluir_id:
             qs = qs.exclude(id=excluir_id)
-        if dentro_ventana:
-            from django.utils import timezone
-            from datetime import timedelta
-            qs = qs.filter(fecha_resolucion__gte=timezone.now() - timedelta(minutes=VENTANA_CANCELACION_MINUTOS))
         for s in qs:
             det = getattr(s, 'doblada', None)
             if not det:
@@ -195,8 +181,8 @@ class CambioDescansoAplicacionService:
         solicitud de CAMBIO DESCANSO aprobada (su día cedido, que queda sin registro Turno).
 
         Misma lógica que usa "Mis Turnos" para pintar el descanso (informativo/histórico: no importa
-        cuánto tiempo pasó). Para saber si un día sigue BLOQUEADO para un nuevo cambio de descanso
-        (fin de semana), usar `dia_bloqueado_para_nuevo_cambio`, que sí respeta la ventana de 30 min.
+        cuánto tiempo pasó). Para saber si un día está BLOQUEADO para un nuevo cambio de descanso
+        (fin de semana), usar `dia_bloqueado_para_nuevo_cambio`.
 
         `excluir_id`: ignora esa solicitud (la PROPIA, al aplicarla ya aprobada).
         """
@@ -218,62 +204,32 @@ class CambioDescansoAplicacionService:
         `empleado`? Usada tanto por el selector de findes (`CambioDescansoFindesView`) como por la
         validación (`CambioDescansoStrategy._trabaja_dia`) — así ambos responden siempre lo mismo.
 
-        Reglas:
-        - Turno ese día con `tipo_cambio` DISTINTO de 'CAMBIO DESCANSO' (DOBLADA, D FDS, CT…) →
-          SIEMPRE bloqueado.
-        - Turno con `tipo_cambio='CAMBIO DESCANSO'` (el lado "trabaja" del intercambio) → bloqueado
-          SOLO si la solicitud que lo generó sigue dentro de la ventana de cancelación.
-        - Día de descanso VIRTUAL por una solicitud CAMBIO DESCANSO aprobada (el lado "cedió el
-          día") → mismo criterio: bloqueado solo dentro de la ventana.
-        - Pasada la ventana (la solicitud que tocó el día ya no se puede cancelar/revertir nunca) →
-          LIBRE: "última aprobada gana por día", un nuevo intercambio puede usar ese día sin riesgo.
+        Regla ÚNICA: turno ese día con `tipo_cambio` DISTINTO de 'CAMBIO DESCANSO' (DOBLADA,
+        D FDS, CT…) → bloqueado, siempre. Cualquier otra cosa → libre.
 
-        `excluir_id`: ignora esa solicitud (para re-validar la PROPIA al aprobar).
+        Un CAMBIO DESCANSO previo ya NO bloquea. Antes lo hacía durante 30 minutos, para que
+        reutilizar el día no rompiera el revert de una cancelación aún posible. Esa regla nació
+        atada a una cancelación que era inmediata y duraba 30 min; desde que cancelar se PIDE y lo
+        decide el receptor con 24 h de plazo (ver `use_cases/cancelar_solicitud.py`), mantenerlas
+        alineadas habría significado congelar el día un día entero para todo el mundo. Se prefirió
+        dejar el día libre para elegir: "última aprobada gana por día".
+
+        Contrapartida deliberada: si alguien reutiliza el día mientras la cancelación anterior
+        sigue viva, la guardia LIFO impedirá revertirla. Es un intercambio consciente —se protege
+        la elección de día de descanso, no la reversibilidad—, así que NO se reintroduzca el
+        bloqueo sin revisar esa decisión.
+
+        `excluir_id`: se mantiene por compatibilidad con las llamadas existentes (re-validación de
+        la PROPIA solicitud al aprobar). Con la regla actual no hay nada que excluir: el criterio
+        mira los turnos del día, no las solicitudes.
         """
-        from django.db.models import Q
-        from django.utils import timezone
-        from datetime import timedelta
-        from solicitudes.models import SolicitudCambio
-
         fecha = _as_date(fecha)
 
-        turnos = list(Turno.objects.filter(explorador=empleado, fecha=fecha)
-                      .exclude(tipo_cambio__isnull=True).exclude(tipo_cambio=''))
-        otros_tipos = {t.tipo_cambio for t in turnos if t.tipo_cambio != 'CAMBIO DESCANSO'}
-        if otros_tipos:
-            return True  # DOBLADA, D FDS, CT... siempre bloqueado
-
-        limite = timezone.now() - timedelta(minutes=VENTANA_CANCELACION_MINUTOS)
-
-        # Lado "trabaja": turno CAMBIO DESCANSO ese día — ¿la solicitud que lo creó sigue en ventana?
-        if any(t.tipo_cambio == TipoCambioTurno.CAMBIO_DESCANSO for t in turnos):
-            qs = (SolicitudCambio.objects
-                  .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada',
-                          fecha_resolucion__gte=limite)
-                  .filter(Q(explorador_solicitante=empleado) | Q(explorador_receptor=empleado))
-                  .select_related('doblada'))
-            if excluir_id:
-                qs = qs.exclude(id=excluir_id)
-            for s in qs:
-                det = getattr(s, 'doblada', None)
-                if not det:
-                    continue
-                fc = _as_date(s.fecha_cambio_turno)
-                fp = _as_date(det.fecha_pago)
-                if not (fc and fc.weekday() in (5, 6)):
-                    continue  # solo modalidad fin de semana
-                es_sol = s.explorador_solicitante_id == empleado.id
-                dias_trabaja = [_otro_dia(fc), _otro_dia(fp)] if es_sol else [fc, fp]
-                if fecha in dias_trabaja:
-                    return True
-
-        # Lado "descansa": ¿sigue en pie un descanso virtual de una solicitud aún en ventana?
-        if fecha in CambioDescansoAplicacionService._mapa_descanso(
-            empleado, fecha, fecha, excluir_id=excluir_id, dentro_ventana=True
-        ):
-            return True
-
-        return False
+        return (Turno.objects.filter(explorador=empleado, fecha=fecha)
+                .exclude(tipo_cambio__isnull=True)
+                .exclude(tipo_cambio='')
+                .exclude(tipo_cambio=TipoCambioTurno.CAMBIO_DESCANSO)
+                .exists())
 
     @staticmethod
     def _trabaja_dia(explorador, fecha, tipo_cambio=TipoCambioTurno.CAMBIO_DESCANSO):

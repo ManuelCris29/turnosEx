@@ -251,11 +251,19 @@ class CDConcurrenciaReceptorTest(CDBaseTest):
         self.assertFalse(ok2, f"B debió bloquearse (receptor ya comprometido por A). msg={msg2}")
 
 
-class CDVentanaCancelacionTest(CDBaseTest):
-    """Pasados los 30 min de aprobada, un finde ya intercambiado puede volver a intercambiarse
-    (el balance de sábados/domingos siempre se mantiene, salvo advertencia de 5 findes que es solo
-    informativa); dentro de la ventana sigue bloqueado para no romper un posible revert/LIFO.
-    Ver CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio."""
+class CDReintercambioDiaTest(CDBaseTest):
+    """
+    Un finde ya intercambiado puede volver a intercambiarse EN CUALQUIER MOMENTO.
+
+    Antes había un bloqueo de 30 min: mientras el cambio previo fuera revertible, reutilizar el
+    día podía romper ese revert. Se retiró al pasar la cancelación a pedirse con 24 h de plazo —
+    mantener las dos alineadas habría congelado el día un día entero para todos. El balance de
+    sábados/domingos se mantiene igual (la advertencia de 5 findes es solo informativa).
+
+    Lo que SÍ sigue bloqueando es otro TIPO de cambio sobre ese día (doblada, D FDS, CT…), que
+    bloquea siempre y sin ventana.
+    Ver CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio.
+    """
 
     def _crear_y_aplicar(self, resuelta_hace_minutos=0):
         sol = self._crear()
@@ -276,15 +284,16 @@ class CDVentanaCancelacionTest(CDBaseTest):
             explorador_receptor=self.solicitante,
         )
 
-    def test_dentro_de_ventana_bloqueado(self):
-        self._crear_y_aplicar(resuelta_hace_minutos=5)  # recién aprobada, aún cancelable
+    def test_se_puede_reintercambiar_recien_aplicado(self):
+        """Recién aprobado —y todavía cancelable— el día ya está disponible."""
+        self._crear_y_aplicar(resuelta_hace_minutos=5)
         ok, msg = self.strat.validar_solicitud(self._datos_reintercambio())
-        self.assertFalse(ok, f"Dentro de la ventana de 30 min debe seguir bloqueado. msg={msg}")
+        self.assertTrue(ok, f"Un cambio de descanso previo no debe bloquear el día. msg={msg}")
 
-    def test_pasada_la_ventana_se_puede_reintercambiar(self):
-        self._crear_y_aplicar(resuelta_hace_minutos=31)  # ya no es cancelable
+    def test_se_puede_reintercambiar_pasado_el_tiempo(self):
+        self._crear_y_aplicar(resuelta_hace_minutos=31)
         ok, msg = self.strat.validar_solicitud(self._datos_reintercambio())
-        self.assertTrue(ok, f"Pasada la ventana debe poder reintercambiarse. msg={msg}")
+        self.assertTrue(ok, f"Pasada la antigua ventana debe seguir pudiéndose. msg={msg}")
 
     def test_otro_tipo_de_cambio_sigue_bloqueado_permanentemente(self):
         # DOBLADA (u otro tipo distinto de CAMBIO DESCANSO): bloqueo PERMANENTE, sin ventana.
@@ -301,23 +310,20 @@ class CDVentanaCancelacionTest(CDBaseTest):
         self.assertTrue(ok, msg)
 
     def test_dia_bloqueado_para_nuevo_cambio_directo(self):
-        sol = self._crear_y_aplicar(resuelta_hace_minutos=5)
-        self.assertTrue(
-            CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.receptor, self.ces),
-            "Dentro de la ventana, el lado que ahora TRABAJA (receptor) debe seguir bloqueado")
-        self.assertTrue(
-            CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.solicitante, self.ces),
-            "Dentro de la ventana, el lado que ahora DESCANSA (solicitante) debe seguir bloqueado")
+        """
+        Los dos lados del intercambio quedan libres desde el primer minuto.
 
-        sol.fecha_resolucion = timezone.now() - timedelta(minutes=31)
-        sol.save()
+        Se comprueba justo después de aplicar —el momento en que antes estaba más bloqueado—
+        para que el test falle si alguien reintroduce la ventana.
+        """
+        self._crear_y_aplicar(resuelta_hace_minutos=5)
 
         self.assertFalse(
             CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.receptor, self.ces),
-            "Pasada la ventana, el lado que TRABAJA debe quedar libre")
+            "El lado que ahora TRABAJA debe quedar libre")
         self.assertFalse(
             CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(self.solicitante, self.ces),
-            "Pasada la ventana, el lado que DESCANSA debe quedar libre")
+            "El lado que ahora DESCANSA debe quedar libre")
 
 
 class CDRevalidacionTest(CDBaseTest):

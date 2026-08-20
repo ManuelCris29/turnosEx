@@ -327,9 +327,8 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
             # Día COMPROMETIDO (no seleccionable): fuente única de verdad, compartida con la
             # validación del backend (CambioDescansoStrategy._trabaja_dia), para que el selector y
             # el envío del formulario respondan siempre lo mismo. Regla (ver
-            # dia_bloqueado_para_nuevo_cambio): otro tipo de cambio (DOBLADA, D FDS, CT…) → siempre
-            # bloqueado; un CAMBIO DESCANSO previo → solo bloqueado dentro de los 30 min de su
-            # ventana de cancelación.
+            # dia_bloqueado_para_nuevo_cambio): solo bloquea otro tipo de cambio (DOBLADA, D FDS,
+            # CT…). Un CAMBIO DESCANSO previo NO bloquea el día.
             from solicitudes.services.cambio_descanso_aplicacion_service import (
                 CambioDescansoAplicacionService as _CDAS,
             )

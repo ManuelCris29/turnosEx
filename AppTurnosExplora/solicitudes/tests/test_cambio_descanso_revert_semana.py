@@ -36,6 +36,7 @@ from django.utils import timezone
 from solicitudes.models import SolicitudCambio, DeudaCorporativa
 from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 from turnos.models import Turno, DescansoSemanaManual
 
 from .test_cambio_descanso import CDBaseTest
@@ -97,8 +98,11 @@ class CDSemanaRevertBase(CDBaseTest):
         return SolicitudCambio.objects.select_related('doblada').get(id=sol.id)
 
     def _cancelar(self, sol):
-        """Cancela como lo hace el explorador desde la pantalla (con todas sus guardas)."""
-        ok, msg = CancelarSolicitudUseCase().execute(sol.id, self.solicitante)
+        """
+        Cancela como se hace desde la pantalla: el explorador la pide y su compañero la aprueba
+        (con todas sus guardas).
+        """
+        ok, msg = cancelar_con_acuerdo(sol, self.solicitante)
         self.assertTrue(ok, f'La cancelación fue rechazada: {msg}')
         return msg
 

@@ -93,12 +93,10 @@ class CambioDescansoStrategy(SolicitudStrategy):
         Verifica que el explorador TRABAJE ese día y que ese día esté DISPONIBLE para un
         cambio de descanso, con la regla del sistema:
         1) ¿El día está BLOQUEADO para un nuevo cambio de descanso
-           (`dia_bloqueado_para_nuevo_cambio`)? Otro tipo de cambio (doblada, d_fds, CT, doblada
-           permanente) SIEMPRE bloquea; un CAMBIO DESCANSO previo (en cualquiera de los dos lados
-           del intercambio) solo bloquea DENTRO de los 30 min de su ventana de cancelación —
-           pasada la ventana esa solicitud ya no se puede revertir y el día queda libre para un
-           nuevo intercambio ("última aprobada gana por día").
-        2) Turno REAL del día (horario importado, o CAMBIO DESCANSO ya fuera de ventana) → trabaja.
+           (`dia_bloqueado_para_nuevo_cambio`)? Solo lo bloquea otro tipo de cambio (doblada,
+           d_fds, CT, doblada permanente). Un CAMBIO DESCANSO previo NO bloquea: el día vuelve a
+           estar disponible en cuanto se aplica ("última aprobada gana por día").
+        2) Turno REAL del día (horario importado, o un CAMBIO DESCANSO ya aplicado) → trabaja.
         3) En otro caso, turno VIRTUAL (jornada base + alternancia).
 
         Devuelve (True, jornada) o (False, motivo).
@@ -108,27 +106,21 @@ class CambioDescansoStrategy(SolicitudStrategy):
         from turnos.services.turno_service import TurnoService
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
-        # 1) Bloqueo (ver docstring). Mensaje diferenciado: otro tipo de cambio (permanente) vs.
-        #    un CAMBIO DESCANSO todavía cancelable (temporal).
+        # 1) Bloqueo (ver docstring). Solo lo dispara otro TIPO de cambio: un CAMBIO DESCANSO
+        #    previo dejó de bloquear el día, así que aquí siempre hay tipos que nombrar.
         if CambioDescansoAplicacionService.dia_bloqueado_para_nuevo_cambio(explorador, fecha):
             turnos_bloq = list(
                 Turno.objects.filter(explorador=explorador, fecha=fecha)
                 .exclude(tipo_cambio__isnull=True).exclude(tipo_cambio='')
             )
             otros_tipos = sorted({t.tipo_cambio for t in turnos_bloq if t.tipo_cambio != 'CAMBIO DESCANSO'})
-            if otros_tipos:
-                return False, (
-                    f"Ese día ya tiene un cambio aplicado ({', '.join(otros_tipos)}). "
-                    f"Para rehacerlo, primero cancela ese cambio (dentro de los 30 min de aprobado) "
-                    f"y vuelve a intentarlo."
-                )
             return False, (
-                "Ese día tiene un cambio de descanso reciente (dentro de los 30 min de aprobado). "
-                "Cancélalo primero, o espera a que pase la ventana de cancelación para volver a "
-                "intentar el intercambio."
+                f"Ese día ya tiene un cambio aplicado ({', '.join(otros_tipos)}). "
+                f"Para usarlo en un intercambio, primero hay que deshacer ese cambio: pídeselo a "
+                f"tu compañero si aún está en plazo, o a tu supervisor."
             )
 
-        # 2) Turno real (importado, o CAMBIO DESCANSO ya fuera de la ventana) → trabaja.
+        # 2) Turno real (importado, o dejado por un CAMBIO DESCANSO ya aplicado) → trabaja.
         # En fin de semana el día completo es AM+PM (DOBLADA); si el Turno real es de
         # MEDIA jornada (solo AM o solo PM, por un cambio previo), no hay día completo
         # para intercambiar.
