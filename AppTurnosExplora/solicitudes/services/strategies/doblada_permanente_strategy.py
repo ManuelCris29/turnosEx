@@ -553,3 +553,14 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 "Reconciliacion post-revert: re-materializada doblada permanente %s en %d dia(s).",
                 solicitud.id, n,
             )
+
+    def revertir_cambios(self, solicitud):
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService,
+        )
+
+        detalle = getattr(solicitud, 'doblada_permanente', None)
+        if not detalle:
+            return
+        DobladaPermanenteAplicacionService.revertir(solicitud)
+        self._invalidar_rango(solicitud, detalle.fecha_inicio, detalle.fecha_fin)

@@ -216,6 +216,32 @@ class TestDespachoDeReaplicacion(SnapshotDispatchTestCase):
 
         assert self._aplicador_usado(solicitud) == []
 
+    def test_un_tipo_desconocido_NO_se_reaplica(self):
+        """
+        Hueco que faltaba en esta red y por el que se coló una regresión.
+
+        La cadena original terminaba sin `else`: un tipo sin rama propia no se
+        re-materializaba. Al pasar a despacho por strategy, `get_strategy` cae a
+        CambioTurnoStrategy para los tipos desconocidos —razonable para pintar una
+        pantalla, inaceptable aquí—, así que un tipo que no sabemos re-materializar
+        se habría re-aplicado "como si fuera un cambio de turno", escribiendo turnos
+        inventados.
+
+        Se detectó al escribir la red equivalente de la cancelación, que sí tenía
+        este caso. La corrección es `get_strategy_registrada`, que devuelve None en
+        vez de caer por defecto.
+        """
+        from unittest.mock import patch
+
+        solicitud = self._solicitud('TIPO QUE NO EXISTE', con_detalle=False)
+        ruta = ('solicitudes.services.strategies.cambio_turno_strategy'
+                '.CambioTurnoStrategy.reaplicar_fechas')
+
+        with patch(ruta) as reaplicar_ct:
+            S._reaplicar_una(solicitud, {CESION})
+
+        assert not reaplicar_ct.called
+
     def test_el_intercambio_no_usa_el_de_cambio_descanso_ni_el_de_d_fds(self):
         """
         Tiene su propio aplicador. Lo que este test fija es que la bandera desvía

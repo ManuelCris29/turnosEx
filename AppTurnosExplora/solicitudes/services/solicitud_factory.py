@@ -193,6 +193,39 @@ class SolicitudFactory:
         return cls._get_default_strategy(tipo_solicitud.nombre)
     
     @classmethod
+    def get_strategy_registrada(cls, tipo_solicitud) -> Optional[SolicitudStrategy]:
+        """
+        Como `get_strategy`, pero SIN caer a la estrategia por defecto: devuelve
+        None si el tipo no tiene una registrada.
+
+        Existe porque la caída por defecto es peligrosa en los flujos que ESCRIBEN.
+        `get_strategy` devuelve CambioTurnoStrategy para un tipo desconocido, lo
+        cual está bien para pintar una pantalla —mejor un detalle genérico que una
+        pantalla vacía— pero es inaceptable al revertir o al re-materializar: un
+        tipo que no sabemos deshacer NO puede deshacerse "como si fuera un cambio
+        de turno". Escribiría turnos inventados.
+
+        Las cadenas `if tipo == ...` que había en la cancelación y en la
+        reconciliación terminaban SIN `else` justamente por eso, y esta función es
+        lo que conserva ese silencio al pasar a despacho por strategy.
+        """
+        if not tipo_solicitud or not getattr(tipo_solicitud, 'activo', True):
+            return None
+
+        candidatas = []
+        if getattr(tipo_solicitud, 'codigo_estrategia', None):
+            candidatas += [cls.normalize_name(tipo_solicitud.codigo_estrategia),
+                           tipo_solicitud.codigo_estrategia.upper().strip()]
+        candidatas += [cls.normalize_name(tipo_solicitud.nombre),
+                       tipo_solicitud.nombre.upper().strip()]
+
+        for clave in candidatas:
+            clase = cls._strategies.get(clave)
+            if clase:
+                return clase()
+        return None
+
+    @classmethod
     def _get_default_strategy(cls, tipo_nombre: str) -> Optional[SolicitudStrategy]:
         """
         Get default strategy for unknown solicitud types.

@@ -1413,3 +1413,13 @@ class DobladaStrategy(SolicitudStrategy):
         return self._pares(solicitud,
                            [solicitud.fecha_cambio_turno, detalle.fecha_pago,
                             getattr(detalle, 'fecha_pago_semana', None)], fechas)
+
+    def revertir_cambios(self, solicitud):
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        detalle = getattr(solicitud, 'doblada', None)
+        if not detalle:
+            return
+        DobladaAplicacionService.revertir_doblada_aplicada(solicitud)
+        self._invalidar_meses(solicitud,
+                              [solicitud.fecha_cambio_turno, detalle.fecha_pago])

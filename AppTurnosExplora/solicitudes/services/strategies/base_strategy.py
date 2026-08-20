@@ -303,6 +303,75 @@ class SolicitudStrategy(ABC):
             materializadas = tuple(f for f in materializadas if f in fechas)
         return {(p, f) for p in personas for f in materializadas if f}
 
+    def revertir_cambios(self, solicitud: SolicitudCambio) -> None:
+        """
+        Deshace lo que esta solicitud escribio, e invalida la cache de turnos de
+        los meses afectados.
+
+        Movido de `CancelarSolicitudUseCase._revertir_por_tipo` en la Fase 2.
+
+        OJO CON EL NOMBRE. Se llama `revertir_cambios` y no `revertir` a proposito:
+        `revertir` ya existe como @staticmethod en CambioTurnoStrategy y en
+        CTPermanenteStrategy, y hace SOLO la reversion, sin tocar la cache. Reusar
+        ese nombre habria hecho que unas clases invalidaran la cache y otras no,
+        en silencio y segun quien heredara que.
+
+        Las dos mitades importan. La invalidacion de cache es la que se pierde sin
+        que nadie se entere: no rompe ningun test funcional, solo hace que el
+        usuario siga viendo turnos viejos hasta que la cache expire.
+
+        Por defecto no hace nada, igual que la cadena anterior, que no tenia `else`:
+        un tipo sin efecto conocido que deshacer debe quedarse quieto. Revertir a
+        ciegas SI escribiria turnos.
+        """
+        return None
+
+    @staticmethod
+    def _invalidar_meses(solicitud, fechas) -> None:
+        """
+        Invalida la cache de turnos de los meses de `fechas`, para AMBAS partes.
+        Ignora los valores vacios.
+        """
+        from core.services.cache_service import CacheService
+
+        meses = {(f.month, f.year) for f in fechas if f}
+        for (mes, anio) in meses:
+            CacheService.invalidar_cache_turnos_empleado(
+                solicitud.explorador_solicitante.id, mes, anio)
+            CacheService.invalidar_cache_turnos_empleado(
+                solicitud.explorador_receptor.id, mes, anio)
+
+    @staticmethod
+    def _meses_del_rango(inicio, fin) -> set:
+        """
+        Meses que cubre un rango, avanzando en saltos de 28 dias.
+
+        El salto de 28 puede saltarse un mes corto —febrero—, por eso el mes del
+        FINAL se añade siempre aparte. Se conserva tal cual estaba en
+        `_revertir_por_tipo`: es aritmetica que ya funciona y esta cubierta por
+        tests que cruzan varios meses y el cambio de año.
+        """
+        from datetime import timedelta
+
+        if not inicio:
+            return set()
+        fin = fin or inicio
+        meses, d = set(), inicio
+        while d <= fin:
+            meses.add((d.month, d.year))
+            d += timedelta(days=28)
+        meses.add((fin.month, fin.year))
+        return meses
+
+    def _invalidar_rango(self, solicitud, inicio, fin) -> None:
+        from core.services.cache_service import CacheService
+
+        for (mes, anio) in self._meses_del_rango(inicio, fin):
+            CacheService.invalidar_cache_turnos_empleado(
+                solicitud.explorador_solicitante.id, mes, anio)
+            CacheService.invalidar_cache_turnos_empleado(
+                solicitud.explorador_receptor.id, mes, anio)
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.tipo_solicitud})"
     

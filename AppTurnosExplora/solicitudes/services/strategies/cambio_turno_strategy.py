@@ -770,3 +770,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
         (corregido el 2026-08-20). Por eso `_pares` materializa su argumento.
         """
         return self._pares(solicitud, [solicitud.fecha_cambio_turno], fechas)
+
+    def revertir_cambios(self, solicitud):
+        CambioTurnoStrategy.revertir(solicitud)
+        self._invalidar_meses(solicitud, [solicitud.fecha_cambio_turno])

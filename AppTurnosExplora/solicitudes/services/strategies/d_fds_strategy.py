@@ -554,3 +554,14 @@ class DFDSStrategy(SolicitudStrategy):
             return set()
         return self._pares(solicitud,
                            [solicitud.fecha_cambio_turno, detalle.fecha_pago], todas=True)
+
+    def revertir_cambios(self, solicitud):
+        """D FDS comparte `DobladaDetalle` con DOBLADA, pero su reversion es otra."""
+        from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
+
+        detalle = getattr(solicitud, 'doblada', None)
+        if not detalle:
+            return
+        DFDSAplicacionService.revertir(solicitud)
+        self._invalidar_meses(solicitud,
+                              [solicitud.fecha_cambio_turno, detalle.fecha_pago])

@@ -970,3 +970,17 @@ class CambioDescansoStrategy(SolicitudStrategy):
         )
 
         return self._pares(solicitud, _CDS.fechas_afectadas(solicitud), todas=True)
+
+    def revertir_cambios(self, solicitud):
+        """
+        Los meses NO se deducen de la solicitud: salen de `fechas_afectadas`, que
+        incluye los dias OPUESTOS del finde y puede cruzar de mes.
+        """
+        from solicitudes.services.cambio_descanso_aplicacion_service import (
+            CambioDescansoAplicacionService as _CDS,
+        )
+
+        if not getattr(solicitud, 'doblada', None):
+            return
+        _CDS.revertir(solicitud)
+        self._invalidar_meses(solicitud, _CDS.fechas_afectadas(solicitud))

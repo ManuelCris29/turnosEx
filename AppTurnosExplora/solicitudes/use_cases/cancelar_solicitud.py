@@ -641,69 +641,29 @@ class CancelarSolicitudUseCase:
 
     @staticmethod
     def _revertir_por_tipo(solicitud) -> None:
-        from core.services.cache_service import CacheService as CS
-        from datetime import timedelta
+        """
+        Deshace el efecto de la solicitud e invalida la cache de los meses tocados.
+        Lo hace la STRATEGY.
 
-        tipo = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
+        Aqui habia una cadena `if tipo == ...` con seis ramas, cada una con su
+        revertidor y su calculo de meses. Anadir un tipo obligaba a editar el caso
+        de uso de CANCELACION, que es el sitio del proyecto donde un descuido sale
+        mas caro: revierte turnos ya aplicados.
 
-        if tipo == 'DOBLADA' and getattr(solicitud, 'doblada', None):
-            from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-            DobladaAplicacionService.revertir_doblada_aplicada(solicitud)
-            detalle = solicitud.doblada
-            for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+        La guardia por modelo de detalle se conserva DENTRO de cada strategy: sin
+        detalle no hay efecto que deshacer y no se toca nada. Revertir a ciegas si
+        escribiria turnos.
 
-        elif tipo == 'D FDS' and getattr(solicitud, 'doblada', None):
-            from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
-            DFDSAplicacionService.revertir(solicitud)
-            detalle = solicitud.doblada
-            for fecha in [solicitud.fecha_cambio_turno, detalle.fecha_pago]:
-                if fecha:
-                    CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
-                    CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
+        Un tipo sin strategy registrada no revierte nada, igual que antes: aquella
+        cadena tampoco tenia `else`.
+        """
+        from solicitudes.services.solicitud_factory import SolicitudFactory
 
-        elif tipo == 'CAMBIO TURNO':
-            from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
-            CambioTurnoStrategy.revertir(solicitud)
-            f = solicitud.fecha_cambio_turno
-            if f:
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, f.month, f.year)
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, f.month, f.year)
-
-        elif tipo == 'CT PERMANENTE' and getattr(solicitud, 'cambio_permanente', None):
-            from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
-            CTPermanenteStrategy.revertir(solicitud)
-            det = solicitud.cambio_permanente
-            fin = det.fecha_fin or det.fecha_inicio
-            meses = set()
-            d = det.fecha_inicio
-            while d <= fin:
-                meses.add((d.month, d.year))
-                d += timedelta(days=28)
-            meses.add((fin.month, fin.year))
-            for (m, y) in meses:
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
-
-        elif tipo == 'CAMBIO DESCANSO' and getattr(solicitud, 'doblada', None):
-            from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
-            CambioDescansoAplicacionService.revertir(solicitud)
-            # Incluye los días OPUESTOS del finde: pueden caer en otro mes (ver fechas_afectadas).
-            for fecha in CambioDescansoAplicacionService.fechas_afectadas(solicitud):
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, fecha.month, fecha.year)
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, fecha.month, fecha.year)
-
-        elif tipo == 'DOBLADA PERMANENTE' and getattr(solicitud, 'doblada_permanente', None):
-            from solicitudes.services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
-            DobladaPermanenteAplicacionService.revertir(solicitud)
-            det = solicitud.doblada_permanente
-            meses = set()
-            d = det.fecha_inicio
-            while d <= det.fecha_fin:
-                meses.add((d.month, d.year))
-                d += timedelta(days=28)
-            meses.add((det.fecha_fin.month, det.fecha_fin.year))
-            for (m, y) in meses:
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_solicitante.id, m, y)
-                CS.invalidar_cache_turnos_empleado(solicitud.explorador_receptor.id, m, y)
+        # `get_strategy_registrada` y NO `get_strategy`: esta ultima cae a
+        # CambioTurnoStrategy para un tipo desconocido, y aqui eso significaria
+        # revertir "como si fuera un cambio de turno" algo que no lo es. La cadena
+        # anterior no tenia `else` precisamente para no hacer nada en ese caso.
+        estrategia = SolicitudFactory.get_strategy_registrada(solicitud.tipo_cambio)
+        if estrategia is None:
+            return
+        estrategia.revertir_cambios(solicitud)

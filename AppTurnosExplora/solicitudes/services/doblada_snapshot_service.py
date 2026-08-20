@@ -253,7 +253,10 @@ class DobladaSnapshotService:
         from solicitudes.services.solicitud_factory import SolicitudFactory
         from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 
-        estrategia = SolicitudFactory.get_strategy(solicitud.tipo_cambio)
+        # SIN caida por defecto: un tipo desconocido no se re-materializa "como si
+        # fuera un cambio de turno". La cadena anterior terminaba sin `else`, y al
+        # pasar a despacho por strategy `get_strategy` habria roto ese silencio.
+        estrategia = SolicitudFactory.get_strategy_registrada(solicitud.tipo_cambio)
         tiene_detalle = getattr(solicitud, 'doblada', None) is not None
         if tiene_detalle and not getattr(estrategia, 'usa_detalle_doblada', False):
             return DobladaStrategy()

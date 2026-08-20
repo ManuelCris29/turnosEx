@@ -826,3 +826,10 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 "Reconciliacion post-revert: re-materializado CT PERMANENTE %s en %d dia(s).",
                 solicitud.id, n,
             )
+
+    def revertir_cambios(self, solicitud):
+        detalle = getattr(solicitud, 'cambio_permanente', None)
+        if not detalle:
+            return
+        CTPermanenteStrategy.revertir(solicitud)
+        self._invalidar_rango(solicitud, detalle.fecha_inicio, detalle.fecha_fin)
