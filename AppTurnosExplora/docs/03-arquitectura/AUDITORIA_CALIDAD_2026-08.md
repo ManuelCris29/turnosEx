@@ -359,8 +359,18 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 > - **`fechas_helper.py`: 0 % → 77 %** (22 tests). Aquí la hipótesis contraria resultó falsa: **no** estaba
 >   muerto. Lo llama la rama de CAMBIO TURNO de `views/detalle.py:429` y alimenta el análisis de fecha que
 >   ve el supervisor al aprobar. Los tests fijan la **matriz por tipo**, que es donde está la regla de
->   negocio: un festivo se permite en CT pero invalida un CT PERMANENTE; mantenimiento y temporada
->   invalidan todos los tipos; el domingo solo invalida CT.
+>   negocio: mantenimiento y temporada invalidan todos los tipos; festivo, sábado y domingo invalidan
+>   los dos cambios de turno pero no la DOBLADA.
+> - **🔴 Al escribir esos tests apareció una CONTRADICCIÓN entre la pantalla y el motor.** El helper daba
+>   por válido un CT en día **festivo** y en **sábado**, mientras `cambio_turno_strategy.py:179,185` los
+>   rechaza. La regla real, confirmada por el usuario el 2026-08-20: **los festivos solo se cambian con
+>   una DOBLADA, nunca con un CT** — en festivo una jornada trabaja el día completo (AM+PM) por rotación,
+>   así que no hay un AM y un PM que intercambiar; el intercambio válido es festivo por festivo.
+>   El comentario del código decía «Permite festivos si ambos tienen jornada» y ni siquiera comprobaba
+>   esa condición: descartaba el festivo siempre. Corregidos los dos casos.
+>   *No abría la puerta a crear solicitudes prohibidas —eso lo cierra la strategy—, pero mostraba «fecha
+>   válida» al supervisor en la pantalla donde decide si aprobar.* Es el argumento de la Fase 2 en
+>   miniatura: la misma regla escrita dos veces acaba divergiendo.
 > - **`permisos/views.py`: 50 % → 61 %** (9 tests), atacando el bloque sin cubrir más grande: la creación
 >   de permisos, con sus cuatro reglas (sanción activa, día que se trabaja según `estado_dia`, cierre
 >   semanal, y el aviso cuando no hay supervisor). Los tests van por la vista, no por el formulario,

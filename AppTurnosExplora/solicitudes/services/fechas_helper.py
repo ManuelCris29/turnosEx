@@ -95,8 +95,11 @@ def analizar_fecha_solicitud(
         if tipo_solicitud in ['CT', 'CT PERMANENTE']:
             resultado['razones_exclusion'].append('Domingo')
     
-    # Verificar sábado (solo para CT PERMANENTE)
-    if resultado['es_sabado'] and tipo_solicitud == 'CT PERMANENTE':
+    # Verificar sábado: excluye en CT y en CT PERMANENTE.
+    # Antes solo se marcaba para CT PERMANENTE, pero `cambio_turno_strategy.py:179`
+    # llama a `validar_no_sabado_ct_sencillo()` en TODO cambio de turno sencillo. Esta
+    # pantalla decía "fecha válida" para un sábado que el motor rechaza.
+    if resultado['es_sabado'] and tipo_solicitud in ('CT', 'CT PERMANENTE'):
         resultado['razones_exclusion'].append('Sábado')
     
     # Verificar descanso del solicitante
@@ -166,11 +169,21 @@ def analizar_fecha_solicitud(
         # CT PERMANENTE: No permite festivos, mantenimiento, temporada, descansos, domingos, sábados
         resultado['valida'] = len(resultado['razones_exclusion']) == 0
     elif tipo_solicitud == 'CT':
-        # CT: No permite mantenimiento, domingos, dobladas activas
-        # Permite festivos si ambos tienen jornada
-        exclusiones_ct = [r for r in resultado['razones_exclusion'] 
-                         if r not in ['Festivo']]  # Festivos se permiten si hay jornada
-        resultado['valida'] = len(exclusiones_ct) == 0
+        # CT: ningún motivo de exclusión se perdona, IGUAL que CT PERMANENTE.
+        #
+        # Antes esta rama descartaba 'Festivo' ("Permite festivos si ambos tienen
+        # jornada"), y era falso por partida doble: el código no comprobaba esa
+        # condición —descartaba el festivo siempre— y sobre todo CONTRADECÍA la regla
+        # del negocio, que aplica `cambio_turno_strategy.py:185`:
+        #
+        #   En un festivo una jornada trabaja el día COMPLETO (AM+PM) por rotación, así
+        #   que no hay un AM y un PM que intercambiar. El cambio de turno no tiene
+        #   sentido físico ese día. Un festivo se intercambia festivo por festivo, y eso
+        #   se hace con una DOBLADA, no con un CT.
+        #
+        # El motor lo rechazaba y esta pantalla —la que mira el supervisor al decidir—
+        # seguía diciendo "fecha válida". Confirmado con el usuario el 2026-08-20.
+        resultado['valida'] = len(resultado['razones_exclusion']) == 0
     elif tipo_solicitud in ['DOBLADA', 'D FDS']:
         # DOBLADA/D FDS: No permite mantenimiento, temporada
         # Permite festivos, descansos, domingos, sábados

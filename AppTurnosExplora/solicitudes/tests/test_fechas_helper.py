@@ -10,11 +10,16 @@ Lo que estos tests fijan es la MATRIZ POR TIPO, que es la parte con reglas de
 negocio de verdad: qué motivo de exclusión invalida qué tipo de solicitud.
 
     motivo          CT          CT PERMANENTE   DOBLADA / D FDS
-    Festivo         permitido   INVALIDA        permitido
+    Festivo         INVALIDA    INVALIDA        permitido
     Mantenimiento   INVALIDA    INVALIDA        INVALIDA
     Temporada       INVALIDA    INVALIDA        INVALIDA
     Domingo         INVALIDA    INVALIDA        permitido
-    Sábado          permitido   INVALIDA        permitido
+    Sábado          INVALIDA    INVALIDA        permitido
+
+Las dos primeras columnas coinciden hoy, y no es casualidad: un cambio de turno
+—sencillo o permanente— intercambia AM por PM, y todos esos días o no tienen dos
+jornadas que intercambiar o están cerrados. La DOBLADA es otra cosa: no
+intercambia, cubre el turno de otro, y por eso admite festivos y fines de semana.
 
 Nota: el módulo envuelve cada comprobación en `except Exception` + warning, así que
 ante un fallo de base de datos informa "no es festivo / no es mantenimiento" en vez
@@ -115,9 +120,18 @@ class TestDiaDeLaSemana(FechasHelperTestCase):
         assert r['es_domingo'] is True
         assert r['valida'] is True
 
-    def test_sabado_solo_excluye_en_ct_permanente(self):
-        assert 'Sábado' not in self._analizar(SABADO, tipo='CT')['razones_exclusion']
+    def test_el_sabado_excluye_en_los_dos_tipos_de_cambio_de_turno(self):
+        """
+        `cambio_turno_strategy.py:179` llama a `validar_no_sabado_ct_sencillo()` en
+        TODO cambio de turno, no solo en el permanente. Antes esta pantalla solo
+        marcaba el sábado para CT PERMANENTE.
+        """
+        assert 'Sábado' in self._analizar(SABADO, tipo='CT')['razones_exclusion']
         assert 'Sábado' in self._analizar(SABADO, tipo='CT PERMANENTE')['razones_exclusion']
+
+    def test_el_sabado_no_excluye_en_doblada(self):
+        """Una DOBLADA sí puede caer en sábado: se cubre el turno de otro."""
+        assert self._analizar(SABADO, tipo='DOBLADA')['valida'] is True
 
     def test_un_miercoles_no_es_ni_sabado_ni_domingo(self):
         r = self._analizar(MIERCOLES)
@@ -132,10 +146,18 @@ class TestMatrizDeValidezPorTipo(FechasHelperTestCase):
     invalida unos tipos y otros no.
     """
 
-    def test_festivo_se_permite_en_ct_pero_no_en_ct_permanente(self):
+    def test_el_festivo_invalida_los_dos_tipos_de_cambio_de_turno(self):
+        """
+        Los festivos NO se cambian con un CT: se cambian con una DOBLADA, festivo
+        por festivo. En festivo una jornada trabaja el día completo (AM+PM) por
+        rotación, así que no hay un AM y un PM que intercambiar.
+
+        Es la regla que aplica `cambio_turno_strategy.py:185`. Hasta el 2026-08-20
+        esta pantalla decía lo contrario y marcaba la fecha como válida.
+        """
         DiaEspecial.objects.create(fecha=MIERCOLES, tipo='festivo', activo=True)
 
-        assert self._analizar(tipo='CT')['valida'] is True
+        assert self._analizar(tipo='CT')['valida'] is False
         assert self._analizar(tipo='CT PERMANENTE')['valida'] is False
 
     def test_festivo_se_permite_en_doblada(self):
