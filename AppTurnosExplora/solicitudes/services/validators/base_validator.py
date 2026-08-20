@@ -1,6 +1,10 @@
+import logging
+
 from django.core.exceptions import ValidationError  # type: ignore
 from empleados.models import Empleado
 from core.utils.date_utils import DateUtils
+
+logger = logging.getLogger(__name__)
 
 
 class BaseValidator:
@@ -77,11 +81,21 @@ class BaseValidator:
                 raise ValidationError(f'No se pueden realizar cambios de turno en días de mantenimiento. {descripcion}')
 
         except ImportError:
-            # Si no existe el modelo, no validar
-            pass
+            # Código defensivo muerto: `turnos` es una app instalada, así que este import
+            # no puede fallar en una instalación que arranca. Se conserva por no cambiar
+            # comportamiento, pero es candidato a eliminarse.
+            logger.error('turnos.models.DiaEspecial no importable: la validación de día de '
+                         'mantenimiento NO se ha ejecutado')
         except ValueError:
-            # Si la fecha no es válida, no validar (otra validación la manejará)
-            pass
+            # FALLA ABIERTO, y contradice el patrón #25 de PROTECTION_PATTERNS.md: con una
+            # fecha que no parsea, la regla "no se cambian turnos en día de mantenimiento"
+            # se salta ENTERA. El comentario original decía "otra validación la manejará", y
+            # probablemente es cierto —las strategies parsean la fecha antes—, pero aquí no
+            # está garantizado, así que la protección depende del orden de llamada.
+            # No se cambia a fallar cerrado sin comprobar antes qué llamadores pasan cadenas
+            # sueltas; de momento deja rastro en vez de silencio.
+            logger.warning('Fecha %r no parseable: se OMITE la validación de día de '
+                           'mantenimiento para esa fecha', fecha)
 
     # ===== VALIDACIONES ESPECÍFICAS PARA CAMBIO TURNO (CT) =====
 

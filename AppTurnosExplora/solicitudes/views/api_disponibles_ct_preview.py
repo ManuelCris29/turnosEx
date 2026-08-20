@@ -77,15 +77,12 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
                     'codigo_estrategia': tipo_solicitud.codigo_estrategia,
                     'activo': tipo_solicitud.activo
                 })
-                print(f"DEBUG: Tipo de solicitud encontrado - ID: {tipo_solicitud.id}, Nombre: {tipo_solicitud.nombre}, Activo: {tipo_solicitud.activo}")
             except TipoSolicitudCambio.DoesNotExist:  # type: ignore
                 logger.warning("ObtenerEmpleadosDisponiblesView - Tipo de solicitud no encontrado", extra={
                     'tipo_id': tipo_solicitud_id
                 })
-                print(f"DEBUG: Tipo de solicitud NO encontrado - ID: {tipo_solicitud_id}")
         else:
             logger.warning("ObtenerEmpleadosDisponiblesView - tipo_solicitud_id no proporcionado")
-            print("DEBUG: tipo_solicitud_id no proporcionado")
         
         # Verificar si el usuario tiene empleado asociado
         if not hasattr(request.user, 'empleado'):

@@ -72,3 +72,76 @@ def tls_hacia_la_base_en_produccion(app_configs, **kwargs):
             id='core.W002',
         )
     ]
+
+
+@register(Tags.security, deploy=True)
+def axes_ve_la_ip_real_del_cliente(app_configs, **kwargs):
+    """
+    Si se bloquea por IP detrás de un proxy, axes tiene que ver la IP REAL.
+
+    `AXES_LOCKOUT_PARAMETERS` incluye 'ip_address' para frenar el credential
+    stuffing: sin él, un atacante rota nombres de usuario y los 5 intentos por
+    usuario no suponen límite alguno.
+
+    Pero cuando hay un intermediario delante (Nginx en el camino EC2, ALB en el de
+    Fargate), la IP que Django ve por defecto es la DEL INTERMEDIARIO, idéntica
+    para toda la plantilla. Con el bloqueo por IP activado, eso significa que al
+    quinto fallo de CUALQUIER empleado quedarían bloqueados TODOS durante una hora:
+    una denegación de servicio total provocada por la propia protección.
+
+    `AXES_IPWARE_PROXY_COUNT` le dice a axes cuántos intermediarios saltar en la
+    cabecera X-Forwarded-For. Este check impide desplegar con la combinación
+    peligrosa: producción + proxy + bloqueo por IP + sin contar los proxies.
+
+    Se detecta el proxy por `SECURE_PROXY_SSL_HEADER`, que solo se define cuando
+    la app corre detrás de uno que termina el TLS.
+    """
+    if not getattr(settings, 'IS_PRODUCTION', False):
+        return []
+
+    bloquea_por_ip = 'ip_address' in _parametros_de_bloqueo()
+    if not bloquea_por_ip:
+        return []
+
+    hay_proxy = bool(getattr(settings, 'SECURE_PROXY_SSL_HEADER', None))
+    proxies_contados = getattr(settings, 'AXES_IPWARE_PROXY_COUNT', None)
+
+    if not hay_proxy or proxies_contados:
+        return []
+
+    return [
+        Error(
+            'axes bloquea por IP detrás de un proxy sin contar los proxies: '
+            'bloquearía a TODA la plantilla a la vez.',
+            hint=(
+                'SECURE_PROXY_SSL_HEADER está definido (hay un balanceador o Nginx '
+                'delante), AXES_LOCKOUT_PARAMETERS incluye "ip_address" y '
+                'AXES_IPWARE_PROXY_COUNT vale 0 o no está definido. Así axes ve la IP '
+                'del intermediario para todos los usuarios y 5 fallos de cualquiera '
+                'bloquean a todos. Define AXES_IPWARE_PROXY_COUNT=1 (un solo '
+                'intermediario: Nginx o ALB) y verifica en staging que '
+                'axes.helpers.get_client_ip_address devuelve la IP real del cliente.'
+            ),
+            id='core.E003',
+        )
+    ]
+
+
+def _parametros_de_bloqueo():
+    """
+    Aplana AXES_LOCKOUT_PARAMETERS, que admite dos formas.
+
+    Lista plana  ['username', 'ip_address']    -> cada criterio cuenta por separado.
+    Lista anidada [['username', 'ip_address']] -> cuenta la PAREJA.
+
+    Para saber si la IP participa en la decisión da igual la forma, así que se
+    recorren ambas por igual.
+    """
+    parametros = getattr(settings, 'AXES_LOCKOUT_PARAMETERS', []) or []
+    planos = []
+    for parametro in parametros:
+        if isinstance(parametro, str):
+            planos.append(parametro)
+        else:
+            planos.extend(parametro)
+    return planos

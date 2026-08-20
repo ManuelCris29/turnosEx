@@ -567,7 +567,14 @@ class DobladaSnapshotService:
                 try:
                     obj.save(update_fields=['snapshot_turnos_resultantes'])
                 except ValueError:
-                    pass
+                    # No se cambia el flujo, pero deja de ser invisible: este snapshot es
+                    # lo que hace posible revertir (patrones #3, #13 y #24). Si el guardado
+                    # falla y nadie se entera, una cancelación posterior restauraría un
+                    # estado incompleto creyendo que es el bueno.
+                    logger.exception(
+                        'No se pudo guardar snapshot_turnos_resultantes de %s id=%s: una '
+                        'cancelación posterior partiría de un snapshot incompleto',
+                        type(obj).__name__, getattr(obj, 'pk', '?'))
 
     @staticmethod
     def _reaplicar_cambio_descanso(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:

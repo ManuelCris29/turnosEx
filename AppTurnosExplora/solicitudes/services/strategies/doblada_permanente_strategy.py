@@ -6,10 +6,13 @@ acuerdo: el receptor cubre los días de cesión del solicitante y el solicitante
 devuelve el favor doblándose en los días de devolución. Misma regla de negocio
 que la doblada (jornadas contrarias, sin domingos ni festivos), pero recurrente.
 """
+import logging
 from typing import Dict, Any, Tuple, Optional
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+
+logger = logging.getLogger(__name__)
 
 from solicitudes.models import SolicitudCambio, DobladaPermanenteDetalle
 from empleados.models import Empleado
@@ -268,7 +271,11 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                     try:
                         out.append(_date.fromisoformat(s))
                     except ValueError:
-                        pass
+                        # Igual que en reprogramacion_doblada_service: este CSV viene de la
+                        # BD, así que un valor que no parsea es dato corrupto y no entrada
+                        # del usuario. Se omite (comportamiento original) pero se registra.
+                        logger.warning('Fecha corrupta %r en el CSV de fechas de doblada '
+                                       'permanente; se omite', s)
                 return out
 
             # Fechas que el acuerdo tocaría de verdad; con ellas se comprueban las pendientes.

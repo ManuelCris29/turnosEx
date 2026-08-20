@@ -349,7 +349,12 @@ class CambioPermanenteDia(models.Model):
         # Asegurar que cada tipo tenga solo un valor no nulo
         constraints = [
             models.CheckConstraint(
-                check=(
+                # `condition=` y no `check=`: el segundo está deprecado y DESAPARECE en
+                # Django 6.0 (RemovedInDjango60Warning). El aviso estaba ahí desde hace
+                # tiempo pero `--disable-warnings` en pytest.ini lo ocultaba.
+                # turnos/models.py:100 ya usaba la forma nueva; esta era la última que
+                # quedaba con la vieja.
+                condition=(
                     models.Q(tipo='fecha_especifica', fecha_especifica__isnull=False, dia_semana__isnull=True) |
                     models.Q(tipo='dia_semana', dia_semana__isnull=False, fecha_especifica__isnull=True)
                 ),

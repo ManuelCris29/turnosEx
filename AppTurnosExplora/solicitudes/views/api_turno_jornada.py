@@ -70,7 +70,11 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 try:
                     tipo_solicitud = TipoSolicitudCambio.objects.get(id=tipo_solicitud_id)
                 except TipoSolicitudCambio.DoesNotExist:
-                    pass
+                    # Sigue con tipo_solicitud=None, que más abajo toma OTRA rama de cálculo.
+                    # Es decir: un id inexistente no da error, da un resultado distinto del
+                    # que el formulario pidió. Se registra para que se pueda diagnosticar.
+                    logger.warning('tipo_solicitud_id=%s no existe; se responde por la rama '
+                                   'genérica, no por la del tipo pedido', tipo_solicitud_id)
             
             # Obtener el turno del explorador usando el Factory
             if tipo_solicitud:

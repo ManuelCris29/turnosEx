@@ -55,7 +55,12 @@ class ReprogramacionDobladaService:
                 try:
                     fechas.append(date.fromisoformat(s))
                 except ValueError:
-                    pass
+                    # Estas fechas vienen de la BASE DE DATOS, no del formulario: que una no
+                    # parsee es dato corrupto, no entrada del usuario. Se sigue con las que sí
+                    # valen (comportamiento original), pero se registra: la reprogramación
+                    # estaría operando sobre menos días de los que la solicitud tiene guardados.
+                    logger.warning('Fecha corrupta %r en fechas_%s del detalle id=%s; se omite',
+                                   s, lado, getattr(det, 'pk', '?'))
         # Legacy (patrón por weekday, sin fechas): usar las dobladas PERM aplicadas en el rango.
         if not fechas:
             fechas = list(Turno.objects.filter(

@@ -44,12 +44,23 @@ las capas correctas (`domain/`, `repositories/`, `use_cases/`, `strategies/`, in
 y luego la presión de entrega hizo que la lógica se depositara donde era más rápido escribirla. La brecha entre
 la arquitectura *declarada* y la *ejecutada* es el hallazgo central.
 
-> ⚠️ **Nota metodológica (2026-08-19).** Dos hallazgos de la primera pasada resultaron falsos positivos —
-> «no hay system check para la caché» (§5.1) y «no hay CI» (§4)— por la **misma causa raíz**: la exploración
-> se limitó a `AppTurnosExplora/` cuando la raíz real del repositorio es su directorio padre, y no leyó
-> `core/checks.py`. Ambos están retirados y marcados en su sitio. La nota global subió de 52 % a 55 %.
-> Cualquier hallazgo futuro sobre "esto no existe" debe verificarse contra la raíz del repo antes de darse
-> por bueno.
+> ⚠️ **Nota metodológica — leer antes de fiarse de cualquier hallazgo de este informe.**
+> **CUATRO** afirmaciones de la primera pasada resultaron falsas, y las cuatro son del mismo tipo: **decir que
+> algo no existe sin haberlo buscado**.
+>
+> | Se afirmó | Realidad |
+> |---|---|
+> | «no hay system check para la caché» (§5.1) | `core/checks.py:15` ya lo implementaba, con test |
+> | «no hay CI» (§4) | `.github/workflows/ci.yml` existía en la **raíz del repo**, un nivel por encima |
+> | «no detecto CVE abiertos» (§5.7) | `pip-audit` encontró 15 en 3 paquetes |
+> | «el runner del outbox no está planificado» (§9) | estaba en los dos checklists y en su manual |
+>
+> Dos causas: explorar `AppTurnosExplora/` ignorando la raíz real del repositorio (donde viven `.github/`,
+> `.gitignore` y `PROTECTION_PATTERNS.md`), y afirmar ausencias sin ejecutar la herramienta que las
+> comprobaría. Los cuatro están retirados y marcados en su sitio; la nota global subió de 52 % a 55 %.
+>
+> **Regla para el futuro: un hallazgo del tipo «esto no existe» no vale nada sin el `grep` o el comando que
+> lo demuestre.** Los hallazgos sobre código que sí se leyó (SOLID, tamaños, duplicación) no están afectados.
 
 ---
 
@@ -300,13 +311,13 @@ puede valer bastante más que los ~$24/mes de diferencia. Pero conviene elegirlo
 2. **Con ≥2 tasks, `migrate` en el `CMD` deja de ser cómodo y pasa a ser una carrera real.** Hay que moverlo a un task ECS aparte antes de subir a alta disponibilidad. Ver §5.5.
 3. **`CACHE_URL` deja de ser opcional** (≥2 tasks = ≥2 cachés). Aquí el proyecto está cubierto: `core.E001` impide desplegar mal. Ver §5.1.
 
-### Pieza no planificada en ninguno de los dos caminos
+### ~~Pieza no planificada en ninguno de los dos caminos~~ — RETIRADO (falso positivo)
 
-El outbox de correos necesita un proceso que ejecute `procesar_email_outbox` periódicamente
-(`solicitudes/management/commands/`). En EC2 sería un cron o un systemd timer; en Fargate es un **scheduled
-task de EventBridge**, infraestructura adicional que **no aparece en el checklist de Fargate**. Sin eso los
-correos se escriben en `EmailOutbox` y nadie los entrega. Debe resolverse antes de desplegar, y suma una pieza
-al lado de Fargate en la comparación.
+Se afirmó que el runner del outbox (`procesar_email_outbox`) no aparecía en el checklist de Fargate. **Es
+falso y estaba documentado en los tres sitios**: `CHECKLIST_DESPLIEGUE_FARGATE.md:190-192` (regla EventBridge
+`rate(5 minutes)` con override del comando), `CHECKLIST_DESPLIEGUE_AWS_RDS.md:273-275` (cron cada 5 min) y el
+paso a paso completo en `MANUAL_OUTBOX_CORREOS.md` §3, que cubre **ambos** caminos. Los tres lo marcan además
+como "⚠️ paso obligatorio". No hay pieza suelta ni diferencia entre EC2 y Fargate en este punto.
 
 ### Qué NO depende de esta decisión
 
@@ -331,6 +342,38 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 3. `conftest.py` raíz con fixtures compartidos (empleado, turno, solicitud) — habilita todo lo demás.
 4. Subir `permisos` (38 %) y `solicitudes/domain` (24 %) al 70 % **antes** de tocar su código.
 
+> ✅ **FASE 1 EJECUTADA el 2026-08-20** (rama `chore/fase1-endurecimiento-produccion`). Resumen de lo que
+> cambió y de lo que deliberadamente NO cambió:
+>
+> - **`print()` en producción: 6 → 0.** El `[ERROR]` de `notificacion_service.py` pasa a `logger.exception`
+>   (iba a stdout sin traza ni `request_id`, se perdía del pipeline); los 3 de
+>   `api_disponibles_ct_preview.py` eran duplicados literales del `logger` de la línea de encima y se borraron.
+> - **`except: pass`: 12 → 4, y los 4 restantes documentados uno a uno.** No se cambió ningún flujo de
+>   control: solo se añadió visibilidad. Dos merecen decisión de dominio y quedan marcados en el código:
+>   `solicitud_orchestrator.py` (una fecha no parseable se cae del cierre semanal, que entonces NO la
+>   comprueba) y `base_validator.py` (una fecha no parseable **salta entera** la validación de día de
+>   mantenimiento). Ambos son *fail-open* contra el patrón #25 de `PROTECTION_PATTERNS.md`.
+> - **Deprecación que rompía en Django 6.0:** `solicitudes/models.py` usaba `CheckConstraint(check=...)`,
+>   eliminado en 6.0. Cambiado a `condition=` (sin migración nueva). Estaba emitiéndose desde hacía tiempo y
+>   `--disable-warnings` lo ocultaba — exactamente lo que este informe señalaba en §4.
+> - **`pytest.ini`:** los `RemovedInDjango60/61Warning` pasan a **error**, para que una deprecación nueva
+>   falle la suite en vez de acumularse hasta que la migración a Django 6 sea un muro.
+> - **axes:** `AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']` (lista **plana**) y
+>   `AXES_IPWARE_PROXY_COUNT` configurable, 1 en producción. Protegido por un **check nuevo, `core.E003`**,
+>   que aborta el despliegue si hay proxy + bloqueo por IP + proxies sin contar — la combinación que dejaría
+>   fuera a toda la plantilla. 11 tests nuevos en `core/tests/test_checks_axes.py`.
+> - **Dockerfile:** `HEALTHCHECK` sobre `/health/` con `http.client` (la imagen slim no trae curl) que acepta
+>   cualquier respuesta < 500, porque en producción `ALLOWED_HOSTS` hace que una petición a 127.0.0.1
+>   responda 400 y exigir 200 mataría el contenedor en bucle. Añadido `--max-requests` con jitter.
+> - **`--workers` sigue en 3, y es deliberado.** Se probó la fórmula `2 × nproc + 1` del informe y **es
+>   incorrecta dentro de un contenedor**: `nproc` devuelve los núcleos del ANFITRIÓN, no los del task
+>   (Fargate limita por cuota de cgroup, que nproc no ve). En una máquina de 14 núcleos daba 29 workers. Se
+>   deja el valor conocido y se expone `GUNICORN_WORKERS` con la tabla por tamaño de task.
+> - **`sonar.python.version`: 3.14 → 3.12**, la de producción.
+> - **NO se rotó la contraseña de `docker-compose.hostdb.yml`:** es de una base local ya inicializada con
+>   ella; cambiarla rompería el entorno de desarrollo a cambio de nada, porque el valor viejo sigue en el
+>   historial de git de todas formas. Lo que importa es que la de producción nunca se versione.
+
 **Fase 1 — Endurecimiento de producción (~3-4 días).** *Reestimada dos veces: al alza por el bloqueante de
 proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda la verificación en staging.*
 5. ~~`@register(deploy=True)` para la caché.~~ **Ya existe** en `core/checks.py`. En su lugar: añadir `manage.py check --deploy` como paso obligatorio del pipeline de despliegue, que es lo que falta para que el check sirva de algo.
@@ -343,7 +386,7 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 7. Sustituir los 6 `print()` por `logger`, auditar los 12 `except: pass` (prioridad: `solicitud_orchestrator.py:314,358,450`).
 8. `HEALTHCHECK` en Dockerfile; `--workers $((2*$(nproc)+1))` y `--max-requests` en el `CMD`; alinear `sonar.python.version` a 3.12; rotar la contraseña de compose.
 9. `filterwarnings` en `pytest.ini` para hacer visibles los `DeprecationWarning`.
-10. **Planificar el runner del outbox de correos** (`procesar_email_outbox`): cron/systemd timer en EC2, scheduled task de EventBridge en Fargate. Sin él los correos se encolan en `EmailOutbox` y nadie los entrega. No está en ninguno de los dos checklists de despliegue. Ver §9.
+10. ~~Planificar el runner del outbox de correos.~~ **Ya estaba planificado** en los dos checklists y en `MANUAL_OUTBOX_CORREOS.md` §3, marcado como paso obligatorio. Ver §9.
 
 **Fase 2 — Cerrar el OCP (2-4 semanas). El mayor retorno arquitectónico.**
 11. Añadir a `SolicitudStrategy`: `revertir_cambios()`, `detalle()`, `parse()`, `fechas_objetivo()`.

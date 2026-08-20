@@ -426,11 +426,16 @@ class NotificacionService:
 
             # Enviar email al supervisor para que apruebe
             try:
-                print(f"DEBUG EMAIL -> Enviando correo a supervisor {solicitud.explorador_solicitante.supervisor.email} tras aprobación del receptor")
+                logger.debug('Enviando correo al supervisor %s tras la aprobación del receptor (solicitud %s)',
+                             solicitud.explorador_solicitante.supervisor.email, solicitud.id)
                 enviado = EmailService._enviar_email_supervisor(solicitud)
-                print(f"DEBUG EMAIL -> Resultado envío a supervisor: {enviado}")
-            except Exception as e:
-                print(f"[ERROR] Error enviando email al supervisor tras aprobacion del receptor: {e}")
+                logger.debug('Resultado del envío al supervisor (solicitud %s): %s', solicitud.id, enviado)
+            except Exception:
+                # `logger.exception` y no `print`: el print iba a stdout SIN traza y sin el
+                # request_id, así que en producción el fallo se perdía del pipeline de logs
+                # justo en el paso que avisa al supervisor de que tiene algo que aprobar.
+                logger.exception('Error enviando email al supervisor tras la aprobación del receptor (solicitud %s)',
+                                 solicitud.id)
 
         # Enviar email de aprobación al solicitante
         EmailService._enviar_email_aprobacion_receptor(solicitud, receptor, comentario_respuesta)

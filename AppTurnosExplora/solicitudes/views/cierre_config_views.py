@@ -4,12 +4,15 @@ Configuración del cierre semanal de solicitudes (panel del supervisor).
 - Config por defecto (toggle + día + hora) que aplica a todas las semanas.
 - Overrides por semana: ajustar/deshabilitar el cierre de una semana puntual.
 """
+import logging
 from datetime import datetime, time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.shortcuts import render, redirect
 from django.views import View
+
+logger = logging.getLogger(__name__)
 
 from core.mixins import AdminRequiredMixin
 from ..models import CierreSolicitudesConfig, CierreSemanaOverride, DIA_CIERRE_CHOICES
@@ -125,5 +128,12 @@ class CierreConfigView(LoginRequiredMixin, AdminRequiredMixin, View):
                 CierreSemanaOverride.objects.filter(semana_lunes=lunes).delete()
                 messages.success(request, 'Ajuste de semana eliminado (vuelve al valor por defecto).')
             except (ValueError, TypeError):
-                pass
+                # HUECO DE UX CONOCIDO (auditoría 2026-08, Fase 1): si la fecha no parsea,
+                # el supervisor pulsa "quitar ajuste", la página recarga y NO pasa nada ni
+                # aparece mensaje alguno. Aquí solo se registra; añadir un `messages.error`
+                # sería lo correcto, pero cambia lo que ve el usuario y se deja para una
+                # sesión que pueda validarlo en pantalla.
+                logger.warning('quitar_override con semana_lunes no parseable (%r); no se '
+                               'eliminó ningún ajuste y el usuario no recibió aviso',
+                               request.POST.get('semana_lunes'))
         return redirect(_URL_CONFIG)

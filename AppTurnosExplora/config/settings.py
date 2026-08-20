@@ -340,7 +340,33 @@ CORS_ALLOW_CREDENTIALS = True
 # ---------------------------------------------------------------------------
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1
-AXES_LOCKOUT_PARAMETERS = ['username']
+
+# Lista PLANA = cada criterio cuenta por separado (bloqueo por usuario O por IP).
+# NO confundir con la anidada [['username', 'ip_address']], que cuenta la PAREJA:
+# esa no frena a quien rota nombres de usuario desde la misma IP, que es
+# justamente el ataque que se quiere cortar (credential stuffing).
+#
+# Antes era solo ['username']. Esa opción está documentada por axes como elección
+# válida por privacidad/GDPR —evita almacenar IPs—, pero deja la puerta abierta:
+# con 5 intentos por usuario y una lista de nombres, no hay límite efectivo.
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
+
+# ⚠ CRÍTICO cuando hay un intermediario delante (Nginx en EC2, ALB en Fargate).
+#
+# Sin esto, axes ve la IP DEL INTERMEDIARIO para todo el mundo: al quinto fallo de
+# CUALQUIER empleado quedaría bloqueada la plantilla ENTERA durante una hora. Es
+# el motivo por el que 'ip_address' no se había activado antes.
+#
+# El valor es 1 en las dos arquitecturas candidatas —Nginx en el camino EC2, ALB en
+# el de Fargate— y ninguna contempla CloudFront. Si algún día se añade un segundo
+# intermediario, este número SUBE o el bloqueo por IP vuelve a ser inservible.
+# En desarrollo no hay proxy: 0.
+#
+# VERIFICAR EN STAGING antes de producción (ver docs de despliegue):
+#   from axes.helpers import get_client_ip_address
+# debe devolver la IP real del cliente, no la del balanceador.
+AXES_IPWARE_PROXY_COUNT = env.int('AXES_IPWARE_PROXY_COUNT', default=1 if IS_PRODUCTION else 0)
+
 AXES_RESET_ON_SUCCESS = True
 AXES_VERBOSE = False
 

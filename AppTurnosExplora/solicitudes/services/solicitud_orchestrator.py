@@ -311,7 +311,13 @@ class SolicitudOrchestrator:
                     emps.append(emp)
                     vistos.add(emp.id)
             except Empleado.DoesNotExist:
-                pass
+                # Se sigue adelante con los receptores que SÍ existen (comportamiento
+                # original), pero deja de ser invisible: que el formulario mande un id
+                # inexistente significa o un catálogo desincronizado o una petición
+                # manipulada, y hasta ahora la solicitud se creaba con menos compañeros
+                # de los que el usuario eligió sin que nadie se enterara.
+                logger.warning('Receptor id=%s no existe; se omite de la solicitud de %s',
+                               rid, getattr(solicitante, 'id', '?'))
 
         advertencias = []
         for emp in emps:
@@ -355,6 +361,11 @@ class SolicitudOrchestrator:
                     'jornada_comun': error_data.get('jornada_comun'),
                 }, status=400)
         except (json.JSONDecodeError, TypeError, AttributeError):
+            # `pass` DELIBERADO, no un error tragado: la mayoría de los mensajes de las
+            # strategies son texto plano y no JSON. Que no parsee es el camino NORMAL y
+            # cae al `json_error` genérico de abajo. Loguear aquí sería ruido en cada
+            # validación fallida. Se documenta para que una revisión futura no lo
+            # confunda con los `except: pass` que sí ocultaban fallos.
             pass
         return json_error(mensaje, status=400, code='validation_error')
 
@@ -447,7 +458,20 @@ class SolicitudOrchestrator:
             try:
                 _cierre_fechas.append(DateUtils.parse_date(_s))
             except (ValueError, TypeError):
-                pass
+                # OJO — esto FALLA ABIERTO y contradice el patrón #25 de
+                # PROTECTION_PATTERNS.md ("sin el dato, bloquear; nunca dejar pasar en
+                # silencio"): una fecha que no parsea se cae de `_cierre_fechas`, así que
+                # el cierre semanal NO la comprueba y podría colarse una solicitud sobre
+                # una ventana cerrada.
+                # No se cambia a "fallar cerrado" sin decidirlo antes: habría que confirmar
+                # que ningún formulario manda entradas vacías o parciales por diseño, o se
+                # empezarían a rechazar peticiones legítimas. De momento se hace VISIBLE.
+                # Solo se avisa de valores no vacíos: una cadena vacía es "sin dato", no un
+                # dato corrupto, y avisar de eso sería ruido.
+                if _s:
+                    logger.warning(
+                        'Fecha no parseable (%r) descartada del cierre semanal: ese día NO se '
+                        'comprueba contra la ventana de cierre', _s)
         if not usa_fechas:
             _cierre_fechas = cls._expandir_weekdays_doblada_perm(post, fecha_inicio, fecha_fin)
         cierre_resp = cls.verificar_cierre(_cierre_fechas)
