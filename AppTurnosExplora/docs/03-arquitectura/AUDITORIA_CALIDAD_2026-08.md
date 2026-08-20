@@ -313,6 +313,13 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 
 ## Hoja de ruta recomendada (para cuando decidas ejecutar)
 
+> **Baseline real de ruff medido el 2026-08-19** con `select = ["F", "E9"]`: **582 avisos** — F401 imports sin
+> usar 470 · F405 `import *` 54 · F841 variables sin usar 21 · F541 f-string sin placeholder 19 · F811
+> redefinición 16 · F821 nombre indefinido 2. **Ninguno es un bug de ejecución**: los 2 F821 son anotaciones
+> de tipo en cadena (`solicitud: 'SolicitudCambio'` en `solicitud_factory.py:249,293`) que Python no evalúa;
+> se arreglan con un import bajo `TYPE_CHECKING`. 513 son autocorregibles. La estimación previa de
+> 1.000-1.500 incluía E501 (líneas largas), que no está en el `select` inicial.
+
 **Fase 0 — Red de seguridad (1-2 semanas). Sin esto, refactorizar es a ciegas.**
 1. ~~Crear `.github/workflows/ci.yml`.~~ **Ya existía**; ampliado el 2026-08-19 con ejecución en todas las ramas, `-n auto`, gate de cobertura ≥64 % y job de lint (ruff + bandit + pip-audit).
 2. `ruff` (lint + format) en `pyproject.toml` + `pre-commit`. Coste bajo: hoy no hay ningún linter.
