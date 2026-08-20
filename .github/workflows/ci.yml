@@ -101,11 +101,16 @@ jobs:
 
       # -n auto reparte la suite entre los núcleos del runner (pytest-django da a
       # cada worker su propia base test_*_gwN, así que no se pisan).
-      # El gate de cobertura arranca en 64: el baseline medido es 65,19 %, y se
-      # sube 5 puntos por fase de refactor. Sin `.`, respeta los testpaths de
-      # pytest.ini y no recoge los test_*.py sueltos de scripts/.
+      # Gate de cobertura. Arrancó en 64 (baseline medido 65,19 %) y SUBE cuando una
+      # sesión gana terreno, para que lo ganado no se pueda perder sin que el CI avise.
+      #   2026-08-19  64  baseline
+      #   2026-08-20  68  medido 70 % tras la Sesión 6 (1022 tests)
+      # Se dejan ~2 puntos de margen a propósito: el número oscila un poco entre
+      # Python 3.12 (aquí) y 3.14 (local), y un gate al milímetro convierte cualquier
+      # oscilación en un CI rojo que no señala ningún problema real.
+      # Sin `.`, respeta los testpaths de pytest.ini y no recoge los test_*.py de scripts/.
       - name: Ejecutar tests (pytest)
-        run: pytest -n auto --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=64
+        run: pytest -n auto --cov=. --cov-report=xml --cov-report=term-missing --cov-fail-under=68
 
       - name: Publicar coverage.xml
         if: always()

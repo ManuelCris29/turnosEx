@@ -339,8 +339,41 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 **Fase 0 — Red de seguridad (1-2 semanas). Sin esto, refactorizar es a ciegas.**
 1. ~~Crear `.github/workflows/ci.yml`.~~ **Ya existía**; ampliado el 2026-08-19 con ejecución en todas las ramas, `-n auto`, gate de cobertura ≥64 % y job de lint (ruff + bandit + pip-audit).
 2. `ruff` (lint + format) en `pyproject.toml` + `pre-commit`. Coste bajo: hoy no hay ningún linter.
-3. `conftest.py` raíz con fixtures compartidos (empleado, turno, solicitud) — habilita todo lo demás.
-4. Subir `permisos` (38 %) y `solicitudes/domain` (24 %) al 70 % **antes** de tocar su código.
+3. ~~`conftest.py` raíz con fixtures compartidos.~~ **Corregido:** las fixtures de pytest no son accesibles
+   desde `TestCase.setUp`, y 67 de los 68 archivos de test usan `TestCase`. Sustituido por
+   `core/tests/factories.py`, con **funciones planas** llamables desde ambos mundos (Sesión 6).
+4. ~~Subir `permisos` (38 %) y `solicitudes/domain` (24 %) al 70 %.~~ **Hecho en la Sesión 6**, con una
+   corrección importante al diagnóstico: ver abajo.
+
+> ✅ **SESIÓN 6 — cierre de la Fase 0 (2026-08-20).** Rama `refactor/fase0-cobertura-y-limpieza`.
+>
+> - **🔴 El «24 % de `solicitudes/domain`» era un promedio que mentía.** Medido por módulo:
+>   `estado_machine.py` **100 %** y `bloqueo_partes.py` 92 % (ambos en uso), frente a `solicitud.py`,
+>   `fechas.py` y `jornada.py` al **0 % y sin un solo importador** — ni estático ni dinámico.
+>   No eran restos inofensivos: contenían **implementaciones paralelas y desfasadas de reglas críticas**.
+>   `hay_conflicto_lifo()` era la versión ANTIGUA de la guardia LIFO (con el conjunto vacío devuelve «sin
+>   conflicto», justo el fallo que cerró el patrón #25), y `VentanaCancelacion` decía 30 minutos cuando la
+>   regla viva son **24 horas con consenso** (ADR 009). Conectarlos por error habría reintroducido bugs ya
+>   cerrados. **Borrados** (100 sentencias), tras verificar que cada regla existe en el código vivo.
+>   *Escribirles tests habría sido peor que no hacer nada: habría dado cobertura verde a código trampa.*
+> - **`fechas_helper.py`: 0 % → 77 %** (22 tests). Aquí la hipótesis contraria resultó falsa: **no** estaba
+>   muerto. Lo llama la rama de CAMBIO TURNO de `views/detalle.py:429` y alimenta el análisis de fecha que
+>   ve el supervisor al aprobar. Los tests fijan la **matriz por tipo**, que es donde está la regla de
+>   negocio: un festivo se permite en CT pero invalida un CT PERMANENTE; mantenimiento y temporada
+>   invalidan todos los tipos; el domingo solo invalida CT.
+> - **`permisos/views.py`: 50 % → 61 %** (9 tests), atacando el bloque sin cubrir más grande: la creación
+>   de permisos, con sus cuatro reglas (sanción activa, día que se trabaja según `estado_dia`, cierre
+>   semanal, y el aviso cuando no hay supervisor). Los tests van por la vista, no por el formulario,
+>   porque tres de las cuatro reglas viven en `form_valid`/`dispatch`.
+> - **`core/tests/factories.py`**: 55 archivos repetían el montaje de `User` + `Empleado` y 40 el de
+>   `Jornada`, cada uno eligiendo a mano cédulas y nombres de usuario sobre campos ÚNICOS. Ahora se
+>   generan solos.
+>
+> Detalle metodológico que se repitió dos veces: **una fecha fija en un test de turnos es una trampa.** Si
+> cae en descanso por la rotación, el test falla por el motivo equivocado y parece un bug del código. Las
+> fechas se preguntan a `estado_dia`.
+>
+> Suite: **991 → 1022 tests**. ruff en cero.
 
 > ✅ **FASE 1 EJECUTADA el 2026-08-20** (rama `chore/fase1-endurecimiento-produccion`). Resumen de lo que
 > cambió y de lo que deliberadamente NO cambió:
