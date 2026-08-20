@@ -538,3 +538,18 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             'dias_devolucion': [d for d in dias_devolucion if str(d).strip()],
             'fecha_creacion_solicitud': timezone.localdate(),
         }
+
+    def reaplicar(self, solicitud, fechas):
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService,
+        )
+
+        perm = getattr(solicitud, 'doblada_permanente', None)
+        if perm is None:
+            return
+        n = DobladaPermanenteAplicacionService.reaplicar_fechas(solicitud, perm, fechas)
+        if n:
+            logger.info(
+                "Reconciliacion post-revert: re-materializada doblada permanente %s en %d dia(s).",
+                solicitud.id, n,
+            )

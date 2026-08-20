@@ -818,3 +818,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
             'fecha_fin': post.get('fecha_fin'),
             'dias_seleccionados': dias_seleccionados,
         }
+
+    def reaplicar(self, solicitud, fechas):
+        n = CTPermanenteStrategy.reaplicar_fechas(solicitud, fechas)
+        if n:
+            logger.info(
+                "Reconciliacion post-revert: re-materializado CT PERMANENTE %s en %d dia(s).",
+                solicitud.id, n,
+            )

@@ -235,53 +235,45 @@ class DobladaSnapshotService:
         return list(con_detalle.distinct()) + list(cambios_turno.distinct())
 
     @staticmethod
+    def _estrategia_de(solicitud):
+        """
+        Strategy que sabe re-materializar `solicitud`.
+
+        El despacho de la reconciliacion NO era por tipo a secas: miraba primero si
+        la solicitud tiene `DobladaDetalle` y solo despues el tipo, con un `else`
+        que significaba "cualquier otro tipo CON detalle, tratalo como DOBLADA".
+        Ese orden se conserva aqui, porque el detalle es lo que determina COMO se
+        materializo la solicitud.
+
+        La diferencia con antes es que ya no hay una lista de tipos en este
+        servicio: se pregunta a la strategy si ella se materializa a traves de un
+        detalle de doblada (`usa_detalle_doblada`). Un tipo nuevo se declara en su
+        propia clase y este archivo no se toca.
+        """
+        from solicitudes.services.solicitud_factory import SolicitudFactory
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+
+        estrategia = SolicitudFactory.get_strategy(solicitud.tipo_cambio)
+        tiene_detalle = getattr(solicitud, 'doblada', None) is not None
+        if tiene_detalle and not getattr(estrategia, 'usa_detalle_doblada', False):
+            return DobladaStrategy()
+        return estrategia
+
+    @staticmethod
     def _pares_que_reescribe(solicitud, fechas: set) -> set:
         """
-        Pares (explorador_id, fecha) que la re-aplicación de `solicitud` va a escribir, dado que
-        la reconciliación corre sobre `fechas`. Espejo exacto del dispatch de
-        `reconciliar_dobladas_aprobadas`: si allí cambia lo que se re-aplica, aquí también.
+        Pares (explorador_id, fecha) que la re-aplicacion de `solicitud` va a
+        escribir, dado que la reconciliacion corre sobre `fechas`.
+
+        Lo contesta la STRATEGY. Antes habia aqui una cadena por tipo que era
+        "espejo exacto" de la de `_reaplicar_una`, sostenida solo por un comentario
+        que pedia mantener las dos sincronizadas a mano. Ahora las dos preguntas se
+        le hacen al mismo objeto, asi que no pueden separarse por descuido.
         """
-        personas = [p for p in (solicitud.explorador_solicitante_id,
-                                solicitud.explorador_receptor_id) if p]
-        det = getattr(solicitud, 'doblada', None)
-        tipo = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
-
-        def pares(iterable_fechas):
-            # `tuple(...)` NO es decorativo: sin él, pasar un GENERADOR daba un
-            # resultado silenciosamente incompleto. La comprensión itera
-            # `iterable_fechas` una vez POR PERSONA, y un generador se agota en la
-            # primera, así que la segunda persona no aportaba ningún par. Se
-            # detectó el 2026-08-20 al escribir la red de caracterización previa
-            # al refactor: la rama de CAMBIO TURNO (línea de abajo) devolvía solo
-            # el par del solicitante, cuando su comentario dice que lo que aporta
-            # es justamente "la otra persona".
-            fechas_materializadas = tuple(iterable_fechas)
-            return {(p, f) for p in personas for f in fechas_materializadas if f}
-
-        if det is None:
-            # CAMBIO TURNO: re-materializa su único día, y escribe a AMBAS partes en él. El día ya
-            # está en `fechas`; lo que aporta es la otra persona.
-            return pares([f for f in [solicitud.fecha_cambio_turno] if f in fechas])
-
-        if tipo == 'CAMBIO DESCANSO':
-            # Reescribe su efecto completo, incluidos los días OPUESTOS del finde (sáb↔dom), que
-            # pueden caer en otro mes. `fechas_afectadas` es la misma fuente que usa la
-            # invalidación de caché de su cancelación.
-            from solicitudes.services.cambio_descanso_aplicacion_service import (
-                CambioDescansoAplicacionService as _CDS,
-            )
-            return pares(_CDS.fechas_afectadas(solicitud))
-
-        if tipo == 'D FDS' or getattr(det, 'es_intercambio', False):
-            # `DFDSAplicacionService.aplicar` y `aplicar_intercambio` mutan sus dos días de una
-            # vez, sin importar cuál coincidió.
-            return pares([solicitud.fecha_cambio_turno, det.fecha_pago])
-
-        # DOBLADA normal: la reconciliación re-aplica SOLO el lado que cae en `fechas`, así que
-        # solo esos días se reescriben (los otros lados no se tocan y no deben entrar).
-        propias = [solicitud.fecha_cambio_turno, det.fecha_pago,
-                   getattr(det, 'fecha_pago_semana', None)]
-        return pares([f for f in propias if f and f in fechas])
+        estrategia = DobladaSnapshotService._estrategia_de(solicitud)
+        if estrategia is None:
+            return set()
+        return estrategia.pares_que_reescribe(solicitud, fechas)
 
     @staticmethod
     def reconciliar_dobladas_aprobadas(afectados: set, excluir_solicitud_id: int) -> None:
@@ -453,78 +445,24 @@ class DobladaSnapshotService:
     @staticmethod
     def _reaplicar_una(solicitud, fechas: set) -> None:
         """
-        Re-materializa UNA solicitud aprobada sobre `fechas`, con la lógica de su tipo.
+        Re-materializa UNA solicitud aprobada sobre `fechas`, con la logica de su
+        tipo. Lo hace la STRATEGY.
 
-        `_pares_que_reescribe` es el espejo de este dispatch: lo que aquí se re-aplique tiene que
-        estar declarado allí, o el cierre de fechas afectadas se queda corto y se pierde en
-        silencio lo que viva en los días colaterales.
+        `_pares_que_reescribe` es el espejo de esto: lo que aqui se re-aplique tiene
+        que estar declarado alli, o el cierre de fechas afectadas se queda corto y
+        se pierde en silencio lo que viva en los dias colaterales (patron #33).
+        Ahora los dos metodos viven en la MISMA clase, que es lo que impide que se
+        separen; antes eran dos cadenas gemelas en este archivo.
         """
-        tipo = solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else ''
-        det = getattr(solicitud, 'doblada', None)
-
-        if det is not None:
-            if tipo == 'CAMBIO DESCANSO':
-                # Re-aplicar con la lógica de CAMBIO DESCANSO (no la de doblada).
-                DobladaSnapshotService._reaplicar_cambio_descanso(solicitud, det)
-            elif tipo == 'D FDS':
-                # D FDS también comparte DobladaDetalle: re-aplicar con SU lógica (finde), no la
-                # de doblada entre semana.
-                from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
-                DFDSAplicacionService.aplicar(solicitud, det)
-            elif getattr(det, 'es_intercambio', False):
-                # INTERCAMBIO DE DOBLADAS: NO se puede re-aplicar con la lógica de cesión/pago.
-                # Es un swap de día completo entre dos dobladas y tiene su propio aplicador; el
-                # `tipo_cesion` del detalle no describe nada (puede venir parcial del formulario).
-                # Al re-aplicarlo como doblada normal, la reconciliación reconstruía un estado
-                # inventado: mildrey quedó con una sola PM el 06/08 y arley con una sola AM el
-                # 12/08, cuando cada uno debía recuperar su DOBLADA (AM+PM).
-                # Muta los DOS días de una vez, así que basta con que UNO caiga en las afectadas
-                # (y se llama una sola vez, no una por día).
-                from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-                DobladaAplicacionService.aplicar_intercambio(solicitud, det)
-            else:
-                # DOBLADA: re-aplicar solo el lado (cesión/pago) que cae en fecha afectada.
-                from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-                if solicitud.fecha_cambio_turno in fechas:
-                    DobladaAplicacionService.aplicar_doblada_cesion(solicitud, det)
-                if det.fecha_pago in fechas:
-                    DobladaAplicacionService.aplicar_doblada_pago(solicitud, det)
-                # Pago en sábado AMBAS: la devolución en semana es un TERCER día mutado por esta
-                # doblada. Si cae en las fechas afectadas hay que re-materializarlo igual que los
-                # otros dos lados, o la reconciliación lo deja borrado.
-                if getattr(det, 'fecha_pago_semana', None) in fechas:
-                    DobladaAplicacionService.aplicar_pago_residual_semana(solicitud, det)
+        estrategia = DobladaSnapshotService._estrategia_de(solicitud)
+        if estrategia is None:
+            return
+        estrategia.reaplicar(solicitud, fechas)
+        if getattr(solicitud, 'doblada', None) is not None:
             logger.info(
-                "Reconciliación post-revert: re-aplicada solicitud aprobada %s (%s) sobre fechas afectadas.",
-                solicitud.id, tipo,
-            )
-            return
-
-        perm = getattr(solicitud, 'doblada_permanente', None)
-        if perm is not None:
-            from solicitudes.services.doblada_permanente_aplicacion_service import (
-                DobladaPermanenteAplicacionService,
-            )
-            n = DobladaPermanenteAplicacionService.reaplicar_fechas(solicitud, perm, fechas)
-            if n:
-                logger.info(
-                    "Reconciliación post-revert: re-materializada doblada permanente %s en %d día(s).",
-                    solicitud.id, n,
-                )
-            return
-
-        if tipo == 'CAMBIO TURNO':
-            from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
-            n = CambioTurnoStrategy.reaplicar_fechas(solicitud, fechas)
-        elif tipo == 'CT PERMANENTE':
-            from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
-            n = CTPermanenteStrategy.reaplicar_fechas(solicitud, fechas)
-        else:
-            return
-        if n:
-            logger.info(
-                "Reconciliación post-revert: re-materializado %s %s en %d día(s).",
-                tipo, solicitud.id, n,
+                "Reconciliacion post-revert: re-aplicada solicitud aprobada %s (%s) sobre fechas afectadas.",
+                solicitud.id,
+                solicitud.tipo_cambio.nombre if solicitud.tipo_cambio else '',
             )
 
     @staticmethod
@@ -584,26 +522,3 @@ class DobladaSnapshotService:
                         'No se pudo guardar snapshot_turnos_resultantes de %s id=%s: una '
                         'cancelación posterior partiría de un snapshot incompleto',
                         type(obj).__name__, getattr(obj, 'pk', '?'))
-
-    @staticmethod
-    def _reaplicar_cambio_descanso(solicitud: SolicitudCambio, detalle: DobladaDetalle) -> None:
-        """Re-materializa los turnos de un CAMBIO DESCANSO aprobado (mismo dispatch que su
-        estrategia). Solo turnos, sin deudas: el cambio de descanso no genera deudas."""
-        from solicitudes.services.cambio_descanso_aplicacion_service import (
-            CambioDescansoAplicacionService as _CDS,
-        )
-        fc = solicitud.fecha_cambio_turno
-        if fc and fc.weekday() in (5, 6):
-            # Sin `marcar_reemplazos`: aquí solo se reconstruyen turnos de una solicitud que ya
-            # estaba aplicada; marcar reemplazos volvería a 'reemplazada' una solicitud vigente.
-            _CDS.aplicar(solicitud, detalle, marcar_reemplazos=False)
-            return
-        sub = getattr(detalle, 'submodalidad_semana', None) or 'intercambio_dia'
-        if sub == 'jornadas_partidas':
-            _CDS.aplicar_semana_jornadas_partidas(solicitud, detalle)
-        elif sub == 'cobertura_misma_semana':
-            _CDS.aplicar_semana_cobertura(solicitud, detalle)
-        elif sub == 'cambio_doblada':
-            _CDS.aplicar_semana_cambio_doblada(solicitud, detalle)
-        else:
-            _CDS.aplicar_entre_semana(solicitud, detalle)

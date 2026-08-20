@@ -1359,3 +1359,57 @@ class DobladaStrategy(SolicitudStrategy):
             'es_intercambio': str(post.get('intercambio_doblada', '')).strip() in ('1', 'true', 'True', 'on'),
             'fecha_creacion_solicitud': timezone.localdate(),
         }
+
+    usa_detalle_doblada = True
+
+    def reaplicar(self, solicitud, fechas):
+        """
+        Dos comportamientos MUY distintos segun `es_intercambio`, y la diferencia
+        costo un incidente real.
+
+        Un INTERCAMBIO de dobladas no se puede re-aplicar con la logica de
+        cesion/pago: es un swap de dia completo entre dos dobladas y tiene su propio
+        aplicador. El `tipo_cesion` del detalle no describe nada (puede venir parcial
+        del formulario). Al re-aplicarlo como doblada normal, la reconciliacion
+        reconstruia un estado inventado: mildrey quedo con una sola PM el 06/08 y
+        arley con una sola AM el 12/08, cuando cada uno debia recuperar su DOBLADA
+        (AM+PM).
+        """
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
+        detalle = getattr(solicitud, 'doblada', None)
+        if detalle is None:
+            return
+
+        if getattr(detalle, 'es_intercambio', False):
+            # Muta los DOS dias de una vez, asi que basta con que UNO caiga en las
+            # afectadas, y se llama UNA sola vez, no una por dia.
+            DobladaAplicacionService.aplicar_intercambio(solicitud, detalle)
+            return
+
+        # DOBLADA normal: re-aplicar solo el lado que cae en fecha afectada.
+        if solicitud.fecha_cambio_turno in fechas:
+            DobladaAplicacionService.aplicar_doblada_cesion(solicitud, detalle)
+        if detalle.fecha_pago in fechas:
+            DobladaAplicacionService.aplicar_doblada_pago(solicitud, detalle)
+        # Pago en sabado AMBAS: la devolucion en semana es un TERCER dia mutado por
+        # esta doblada. Si cae en las afectadas hay que re-materializarlo igual que
+        # los otros dos lados, o la reconciliacion lo deja borrado.
+        if getattr(detalle, 'fecha_pago_semana', None) in fechas:
+            DobladaAplicacionService.aplicar_pago_residual_semana(solicitud, detalle)
+
+    def pares_que_reescribe(self, solicitud, fechas):
+        detalle = getattr(solicitud, 'doblada', None)
+        if detalle is None:
+            return set()
+
+        if getattr(detalle, 'es_intercambio', False):
+            # Como D FDS: su aplicador muta los dos dias de una vez.
+            return self._pares(solicitud,
+                               [solicitud.fecha_cambio_turno, detalle.fecha_pago], todas=True)
+
+        # Al reves que el intercambio: la reconciliacion re-aplica SOLO el lado que
+        # cae en `fechas`, asi que los otros no se tocan y no deben entrar.
+        return self._pares(solicitud,
+                           [solicitud.fecha_cambio_turno, detalle.fecha_pago,
+                            getattr(detalle, 'fecha_pago_semana', None)], fechas)

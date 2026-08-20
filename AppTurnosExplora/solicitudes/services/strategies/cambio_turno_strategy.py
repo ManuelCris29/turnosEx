@@ -752,3 +752,21 @@ class CambioTurnoStrategy(SolicitudStrategy):
                 datos['fechas']['aplicables'] = [info_fecha['fecha']]
             
             datos['informacion_adicional']['nota'] = 'Se excluyen días de mantenimiento, domingos y dobladas activas. Los festivos se permiten si ambos empleados tienen jornada.'
+
+    def reaplicar(self, solicitud, fechas):
+        n = CambioTurnoStrategy.reaplicar_fechas(solicitud, fechas)
+        if n:
+            logger.info(
+                "Reconciliacion post-revert: re-materializado CAMBIO TURNO %s en %d dia(s).",
+                solicitud.id, n,
+            )
+
+    def pares_que_reescribe(self, solicitud, fechas):
+        """
+        Un unico dia, pero escrito a AMBAS partes: lo que este tipo aporta al
+        conjunto no es una fecha nueva -ya esta en `fechas`- sino la OTRA PERSONA.
+
+        Ese matiz se perdia por un generador que se agotaba en la primera persona
+        (corregido el 2026-08-20). Por eso `_pares` materializa su argumento.
+        """
+        return self._pares(solicitud, [solicitud.fecha_cambio_turno], fechas)

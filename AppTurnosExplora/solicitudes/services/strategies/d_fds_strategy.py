@@ -528,3 +528,29 @@ class DFDSStrategy(SolicitudStrategy):
             'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
             'fecha_creacion_solicitud': timezone.localdate(),
         }
+
+    usa_detalle_doblada = True
+
+    def reaplicar(self, solicitud, fechas):
+        """
+        D FDS comparte `DobladaDetalle` con DOBLADA, pero NO su logica: se re-aplica
+        con la de fin de semana, no con la de doblada entre semana.
+        """
+        from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
+
+        detalle = getattr(solicitud, 'doblada', None)
+        if detalle is None:
+            return
+        DFDSAplicacionService.aplicar(solicitud, detalle)
+
+    def pares_que_reescribe(self, solicitud, fechas):
+        """
+        SIEMPRE sus dos dias. `DFDSAplicacionService.aplicar` los muta de una vez,
+        sin importar cual coincidio con la reconciliacion: declarar solo el
+        coincidente dejaria el otro fuera del cierre.
+        """
+        detalle = getattr(solicitud, 'doblada', None)
+        if detalle is None:
+            return set()
+        return self._pares(solicitud,
+                           [solicitud.fecha_cambio_turno, detalle.fecha_pago], todas=True)

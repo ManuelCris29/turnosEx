@@ -239,6 +239,70 @@ class SolicitudStrategy(ABC):
             'fecha_cambio_turno': post.get('fecha_solicitud'),
         }
 
+    # ¿Este tipo se materializa a través de un `DobladaDetalle`?
+    #
+    # No es una curiosidad del modelo: es la CLAVE DE DESPACHO de la reconciliación
+    # (`DobladaSnapshotService`). Allí la decisión se tomaba mirando primero si la
+    # solicitud tiene detalle de doblada y solo después el tipo, con un `else` que
+    # significaba "cualquier otro tipo CON detalle, trátalo como DOBLADA".
+    #
+    # Se declara como capacidad y no como lista de tipos en el servicio a propósito:
+    # una lista allí obligaría a editar el servicio por cada tipo nuevo, que es
+    # justo lo que la Fase 2 viene a quitar.
+    usa_detalle_doblada = False
+
+    def reaplicar(self, solicitud: SolicitudCambio, fechas: set) -> None:
+        """
+        Re-materializa una solicitud YA APROBADA sobre `fechas`, con la lógica de
+        este tipo. La usa la reconciliación posterior a revertir otra solicitud.
+
+        Contrato crítico: lo que se re-aplique aquí tiene que estar declarado en
+        `pares_que_reescribe`, o el cierre de días afectados se queda corto y se
+        pierde en silencio lo que viva en los días colaterales (patrón #33 de
+        `PROTECTION_PATTERNS.md`). Los dos métodos son espejo; hay tests que lo
+        comprueban en `test_snapshot_dispatch_caracterizacion.py`.
+
+        Por defecto no hace nada: un tipo que no sepa re-materializarse debe
+        quedarse quieto, nunca improvisar. Reproduce el `return` de la rama final
+        de la cadena que había en el servicio.
+        """
+        return None
+
+    def pares_que_reescribe(self, solicitud: SolicitudCambio, fechas: set) -> set:
+        """
+        Pares `(explorador_id, fecha)` que `reaplicar` va a escribir.
+
+        Espejo declarativo de `reaplicar`. Se usa para CERRAR el conjunto de días
+        afectados antes de tocar nada, así que debe ser exacto en los dos sentidos:
+        declarar de menos deja días colaterales fuera del cierre; declarar de más
+        bloquea reconciliaciones ajenas legítimas.
+
+        Por defecto, los días propios de la solicitud que caigan en `fechas`, para
+        ambas partes.
+        """
+        return self._pares(solicitud, [solicitud.fecha_cambio_turno], fechas)
+
+    @staticmethod
+    def _pares(solicitud, candidatas, fechas=None, todas=False) -> set:
+        """
+        Producto (personas × fechas) de la solicitud, filtrando vacíos.
+
+        `candidatas` se materializa con `tuple()` antes de recorrerla, y eso NO es
+        decorativo: la comprensión la recorre una vez POR PERSONA, así que pasar un
+        generador daba un resultado silenciosamente incompleto —solo los pares de
+        la primera persona—. Fue un bug real, corregido el 2026-08-20.
+
+        Con `todas=False` solo entran las fechas que ya están en juego; con
+        `todas=True` entran todas las del tipo, porque su aplicador las muta de una
+        vez sin importar cuál coincidió.
+        """
+        personas = [p for p in (solicitud.explorador_solicitante_id,
+                                solicitud.explorador_receptor_id) if p]
+        materializadas = tuple(candidatas)
+        if not todas and fechas is not None:
+            materializadas = tuple(f for f in materializadas if f in fechas)
+        return {(p, f) for p in personas for f in materializadas if f}
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.tipo_solicitud})"
     

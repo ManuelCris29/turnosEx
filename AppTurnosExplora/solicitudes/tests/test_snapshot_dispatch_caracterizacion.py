@@ -173,8 +173,12 @@ class TestDespachoDeReaplicacion(SnapshotDispatchTestCase):
     """
 
     RUTAS = {
-        'cambio_descanso': ('solicitudes.services.doblada_snapshot_service'
-                            '.DobladaSnapshotService._reaplicar_cambio_descanso'),
+        # Tras la Fase 2 la lógica vive en CambioDescansoStrategy.reaplicar, así que
+        # se observa el aplicador REAL en vez del método intermedio que había en el
+        # servicio (ya retirado). Los casos de prueba caen en día de semana con la
+        # submodalidad por defecto, que es la rama `aplicar_entre_semana`.
+        'cambio_descanso': ('solicitudes.services.cambio_descanso_aplicacion_service'
+                            '.CambioDescansoAplicacionService.aplicar_entre_semana'),
         'd_fds': ('solicitudes.services.d_fds_aplicacion_service'
                   '.DFDSAplicacionService.aplicar'),
     }

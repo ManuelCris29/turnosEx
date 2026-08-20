@@ -923,3 +923,50 @@ class CambioDescansoStrategy(SolicitudStrategy):
             'jornada_cubre_en_pago': post.get('jornada_cubre_en_pago'),
             'fecha_creacion_solicitud': timezone.localdate(),
         }
+
+    usa_detalle_doblada = True
+
+    def reaplicar(self, solicitud, fechas):
+        """
+        Re-materializa un CAMBIO DESCANSO aprobado. Solo turnos, sin deudas: este
+        tipo no genera deuda corporativa.
+
+        Movido de `DobladaSnapshotService._reaplicar_cambio_descanso` en la Fase 2.
+        """
+        from solicitudes.services.cambio_descanso_aplicacion_service import (
+            CambioDescansoAplicacionService as _CDS,
+        )
+
+        detalle = getattr(solicitud, 'doblada', None)
+        if detalle is None:
+            return
+
+        fc = solicitud.fecha_cambio_turno
+        if fc and fc.weekday() in (5, 6):
+            # Sin `marcar_reemplazos`: aqui solo se reconstruyen turnos de una solicitud
+            # que YA estaba aplicada; marcar reemplazos volveria 'reemplazada' una
+            # solicitud vigente.
+            _CDS.aplicar(solicitud, detalle, marcar_reemplazos=False)
+            return
+
+        sub = getattr(detalle, 'submodalidad_semana', None) or 'intercambio_dia'
+        if sub == 'jornadas_partidas':
+            _CDS.aplicar_semana_jornadas_partidas(solicitud, detalle)
+        elif sub == 'cobertura_misma_semana':
+            _CDS.aplicar_semana_cobertura(solicitud, detalle)
+        elif sub == 'cambio_doblada':
+            _CDS.aplicar_semana_cambio_doblada(solicitud, detalle)
+        else:
+            _CDS.aplicar_entre_semana(solicitud, detalle)
+
+    def pares_que_reescribe(self, solicitud, fechas):
+        """
+        No deduce sus dias de la solicitud: los pide a `fechas_afectadas`, la misma
+        fuente que usa la invalidacion de cache de su cancelacion. Incluye los dias
+        OPUESTOS del finde, que pueden caer en otro mes.
+        """
+        from solicitudes.services.cambio_descanso_aplicacion_service import (
+            CambioDescansoAplicacionService as _CDS,
+        )
+
+        return self._pares(solicitud, _CDS.fechas_afectadas(solicitud), todas=True)
