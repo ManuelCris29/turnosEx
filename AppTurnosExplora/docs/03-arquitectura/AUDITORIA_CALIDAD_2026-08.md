@@ -186,7 +186,12 @@ Riesgos concretos:
 4. `DB_PASSWORD: swalp_docker_2026` versionada en `docker-compose.hostdb.yml:36`. Es local, pero queda en el historial de git.
 5. Dockerfile sin `HEALTHCHECK` pese a que `/health/` y `/health/ready/` ya existen y están exentos de redirect; no es multi-stage; el `CMD` ejecuta `migrate` antes de gunicorn (carrera con ≥2 tareas, ya auto-documentada).
 6. **`--workers 3` hardcodeado** en el `CMD` del Dockerfile, independientemente de la máquina. La doc de Gunicorn recomienda `2 × núcleos + 1`. Con 2 vCPU faltan workers; con 0,5 vCPU sobran y compiten por CPU. Falta también `--max-requests` para reciclar workers (mitiga fugas de memoria). Y esos 3 workers **confirman** el riesgo del punto 1: 3 cachés locmem incoherentes.
-7. Sin `pip-audit` ni Dependabot: no hay proceso de detección de CVE. No detecto ninguna vulnerabilidad abierta hoy en el set actual (`gunicorn==23.0.0` es post-CVE-2024-1135), pero el proceso no existe.
+7. ~~Sin `pip-audit` ni Dependabot; no detecto vulnerabilidades abiertas.~~ **CORREGIDO — la segunda mitad era infundada.** La afirmación se hizo sin ejecutar ninguna herramienta. Al añadir `pip-audit` al CI (2026-08-19) reporta **15 vulnerabilidades conocidas en 3 paquetes**:
+   - `django==5.2.16` → PYSEC-2026-3717, corregido en **5.2.17** (parche dentro de la misma LTS).
+   - `sqlparse==0.5.3` → 5 avisos, corregidos en 0.5.4 / 0.6.0.
+   - `cryptography==46.0.3` → 8 avisos; 5 se cierran en la serie 46.0.5-46.0.7, 3 exigen saltar a 48/49/50.
+   
+   Lección: **no afirmar «no hay CVE» sin correr la herramienta.** El proceso automático ya existe (job `seguridad` del CI, informativo a propósito para que un CVE nuevo no bloquee los merges). Falta decidir y aplicar las subidas de versión.
 8. `settings.py` es un único archivo de 584 líneas con 5 ramas por entorno, en lugar de `settings/base|dev|prod.py`.
 
 ---
