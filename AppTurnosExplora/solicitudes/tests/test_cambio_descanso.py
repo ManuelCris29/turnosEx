@@ -537,3 +537,76 @@ class CDFechasAfectadasTest(CDBaseTest):
             CambioDescansoAplicacionService.fechas_afectadas(sol),
             [lunes, lunes + timedelta(days=2)],
         )
+
+
+class CDFestivoTest(CDBaseTest):
+    """
+    Regla confirmada con el usuario el 2026-08-20: un CAMBIO DESCANSO **no** puede
+    caer en un festivo ENTRE SEMANA, pero **sí** si el festivo cae en fin de semana.
+
+    El porqué: un festivo de lunes a viernes tiene su propia alternancia —un grupo
+    trabaja la jornada completa (AM+PM) y el otro descansa, según la planificación
+    anual—, así que ese descanso no es el de la rotación ordinaria y no se puede
+    ceder ni usar como devolución. Un festivo en sábado o domingo, en cambio, sigue
+    siendo fin de semana: ahí manda la alternancia de findes y el intercambio vale.
+
+    Antes de este cambio el motor NO miraba los festivos en ninguna de las dos
+    modalidades: `cambio_descanso_strategy.py` no los mencionaba en sus 799 líneas.
+    """
+
+    def _festivo_en(self, fecha):
+        from turnos.models import DiaEspecial
+        return DiaEspecial.objects.create(fecha=fecha, tipo='festivo', activo=True)
+
+    def test_festivo_en_fin_de_semana_sigue_permitiendo_el_intercambio(self):
+        """
+        El control que impide que "bloquear festivos" degenere en bloquear de más.
+        `self.ces` y `self.pago` son sábado y domingo por construcción.
+        """
+        self._festivo_en(self.ces)
+        self._festivo_en(self.pago)
+
+        ok, msg = self.strat.validar_solicitud(self._datos())
+
+        self.assertTrue(ok, msg)
+
+    def test_festivo_entre_semana_en_el_dia_que_se_cede(self):
+        miercoles = self._miercoles_del_mes(self.ces)
+        self._festivo_en(miercoles)
+
+        ok, msg = self.strat.validar_solicitud(
+            self._datos(fecha_cambio_turno=miercoles.strftime('%Y-%m-%d')))
+
+        self.assertFalse(ok)
+        self.assertIn('festivo entre semana', msg)
+
+    def test_festivo_entre_semana_en_el_dia_de_devolucion(self):
+        """La devolución cuenta igual: si no, alguien acabaría descansando un festivo."""
+        miercoles = self._miercoles_del_mes(self.pago)
+        self._festivo_en(miercoles)
+
+        ok, msg = self.strat.validar_solicitud(
+            self._datos(fecha_pago=miercoles.strftime('%Y-%m-%d')))
+
+        self.assertFalse(ok)
+        self.assertIn('festivo entre semana', msg)
+
+    def test_un_miercoles_normal_no_lo_bloquea_esta_guardia(self):
+        """
+        Control: sin festivo, la guardia no interviene. La solicitud puede fallar por
+        otras reglas del intercambio entre semana, pero NUNCA con este mensaje.
+        """
+        miercoles = self._miercoles_del_mes(self.ces)
+
+        ok, msg = self.strat.validar_solicitud(
+            self._datos(fecha_cambio_turno=miercoles.strftime('%Y-%m-%d')))
+
+        self.assertNotIn('festivo entre semana', msg or '')
+
+    @staticmethod
+    def _miercoles_del_mes(referencia):
+        """Un miércoles del mismo mes que la fecha de referencia."""
+        d = referencia.replace(day=1)
+        while d.weekday() != 2:
+            d += timedelta(days=1)
+        return d

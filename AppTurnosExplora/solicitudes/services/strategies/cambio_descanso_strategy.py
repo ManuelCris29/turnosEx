@@ -191,6 +191,28 @@ class CambioDescansoStrategy(SolicitudStrategy):
                 SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fecha(solicitante, fecha_cesion)
                 SolicitudValidator.validar_receptor_sin_solicitud_pendiente_en_fecha(receptor, fecha_cesion)
 
+            # FESTIVO ENTRE SEMANA: no se puede intercambiar el descanso.
+            #
+            # Un festivo de lunes a viernes tiene su PROPIA alternancia: ese día un grupo
+            # trabaja la jornada completa (AM+PM) y el otro descansa, y la planificación
+            # anual decide cuál. Ese descanso no es el de la rotación ordinaria, así que
+            # no se puede ceder ni usar como devolución: moverlo desbarataría el reparto
+            # del festivo.
+            #
+            # `es_festivo_semana()` devuelve False para un festivo que cae en sábado o
+            # domingo, y eso es DELIBERADO, no un descuido: un festivo en fin de semana
+            # sigue siendo fin de semana, y ahí manda la alternancia de findes, que sí
+            # admite el intercambio. Por eso una sola comprobación cubre las dos
+            # modalidades y no hace falta ramificar. (Confirmado con el usuario el
+            # 2026-08-20.)
+            for _f, _que in ((fecha_cesion, 'que cambias'), (fecha_pago, 'de devolución')):
+                if SolicitudValidator.es_festivo_semana(_f):
+                    return False, (
+                        f"El día {_que} ({_f.strftime('%d/%m/%Y')}) es un festivo entre semana. "
+                        f"Los festivos tienen su propia alternancia —un grupo dobla y el otro "
+                        f"descansa— y ese descanso no se puede intercambiar. Elige otro día."
+                    )
+
             # Detectar modalidad: fin de semana (sáb/dom) o ENTRE SEMANA (lun-vie).
             es_finde = fecha_cesion.weekday() in (5, 6)
             if not es_finde:

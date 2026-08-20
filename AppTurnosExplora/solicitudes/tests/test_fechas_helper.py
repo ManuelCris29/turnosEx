@@ -172,6 +172,31 @@ class TestMatrizDeValidezPorTipo(FechasHelperTestCase):
         for tipo in ('CT', 'CT PERMANENTE', 'DOBLADA', 'D FDS', 'CAMBIO DESCANSO'):
             assert self._analizar(tipo=tipo)['valida'] is False, tipo
 
+    def test_el_festivo_entre_semana_invalida_el_cambio_descanso(self):
+        """
+        Un festivo de lunes a viernes tiene su PROPIA alternancia: un grupo dobla
+        (AM+PM) y el otro descansa. Ese descanso no es el de la rotación ordinaria,
+        así que no se puede intercambiar.
+        """
+        DiaEspecial.objects.create(fecha=MIERCOLES, tipo='festivo', activo=True)
+
+        assert self._analizar(MIERCOLES, tipo='CAMBIO DESCANSO')['valida'] is False
+
+    def test_el_festivo_en_fin_de_semana_SI_permite_el_cambio_descanso(self):
+        """
+        El matiz que hace la regla no trivial: un festivo que cae en sábado o domingo
+        SIGUE SIENDO fin de semana. Ahí manda la alternancia de findes, que sí admite
+        el intercambio de descanso. Confirmado con el usuario el 2026-08-20.
+
+        Sin este control, "bloquear el festivo" degeneraría en bloquear de más — el
+        mismo riesgo que avisa el patrón #25 al cerrar una guardia.
+        """
+        DiaEspecial.objects.create(fecha=SABADO, tipo='festivo', activo=True)
+        DiaEspecial.objects.create(fecha=DOMINGO, tipo='festivo', activo=True)
+
+        assert self._analizar(SABADO, tipo='CAMBIO DESCANSO')['valida'] is True
+        assert self._analizar(DOMINGO, tipo='CAMBIO DESCANSO')['valida'] is True
+
     def test_la_temporada_invalida_todos_los_tipos(self):
         DiaEspecial.objects.create(fecha=MIERCOLES, tipo='temporada',
                                    es_temporada=True, activo=True)

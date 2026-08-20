@@ -190,6 +190,21 @@ def analizar_fecha_solicitud(
         exclusiones_doblada = [r for r in resultado['razones_exclusion'] 
                               if r in ['Mantenimiento', 'Temporada']]
         resultado['valida'] = len(exclusiones_doblada) == 0
+    elif tipo_solicitud == 'CAMBIO DESCANSO':
+        # Mantenimiento, temporada y —solo ENTRE SEMANA— festivo.
+        #
+        # Un festivo de lunes a viernes tiene su propia alternancia (un grupo dobla, el
+        # otro descansa), y ese descanso no es el de la rotación ordinaria: no se puede
+        # intercambiar. Pero un festivo que cae en SÁBADO O DOMINGO sigue siendo fin de
+        # semana, ahí manda la alternancia de findes y el intercambio sí vale.
+        # Es la misma regla que aplica `cambio_descanso_strategy.py` vía
+        # `es_festivo_semana()`. (Confirmado con el usuario el 2026-08-20.)
+        _bloqueantes = ['Mantenimiento', 'Temporada']
+        _festivo_entre_semana = (
+            resultado['es_festivo'] and not resultado['es_sabado'] and not resultado['es_domingo']
+        )
+        exclusiones_cd = [r for r in resultado['razones_exclusion'] if r in _bloqueantes]
+        resultado['valida'] = not exclusiones_cd and not _festivo_entre_semana
     else:
         # Otros tipos: Validar según reglas generales
         exclusiones_generales = [r for r in resultado['razones_exclusion'] 
