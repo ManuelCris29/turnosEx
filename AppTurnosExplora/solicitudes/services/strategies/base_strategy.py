@@ -177,6 +177,30 @@ class SolicitudStrategy(ABC):
         turno_service = get_turno_service()
         return turno_service.get_turno_explorador(explorador_id, fecha)
     
+    def detalle(self, solicitud: SolicitudCambio, datos: Dict[str, Any]) -> None:
+        """
+        Enriquece `datos` con la información propia de este tipo de solicitud.
+
+        Es la pieza que cierra el OCP para la pantalla de detalle (Fase 2 de la
+        auditoría). Antes, `views/detalle.py` decidía con una cadena
+        `if tipo_nombre == 'CT PERMANENTE': ... elif ...`, así que **añadir un tipo
+        nuevo obligaba a editar la vista**: justo lo que el principio abierto/cerrado
+        dice que no hay que hacer. Ahora cada strategy trae su propio detalle.
+
+        Contrato:
+        - Recibe `datos` YA construido con el tronco común (id, estado, solicitante,
+          receptor, aprobaciones…) y con las secciones `fechas` e
+          `informacion_adicional` inicializadas a diccionario vacío.
+        - MUTA `datos` en el sitio; no devuelve nada.
+        - No debe lanzar: la vista de detalle es de solo lectura y un fallo al leer
+          un modelo de detalle no puede tumbar la pantalla. Cada implementación
+          registra el problema en `datos['fechas']['error']`.
+
+        La implementación por defecto no añade nada. Es deliberada: un tipo que no
+        tenga detalle propio debe devolver el tronco común, no fallar.
+        """
+        return None
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.tipo_solicitud})"
     

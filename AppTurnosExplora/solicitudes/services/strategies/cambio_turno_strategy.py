@@ -690,3 +690,65 @@ class CambioTurnoStrategy(SolicitudStrategy):
             
         except Exception:
             return {}
+
+    def detalle(self, solicitud, datos):
+        """
+        Detalle propio de CAMBIO TURNO para la pantalla de consulta.
+
+        Movido desde `views/detalle.py` en la Fase 2 (cerrar el OCP): la vista
+        elegía con una cadena `if tipo_nombre == ...`, así que cada tipo nuevo
+        obligaba a editarla. El cuerpo se trasladó SIN cambios de lógica; solo
+        los imports relativos pasaron a absolutos al cambiar de paquete.
+        """
+        if solicitud.fecha_cambio_turno:
+            datos['fechas']['fecha_cambio'] = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y')
+            
+            # Jornada de cada uno en la fecha del cambio. Si la solicitud ya fue aplicada,
+            # turno_origen/turno_destino reflejan el turno YA intercambiado (jornada final).
+            # Si sigue pendiente, esos turnos aún no existen: se calcula la jornada ACTUAL
+            # (antes del intercambio) para que el revisor sepa qué se va a intercambiar.
+            if solicitud.turno_origen and solicitud.turno_origen.jornada:
+                datos['informacion_adicional']['jornada_solicitante'] = solicitud.turno_origen.jornada.nombre
+            else:
+                from turnos.services.jornada_service import JornadaService
+                j_sol = JornadaService.get_jornada_explorador_fecha(
+                    solicitud.explorador_solicitante.id, solicitud.fecha_cambio_turno
+                )
+                datos['informacion_adicional']['jornada_solicitante'] = j_sol.nombre if j_sol else None
+
+            if solicitud.turno_destino and solicitud.turno_destino.jornada:
+                datos['informacion_adicional']['jornada_receptor'] = solicitud.turno_destino.jornada.nombre
+            else:
+                from turnos.services.jornada_service import JornadaService
+                j_rec = JornadaService.get_jornada_explorador_fecha(
+                    solicitud.explorador_receptor.id, solicitud.fecha_cambio_turno
+                )
+                datos['informacion_adicional']['jornada_receptor'] = j_rec.nombre if j_rec else None
+
+            if solicitud.estado == 'pendiente':
+                datos['informacion_adicional']['nota_jornadas'] = (
+                    'Jornadas actuales (antes del intercambio): al aprobarse, el solicitante '
+                    'pasa a la jornada del receptor y viceversa.'
+                )
+            
+            # Analizar fecha para mostrar información detallada
+            from solicitudes.services.fechas_helper import obtener_informacion_fecha_para_detalle
+            info_fecha = obtener_informacion_fecha_para_detalle(
+                solicitud.fecha_cambio_turno,
+                solicitante=solicitud.explorador_solicitante,
+                receptor=solicitud.explorador_receptor,
+                tipo_solicitud='CT'
+            )
+            datos['fechas']['analisis'] = info_fecha
+            
+            # Si hay razones de exclusión, agregarlas
+            if info_fecha['razones_exclusion']:
+                datos['fechas']['excluidas'] = [{
+                    'fecha': info_fecha['fecha'],
+                    'razon': ', '.join(info_fecha['razones_exclusion'])
+                }]
+            else:
+                # Si es válida, agregarla a aplicables
+                datos['fechas']['aplicables'] = [info_fecha['fecha']]
+            
+            datos['informacion_adicional']['nota'] = 'Se excluyen días de mantenimiento, domingos y dobladas activas. Los festivos se permiten si ambos empleados tienen jornada.'

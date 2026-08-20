@@ -466,3 +466,45 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             return get_turno_service().get_turno_explorador(explorador_id, fecha)
         except Exception:
             return {}
+
+    def detalle(self, solicitud, datos):
+        """
+        Detalle propio de DOBLADA PERMANENTE para la pantalla de consulta.
+
+        Movido desde `views/detalle.py` en la Fase 2 (cerrar el OCP): la vista
+        elegía con una cadena `if tipo_nombre == ...`, así que cada tipo nuevo
+        obligaba a editarla. El cuerpo se trasladó SIN cambios de lógica; solo
+        los imports relativos pasaron a absolutos al cambiar de paquete.
+        """
+        try:
+            detalle = solicitud.doblada_permanente
+            if detalle:
+                datos['fechas']['inicio'] = detalle.fecha_inicio.strftime('%d/%m/%Y')
+                datos['fechas']['fin'] = detalle.fecha_fin.strftime('%d/%m/%Y') if detalle.fecha_fin else 'Sin fecha de fin'
+                datos['informacion_adicional']['dias_cesion'] = detalle.dias_cesion_legible() or '—'
+                datos['informacion_adicional']['dias_devolucion'] = detalle.dias_devolucion_legible() or '—'
+                datos['informacion_adicional']['nota'] = (
+                    'El compañero (receptor) te cubre doblándose en tus días de cesión, y tú le devuelves '
+                    'doblándote en los días de devolución, durante el rango indicado. '
+                    'No aplica domingos, festivos ni días de mantenimiento. Solo se aplican pares completos '
+                    '(si un lado tiene más fechas elegibles que el otro, el sobrante queda excluido por balance).'
+                )
+
+                from solicitudes.services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
+                resultado = DobladaPermanenteAplicacionService.calcular_fechas_aplicables_y_excluidas(
+                    detalle, solicitud.explorador_solicitante, solicitud.explorador_receptor
+                )
+                datos['fechas']['cesion_aplicables'] = [f.strftime('%d/%m/%Y') for f in resultado['cesion']['aplicables']]
+                datos['fechas']['cesion_excluidas'] = [
+                    {'fecha': fi['fecha'].strftime('%d/%m/%Y'), 'razon': fi['razon']}
+                    for fi in resultado['cesion']['excluidas']
+                ]
+                datos['fechas']['devolucion_aplicables'] = [f.strftime('%d/%m/%Y') for f in resultado['devolucion']['aplicables']]
+                datos['fechas']['devolucion_excluidas'] = [
+                    {'fecha': fi['fecha'].strftime('%d/%m/%Y'), 'razon': fi['razon']}
+                    for fi in resultado['devolucion']['excluidas']
+                ]
+                datos['fechas']['total_dias'] = len(resultado['cesion']['aplicables']) + len(resultado['devolucion']['aplicables'])
+        except Exception as e:
+            logger.error(f"Error obteniendo detalles de DOBLADA PERMANENTE: {e}")
+            datos['fechas']['error'] = 'No se pudieron obtener los detalles de la doblada permanente'

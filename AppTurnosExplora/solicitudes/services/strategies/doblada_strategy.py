@@ -1226,3 +1226,93 @@ class DobladaStrategy(SolicitudStrategy):
         # día sin turno.
         turno_service = get_turno_service()
         return turno_service.get_turno_explorador(explorador_id, fecha)
+
+    def detalle(self, solicitud, datos):
+        """
+        Detalle propio de DOBLADA para la pantalla de consulta.
+
+        Movido desde `views/detalle.py` en la Fase 2 (cerrar el OCP): la vista
+        elegía con una cadena `if tipo_nombre == ...`, así que cada tipo nuevo
+        obligaba a editarla. El cuerpo se trasladó SIN cambios de lógica; solo
+        los imports relativos pasaron a absolutos al cambiar de paquete.
+        """
+        try:
+            detalle = solicitud.doblada
+            if detalle:
+                _fc = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
+                _fp = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
+                _sol_nom = solicitud.explorador_solicitante.nombre
+                _rec_nom = solicitud.explorador_receptor.nombre
+
+                if getattr(detalle, 'es_intercambio', False):
+                    # INTERCAMBIO DE DOBLADAS: swap de días doblados. NO es una cesión
+                    # (no hay jornada cedida ni tipo de cesión) y NO genera ni altera deudas.
+                    datos['informacion_adicional']['modalidad'] = 'Intercambio de dobladas'
+                    datos['informacion_adicional']['intercambio_dia_a'] = (
+                        f'{_fc} — tu doblada: la trabaja completa {_rec_nom} y tú descansas'
+                    )
+                    datos['informacion_adicional']['intercambio_dia_b'] = (
+                        f'{_fp} — doblada de {_rec_nom}: la trabajas completa tú y él/ella descansa'
+                    )
+                    datos['informacion_adicional']['deuda_30min'] = (
+                        'No genera ni altera deudas (es un intercambio de días doblados; '
+                        'cada uno conserva las deudas que ya tenía).'
+                    )
+                else:
+                    datos['fechas']['fecha_doblada'] = _fc
+                    datos['fechas']['fecha_pago'] = _fp
+
+                    # Tipo de cesión y jornada cedida
+                    _tc = {
+                        'cesion_completa': 'Completa (AM y PM)',
+                        'cesion_parcial_am': 'Parcial AM',
+                        'cesion_parcial_pm': 'Parcial PM',
+                    }.get(detalle.tipo_cesion, detalle.tipo_cesion)
+                    datos['informacion_adicional']['tipo_cesion'] = _tc
+                    if detalle.jornada_cedida:
+                        datos['informacion_adicional']['jornada_cedida'] = detalle.jornada_cedida.upper()
+
+                    # Qué cubre el deudor en la fecha de pago (cuando el compañero tiene doblada)
+                    _jcp = (getattr(detalle, 'jornada_cubre_en_pago', '') or '').upper()
+                    if _jcp:
+                        datos['informacion_adicional']['cubre_en_pago'] = {
+                            'AM': f'En el pago cubres la jornada AM de {_rec_nom} (él/ella conserva PM)',
+                            'PM': f'En el pago cubres la jornada PM de {_rec_nom} (él/ella conserva AM)',
+                            'AMBAS': f'En el pago cubres la doblada completa de {_rec_nom} (él/ella descansa)',
+                        }.get(_jcp, _jcp)
+
+                    # Pago en sábado (AM / PM / AMBAS) y, si es AMBAS, el día de pago en semana
+                    if getattr(detalle, 'jornada_pago_sabado', None):
+                        jps = detalle.jornada_pago_sabado.upper()
+                        datos['informacion_adicional']['pago_sabado'] = {
+                            'AM': 'Cubres la jornada AM ese sábado (el compañero conserva PM)',
+                            'PM': 'Cubres la jornada PM ese sábado (el compañero conserva AM)',
+                            'AMBAS': 'Cubres el día completo (AM+PM); el compañero descansa y te devuelve media jornada en semana',
+                        }.get(jps, jps)
+                    if getattr(detalle, 'fecha_pago_semana', None):
+                        datos['informacion_adicional']['fecha_pago_semana'] = detalle.fecha_pago_semana.strftime('%d/%m/%Y')
+
+                    # Deuda de 30 min REAL (no el campo genérico del modelo):
+                    # - aprobada: lo que efectivamente se generó (por persona y fecha).
+                    # - pendiente: explicar la regla (se calcula al aprobar).
+                    if solicitud.estado in ('aprobada', 'completada'):
+                        from solicitudes.models import DeudaCorporativa as _DC
+                        _dcs = list(_DC.objects.filter(solicitud_origen=solicitud)
+                                    .exclude(estado='cancelada').select_related('explorador'))
+                        if _dcs:
+                            datos['informacion_adicional']['deuda_30min'] = '; '.join(
+                                f'{x.explorador.nombre}: {x.minutos} min '
+                                f'(dobla el {x.fecha_doblada.strftime("%d/%m/%Y")})'
+                                for x in _dcs
+                            )
+                        else:
+                            datos['informacion_adicional']['deuda_30min'] = (
+                                'No se generó deuda de 30 min (nadie queda doblado en día hábil).'
+                            )
+                    else:
+                        datos['informacion_adicional']['deuda_30min'] = (
+                            'Se calcula al aprobar: 30 min para quien trabaje doblada '
+                            '(AM+PM) en día hábil; sábados y festivos no generan.'
+                        )
+        except Exception as e:
+            logger.error(f"Error obteniendo detalles de DOBLADA: {e}")

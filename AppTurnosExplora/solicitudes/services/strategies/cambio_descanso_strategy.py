@@ -1,3 +1,4 @@
+import logging
 """
 Cambio de Día de Descanso (fin de semana y entre semana).
 
@@ -25,6 +26,8 @@ from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
 from core.utils.date_utils import DateUtils
+
+logger = logging.getLogger(__name__)
 
 
 class CambioDescansoStrategy(SolicitudStrategy):
@@ -819,3 +822,69 @@ class CambioDescansoStrategy(SolicitudStrategy):
             return [e for e in empleados if bases.get(e.id) == grupo_contrario]
         except Exception:
             return []
+
+    def detalle(self, solicitud, datos):
+        """
+        Detalle propio de CAMBIO DESCANSO para la pantalla de consulta.
+
+        Movido desde `views/detalle.py` en la Fase 2 (cerrar el OCP): la vista
+        elegía con una cadena `if tipo_nombre == ...`, así que cada tipo nuevo
+        obligaba a editarla. El cuerpo se trasladó SIN cambios de lógica; solo
+        los imports relativos pasaron a absolutos al cambiar de paquete.
+        """
+        try:
+            detalle = solicitud.doblada
+            if detalle:
+                fc = solicitud.fecha_cambio_turno
+                datos['fechas']['fecha_cesion'] = fc.strftime('%d/%m/%Y') if fc else 'No especificada'
+                datos['fechas']['fecha_pago'] = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else '—'
+                es_finde = bool(fc) and fc.weekday() in (5, 6)
+                if es_finde:
+                    datos['informacion_adicional']['modalidad'] = 'Fin de semana (intercambio ida y vuelta)'
+                else:
+                    sub = getattr(detalle, 'submodalidad_semana', None) or 'intercambio_dia'
+                    sub_legible = {
+                        'intercambio_dia': 'Entre semana: intercambio de día',
+                        'jornadas_partidas': 'Entre semana: jornadas partidas',
+                        'cobertura_misma_semana': 'Entre semana: cobertura con pago en la misma semana',
+                        'cambio_doblada': 'Entre semana: cambio de doblada',
+                    }.get(sub, sub)
+                    datos['informacion_adicional']['modalidad'] = sub_legible
+                    if sub == 'jornadas_partidas' and detalle.jornada_cedida:
+                        datos['informacion_adicional']['jornada_cedida_partida'] = detalle.jornada_cedida.upper()
+                    if sub == 'cobertura_misma_semana':
+                        _tc = {
+                            'cesion_completa': 'Día completo (AM y PM)',
+                            'cesion_parcial_am': 'Solo jornada AM',
+                            'cesion_parcial_pm': 'Solo jornada PM',
+                        }.get(detalle.tipo_cesion, detalle.tipo_cesion)
+                        datos['informacion_adicional']['te_cubren'] = _tc
+                        # Deuda de 30 min: real si ya está aprobada; regla si sigue pendiente.
+                        if solicitud.estado in ('aprobada', 'completada'):
+                            from solicitudes.models import DeudaCorporativa as _DC
+                            _dcs = list(_DC.objects.filter(solicitud_origen=solicitud)
+                                        .exclude(estado='cancelada').select_related('explorador'))
+                            if _dcs:
+                                datos['informacion_adicional']['deuda_30min'] = '; '.join(
+                                    f'{x.explorador.nombre}: {x.minutos} min '
+                                    f'(dobla el {x.fecha_doblada.strftime("%d/%m/%Y")})'
+                                    for x in _dcs
+                                )
+                            else:
+                                datos['informacion_adicional']['deuda_30min'] = (
+                                    'No se generó deuda de 30 min.'
+                                )
+                        else:
+                            datos['informacion_adicional']['deuda_30min'] = (
+                                'Se calcula al aprobar: 30 min solo para quien doble '
+                                'sobre su propia jornada.'
+                            )
+                    elif sub == 'cambio_doblada':
+                        datos['informacion_adicional']['nota'] = (
+                            'Sin deuda: ambos ya doblaban un día, solo se intercambia cuál.'
+                        )
+                    else:
+                        datos['informacion_adicional']['nota'] = 'Intercambio directo, sin deuda.'
+        except Exception as e:
+            logger.error(f"Error obteniendo detalles de CAMBIO DESCANSO: {e}")
+            datos['fechas']['error'] = 'No se pudieron obtener los detalles del cambio de descanso'

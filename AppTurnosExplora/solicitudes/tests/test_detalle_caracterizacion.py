@@ -188,36 +188,51 @@ class TestFormaPorTipo(DetalleCaracterizacionTestCase):
 
 class TestDespacho(DetalleCaracterizacionTestCase):
     """
-    Qué rama atiende a cada tipo. Es lo ÚNICO que la Fase 2 mueve —los cuerpos se
-    relocalizan sin cambiar— así que el fallo realista del refactor es que un tipo
-    acabe atendido por la rama de otro.
+    Qué strategy atiende a cada tipo.
 
-    Sin esta comprobación el cruce entre CAMBIO TURNO, DOBLADA y D FDS pasaría
-    inadvertido: los tres producen la misma forma cuando no hay detalle asociado.
+    Antes del refactor esto comprobaba qué método `_detalle_*` de la vista se
+    ejecutaba; tras la Fase 2 comprueba qué **strategy** recibe la llamada. Es la
+    misma pregunta —¿acaba cada tipo en su rama?— sobre el mecanismo nuevo, y sigue
+    siendo necesaria: sin modelos de detalle asociados, CAMBIO TURNO, DOBLADA y
+    D FDS producen la misma forma, así que un cruce entre esos tres no se vería
+    comparando la salida.
+
+    Los 8 tests de forma y comportamiento de este archivo pasaron SIN modificarse
+    tras mover los seis cuerpos: esa es la prueba de que el traslado no cambió nada.
     """
 
     ESPERADO = {
-        'CAMBIO TURNO': '_detalle_ct',
-        'CT PERMANENTE': '_detalle_ct_permanente',
-        'DOBLADA': '_detalle_doblada',
-        'D FDS': '_detalle_d_fds',
-        'DOBLADA PERMANENTE': '_detalle_doblada_permanente',
-        'CAMBIO DESCANSO': '_detalle_cambio_descanso',
-        # Sin rama propia: cae en el `else`, que hoy es el de CAMBIO TURNO.
-        'TIPO QUE NO EXISTE': '_detalle_ct',
+        'CAMBIO TURNO': 'CambioTurnoStrategy',
+        'CT PERMANENTE': 'CTPermanenteStrategy',
+        'DOBLADA': 'DobladaStrategy',
+        'D FDS': 'DFDSStrategy',
+        'DOBLADA PERMANENTE': 'DobladaPermanenteStrategy',
+        'CAMBIO DESCANSO': 'CambioDescansoStrategy',
+        # Sin strategy propia: la factory cae a CambioTurnoStrategy, que es
+        # exactamente donde lo mandaba el `else` de la cadena anterior.
+        'TIPO QUE NO EXISTE': 'CambioTurnoStrategy',
     }
 
-    RAMAS = ['_detalle_ct', '_detalle_ct_permanente', '_detalle_doblada',
-             '_detalle_d_fds', '_detalle_doblada_permanente', '_detalle_cambio_descanso']
+    @staticmethod
+    def _clases():
+        from solicitudes.services.strategies.cambio_descanso_strategy import CambioDescansoStrategy
+        from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
+        from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
+        from solicitudes.services.strategies.d_fds_strategy import DFDSStrategy
+        from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 
-    def _rama_usada(self, tipo_nombre):
+        return [CambioTurnoStrategy, CTPermanenteStrategy, DobladaStrategy,
+                DFDSStrategy, DobladaPermanenteStrategy, CambioDescansoStrategy]
+
+    def _strategy_usada(self, tipo_nombre):
         from unittest.mock import patch
 
         llamadas = []
         parches = []
-        for nombre in self.RAMAS:
-            p = patch.object(ObtenerDetalleSolicitudView, nombre,
-                             staticmethod(lambda s, d, _n=nombre: llamadas.append(_n)))
+        for clase in self._clases():
+            p = patch.object(clase, 'detalle',
+                             lambda self, s, d, _n=clase.__name__: llamadas.append(_n))
             parches.append(p)
             p.start()
         try:
@@ -227,7 +242,23 @@ class TestDespacho(DetalleCaracterizacionTestCase):
                 p.stop()
         return llamadas
 
-    def test_cada_tipo_va_a_su_rama(self):
-        for tipo, rama in self.ESPERADO.items():
+    def test_cada_tipo_va_a_su_strategy(self):
+        for tipo, strategy in self.ESPERADO.items():
             with self.subTest(tipo=tipo):
-                assert self._rama_usada(tipo) == [rama]
+                assert self._strategy_usada(tipo) == [strategy]
+
+    def test_la_vista_ya_no_conoce_los_tipos(self):
+        """
+        El objetivo de la Fase 2, comprobado: `construir_datos` no puede volver a
+        contener una cadena de comparaciones por nombre de tipo. Si alguien la
+        reintroduce, este test lo caza.
+        """
+        import inspect
+
+        from solicitudes.views.detalle import ObtenerDetalleSolicitudView
+
+        fuente = inspect.getsource(ObtenerDetalleSolicitudView.construir_datos)
+        codigo = [l for l in fuente.splitlines() if not l.strip().startswith('#')]
+
+        for tipo in TIPOS:
+            assert f"== '{tipo}'" not in ' '.join(codigo), tipo

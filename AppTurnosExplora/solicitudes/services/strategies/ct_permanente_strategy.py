@@ -7,7 +7,7 @@ which are requests for permanent shift changes.
 
 import logging
 from typing import Dict, Any, Tuple, Optional, List
-from datetime import date
+from datetime import date, timedelta
 from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
@@ -714,3 +714,77 @@ class CTPermanenteStrategy(SolicitudStrategy):
         """
         from ..ct_permanente_helper import generar_fechas_candidatas_ct_permanente
         return generar_fechas_candidatas_ct_permanente(fecha_inicio, fecha_fin, dias_seleccionados)
+
+    def detalle(self, solicitud, datos):
+        """
+        Detalle propio de CT PERMANENTE para la pantalla de consulta.
+
+        Movido desde `views/detalle.py` en la Fase 2 (cerrar el OCP): la vista
+        elegía con una cadena `if tipo_nombre == ...`, así que cada tipo nuevo
+        obligaba a editarla. El cuerpo se trasladó SIN cambios de lógica; solo
+        los imports relativos pasaron a absolutos al cambiar de paquete.
+        """
+        try:
+            detalle = solicitud.cambio_permanente
+            if detalle:
+                datos['fechas']['inicio'] = detalle.fecha_inicio.strftime('%d/%m/%Y')
+                datos['fechas']['fin'] = detalle.fecha_fin.strftime('%d/%m/%Y') if detalle.fecha_fin else 'Sin fecha de fin'
+                
+                # Obtener días de semana seleccionados
+                dias_seleccionados = detalle.dias.filter(tipo='dia_semana')
+                dias_semana_nombres = []
+                for dia in dias_seleccionados:
+                    if dia.dia_semana is not None:
+                        dias_semana_nombres.append(dia.get_dia_semana_display())
+                
+                if dias_semana_nombres:
+                    datos['informacion_adicional']['dias_semana_seleccionados'] = ', '.join(dias_semana_nombres)
+                else:
+                    datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los días hábiles'
+                
+                # Calcular fechas aplicables y excluidas
+                from solicitudes.services.ct_permanente_helper import calcular_fechas_aplicables_y_excluidas_ct_permanente
+                fechas_aplicables, fechas_excluidas = calcular_fechas_aplicables_y_excluidas_ct_permanente(
+                    detalle,
+                    solicitud.explorador_solicitante,
+                    solicitud.explorador_receptor
+                )
+                
+                datos['fechas']['aplicables'] = [fecha.strftime('%d/%m/%Y') for fecha in fechas_aplicables]
+                datos['fechas']['total_dias'] = len(fechas_aplicables)
+                
+                # Agregar fechas excluidas con sus razones
+                datos['fechas']['excluidas'] = [
+                    {
+                        'fecha': fecha_info['fecha'].strftime('%d/%m/%Y'),
+                        'razon': fecha_info['razon']
+                    }
+                    for fecha_info in fechas_excluidas
+                ]
+
+                # Resumen informativo del rango (UX)
+                try:
+                    fi = detalle.fecha_inicio
+                    ff = detalle.fecha_fin or DateUtils.parse_date(f"{fi.year}-12-31")
+                    total_dias_rango = (ff - fi).days + 1
+                    fines_semana = 0
+                    cur = fi
+                    while cur <= ff:
+                        if cur.weekday() in (5, 6):
+                            fines_semana += 1
+                        # Era `timezone.timedelta`, que funciona solo porque
+                        # django.utils.timezone reexporta timedelta por dentro. Al
+                        # mover el código aquí, ruff lo detectó como nombre indefinido.
+                        cur = cur + timedelta(days=1)
+                    datos['fechas']['resumen'] = {
+                        'total_dias_rango': total_dias_rango,
+                        'fines_de_semana_en_rango': fines_semana,
+                        'prioridad': 'Mantenimiento > Festivo > Temporada > Descanso Solicitante > Descanso Receptor > Fines de semana',
+                    }
+                except Exception:
+                    datos['fechas']['resumen'] = None
+                
+                datos['informacion_adicional']['nota'] = 'Se excluyen domingos, festivos, días de mantenimiento y días de descanso de los exploradores.'
+        except Exception as e:
+            logger.error(f"Error obteniendo detalles de CT PERMANENTE: {e}")
+            datos['fechas']['error'] = 'No se pudieron obtener los detalles del cambio permanente'

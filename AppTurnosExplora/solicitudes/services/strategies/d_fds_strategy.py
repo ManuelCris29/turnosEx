@@ -32,6 +32,8 @@ from core.utils.date_utils import DateUtils
 # alcanzando el módulo por aquí (`patch.object(_d_fds_mod.timezone, 'localdate')`).
 from django.utils import timezone
 
+logger = logging.getLogger(__name__)
+
 
 class DFDSStrategy(SolicitudStrategy):
     """Strategy para "D FDS" (Doblada de Fin de Semana)."""
@@ -464,3 +466,31 @@ class DFDSStrategy(SolicitudStrategy):
             return get_turno_service().get_turno_explorador(explorador_id, fecha)
         except Exception:
             return {}
+
+    def detalle(self, solicitud, datos):
+        """
+        Detalle propio de D FDS para la pantalla de consulta.
+
+        Movido desde `views/detalle.py` en la Fase 2 (cerrar el OCP): la vista
+        elegía con una cadena `if tipo_nombre == ...`, así que cada tipo nuevo
+        obligaba a editarla. El cuerpo se trasladó SIN cambios de lógica; solo
+        los imports relativos pasaron a absolutos al cambiar de paquete.
+        """
+        try:
+            detalle = solicitud.doblada  # D FDS usa el mismo modelo que DOBLADA
+            if detalle:
+                _rec_nom = solicitud.explorador_receptor.nombre
+                _fc = solicitud.fecha_cambio_turno.strftime('%d/%m/%Y') if solicitud.fecha_cambio_turno else 'No especificada'
+                _fp = detalle.fecha_pago.strftime('%d/%m/%Y') if detalle.fecha_pago else 'Pendiente de pago'
+                datos['informacion_adicional']['modalidad'] = 'Doblada de fin de semana (intercambio de días de finde)'
+                datos['informacion_adicional']['intercambio_dia_a'] = (
+                    f'{_fc} — tu día del finde: lo cubre {_rec_nom} doblándose y tú descansas'
+                )
+                datos['informacion_adicional']['intercambio_dia_b'] = (
+                    f'{_fp} — día del finde de {_rec_nom}: lo cubres tú doblándote y él/ella descansa'
+                )
+                datos['informacion_adicional']['deuda_30min'] = (
+                    'No genera deuda de 30 min (las dobladas de fin de semana no la generan).'
+                )
+        except Exception as e:
+            logger.error(f"Error obteniendo detalles de D FDS: {e}")
