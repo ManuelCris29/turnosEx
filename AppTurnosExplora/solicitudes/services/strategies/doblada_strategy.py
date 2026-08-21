@@ -497,71 +497,18 @@ class DobladaStrategy(SolicitudStrategy):
                                 'jornada_comun': jcp_u,
                             })
 
-            # Validar jornadas contrarias — se omite para festivos de semana porque en esos días
-            # el grupo que descansa (misma jornada base) cubre válidamente al grupo que trabaja.
-            if not es_cesion_festivo:
-                SolicitudValidator.validar_jornadas_contrarias_doblada(
-                    explorador_solicitante,
-                    explorador_receptor,
-                    fecha_cesion,
-                    jornada_cedida
-                )
-            
-            # Validar que receptor no tenga doblada activa en fecha de CESIÓN (evitar triple turno)
-            SolicitudValidator.validar_no_triple_turno(explorador_receptor, fecha_cesion)
-            # NO validar triple turno del receptor en fecha_pago:
-            # en la fecha de pago el receptor PIERDE una jornada (el deudor se la devuelve),
-            # no gana una. La protección real la da la validación de jornada_cedida más abajo.
-            
-            # Validar que deudor no tenga doblada activa en fecha de pago. Mensaje contextual:
-            # ya estamos en el formulario de doblada, así que NO decir "usa la Solicitud de Dobladas".
-            SolicitudValidator.validar_no_doblada_activa(
-                explorador_solicitante, fecha_pago,
-                mensaje=(
-                    f'No puedes pagar la doblada el {fecha_pago_obj.strftime("%d/%m/%Y")}: ese día ya '
-                    f'tienes una jornada doblada (AM + PM), así que no te queda jornada libre para '
-                    f'trabajar y devolverla. Elige otra fecha de pago en la que estés libre.'
-                )
+            # Validaciones finales de jornadas, extraidas a un metodo propio en la
+            # Fase 3. Son el ultimo tramo de la validacion y no dejan ninguna variable
+            # viva hacia abajo, asi que se pueden mover sin tocar el resto.
+            _error = self._validar_jornadas_y_coincidencia(
+                explorador_solicitante, explorador_receptor,
+                fecha_cesion, fecha_pago, fecha_pago_obj,
+                es_cesion_festivo, es_pago_festivo,
+                jornada_cedida, jornada_pago_sabado, jornada_cubre_en_pago, tipo_cesion,
             )
-            
-            # Validar coincidencia de jornadas en fecha de pago (caso crítico) para pagos NO festivos.
-            # Si el acreedor tiene doblada y el deudor un solo turno, jcp es la media jornada que trabajará el deudor
-            # (puede ser la contraria a su turno actual). get_jornada del acreedor puede coincidir con el deudor por
-            # .first() y disparar un falso "requiere CT". En ese caso no aplicar coincidencia clásica.
-            if not es_pago_festivo:
-                omitir_coincidencia_pago = False
-                if (
-                    tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm')
-                    and not (fecha_pago_obj.weekday() == 5 and jornada_pago_sabado)
-                    and jornada_cubre_en_pago
-                ):
-                    jcp_coinc = str(jornada_cubre_en_pago).strip().upper()
-                    if jcp_coinc in ('AM', 'PM'):
-                        # Fuente de verdad (estado_dia), no turnos reales: la doblada del receptor y
-                        # la jornada del deudor pueden ser VIRTUALES (temporada/alternancia/festivo).
-                        # Si el receptor dobla y el deudor trabaja UNA jornada contraria a la que va a
-                        # cubrir, el pago es limpio → omitir la verificación clásica de coincidencia.
-                        from turnos.services.turno_service import TurnoService as _TS_coinc
-                        rec_dobla = _TS_coinc.estado_dia(
-                            explorador_receptor, fecha_pago_obj).get('jornada') == 'DOBLADA'
-                        sol_jorn = _TS_coinc.estado_dia(
-                            explorador_solicitante, fecha_pago_obj).get('jornada')
-                        if rec_dobla and sol_jorn in ('AM', 'PM') and sol_jorn != jcp_coinc:
-                            omitir_coincidencia_pago = True
-                if not omitir_coincidencia_pago:
-                    coincidencia = SolicitudValidator.validar_coincidencia_jornadas_pago(
-                        explorador_solicitante,
-                        explorador_receptor,
-                        fecha_pago
-                    )
-                    if coincidencia['requiere_cambio_turno']:
-                        return False, json.dumps({
-                            'code': 'requiere_cambio_turno_previo',
-                            'message': 'No se puede pagar trabajando dos veces la misma jornada. Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago.',
-                            'fecha_pago': str(fecha_pago),
-                            'jornada_comun': coincidencia['jornada_comun']
-                        })
-            
+            if _error:
+                return False, _error
+
             return True, "Solicitud de doblada válida"
             
         except ValidationError as e:
@@ -576,6 +523,97 @@ class DobladaStrategy(SolicitudStrategy):
             logger.exception("Error INESPERADO validando doblada (no es una regla de negocio)")
             raise
     
+
+    def _validar_jornadas_y_coincidencia(
+            self, explorador_solicitante, explorador_receptor,
+            fecha_cesion, fecha_pago, fecha_pago_obj,
+            es_cesion_festivo, es_pago_festivo,
+            jornada_cedida, jornada_pago_sabado, jornada_cubre_en_pago, tipo_cesion):
+        """
+        Ultimo tramo de `validar_solicitud`: jornadas contrarias, triple turno,
+        doblada activa en la fecha de pago y coincidencia de jornadas.
+
+        Devuelve el MENSAJE de error, o None si todo pasa. Se eligio esa forma en
+        vez de (bool, str) porque aqui "sin error" es el caso normal y un None se
+        lee mejor que un (True, "") en el punto de llamada.
+
+        Las validaciones que lanzan ValidationError siguen propagandola: la captura
+        vive en `validar_solicitud`, que es quien la traduce a (False, mensaje).
+        Por eso este metodo NO lleva su propio try/except: duplicarlo cambiaria el
+        punto donde se decide que es regla de negocio y que es bug.
+
+        Los once parametros son fieles a lo que el bloque usaba como variables
+        locales. Es mucha firma, y es justo la señal de que el siguiente paso de
+        esta fase deberia ser un objeto de contexto con la entrada ya normalizada.
+        """
+        from ..solicitud_validator import SolicitudValidator
+
+        # Validar jornadas contrarias — se omite para festivos de semana porque en esos días
+        # el grupo que descansa (misma jornada base) cubre válidamente al grupo que trabaja.
+        if not es_cesion_festivo:
+            SolicitudValidator.validar_jornadas_contrarias_doblada(
+                explorador_solicitante,
+                explorador_receptor,
+                fecha_cesion,
+                jornada_cedida
+            )
+        
+        # Validar que receptor no tenga doblada activa en fecha de CESIÓN (evitar triple turno)
+        SolicitudValidator.validar_no_triple_turno(explorador_receptor, fecha_cesion)
+        # NO validar triple turno del receptor en fecha_pago:
+        # en la fecha de pago el receptor PIERDE una jornada (el deudor se la devuelve),
+        # no gana una. La protección real la da la validación de jornada_cedida más abajo.
+        
+        # Validar que deudor no tenga doblada activa en fecha de pago. Mensaje contextual:
+        # ya estamos en el formulario de doblada, así que NO decir "usa la Solicitud de Dobladas".
+        SolicitudValidator.validar_no_doblada_activa(
+            explorador_solicitante, fecha_pago,
+            mensaje=(
+                f'No puedes pagar la doblada el {fecha_pago_obj.strftime("%d/%m/%Y")}: ese día ya '
+                f'tienes una jornada doblada (AM + PM), así que no te queda jornada libre para '
+                f'trabajar y devolverla. Elige otra fecha de pago en la que estés libre.'
+            )
+        )
+        
+        # Validar coincidencia de jornadas en fecha de pago (caso crítico) para pagos NO festivos.
+        # Si el acreedor tiene doblada y el deudor un solo turno, jcp es la media jornada que trabajará el deudor
+        # (puede ser la contraria a su turno actual). get_jornada del acreedor puede coincidir con el deudor por
+        # .first() y disparar un falso "requiere CT". En ese caso no aplicar coincidencia clásica.
+        if not es_pago_festivo:
+            omitir_coincidencia_pago = False
+            if (
+                tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm')
+                and not (fecha_pago_obj.weekday() == 5 and jornada_pago_sabado)
+                and jornada_cubre_en_pago
+            ):
+                jcp_coinc = str(jornada_cubre_en_pago).strip().upper()
+                if jcp_coinc in ('AM', 'PM'):
+                    # Fuente de verdad (estado_dia), no turnos reales: la doblada del receptor y
+                    # la jornada del deudor pueden ser VIRTUALES (temporada/alternancia/festivo).
+                    # Si el receptor dobla y el deudor trabaja UNA jornada contraria a la que va a
+                    # cubrir, el pago es limpio → omitir la verificación clásica de coincidencia.
+                    from turnos.services.turno_service import TurnoService as _TS_coinc
+                    rec_dobla = _TS_coinc.estado_dia(
+                        explorador_receptor, fecha_pago_obj).get('jornada') == 'DOBLADA'
+                    sol_jorn = _TS_coinc.estado_dia(
+                        explorador_solicitante, fecha_pago_obj).get('jornada')
+                    if rec_dobla and sol_jorn in ('AM', 'PM') and sol_jorn != jcp_coinc:
+                        omitir_coincidencia_pago = True
+            if not omitir_coincidencia_pago:
+                coincidencia = SolicitudValidator.validar_coincidencia_jornadas_pago(
+                    explorador_solicitante,
+                    explorador_receptor,
+                    fecha_pago
+                )
+                if coincidencia['requiere_cambio_turno']:
+                    return json.dumps({
+                        'code': 'requiere_cambio_turno_previo',
+                        'message': 'No se puede pagar trabajando dos veces la misma jornada. Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago.',
+                        'fecha_pago': str(fecha_pago),
+                        'jornada_comun': coincidencia['jornada_comun']
+                    })
+        
+        return None
 
     @staticmethod
     def _validar_intercambio(explorador_solicitante, explorador_receptor, fecha_cesion_obj, fecha_pago,
