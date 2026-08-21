@@ -440,77 +440,16 @@ class DobladaStrategy(SolicitudStrategy):
                     logger.warning(f"Error al obtener rotación de festivos: {str(e)}", exc_info=True)
             
             # ===========================
-            # Regla especial: pago en sábado (día de semana ↔ sábado)
-            # ===========================
-            # (fecha_pago_obj ya se parseó una sola vez en las reglas comunes.)
+            # Reglas del pago en sabado, extraidas en la Fase 3.
+            #
+            # Devuelve la TUPLA (False, mensaje) y no solo el mensaje, al reves que los
+            # otros bloques extraidos: aqui se delega en `_validar_pago_en_sabado`, que
+            # ya tenia esa forma de antes. Normalizarla habria mezclado un cambio de
+            # contrato con el traslado.
+            _res = self._validar_pago_sabado(entrada)
+            if _res is not None:
+                return _res
 
-            # Un sábado se reparte en dos MITADES (AM/PM). Se permite un SEGUNDO pago de doblada en
-            # el mismo sábado SOLO si usa la mitad LIBRE: así terminas doblado (AM+PM) y cada mitad
-            # paga a una persona distinta (p. ej. cediste AM a X y PM a Y y pagas ambas ese sábado).
-            # Se bloquea si la mitad que pides ya está ocupada, si el sábado ya está lleno, o si
-            # este pago pide el día completo (AMBAS) con una mitad ya tomada.
-            if fecha_pago_obj and fecha_pago_obj.weekday() == 5:
-                _otras_pago_sab = SolicitudCambio.objects.filter(
-                    explorador_solicitante=explorador_solicitante,
-                    tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
-                    estado='aprobada',
-                    doblada__fecha_pago=fecha_pago_obj,
-                ).select_related('doblada')
-                _sid = _excluir_id
-                if _sid:
-                    _otras_pago_sab = _otras_pago_sab.exclude(id=_sid)
-                _ocupadas = set()
-                for _o in _otras_pago_sab:
-                    _jps = (getattr(_o.doblada, 'jornada_pago_sabado', '') or '').upper()
-                    if _jps in ('AM', 'PM'):
-                        _ocupadas.add(_jps)
-                    else:
-                        # AMBAS, o un pago en sábado sin media jornada explícita: ocupa el día completo.
-                        _ocupadas |= {'AM', 'PM'}
-                if _ocupadas:
-                    _nueva = str(jornada_pago_sabado or '').upper()
-                    _libre = {'AM', 'PM'} - _ocupadas
-                    _conflicto = (
-                        not _libre                     # sábado lleno
-                        or _nueva not in ('AM', 'PM')  # este no paga una media jornada concreta (AMBAS/none)
-                        or _nueva in _ocupadas          # esa media jornada ya está tomada
-                    )
-                    if _conflicto:
-                        _ocu_txt = '/'.join(sorted(_ocupadas))
-                        if _libre and _nueva not in _libre and _nueva != 'AMBAS':
-                            _libre_j = next(iter(_libre))
-                            return False, (
-                                f"Ese sábado ({fecha_pago_obj.strftime('%d/%m/%Y')}) ya pagas la jornada "
-                                f"{_ocu_txt} con otra doblada. Solo queda libre la jornada {_libre_j}: "
-                                f"elige {_libre_j} para pagar esta doblada, o paga en otro día."
-                            )
-                        return False, (
-                            f"Ese sábado ({fecha_pago_obj.strftime('%d/%m/%Y')}) ya está comprometido como "
-                            f"pago de otra doblada tuya (jornada {_ocu_txt}). Un sábado admite un solo pago "
-                            f"por cada media jornada; elige otro día de pago."
-                        )
-
-            # Pagar en sábado EXIGE elegir la media jornada (AM/PM/AMBAS). Sin ese dato, ni la
-            # validación de sábado ni la aplicación entran en su rama de fin de semana: se caía a
-            # la lógica de día de semana, que usa la jornada predeterminada e IGNORA la alternancia
-            # de fines de semana → turnos incoherentes. El formulario siempre lo envía; esto es el
-            # guard de servidor equivalente.
-            if fecha_pago_obj.weekday() == 5 and not jornada_pago_sabado:
-                return False, (
-                    f"Para pagar el sábado {fecha_pago_obj.strftime('%d/%m/%Y')} debes indicar qué "
-                    f"jornada cubrirás ese día (AM, PM o ambas)."
-                )
-
-            es_pago_sabado = fecha_pago_obj.weekday() == 5 and jornada_pago_sabado
-
-            if es_pago_sabado:
-                res = DobladaStrategy._validar_pago_en_sabado(
-                    explorador_solicitante, explorador_receptor, fecha_pago_obj,
-                    jornada_pago_sabado, jornada_cedida, fecha_cesion, fecha_pago_semana,
-                    excluir_id=_excluir_id,
-                )
-                if res is not None:
-                    return res
             # Cobertura AM / PM / AMBAS en la fecha de pago, extraida en la Fase 3.
             # Solo lee de `entrada`, asi que la firma se queda en un parametro: es
             # lo que el objeto de contexto venia a habilitar.
@@ -622,12 +561,102 @@ class DobladaStrategy(SolicitudStrategy):
                     return json.dumps({
                         'code': 'requiere_cambio_turno_previo',
                         'message': 'No se puede pagar trabajando dos veces la misma jornada. Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago.',
-                        'entrada.fecha_pago': str(entrada.fecha_pago),
+                        'fecha_pago': str(entrada.fecha_pago),
                         'jornada_comun': coincidencia['jornada_comun']
                     })
         
         return None
 
+
+
+    def _validar_pago_sabado(self, entrada):
+        """
+        Reglas del pago en sabado. Devuelve (False, mensaje) o None.
+
+        Un sabado se reparte en dos MITADES (AM/PM), y por eso admite un SEGUNDO
+        pago de doblada siempre que use la mitad libre: se termina doblado (AM+PM)
+        y cada mitad paga a una persona distinta. Se bloquea si la mitad pedida ya
+        esta ocupada, si el sabado esta lleno, o si este pago pide el dia completo
+        con una mitad ya tomada.
+
+        La exigencia de indicar la media jornada NO es un capricho del formulario:
+        sin ese dato, ni la validacion ni la aplicacion entran en su rama de fin de
+        semana y se cae a la logica de dia de semana, que usa la jornada
+        predeterminada e IGNORA la alternancia de findes, dejando turnos
+        incoherentes.
+        """
+        # Regla especial: pago en sábado (día de semana ↔ sábado)
+        # ===========================
+        # (fecha_pago_obj ya se parseó una sola vez en las reglas comunes.)
+
+        # Un sábado se reparte en dos MITADES (AM/PM). Se permite un SEGUNDO pago de doblada en
+        # el mismo sábado SOLO si usa la mitad LIBRE: así terminas doblado (AM+PM) y cada mitad
+        # paga a una persona distinta (p. ej. cediste AM a X y PM a Y y pagas ambas ese sábado).
+        # Se bloquea si la mitad que pides ya está ocupada, si el sábado ya está lleno, o si
+        # este pago pide el día completo (AMBAS) con una mitad ya tomada.
+        if entrada.fecha_pago_obj and entrada.fecha_pago_obj.weekday() == 5:
+            _otras_pago_sab = SolicitudCambio.objects.filter(
+                explorador_solicitante=entrada.solicitante,
+                tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+                estado='aprobada',
+                doblada__fecha_pago=entrada.fecha_pago_obj,
+            ).select_related('doblada')
+            _sid = entrada.excluir_id
+            if _sid:
+                _otras_pago_sab = _otras_pago_sab.exclude(id=_sid)
+            _ocupadas = set()
+            for _o in _otras_pago_sab:
+                _jps = (getattr(_o.doblada, 'jornada_pago_sabado', '') or '').upper()
+                if _jps in ('AM', 'PM'):
+                    _ocupadas.add(_jps)
+                else:
+                    # AMBAS, o un pago en sábado sin media jornada explícita: ocupa el día completo.
+                    _ocupadas |= {'AM', 'PM'}
+            if _ocupadas:
+                _nueva = str(entrada.jornada_pago_sabado or '').upper()
+                _libre = {'AM', 'PM'} - _ocupadas
+                _conflicto = (
+                    not _libre                     # sábado lleno
+                    or _nueva not in ('AM', 'PM')  # este no paga una media jornada concreta (AMBAS/none)
+                    or _nueva in _ocupadas          # esa media jornada ya está tomada
+                )
+                if _conflicto:
+                    _ocu_txt = '/'.join(sorted(_ocupadas))
+                    if _libre and _nueva not in _libre and _nueva != 'AMBAS':
+                        _libre_j = next(iter(_libre))
+                        return False, (
+                            f"Ese sábado ({entrada.fecha_pago_obj.strftime('%d/%m/%Y')}) ya pagas la jornada "
+                            f"{_ocu_txt} con otra doblada. Solo queda libre la jornada {_libre_j}: "
+                            f"elige {_libre_j} para pagar esta doblada, o paga en otro día."
+                        )
+                    return False, (
+                        f"Ese sábado ({entrada.fecha_pago_obj.strftime('%d/%m/%Y')}) ya está comprometido como "
+                        f"pago de otra doblada tuya (jornada {_ocu_txt}). Un sábado admite un solo pago "
+                        f"por cada media jornada; elige otro día de pago."
+                    )
+
+        # Pagar en sábado EXIGE elegir la media jornada (AM/PM/AMBAS). Sin ese dato, ni la
+        # validación de sábado ni la aplicación entran en su rama de fin de semana: se caía a
+        # la lógica de día de semana, que usa la jornada predeterminada e IGNORA la alternancia
+        # de fines de semana → turnos incoherentes. El formulario siempre lo envía; esto es el
+        # guard de servidor equivalente.
+        if entrada.fecha_pago_obj.weekday() == 5 and not entrada.jornada_pago_sabado:
+            return False, (
+                f"Para pagar el sábado {entrada.fecha_pago_obj.strftime('%d/%m/%Y')} debes indicar qué "
+                f"jornada cubrirás ese día (AM, PM o ambas)."
+            )
+
+        es_pago_sabado = entrada.fecha_pago_obj.weekday() == 5 and entrada.jornada_pago_sabado
+
+        if es_pago_sabado:
+            res = DobladaStrategy._validar_pago_en_sabado(
+                entrada.solicitante, entrada.receptor, entrada.fecha_pago_obj,
+                entrada.jornada_pago_sabado, entrada.jornada_cedida, entrada.fecha_cesion, entrada.fecha_pago_semana,
+                excluir_id=entrada.excluir_id,
+            )
+            if res is not None:
+                return res
+        return None
 
     def _validar_cobertura_en_pago(self, entrada):
         """
@@ -694,7 +723,7 @@ class DobladaStrategy(SolicitudStrategy):
                                 f'no puedes hacerla dos veces. Solo puedes cubrir la jornada contraria ({contraria}). '
                                 f'Si necesitas cambiar tu jornada, primero realiza un cambio de turno sencillo.'
                             ),
-                            'entrada.fecha_pago': str(entrada.fecha_pago),
+                            'fecha_pago': str(entrada.fecha_pago),
                             'jornada_comun': jcp_u,
                         })
         return None

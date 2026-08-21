@@ -205,3 +205,50 @@ class TestUnFalloNoSeDisfrazaDeListaVacia(EmpleadosDisponiblesTestCase):
     def test_una_fecha_ilegible_tambien_propaga(self):
         with self.assertRaises((ValueError, TypeError)):
             self.estrategia.get_empleados_disponibles('no-es-fecha', self.solicitante)
+
+
+class TestContratoJsonConElFrontend(TestCase):
+    """
+    Las claves del JSON de `requiere_cambio_turno_previo`, que lee el formulario.
+
+    No es celo excesivo: durante la Fase 3, un reemplazo automatico de variables
+    por `entrada.x` alcanzo tambien a los literales de cadena y renombro la clave
+    'fecha_pago' a 'entrada.fecha_pago' en las DOS respuestas que la llevan.
+    `solicitar_doblada.js:2913` lee `data.fecha_pago`, asi que caia siempre al
+    valor de respaldo y el mensaje mostraba la fecha del formulario en vez de la
+    que devuelve el servidor.
+
+    Paso el CI sin que saltara nada: ningun test miraba esas claves. Este si.
+    """
+
+    CLAVES = {'code', 'message', 'fecha_pago', 'jornada_comun'}
+
+    def test_las_respuestas_siguen_enviando_la_fecha_de_pago(self):
+        """
+        Se comprueba sobre el CODIGO y no ejecutando el flujo: montar los escenarios
+        exige un estado de turnos muy especifico, y lo que aqui importa es el
+        contrato de salida, no como se llega a el.
+
+        No se analiza la estructura del JSON con una expresion regular: las llaves
+        anidadas de los f-strings que hay dentro la despistan (se intento y contaba
+        tres bloques donde hay dos). Se cuentan las apariciones literales, que es
+        exacto.
+        """
+        import inspect
+
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+
+        fuente = inspect.getsource(DobladaStrategy)
+
+        assert fuente.count("'fecha_pago': str(") == 3
+
+    def test_ninguna_clave_quedo_prefijada_por_el_refactor(self):
+        """Control directo del fallo concreto: nada de 'entrada.' dentro de un literal."""
+        import inspect
+
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+
+        fuente = inspect.getsource(DobladaStrategy)
+
+        assert "'entrada." not in fuente
+        assert '"entrada.' not in fuente
