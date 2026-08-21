@@ -7,7 +7,6 @@ creating a debt that must be paid back later.
 """
 
 import logging
-import json
 from dataclasses import dataclass
 from typing import Dict, Any, Tuple, Optional
 from django.core.exceptions import ValidationError
@@ -15,6 +14,7 @@ from django.db import transaction
 from solicitudes.models import SolicitudCambio, DobladaDetalle
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
+from ..errores_validacion import RequiereCambioTurnoPrevio
 from ..solicitud_validator import SolicitudValidator
 from turnos.services.jornada_service import JornadaService
 from turnos.services.descanso_semana_service import DescansoSemanaService
@@ -429,12 +429,13 @@ class DobladaStrategy(SolicitudStrategy):
                     entrada.fecha_pago
                 )
                 if coincidencia['requiere_cambio_turno']:
-                    return json.dumps({
-                        'code': 'requiere_cambio_turno_previo',
-                        'message': 'No se puede pagar trabajando dos veces la misma jornada. Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago.',
-                        'fecha_pago': str(entrada.fecha_pago),
-                        'jornada_comun': coincidencia['jornada_comun']
-                    })
+                    return RequiereCambioTurnoPrevio(
+                        'No se puede pagar trabajando dos veces la misma jornada. Debes '
+                        'primero realizar un cambio de turno sencillo para tener jornada '
+                        'contraria en la fecha de pago.',
+                        fecha_pago=entrada.fecha_pago,
+                        jornada_comun=coincidencia['jornada_comun'],
+                    )
         
         return None
 
@@ -776,16 +777,13 @@ class DobladaStrategy(SolicitudStrategy):
                             f'en la que estés libre.'
                         )
                     if jcp_u == jornada_deudor_pago:
-                        return json.dumps({
-                            'code': 'requiere_cambio_turno_previo',
-                            'message': (
-                                f'La jornada que quieres cubrir ({jcp_u}) es la MISMA que ya trabajas ese día: '
-                                f'no puedes hacerla dos veces. Solo puedes cubrir la jornada contraria ({contraria}). '
-                                f'Si necesitas cambiar tu jornada, primero realiza un cambio de turno sencillo.'
-                            ),
-                            'fecha_pago': str(entrada.fecha_pago),
-                            'jornada_comun': jcp_u,
-                        })
+                        return RequiereCambioTurnoPrevio(
+                            f'La jornada que quieres cubrir ({jcp_u}) es la MISMA que ya trabajas ese día: '
+                            f'no puedes hacerla dos veces. Solo puedes cubrir la jornada contraria ({contraria}). '
+                            f'Si necesitas cambiar tu jornada, primero realiza un cambio de turno sencillo.',
+                            fecha_pago=entrada.fecha_pago,
+                            jornada_comun=jcp_u,
+                        )
         return None
 
     @staticmethod
@@ -1001,16 +999,13 @@ class DobladaStrategy(SolicitudStrategy):
             if j_sol.nombre.upper() == j_rec.nombre.upper():
                 # Reutiliza el mismo recuadro + botón "Ir a Cambio de Turno Sencillo"
                 # que ya existe para la fecha de pago, pero apuntando al día de semana.
-                return False, json.dumps({
-                    'code': 'requiere_cambio_turno_previo',
-                    'message': (
-                        f"El {fps_obj.strftime('%d/%m/%Y')} tú y el compañero tienen la misma jornada "
-                        f"({j_sol.nombre.upper()}). Para que él te pague (doblándose por ti) ese día deben "
-                        f"quedar en jornadas contrarias. Realiza primero un cambio de turno sencillo."
-                    ),
-                    'fecha_pago': str(fps_obj),
-                    'jornada_comun': j_sol.nombre.upper(),
-                })
+                return False, RequiereCambioTurnoPrevio(
+                    f"El {fps_obj.strftime('%d/%m/%Y')} tú y el compañero tienen la misma jornada "
+                    f"({j_sol.nombre.upper()}). Para que él te pague (doblándose por ti) ese día deben "
+                    f"quedar en jornadas contrarias. Realiza primero un cambio de turno sencillo.",
+                    fecha_pago=fps_obj,
+                    jornada_comun=j_sol.nombre.upper(),
+                )
 
         return None
     def crear_solicitud(self, datos: Dict[str, Any]) -> Tuple[Optional[SolicitudCambio], str]:
