@@ -197,27 +197,7 @@ class DobladaStrategy(SolicitudStrategy):
             SolicitudValidator.validar_no_mismo_empleado(explorador_solicitante, explorador_receptor)
 
             # ===========================
-            # REGLAS COMUNES A TODA DOBLADA (cesión/pago E intercambio)
-            # ===========================
-            # Van ANTES del corte del intercambio: son reglas del TIPO de solicitud (cuándo se
-            # puede doblar), no del mecanismo de pago, así que deben regir también el swap. Estaban
-            # más abajo y el `return` del intercambio las evadía (así se coló un sábado↔sábado).
-
-            # Validar acuerdo previo obligatorio (la fecha de pago / día B debe ser posterior a la
-            # creación de la solicitud).
-            SolicitudValidator.validar_acuerdo_previo_obligatorio(
-                fecha_cesion,
-                fecha_pago,
-                fecha_creacion_solicitud
-            )
-
-            # Caso A: fecha_pago debe estar en el mismo mes que fecha_cesion
-            SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
-
-            # No hay doblada en domingo ni en día de mantenimiento (festivos de semana y temporada
-            # sí se permiten), en ninguna de las dos fechas.
-            SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
-            SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
+            self._validar_reglas_comunes(fecha_cesion, fecha_pago, fecha_creacion_solicitud)
 
             fecha_pago_obj = DateUtils.parse_date(fecha_pago)
 
@@ -568,6 +548,42 @@ class DobladaStrategy(SolicitudStrategy):
         return None
 
 
+
+    def _validar_reglas_comunes(self, fecha_cesion, fecha_pago, fecha_creacion_solicitud):
+        """
+        Reglas del TIPO de solicitud: cuándo se puede doblar, sea cual sea el
+        mecanismo. Rigen tanto la cesión/pago normal como el intercambio.
+
+        No devuelve nada: las tres validaciones lanzan `ValidationError`, que
+        `validar_solicitud` traduce a `(False, mensaje)`. Se conserva esa forma en
+        vez de normalizarla a "mensaje o None" como en los otros bloques extraídos,
+        porque aquí no había ningún `return` que trasladar y cambiarlo habría
+        mezclado un cambio de contrato con el movimiento.
+
+        OJO CON SU POSICIÓN. Van ANTES del corte del intercambio a propósito.
+        Estaban más abajo, y el `return` del intercambio las evadía: así se coló un
+        sábado↔sábado. Si algún día se reordena este método, este bloque tiene que
+        seguir por delante de ese corte.
+
+        No usa `EntradaDoblada` porque se ejecuta antes de que el contexto exista:
+        el contexto necesita las dos fechas ya parseadas, y `fecha_pago_obj` se
+        calcula justo después de estas comprobaciones.
+        """
+        # Acuerdo previo obligatorio: la fecha de pago (día B) debe ser posterior a
+        # la creación de la solicitud.
+        SolicitudValidator.validar_acuerdo_previo_obligatorio(
+            fecha_cesion,
+            fecha_pago,
+            fecha_creacion_solicitud
+        )
+
+        # Caso A: fecha_pago debe estar en el mismo mes que fecha_cesion
+        SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
+
+        # No hay doblada en domingo ni en día de mantenimiento (festivos de semana y
+        # temporada sí se permiten), en ninguna de las dos fechas.
+        SolicitudValidator.validar_dias_especiales_doblada(fecha_cesion)
+        SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
 
     def _validar_pago_sabado(self, entrada):
         """
