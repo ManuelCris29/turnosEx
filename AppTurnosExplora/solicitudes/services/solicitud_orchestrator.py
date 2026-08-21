@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from empleados.models import Empleado
 from ..models import TipoSolicitudCambio
+from .errores_validacion import RequiereCambioTurnoPrevio
 from .solicitud_factory import SolicitudFactory
 from .solicitud_request_parser import SolicitudRequestParser
 from core.utils.json_responses import json_ok, json_error
@@ -349,24 +350,14 @@ class SolicitudOrchestrator:
         """
         Convierte el mensaje de error del Factory en la respuesta JSON adecuada.
         Maneja el caso especial de 'requiere_cambio_turno_previo'.
+
+        Antes esto intentaba `json.loads` sobre CUALQUIER mensaje y descartaba el
+        fallo, porque el dato extra viajaba como un JSON metido dentro del texto.
+        Ahora el mensaje llega tipado y basta reconocerlo: las claves del cuerpo se
+        escriben en `RequiereCambioTurnoPrevio.como_payload()` y en ningún otro sitio.
         """
-        try:
-            error_data = json.loads(mensaje)
-            if isinstance(error_data, dict) and error_data.get('code') == 'requiere_cambio_turno_previo':
-                return JsonResponse({
-                    'success': False,
-                    'code': 'requiere_cambio_turno_previo',
-                    'message': error_data.get('message', 'Se requiere cambio de turno previo'),
-                    'fecha_pago': error_data.get('fecha_pago'),
-                    'jornada_comun': error_data.get('jornada_comun'),
-                }, status=400)
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            # `pass` DELIBERADO, no un error tragado: la mayoría de los mensajes de las
-            # strategies son texto plano y no JSON. Que no parsee es el camino NORMAL y
-            # cae al `json_error` genérico de abajo. Loguear aquí sería ruido en cada
-            # validación fallida. Se documenta para que una revisión futura no lo
-            # confunda con los `except: pass` que sí ocultaban fallos.
-            pass
+        if isinstance(mensaje, RequiereCambioTurnoPrevio):
+            return JsonResponse(mensaje.como_payload(), status=400)
         return json_error(mensaje, status=400, code='validation_error')
 
     # ------------------------------------------------------------------
@@ -567,9 +558,19 @@ class SolicitudOrchestrator:
             }
             es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)
             if not es_valida:
+                # Al mensaje se le antepone de quién es el problema, porque aquí se
+                # valida a varios compañeros y sin el nombre no se sabe cuál falló.
+                # A `RequiereCambioTurnoPrevio` NO se le antepone: se envía tal cual
+                # para que conserve sus datos y el formulario pueda pintar su recuadro
+                # (concatenar produciría un `str` normal y perdería los atributos).
+                #
+                # Antes esto se decidía mirando si el texto contenía una llave `{`,
+                # porque el dato viajaba como JSON dentro del mensaje. Cualquier frase
+                # con una llave habría entrado por esa rama sin querer.
+                es_estructurado = isinstance(mensaje, RequiereCambioTurnoPrevio)
                 return cls._respuesta_error_validacion(
-                    f"{receptor.nombre} {receptor.apellido}: {mensaje}"
-                    if '{' not in mensaje else mensaje
+                    mensaje if es_estructurado
+                    else f"{receptor.nombre} {receptor.apellido}: {mensaje}"
                 )
             pendientes.append((receptor, datos))
 

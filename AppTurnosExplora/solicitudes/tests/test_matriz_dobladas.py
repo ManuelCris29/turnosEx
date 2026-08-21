@@ -18,13 +18,13 @@ Estados por persona en una fecha:
   DESCANSANDO → sin turno ni asignación base para esa fecha
 """
 
-import json
 from datetime import date, timedelta
 from django.test import TestCase
 from django.contrib.auth.models import User
 
 from empleados.models import Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio, SolicitudCambio, DobladaDetalle
+from solicitudes.services.errores_validacion import RequiereCambioTurnoPrevio
 from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from django.utils import timezone
@@ -208,14 +208,14 @@ class MatrizDobladasTestCase(TestCase):
         """Verifica que el rechazo sea por coincidencia de jornadas (requiere CT sencillo)."""
         valido, error = self.strategy.validar_solicitud(datos)
         self.assertFalse(valido, f"Se esperaba bloqueo por CT sencillo pero fue VÁLIDO. {msg}")
-        try:
-            payload = json.loads(error)
-            self.assertEqual(
-                payload.get('code'), 'requiere_cambio_turno_previo',
-                f"Se esperaba code='requiere_cambio_turno_previo', got: {payload}. {msg}"
-            )
-        except (json.JSONDecodeError, TypeError):
-            self.fail(f"Error no es JSON de CT sencillo: '{error}'. {msg}")
+        # Antes el mensaje ERA un JSON y esto hacía `json.loads`. Ahora llega tipado:
+        # el texto es la frase que lee el usuario y los datos van en los atributos.
+        self.assertIsInstance(
+            error, RequiereCambioTurnoPrevio,
+            f"Error no es el de CT sencillo: '{error}'. {msg}"
+        )
+        self.assertTrue(error.fecha_pago, f"sin fecha_pago para el formulario. {msg}")
+        self.assertTrue(error.jornada_comun, f"sin jornada_comun para el formulario. {msg}")
 
 
 # ===========================================================================

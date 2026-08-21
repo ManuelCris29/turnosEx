@@ -26,6 +26,8 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from solicitudes.services.errores_validacion import RequiereCambioTurnoPrevio
+
 from core.tests.factories import crear_empleado, crear_jornada, crear_sala
 from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 
@@ -213,26 +215,64 @@ class TestContratoJsonConElFrontend(TestCase):
 
     No es celo excesivo: durante la Fase 3, un reemplazo automatico de variables
     por `entrada.x` alcanzo tambien a los literales de cadena y renombro la clave
-    'fecha_pago' a 'entrada.fecha_pago' en las DOS respuestas que la llevan.
-    `solicitar_doblada.js:2913` lee `data.fecha_pago`, asi que caia siempre al
-    valor de respaldo y el mensaje mostraba la fecha del formulario en vez de la
-    que devuelve el servidor.
+    'fecha_pago' en las DOS respuestas que la llevan.
+    `solicitar_doblada.js:2913` lee `data.fecha_pago || fechaPagoInput.value`, asi
+    que el `||` tapaba la averia: mostraba la fecha del formulario en vez de la que
+    devuelve el servidor. Paso el CI sin que saltara nada, porque ningun test
+    miraba esas claves.
 
-    Paso el CI sin que saltara nada: ningun test miraba esas claves. Este si.
+    ESTOS TESTS MEJORARON al desaparecer el JSON-dentro-del-mensaje. Antes tenian
+    que inspeccionar el CODIGO FUENTE contando apariciones literales, porque la
+    forma del diccionario estaba escrita tres veces y no habia ningun objeto que
+    interrogar. Ahora la define `RequiereCambioTurnoPrevio` en un solo sitio, asi
+    que se comprueba el comportamiento real.
     """
 
-    CLAVES = {'code', 'message', 'fecha_pago', 'jornada_comun'}
+    CLAVES = {'success', 'code', 'message', 'fecha_pago', 'jornada_comun'}
 
-    def test_las_respuestas_siguen_enviando_la_fecha_de_pago(self):
+    def _error(self):
+        return RequiereCambioTurnoPrevio(
+            'Necesitas un cambio de turno previo.',
+            fecha_pago=date(2026, 2, 14),
+            jornada_comun='AM',
+        )
+
+    def test_el_payload_lleva_exactamente_las_claves_que_lee_el_formulario(self):
+        payload = self._error().como_payload()
+
+        self.assertEqual(set(payload), self.CLAVES)
+        self.assertEqual(payload['code'], 'requiere_cambio_turno_previo')
+        self.assertFalse(payload['success'])
+
+    def test_la_fecha_de_pago_viaja_como_texto(self):
         """
-        Se comprueba sobre el CODIGO y no ejecutando el flujo: montar los escenarios
-        exige un estado de turnos muy especifico, y lo que aqui importa es el
-        contrato de salida, no como se llega a el.
+        La clave concreta que se rompio. El frontend la mete en un input, asi que
+        un `date` serializado de otra forma —o ausente— vuelve a activar el
+        respaldo silencioso del `||`.
+        """
+        payload = self._error().como_payload()
 
-        No se analiza la estructura del JSON con una expresion regular: las llaves
-        anidadas de los f-strings que hay dentro la despistan (se intento y contaba
-        tres bloques donde hay dos). Se cuentan las apariciones literales, que es
-        exacto.
+        self.assertEqual(payload['fecha_pago'], '2026-02-14')
+        self.assertIsInstance(payload['fecha_pago'], str)
+
+    def test_sigue_siendo_utilizable_como_mensaje_de_texto(self):
+        """
+        Hereda de `str` a proposito: el mensaje pasa por sitios que lo concatenan,
+        lo registran en el log o inspeccionan su contenido. Si dejara de ser texto,
+        esos sitios romperian sin que nada mas lo avisara.
+        """
+        error = self._error()
+
+        self.assertIsInstance(error, str)
+        self.assertEqual(str(error), 'Necesitas un cambio de turno previo.')
+        self.assertEqual(f'Ana Perez: {error}',
+                         'Ana Perez: Necesitas un cambio de turno previo.')
+
+    def test_la_estrategia_ya_no_construye_el_json_a_mano(self):
+        """
+        Guarda contra la vuelta atras: si alguien vuelve a escribir las claves
+        dentro de la estrategia, la forma queda otra vez duplicada y sin un sitio
+        unico que proteger.
         """
         import inspect
 
@@ -240,7 +280,8 @@ class TestContratoJsonConElFrontend(TestCase):
 
         fuente = inspect.getsource(DobladaStrategy)
 
-        assert fuente.count("'fecha_pago': str(") == 3
+        self.assertNotIn("'code': 'requiere_cambio_turno_previo'", fuente)
+        self.assertNotIn("json.dumps", fuente)
 
     def test_ninguna_clave_quedo_prefijada_por_el_refactor(self):
         """Control directo del fallo concreto: nada de 'entrada.' dentro de un literal."""
