@@ -178,17 +178,37 @@ class SolicitudStrategy(ABC):
         return f'trabaja {dia_otro} {otro.strftime("%d/%m")}'
 
 
-    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
+    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Optional[Dict[str, Any]]:
         """
-        Get turn information for an explorer.
-        Can be overridden by specific strategies.
-        
-        Args:
-            explorador_id: ID of the empleado
-            fecha: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with turn information
+        Turno del explorador en esa fecha, o None si DESCANSA.
+
+        `Optional` no es un adorno: `None` es una respuesta de negocio normal —la
+        da la fuente de verdad cada vez que alguien descansa—. Las firmas decían
+        `Dict[str, Any]` y eso era falso.
+
+        SIN try/except, Y ES LA DECISIÓN CENTRAL DE ESTE MÉTODO
+        Cuatro estrategias sobrescribían esto con el MISMO cuerpo; tres de ellas
+        añadían `except Exception: return {}`. Ese `{}` creaba un TERCER valor que
+        no declara nadie:
+
+            dict con datos  -> tiene turno
+            None            -> descansa
+            {}              -> hubo un error   <- inventado
+
+        Y es peor que inútil, porque `{}` es *falsy* en Python pero `{} is not None`
+        es cierto, y en JavaScript es *truthy*: un `if (data.turno)` del formulario
+        lo da por bueno y sigue con la jornada vacía. Se comprobó ejecutándolo — un
+        `explorador_id` inexistente en la URL devolvía `200` con
+        `turno: {}, tiene_turno: true`, es decir, "sí tiene turno" con un objeto
+        vacío.
+
+        `DobladaStrategy` ya lo había razonado y renunciaba al `except` a propósito,
+        pero el envoltorio de `SolicitudFactory` lo anulaba capturando por su cuenta.
+
+        Ahora las cuatro sobrescrituras están borradas —eran idénticas a esta— y un
+        fallo real sube hasta la vista, que responde 500 y deja traza en el log. Un
+        bug que se disfraza de "hoy no trabaja" no se descubre por el log: se
+        descubre meses después, por la queja de alguien que se quedó sin turno.
         """
         turno_service = get_turno_service()
         return turno_service.get_turno_explorador(explorador_id, fecha)

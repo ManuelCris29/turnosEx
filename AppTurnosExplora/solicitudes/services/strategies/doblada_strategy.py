@@ -18,7 +18,7 @@ from ..errores_validacion import RequiereCambioTurnoPrevio
 from ..solicitud_validator import SolicitudValidator
 from turnos.services.jornada_service import JornadaService
 from turnos.services.descanso_semana_service import DescansoSemanaService
-from core.services import get_empleado_disponibilidad_service, get_turno_service
+from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
 from django.utils import timezone
 
@@ -1415,23 +1415,6 @@ class DobladaStrategy(SolicitudStrategy):
             # compañeros" — distinguible de la lista vacía legítima.
             logger.exception("Error obteniendo empleados disponibles para doblada")
             raise
-
-    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
-        """
-        Get turn information for an explorer.
-        
-        Args:
-            explorador_id: ID of the empleado
-            fecha: Date string in YYYY-MM-DD format
-        
-        Returns:
-            Dictionary with turn information
-        """
-        # Sin try/except: un `{}` silencioso se interpreta aguas arriba como "no tiene turno",
-        # que es una respuesta de negocio válida. Un fallo real debe verse, no disfrazarse de
-        # día sin turno.
-        turno_service = get_turno_service()
-        return turno_service.get_turno_explorador(explorador_id, fecha)
 
     def detalle(self, solicitud, datos):
         """

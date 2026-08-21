@@ -1,6 +1,7 @@
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
 from core.services import get_turno_service
+from empleados.models import Empleado
 from ..models import TipoSolicitudCambio, SolicitudCambio
 from ..services.solicitud_factory import SolicitudFactory
 from core.utils.date_utils import DateUtils
@@ -21,12 +22,22 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
         
         if not fecha or not explorador_id:
             return json_error('Faltan parámetros requeridos', status=400, code='missing_params')
-        
+
+        # Un explorador que no existe es un error del CLIENTE, no una avería: 404 con
+        # un mensaje claro, y separado del 500 de más abajo.
+        #
+        # Antes no se comprobaba, y el id viaja en la URL. `Empleado.objects.get()`
+        # lanzaba DoesNotExist dentro de la estrategia, que la capturaba y devolvía
+        # `{}` — así que la respuesta era 200 con `turno: {}, tiene_turno: true`:
+        # "sí tiene turno", con un objeto vacío. Comprobado ejecutándolo.
+        if not Empleado.objects.filter(id=explorador_id).exists():
+            return json_error('El explorador indicado no existe.',
+                              status=404, code='explorador_no_encontrado')
+
         try:
             # Si se solicita jornada base, obtener directamente de AsignarJornadaExplorador
             if jornada_base:
                 from turnos.models import AsignarJornadaExplorador
-                from empleados.models import Empleado
                 
                 fecha_obj = DateUtils.parse_date(fecha)
                 explorador = Empleado.objects.get(id=explorador_id)

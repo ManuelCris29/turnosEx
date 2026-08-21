@@ -460,13 +460,6 @@ class DFDSStrategy(SolicitudStrategy):
             logging.getLogger(__name__).exception("Error listando compañeros de D FDS")
             return []
 
-    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
-        try:
-            from core.services import get_turno_service
-            return get_turno_service().get_turno_explorador(explorador_id, fecha)
-        except Exception:
-            return {}
-
     def detalle(self, solicitud, datos):
         """
         Detalle propio de D FDS para la pantalla de consulta.
