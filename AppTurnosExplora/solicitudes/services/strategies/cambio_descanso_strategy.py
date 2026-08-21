@@ -984,3 +984,22 @@ class CambioDescansoStrategy(SolicitudStrategy):
             return
         _CDS.revertir(solicitud)
         self._invalidar_meses(solicitud, _CDS.fechas_afectadas(solicitud))
+
+    def fecha_valida(self, analisis):
+        """
+        Los universales y -solo ENTRE SEMANA- el festivo.
+
+        Un festivo de lunes a viernes tiene su propia alternancia: un grupo dobla y
+        el otro descansa, y ese descanso no es el de la rotacion ordinaria, asi que
+        no se puede intercambiar. Un festivo en SABADO O DOMINGO sigue siendo fin de
+        semana, ahi manda la alternancia de findes y el intercambio si vale.
+
+        Misma regla que aplica `validar_solicitud` en este archivo via
+        `es_festivo_semana()`, que devuelve False para los festivos de finde.
+        """
+        if not self.fecha_valida_generica(analisis):
+            return False
+        festivo_entre_semana = (analisis.get('es_festivo')
+                                and not analisis.get('es_sabado')
+                                and not analisis.get('es_domingo'))
+        return not festivo_entre_semana

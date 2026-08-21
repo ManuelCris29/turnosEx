@@ -774,3 +774,20 @@ class CambioTurnoStrategy(SolicitudStrategy):
     def revertir_cambios(self, solicitud):
         CambioTurnoStrategy.revertir(solicitud)
         self._invalidar_meses(solicitud, [solicitud.fecha_cambio_turno])
+
+    excluye_fin_de_semana = True
+    excluye_doblada_activa = True
+
+    def fecha_valida(self, analisis):
+        """
+        Ningun motivo de exclusion se perdona.
+
+        Un cambio de turno intercambia AM por PM, y en un festivo, un sabado, un
+        domingo o un dia de descanso no hay dos jornadas que intercambiar. La regla
+        la aplica `validar_solicitud` mas arriba en este mismo archivo; esto es lo
+        que hace que la PANTALLA diga lo mismo que el motor.
+
+        Hasta el 2026-08-20 esta rama perdonaba el festivo y el sabado, y la
+        pantalla daba por valida una fecha que el motor rechazaba.
+        """
+        return not (analisis.get('razones_exclusion') or [])

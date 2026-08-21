@@ -372,6 +372,55 @@ class SolicitudStrategy(ABC):
             CacheService.invalidar_cache_turnos_empleado(
                 solicitud.explorador_receptor.id, mes, anio)
 
+    # ¿Un fin de semana impide este tipo de solicitud?
+    #
+    # Un cambio de turno intercambia AM por PM. En sabado y domingo manda la
+    # alternancia de findes -un grupo trabaja y el otro descansa- asi que no hay dos
+    # jornadas que intercambiar. Una DOBLADA si vale: no intercambia, CUBRE.
+    excluye_fin_de_semana = False
+
+    # ¿Una doblada aprobada ese dia impide este tipo de solicitud?
+    #
+    # Solo el cambio de turno sencillo. Quien ya tiene una doblada ese dia trabaja
+    # AM+PM, asi que no le queda una jornada libre que intercambiar.
+    excluye_doblada_activa = False
+
+    # Motivos de exclusion que invalidan una fecha para CUALQUIER tipo. Ni un dia
+    # de mantenimiento ni uno de temporada admiten solicitudes: no es una politica
+    # por tipo, es que esos dias no operan con normalidad.
+    MOTIVOS_UNIVERSALES = ('Mantenimiento', 'Temporada')
+
+    @staticmethod
+    def fecha_valida_generica(analisis: Dict[str, Any]) -> bool:
+        """
+        Regla PERMISIVA por defecto: solo bloquean mantenimiento y temporada.
+
+        Es la que aplicaba la rama `else` de la cadena de `fechas_helper.py`, y
+        conviene subrayarlo porque es al reves que en `views/detalle.py` y en
+        `solicitud_request_parser.py`, donde el `else` mandaba a CAMBIO TURNO.
+        Reusar aquella caida aqui convertiria un tipo no contemplado de permisivo
+        en estricto, en silencio.
+
+        Se expone como @staticmethod para que quien no encuentre strategy pueda
+        aplicarla sin instanciar nada (la clase base es abstracta).
+        """
+        motivos = analisis.get('razones_exclusion') or []
+        return not [m for m in motivos if m in SolicitudStrategy.MOTIVOS_UNIVERSALES]
+
+    def fecha_valida(self, analisis: Dict[str, Any]) -> bool:
+        """
+        ¿Es valida esta fecha para este tipo, dado el analisis del dia?
+
+        `analisis` es el diccionario que arma `fechas_helper.analizar_fecha_solicitud`:
+        trae `razones_exclusion` y las banderas del dia (`es_festivo`, `es_sabado`…).
+        Alimenta la pantalla de detalle que mira el supervisor al aprobar, asi que
+        una respuesta equivocada aqui no rompe nada: hace que se apruebe sobre
+        informacion falsa, que es peor.
+
+        Por defecto, la regla permisiva. La sobrescriben los tipos mas estrictos.
+        """
+        return self.fecha_valida_generica(analisis)
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.tipo_solicitud})"
     

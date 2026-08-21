@@ -14,6 +14,37 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _estrategia_de(tipo_solicitud):
+    """
+    Strategy del tipo, buscada por NOMBRE, o None si no hay ninguna registrada.
+
+    SIN la caida por defecto de `SolicitudFactory.get_strategy`: esa devuelve
+    CambioTurnoStrategy para lo desconocido, y aqui eso convertiria un tipo no
+    contemplado en el MAS ESTRICTO de todos, cuando la cadena original lo trataba
+    con la regla permisiva. Es al reves que en `views/detalle.py` y en
+    `solicitud_request_parser.py`, donde el `else` si mandaba a CAMBIO TURNO.
+
+    Tampoco se filtra por `activo`: aqui solo llega el nombre del tipo, y de todas
+    formas que un tipo ya no admita solicitudes nuevas no cambia sus reglas.
+    """
+    from solicitudes.services.solicitud_factory import SolicitudFactory
+
+    clave = SolicitudFactory.normalize_name(tipo_solicitud or '')
+    clase = (SolicitudFactory._strategies.get(clave)
+             or SolicitudFactory._strategies.get((tipo_solicitud or '').upper().strip()))
+    return clase() if clase else None
+
+
+def _validez_por_tipo(tipo_solicitud, analisis) -> bool:
+    """Regla de validez del tipo, o la generica si no hay strategy."""
+    from solicitudes.services.strategies.base_strategy import SolicitudStrategy
+
+    estrategia = _estrategia_de(tipo_solicitud)
+    if estrategia is None:
+        return SolicitudStrategy.fecha_valida_generica(analisis)
+    return estrategia.fecha_valida(analisis)
+
+
 def analizar_fecha_solicitud(
     fecha: date,
     solicitante: Optional[Empleado] = None,
@@ -90,17 +121,16 @@ def analizar_fecha_solicitud(
     except Exception:
         logger.warning("Error verificando temporada (fecha=%s)", fecha, exc_info=True)
     
-    # Verificar domingo (para CT y CT PERMANENTE)
-    if resultado['es_domingo']:
-        if tipo_solicitud in ['CT', 'CT PERMANENTE']:
+    # Fin de semana: lo declara cada strategy (`excluye_fin_de_semana`), no este
+    # archivo. Un cambio de turno intercambia AM por PM, y en sábado o domingo manda
+    # la alternancia de findes: no hay dos jornadas que intercambiar. Una DOBLADA sí
+    # vale, porque no intercambia sino que CUBRE.
+    _estrategia = _estrategia_de(tipo_solicitud)
+    if _estrategia is not None and _estrategia.excluye_fin_de_semana:
+        if resultado['es_domingo']:
             resultado['razones_exclusion'].append('Domingo')
-    
-    # Verificar sábado: excluye en CT y en CT PERMANENTE.
-    # Antes solo se marcaba para CT PERMANENTE, pero `cambio_turno_strategy.py:179`
-    # llama a `validar_no_sabado_ct_sencillo()` en TODO cambio de turno sencillo. Esta
-    # pantalla decía "fecha válida" para un sábado que el motor rechaza.
-    if resultado['es_sabado'] and tipo_solicitud in ('CT', 'CT PERMANENTE'):
-        resultado['razones_exclusion'].append('Sábado')
+        if resultado['es_sabado']:
+            resultado['razones_exclusion'].append('Sábado')
     
     # Verificar descanso del solicitante
     if solicitante:
@@ -134,8 +164,10 @@ def analizar_fecha_solicitud(
         except Exception:
             logger.warning("Error verificando descanso del receptor (fecha=%s)", fecha, exc_info=True)
     
-    # Verificar dobladas activas (solo para CT)
-    if tipo_solicitud == 'CT':
+    # Doblada activa: también lo declara la strategy (`excluye_doblada_activa`).
+    # Quien ya tiene una doblada ese día trabaja AM+PM y no le queda jornada libre
+    # que intercambiar.
+    if _estrategia is not None and _estrategia.excluye_doblada_activa:
         if solicitante:
             try:
                 from solicitudes.models import SolicitudCambio
@@ -164,53 +196,21 @@ def analizar_fecha_solicitud(
             except Exception:
                 logger.warning("Error verificando doblada activa del receptor (fecha=%s)", fecha, exc_info=True)
     
-    # Determinar si es válida según el tipo
-    if tipo_solicitud == 'CT PERMANENTE':
-        # CT PERMANENTE: No permite festivos, mantenimiento, temporada, descansos, domingos, sábados
-        resultado['valida'] = len(resultado['razones_exclusion']) == 0
-    elif tipo_solicitud == 'CT':
-        # CT: ningún motivo de exclusión se perdona, IGUAL que CT PERMANENTE.
-        #
-        # Antes esta rama descartaba 'Festivo' ("Permite festivos si ambos tienen
-        # jornada"), y era falso por partida doble: el código no comprobaba esa
-        # condición —descartaba el festivo siempre— y sobre todo CONTRADECÍA la regla
-        # del negocio, que aplica `cambio_turno_strategy.py:185`:
-        #
-        #   En un festivo una jornada trabaja el día COMPLETO (AM+PM) por rotación, así
-        #   que no hay un AM y un PM que intercambiar. El cambio de turno no tiene
-        #   sentido físico ese día. Un festivo se intercambia festivo por festivo, y eso
-        #   se hace con una DOBLADA, no con un CT.
-        #
-        # El motor lo rechazaba y esta pantalla —la que mira el supervisor al decidir—
-        # seguía diciendo "fecha válida". Confirmado con el usuario el 2026-08-20.
-        resultado['valida'] = len(resultado['razones_exclusion']) == 0
-    elif tipo_solicitud in ['DOBLADA', 'D FDS']:
-        # DOBLADA/D FDS: No permite mantenimiento, temporada
-        # Permite festivos, descansos, domingos, sábados
-        exclusiones_doblada = [r for r in resultado['razones_exclusion'] 
-                              if r in ['Mantenimiento', 'Temporada']]
-        resultado['valida'] = len(exclusiones_doblada) == 0
-    elif tipo_solicitud == 'CAMBIO DESCANSO':
-        # Mantenimiento, temporada y —solo ENTRE SEMANA— festivo.
-        #
-        # Un festivo de lunes a viernes tiene su propia alternancia (un grupo dobla, el
-        # otro descansa), y ese descanso no es el de la rotación ordinaria: no se puede
-        # intercambiar. Pero un festivo que cae en SÁBADO O DOMINGO sigue siendo fin de
-        # semana, ahí manda la alternancia de findes y el intercambio sí vale.
-        # Es la misma regla que aplica `cambio_descanso_strategy.py` vía
-        # `es_festivo_semana()`. (Confirmado con el usuario el 2026-08-20.)
-        _bloqueantes = ['Mantenimiento', 'Temporada']
-        _festivo_entre_semana = (
-            resultado['es_festivo'] and not resultado['es_sabado'] and not resultado['es_domingo']
-        )
-        exclusiones_cd = [r for r in resultado['razones_exclusion'] if r in _bloqueantes]
-        resultado['valida'] = not exclusiones_cd and not _festivo_entre_semana
-    else:
-        # Otros tipos: Validar según reglas generales
-        exclusiones_generales = [r for r in resultado['razones_exclusion'] 
-                                if r in ['Mantenimiento', 'Temporada']]
-        resultado['valida'] = len(exclusiones_generales) == 0
-    
+    # Validez segun el tipo: la contesta la STRATEGY.
+    #
+    # Aqui habia una cadena `if tipo_solicitud == ...` con cinco ramas. La regla de
+    # cada tipo vivia por duplicado -una vez en su strategy, que decide si la
+    # solicitud se puede crear, y otra aqui, que decide lo que ve el supervisor- y
+    # las dos copias llegaron a CONTRADECIRSE: esta pantalla daba por valido un CT
+    # en festivo y en sabado que el motor rechazaba (corregido el 2026-08-20).
+    #
+    # OJO con la caida por defecto: el `else` de esta cadena era el GENERICO
+    # PERMISIVO (solo mantenimiento y temporada), no el de CAMBIO TURNO. Es al reves
+    # que en `views/detalle.py` y en `solicitud_request_parser.py`. Por eso aqui NO
+    # se cae a CambioTurnoStrategy: sin strategy se aplica la regla generica, que es
+    # lo que hacia el `else`.
+    resultado['valida'] = _validez_por_tipo(tipo_solicitud, resultado)
+
     return resultado
 
 

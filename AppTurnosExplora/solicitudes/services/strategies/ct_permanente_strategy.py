@@ -833,3 +833,9 @@ class CTPermanenteStrategy(SolicitudStrategy):
             return
         CTPermanenteStrategy.revertir(solicitud)
         self._invalidar_rango(solicitud, detalle.fecha_inicio, detalle.fecha_fin)
+
+    excluye_fin_de_semana = True
+
+    def fecha_valida(self, analisis):
+        """Igual de estricto que el cambio de turno sencillo: nada se perdona."""
+        return not (analisis.get('razones_exclusion') or [])

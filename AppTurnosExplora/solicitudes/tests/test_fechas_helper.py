@@ -205,6 +205,53 @@ class TestMatrizDeValidezPorTipo(FechasHelperTestCase):
             assert self._analizar(tipo=tipo)['valida'] is False, tipo
 
 
+class TestTipoNoContemplado(FechasHelperTestCase):
+    """
+    La rama `else`, y el caso que mas facil se rompe al pasar a despacho por
+    strategy.
+
+    Aqui el `else` es el GENERICO PERMISIVO —solo mantenimiento y temporada
+    invalidan— y NO el de CAMBIO TURNO. Es al reves que en `views/detalle.py` y en
+    `solicitud_request_parser.py`, donde el `else` si mandaba a CT.
+
+    Despachar con una caida por defecto a CambioTurnoStrategy, como se hizo alli,
+    convertiria un tipo desconocido de permisivo en estricto sin que nadie lo note.
+    Estos tests estan escritos ANTES del refactor precisamente para impedirlo.
+    """
+
+    def test_un_tipo_desconocido_permite_festivo_sabado_y_domingo(self):
+        DiaEspecial.objects.create(fecha=MIERCOLES, tipo='festivo', activo=True)
+
+        assert self._analizar(MIERCOLES, tipo='TIPO QUE NO EXISTE')['valida'] is True
+        assert self._analizar(SABADO, tipo='TIPO QUE NO EXISTE')['valida'] is True
+        assert self._analizar(DOMINGO, tipo='TIPO QUE NO EXISTE')['valida'] is True
+
+    def test_un_tipo_desconocido_SI_se_bloquea_por_mantenimiento(self):
+        DiaEspecial.objects.create(fecha=MIERCOLES, tipo='mantenimiento', activo=True)
+
+        assert self._analizar(MIERCOLES, tipo='TIPO QUE NO EXISTE')['valida'] is False
+
+    def test_un_tipo_desconocido_SI_se_bloquea_por_temporada(self):
+        DiaEspecial.objects.create(fecha=MIERCOLES, tipo='temporada',
+                                   es_temporada=True, activo=True)
+
+        assert self._analizar(MIERCOLES, tipo='TIPO QUE NO EXISTE')['valida'] is False
+
+    def test_una_cadena_vacia_se_trata_como_tipo_no_contemplado(self):
+        DiaEspecial.objects.create(fecha=MIERCOLES, tipo='festivo', activo=True)
+
+        assert self._analizar(MIERCOLES, tipo='')['valida'] is True
+
+    def test_el_tipo_desconocido_NO_hereda_las_reglas_de_cambio_turno(self):
+        """
+        El control explicito contra el error que se cometio dos veces en esta fase:
+        reusar la caida por defecto de una cadena en otra cuyo `else` era distinto.
+        Un domingo invalida un CT, pero NO un tipo no contemplado.
+        """
+        assert self._analizar(DOMINGO, tipo='CT')['valida'] is False
+        assert self._analizar(DOMINGO, tipo='TIPO QUE NO EXISTE')['valida'] is True
+
+
 class TestJornadaYDescanso(FechasHelperTestCase):
 
     def test_detecta_que_ambos_tienen_jornada(self):
