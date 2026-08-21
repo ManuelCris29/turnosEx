@@ -234,133 +234,160 @@ class CambioDescansoStrategy(SolicitudStrategy):
                                                   es_revalidacion=datos.get('es_revalidacion'))
 
             # --- Fin de semana ---
-            if fecha_cesion.weekday() not in (5, 6):
-                return False, "El día que cambias debe ser un fin de semana (sábado o domingo)"
-            if fecha_pago.weekday() not in (5, 6):
-                return False, "El día de devolución debe ser un fin de semana (sábado o domingo)"
-
-            from django.utils import timezone
-            hoy = timezone.localdate()
-            # El día en curso YA se está trabajando: no hay jornada que intercambiar sin
-            # reescribir un turno que la persona está cubriendo ahora mismo (misma regla que
-            # D FDS). Se omite al re-validar: una solicitud enviada ayer para hoy no debe
-            # volverse inaprobable por el paso del tiempo, la decide el supervisor.
-            if fecha_cesion < hoy or (fecha_cesion == hoy and not datos.get('es_revalidacion')):
-                return False, (
-                    "El fin de semana que cambias debe ser posterior a hoy: el día en curso "
-                    "ya se está trabajando."
-                )
-            if fecha_pago <= hoy:
-                return False, "La fecha de devolución debe ser posterior a hoy"
-            if fecha_pago == fecha_cesion:
-                return False, "La devolución debe ser un fin de semana distinto al que cambias"
-
-            # DÍA OPUESTO (sáb↔dom): el balance de domingos se conserva porque en la cesión
-            # trabajas un día y en la devolución trabajas el día contrario por alternancia.
-            # Ej: cesión sábado (trabajas) → devolución domingo (trabajas el otro finde).
-            if fecha_cesion.weekday() == fecha_pago.weekday():
-                dia = 'domingo' if fecha_cesion.weekday() == 6 else 'sábado'
-                otro = 'sábado' if fecha_cesion.weekday() == 6 else 'domingo'
-                return False, (
-                    f"Cambiaste un {dia}: la devolución debe ser un {otro} "
-                    f"(el día contrario), para mantener tu balance de domingos en el mes."
-                )
-
-            # Mismo mes que la cesión
-            SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
-
-            # Duplicado (par de fechas en cualquier orden, mismas personas). Ver _es_duplicado_pendiente.
-            # Se omite al re-validar para aprobar (regla de creación).
-            if not datos.get('es_revalidacion') and self._es_duplicado_pendiente(solicitante, receptor, fecha_cesion, fecha_pago):
-                return False, (
-                    f"Ya enviaste esta solicitud de cambio de descanso (mismas fechas: "
-                    f"{fecha_cesion.strftime('%d/%m')} y {fecha_pago.strftime('%d/%m')}). "
-                    f"Está pendiente de aprobación."
-                )
-
-            # Grupos contrarios
-            grupo_sol = self._grupo_base(solicitante, fecha_cesion)
-            grupo_rec = self._grupo_base(receptor, fecha_cesion)
-            if not grupo_sol or not grupo_rec:
-                return False, "No se pudo determinar la jornada base de los exploradores"
-            if grupo_sol == grupo_rec:
-                return False, (
-                    "El compañero debe ser del grupo contrario (el que descansa el otro día del "
-                    "fin de semana). No puedes intercambiar con alguien de tu mismo grupo."
-                )
-
-            # VALIDACIÓN CRÍTICA: Verificar que AMBOS tengan turnos REALES en las fechas.
-            # El solicitante debe tener UN turno (su jornada base) en fecha_cesion
-            tiene_turno_sol_ces, jor_sol_ces = self._trabaja_dia(solicitante, fecha_cesion)
-            if not tiene_turno_sol_ces:
-                return False, jor_sol_ces or (
-                    f"No tienes un turno válido el {fecha_cesion.strftime('%d/%m/%Y')}. "
-                    f"No puedes cambiar descanso sin tu turno normal."
-                )
-
-            otro_dia_cesion = self._otro_dia_finde(fecha_cesion)
-            tiene_turno_rec_otro, jor_rec_otro = self._trabaja_dia(receptor, otro_dia_cesion)
-            if not tiene_turno_rec_otro:
-                return False, jor_rec_otro or (
-                    f"Tu compañero no tiene un turno válido el {otro_dia_cesion.strftime('%d/%m/%Y')}. "
-                    f"No puede hacer el intercambio."
-                )
-
-            # CADA UNO debe DESCANSAR el día que va a RECIBIR en el intercambio (fuente de
-            # verdad estado_dia). Si alguno ya trabaja los DOS días del finde (p. ej. doblada
-            # sábado y domingo), no tiene día libre para recibir y el intercambio es imposible.
-            from turnos.services.turno_service import TurnoService as _TSfinde
-            if _TSfinde.estado_dia(receptor, fecha_cesion)['trabaja']:
-                return False, (
-                    f"Tu compañero ya trabaja el {fecha_cesion.strftime('%d/%m/%Y')} "
-                    f"(trabaja los dos días de ese fin de semana). No tiene ese día libre para "
-                    f"recibir el intercambio."
-                )
-            if _TSfinde.estado_dia(solicitante, otro_dia_cesion)['trabaja']:
-                return False, (
-                    f"Ya trabajas el {otro_dia_cesion.strftime('%d/%m/%Y')} "
-                    f"(trabajas los dos días de ese fin de semana). No tienes ese día libre para "
-                    f"el intercambio."
-                )
-
-            # El solicitante debe tener UN turno (su jornada base) en fecha_pago
-            tiene_turno_sol_pago, jor_sol_pago = self._trabaja_dia(solicitante, fecha_pago)
-            if not tiene_turno_sol_pago:
-                return False, jor_sol_pago or (
-                    f"No tienes un turno válido el {fecha_pago.strftime('%d/%m/%Y')} (devolución). "
-                    f"No puedes completar el intercambio."
-                )
-
-            otro_dia_pago = self._otro_dia_finde(fecha_pago)
-            tiene_turno_rec_otro_pago, jor_rec_otro_pago = self._trabaja_dia(receptor, otro_dia_pago)
-            if not tiene_turno_rec_otro_pago:
-                return False, jor_rec_otro_pago or (
-                    f"Tu compañero no tiene un turno válido el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución). "
-                    f"No puede completar el intercambio."
-                )
-
-            # Mismo control en el finde de DEVOLUCIÓN: cada uno debe descansar el día que recibe.
-            if _TSfinde.estado_dia(receptor, fecha_pago)['trabaja']:
-                return False, (
-                    f"Tu compañero ya trabaja el {fecha_pago.strftime('%d/%m/%Y')} (devolución); "
-                    f"trabaja los dos días de ese fin de semana y no tiene ese día libre."
-                )
-            if _TSfinde.estado_dia(solicitante, otro_dia_pago)['trabaja']:
-                return False, (
-                    f"Ya trabajas el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución); "
-                    f"trabajas los dos días de ese fin de semana."
-                )
-
-            # NOTA: la advertencia de "mes con 5 domingos" (balance impar) es informativa y NO
-            # bloquea, por eso vive solo en el formulario (`validarBalanceDomingos` en
-            # solicitar_cambio_descanso.js). Aquí no hay nada que validar.
-
+            # Extraida en la Fase 3 para que las dos modalidades queden al mismo nivel:
+            # la de ENTRE SEMANA ya vivia en `_validar_entre_semana`, y esta seguia en
+            # linea dentro de `validar_solicitud`.
+            return self._validar_fin_de_semana(solicitante, receptor, fecha_cesion,
+                                               fecha_pago, datos)
             return True, "Solicitud de cambio de descanso válida"
 
         except ValidationError as e:
             return False, str(e)
         except Exception as e:
             return False, f"Error validando cambio de descanso: {str(e)}"
+
+
+    def _validar_fin_de_semana(self, solicitante, receptor, fecha_cesion, fecha_pago, datos):
+        """
+        Modalidad de FIN DE SEMANA: se intercambia un finde por otro.
+
+        Devuelve `(ok, mensaje)`, como sus hermanas `_validar_entre_semana` y las
+        de submodalidad. Se sigue la convencion de ESTE archivo y no la de
+        `doblada_strategy` ("mensaje o None"): mezclarlas obligaria a recordar cual
+        rige en cada sitio.
+
+        Los parametros se llaman igual que las variables locales que sustituyen. No
+        es casualidad: asi el traslado no necesita renombrar nada dentro del cuerpo,
+        y se elimina de raiz la clase de error que aparecio tres veces al trocear
+        `doblada_strategy` con reemplazos automaticos.
+        """
+        # Import local, igual que en `validar_solicitud`: el modulo de validadores
+        # importa de vuelta las strategies y a nivel de modulo daria un ciclo.
+        from ..solicitud_validator import SolicitudValidator
+
+        # --- Fin de semana ---
+        if fecha_cesion.weekday() not in (5, 6):
+            return False, "El día que cambias debe ser un fin de semana (sábado o domingo)"
+        if fecha_pago.weekday() not in (5, 6):
+            return False, "El día de devolución debe ser un fin de semana (sábado o domingo)"
+
+        from django.utils import timezone
+        hoy = timezone.localdate()
+        # El día en curso YA se está trabajando: no hay jornada que intercambiar sin
+        # reescribir un turno que la persona está cubriendo ahora mismo (misma regla que
+        # D FDS). Se omite al re-validar: una solicitud enviada ayer para hoy no debe
+        # volverse inaprobable por el paso del tiempo, la decide el supervisor.
+        if fecha_cesion < hoy or (fecha_cesion == hoy and not datos.get('es_revalidacion')):
+            return False, (
+                "El fin de semana que cambias debe ser posterior a hoy: el día en curso "
+                "ya se está trabajando."
+            )
+        if fecha_pago <= hoy:
+            return False, "La fecha de devolución debe ser posterior a hoy"
+        if fecha_pago == fecha_cesion:
+            return False, "La devolución debe ser un fin de semana distinto al que cambias"
+
+        # DÍA OPUESTO (sáb↔dom): el balance de domingos se conserva porque en la cesión
+        # trabajas un día y en la devolución trabajas el día contrario por alternancia.
+        # Ej: cesión sábado (trabajas) → devolución domingo (trabajas el otro finde).
+        if fecha_cesion.weekday() == fecha_pago.weekday():
+            dia = 'domingo' if fecha_cesion.weekday() == 6 else 'sábado'
+            otro = 'sábado' if fecha_cesion.weekday() == 6 else 'domingo'
+            return False, (
+                f"Cambiaste un {dia}: la devolución debe ser un {otro} "
+                f"(el día contrario), para mantener tu balance de domingos en el mes."
+            )
+
+        # Mismo mes que la cesión
+        SolicitudValidator.validar_fecha_pago_mismo_mes_cesion(fecha_pago, fecha_cesion)
+
+        # Duplicado (par de fechas en cualquier orden, mismas personas). Ver _es_duplicado_pendiente.
+        # Se omite al re-validar para aprobar (regla de creación).
+        if not datos.get('es_revalidacion') and self._es_duplicado_pendiente(solicitante, receptor, fecha_cesion, fecha_pago):
+            return False, (
+                f"Ya enviaste esta solicitud de cambio de descanso (mismas fechas: "
+                f"{fecha_cesion.strftime('%d/%m')} y {fecha_pago.strftime('%d/%m')}). "
+                f"Está pendiente de aprobación."
+            )
+
+        # Grupos contrarios
+        grupo_sol = self._grupo_base(solicitante, fecha_cesion)
+        grupo_rec = self._grupo_base(receptor, fecha_cesion)
+        if not grupo_sol or not grupo_rec:
+            return False, "No se pudo determinar la jornada base de los exploradores"
+        if grupo_sol == grupo_rec:
+            return False, (
+                "El compañero debe ser del grupo contrario (el que descansa el otro día del "
+                "fin de semana). No puedes intercambiar con alguien de tu mismo grupo."
+            )
+
+        # VALIDACIÓN CRÍTICA: Verificar que AMBOS tengan turnos REALES en las fechas.
+        # El solicitante debe tener UN turno (su jornada base) en fecha_cesion
+        tiene_turno_sol_ces, jor_sol_ces = self._trabaja_dia(solicitante, fecha_cesion)
+        if not tiene_turno_sol_ces:
+            return False, jor_sol_ces or (
+                f"No tienes un turno válido el {fecha_cesion.strftime('%d/%m/%Y')}. "
+                f"No puedes cambiar descanso sin tu turno normal."
+            )
+
+        otro_dia_cesion = self._otro_dia_finde(fecha_cesion)
+        tiene_turno_rec_otro, jor_rec_otro = self._trabaja_dia(receptor, otro_dia_cesion)
+        if not tiene_turno_rec_otro:
+            return False, jor_rec_otro or (
+                f"Tu compañero no tiene un turno válido el {otro_dia_cesion.strftime('%d/%m/%Y')}. "
+                f"No puede hacer el intercambio."
+            )
+
+        # CADA UNO debe DESCANSAR el día que va a RECIBIR en el intercambio (fuente de
+        # verdad estado_dia). Si alguno ya trabaja los DOS días del finde (p. ej. doblada
+        # sábado y domingo), no tiene día libre para recibir y el intercambio es imposible.
+        from turnos.services.turno_service import TurnoService as _TSfinde
+        if _TSfinde.estado_dia(receptor, fecha_cesion)['trabaja']:
+            return False, (
+                f"Tu compañero ya trabaja el {fecha_cesion.strftime('%d/%m/%Y')} "
+                f"(trabaja los dos días de ese fin de semana). No tiene ese día libre para "
+                f"recibir el intercambio."
+            )
+        if _TSfinde.estado_dia(solicitante, otro_dia_cesion)['trabaja']:
+            return False, (
+                f"Ya trabajas el {otro_dia_cesion.strftime('%d/%m/%Y')} "
+                f"(trabajas los dos días de ese fin de semana). No tienes ese día libre para "
+                f"el intercambio."
+            )
+
+        # El solicitante debe tener UN turno (su jornada base) en fecha_pago
+        tiene_turno_sol_pago, jor_sol_pago = self._trabaja_dia(solicitante, fecha_pago)
+        if not tiene_turno_sol_pago:
+            return False, jor_sol_pago or (
+                f"No tienes un turno válido el {fecha_pago.strftime('%d/%m/%Y')} (devolución). "
+                f"No puedes completar el intercambio."
+            )
+
+        otro_dia_pago = self._otro_dia_finde(fecha_pago)
+        tiene_turno_rec_otro_pago, jor_rec_otro_pago = self._trabaja_dia(receptor, otro_dia_pago)
+        if not tiene_turno_rec_otro_pago:
+            return False, jor_rec_otro_pago or (
+                f"Tu compañero no tiene un turno válido el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución). "
+                f"No puede completar el intercambio."
+            )
+
+        # Mismo control en el finde de DEVOLUCIÓN: cada uno debe descansar el día que recibe.
+        if _TSfinde.estado_dia(receptor, fecha_pago)['trabaja']:
+            return False, (
+                f"Tu compañero ya trabaja el {fecha_pago.strftime('%d/%m/%Y')} (devolución); "
+                f"trabaja los dos días de ese fin de semana y no tiene ese día libre."
+            )
+        if _TSfinde.estado_dia(solicitante, otro_dia_pago)['trabaja']:
+            return False, (
+                f"Ya trabajas el {otro_dia_pago.strftime('%d/%m/%Y')} (devolución); "
+                f"trabajas los dos días de ese fin de semana."
+            )
+
+        # NOTA: la advertencia de "mes con 5 domingos" (balance impar) es informativa y NO
+        # bloquea, por eso vive solo en el formulario (`validarBalanceDomingos` en
+        # solicitar_cambio_descanso.js). Aquí no hay nada que validar.
+
+        return True, "Solicitud de cambio de descanso válida"
 
     def _validar_entre_semana(self, solicitante, receptor, fecha_cesion, fecha_pago, es_revalidacion=False):
         """
