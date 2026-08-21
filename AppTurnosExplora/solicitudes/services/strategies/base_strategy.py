@@ -70,15 +70,23 @@ class SolicitudStrategy(ABC):
         """
         pass
     
+    @abstractmethod
     def _datos_desde_solicitud(self, solicitud: SolicitudCambio) -> Optional[Dict[str, Any]]:
         """
         Reconstruye el dict `datos` (igual al de la creación) a partir de una solicitud YA
         persistida, para poder RE-VALIDARLA al aprobar con el estado actual del sistema.
 
-        Devuelve None si el tipo aún no soporta re-validación (en ese caso se omite, sin
-        bloquear). Cada estrategia concreta debe implementarlo para quedar cubierta.
+        ABSTRACTO A PROPÓSITO (patrón #25, guardias que fallan CERRADO). Antes tenía una
+        implementación por defecto que devolvía None, y `revalidar_para_aprobar` leía ese
+        None como "este tipo no soporta re-validación, déjalo pasar". El resultado: una
+        estrategia nueva que olvidara implementarlo heredaba el atajo y sus solicitudes se
+        aprobaban SIN re-validar, en silencio y sin error. Siendo abstracto, olvidarlo ya no
+        compila: Python se niega a instanciar la clase.
+
+        Devolver None sigue siendo legítimo, pero AHORA significa otra cosa: "no he podido
+        reconstruir los datos" (típicamente falta la fila de detalle). Eso ya no aprueba —
+        falla cerrado. Ver `revalidar_para_aprobar`.
         """
-        return None
 
     def revalidar_para_aprobar(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
@@ -91,7 +99,15 @@ class SolicitudStrategy(ABC):
         """
         datos = self._datos_desde_solicitud(solicitud)
         if datos is None:
-            return True, 'Sin re-validación para este tipo'
+            # FALLA CERRADO. Las tres estrategias que devuelven None aquí lo hacen cuando
+            # falta la fila de detalle (DobladaDetalle, CambioPermanenteDetalle…), y una
+            # solicitud sin su detalle es un registro corrupto: no se puede comprobar y
+            # tampoco se podría aplicar. Antes se aprobaba igualmente con el mensaje "Sin
+            # re-validación para este tipo"; ahora se rechaza y el aprobador ve por qué.
+            return False, (
+                'No se pudieron reconstruir los datos de la solicitud para comprobarla '
+                '(faltan sus detalles). No se aprueba: revísala con el administrador.'
+            )
         datos['es_revalidacion'] = True
         datos['solicitud_actual_id'] = solicitud.id
         return self.validar_solicitud(datos)
