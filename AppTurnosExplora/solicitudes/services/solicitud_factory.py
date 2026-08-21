@@ -345,13 +345,39 @@ class SolicitudFactory:
 
         Fail-open ante errores inesperados: la re-validación es una red de seguridad EXTRA;
         si fallara por un bug, no debe bloquear todas las aprobaciones (se registra y se deja
-        pasar al flujo normal de aplicación).
+        pasar al flujo normal de aplicación). Es el ÚNICO fail-open que queda aquí, y se
+        mantiene a conciencia: bloquear todas las aprobaciones por un bug en la red de
+        seguridad es peor que aprobar algo que quizá haya dejado de ser válido —lo primero
+        para la operación entera, lo segundo se corrige—. Queda `logger.exception` con id y
+        tipo para que no pase inadvertido.
         """
         import logging
         logger = logging.getLogger(__name__)
-        strategy = cls.get_strategy(solicitud.tipo_cambio)
+        # `get_strategy_registrada` y NO `get_strategy`, por dos motivos:
+        #
+        #  1. `get_strategy` devuelve None cuando el tipo está INACTIVO (linea 145), y esto
+        #     devolvía entonces (True, '') — o sea, desactivar un tipo con solicitudes
+        #     pendientes hacía que se aprobaran TODAS sin re-validar ninguna. Comprobado
+        #     ejecutándolo antes de corregirlo. `activo` significa "se pueden CREAR
+        #     solicitudes nuevas de este tipo"; no dice nada sobre si hay que comprobar las
+        #     que ya existen. Es la misma confusión que ya se corrigió al revertir.
+        #  2. `get_strategy` cae por defecto a CambioTurnoStrategy para un tipo desconocido.
+        #     Re-validar una doblada con las reglas de un cambio de turno daría un veredicto
+        #     sin sentido; es preferible no tener estrategia y fallar cerrado.
+        strategy = cls.get_strategy_registrada(solicitud.tipo_cambio)
         if not strategy:
-            return True, ''
+            # FALLA CERRADO: sin estrategia no hay forma de comprobar la solicitud, y
+            # aprobarla a ciegas es justo lo que esta red venía a evitar.
+            logger.warning(
+                "Re-validacion imposible: no hay estrategia registrada para el tipo %s "
+                "(solicitud ID %s). No se aprueba.",
+                solicitud.tipo_cambio.nombre if getattr(solicitud, 'tipo_cambio', None) else '?',
+                getattr(solicitud, 'id', '?'),
+            )
+            return False, (
+                'No hay forma de comprobar este tipo de solicitud antes de aprobarla. '
+                'No se aprueba: avisa al administrador.'
+            )
         try:
             return strategy.revalidar_para_aprobar(solicitud)
         except Exception as e:
