@@ -45,6 +45,7 @@ puede montar. Queda anotado como hueco consciente.
 """
 import json
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase
@@ -359,3 +360,74 @@ class FinDeSemanaTestCase(BaseApiTurno):
                              base == str(grupo).upper())
         else:
             self.assertFalse(cuerpo['corresponde_trabajar_sabado'])
+
+
+class NoSonDuplicadosTestCase(BaseApiTurno):
+    """
+    Los dos bloques que PARECEN duplicar a TurnoService, y por que no se quitaron.
+
+    Auditando el punto 16 se propuso eliminarlos: `estado_dia` ya calcula la
+    doblada (L1, turno_service.py:456) y ya devuelve None cuando el explorador
+    descansa por una solicitud aprobada (L2 -> DescansoPorSolicitudService, que
+    ademas cubre MAS tipos que la vista). Leidos uno al lado del otro, la consulta,
+    la normalizacion a mayusculas y la condicion AM+PM son identicas; y en 15
+    escenarios diferenciales no aparecio ni una diferencia.
+
+    LA AUDITORIA ENCONTRO QUE NO SON EQUIVALENTES, y por un solo camino: tres
+    estrategias (`cambio_turno`, `d_fds`, `doblada_permanente`) hacen
+    `except Exception: return {}`. Cuando eso pasa, `turno_dict` vale `{}`, que es
+    FALSY pero NO es None:
+
+      * `if turno_dict:` da False, asi que la senal de doblada del servicio nunca
+        se lee -> el conteo manual de turnos es la UNICA fuente de `es_doblada`.
+      * `{} is not None` da True, asi que sin la anulacion `turno_dict = None` la
+        respuesta seria `turno: {}` con `tiene_turno: True`.
+
+    Es decir: los dos bloques son redundantes en el camino feliz y SOSTIENEN la
+    respuesta cuando algo ya ha fallado. Quitarlos habria degradado la pantalla
+    justo en el momento en que peor viene, y sin que ningun test de los 19
+    anteriores se pusiera rojo — porque ninguno rompia el servicio.
+
+    Estos dos tests fijan ese comportamiento para que la proxima persona que vea
+    la "duplicacion" encuentre aqui el motivo antes de borrarla.
+    """
+
+    RUTA_SERVICIO = 'turnos.services.turno_service.TurnoService.get_turno_explorador'
+
+    def _tipo_ct(self):
+        t, _ = TipoSolicitudCambio.objects.get_or_create(nombre='CT')
+        return t
+
+    def test_con_el_servicio_caido_el_conteo_manual_sostiene_la_doblada(self):
+        martes = self._un_martes()
+        self._turno(self.emp, martes, self.am)
+        self._turno(self.emp, martes, self.pm)
+
+        with patch(self.RUTA_SERVICIO, side_effect=RuntimeError('boom')):
+            _, cuerpo = self.pedir(fecha=str(martes), explorador_id=self.emp.id,
+                                   tipo_solicitud_id=self._tipo_ct().id)
+
+        self.assertTrue(cuerpo['es_doblada'],
+                        'sin el conteo manual, una doblada real se veria como jornada simple')
+        self.assertEqual(sorted(cuerpo['jornadas']), ['AM', 'PM'])
+
+    def test_con_el_servicio_caido_el_descanso_sigue_sin_turno(self):
+        """
+        Aqui `turno_dict` llega como `{}` desde la estrategia. La anulacion a None
+        es lo que evita responder `tiene_turno: True` con un turno vacio.
+        """
+        martes = self._un_martes()
+        tipo_doblada, _ = TipoSolicitudCambio.objects.get_or_create(nombre='DOBLADA')
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.emp, explorador_receptor=self.otro,
+            tipo_cambio=tipo_doblada, estado='aprobada',
+            fecha_cambio_turno=martes, comentario='x')
+        DobladaDetalle.objects.create(solicitud=sol, fecha_pago=martes + timedelta(days=7))
+
+        with patch(self.RUTA_SERVICIO, side_effect=RuntimeError('boom')):
+            _, cuerpo = self.pedir(fecha=str(martes), explorador_id=self.emp.id,
+                                   tipo_solicitud_id=self._tipo_ct().id)
+
+        self.assertIsNone(cuerpo['turno'], 'sin la anulacion llegaria {} en vez de None')
+        self.assertFalse(cuerpo['tiene_turno'])
+        self.assertTrue(cuerpo['esta_descansando'])
