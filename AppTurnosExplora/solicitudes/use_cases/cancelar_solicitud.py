@@ -75,7 +75,7 @@ class CancelarSolicitudUseCase:
                 # (revierte turnos y reconcilia). Sin bloquear a los exploradores, una aprobación
                 # simultánea sobre uno de esos días no sería visible para la guardia y la
                 # reversión la pisaría.
-                from solicitudes.domain.bloqueo_partes import bloquear_partes
+                from solicitudes.services.bloqueo_partes import bloquear_partes
                 bloquear_partes(solicitud)
 
                 if solicitud.estado == 'pendiente':
@@ -127,7 +127,7 @@ class CancelarSolicitudUseCase:
 
         from solicitudes.models import SolicitudCambio
         from solicitudes.domain.estado_machine import transicionar
-        from solicitudes.domain.bloqueo_partes import bloquear_partes
+        from solicitudes.services.bloqueo_partes import bloquear_partes
 
         try:
             with transaction.atomic():
@@ -297,7 +297,7 @@ class CancelarSolicitudUseCase:
 
         from solicitudes.models import SolicitudCambio
         from solicitudes.domain.estado_machine import transicionar
-        from solicitudes.domain.bloqueo_partes import bloquear_partes
+        from solicitudes.services.bloqueo_partes import bloquear_partes
 
         try:
             with transaction.atomic():

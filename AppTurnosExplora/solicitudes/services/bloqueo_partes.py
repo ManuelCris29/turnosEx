@@ -24,6 +24,23 @@ a que la primera confirme y entonces re-valida viendo ya sus turnos.
 Orden determinista (por `id` ascendente) para no crear interbloqueos: si dos transacciones piden
 los mismos dos exploradores en orden contrario, cada una retiene lo que la otra necesita y el
 motor mata a una. Pidiéndolos siempre en el mismo orden, eso no puede ocurrir.
+
+Por qué está en `services/` y no en `domain/`
+---------------------------------------------
+Vivía en `domain/`, y la auditoría lo anotó como «sacar el ORM del dominio». Medido, el problema
+era el revés: aquí no hay ORM de más, hay un archivo mal colocado. Esto NO es dominio —es una
+primitiva de bloqueo del motor de base de datos—, y todo lo que importa de ella es específico de
+MySQL: el nivel de aislamiento REPEATABLE READ, el `order_by` que evita interbloqueos y el
+`list()` que fuerza la ejecución (sin consumir el queryset el lock no llega a tomarse). Lo que
+parece negocio —qué exploradores intervienen— son diez líneas de leer atributos.
+
+Poner un repositorio o un puerto delante habría envuelto una sola línea en ceremonia, y la
+abstracción mentiría: `select_for_update` no es un concepto de dominio, es SQL. Un
+`bloquear_empleados()` genérico escondería que el orden importa y que el lock dura hasta que
+confirma la transacción MÁS EXTERNA, que es justo lo que hay que tener presente para no romperlo.
+
+Y romperlo sería silencioso: un lock mal tomado no falla en los tests, solo bajo concurrencia
+real. Por eso el arreglo fue mover el archivo, sin tocar una línea de su lógica.
 """
 
 
