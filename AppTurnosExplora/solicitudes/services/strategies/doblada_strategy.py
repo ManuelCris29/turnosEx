@@ -298,127 +298,18 @@ class DobladaStrategy(SolicitudStrategy):
             # Validar que fecha_pago no sea el mismo día que fecha_cesion
             SolicitudValidator.validar_fecha_pago_diferente_cesion(fecha_cesion, fecha_pago)
 
-            # L2 (fuente de verdad): el día no puede estar YA comprometido en otra solicitud
-            # APROBADA (cambio descanso / d_fds / doblada / doblada permanente). Evita el
-            # doble-compromiso del mismo día. (DOBLADA sí permite temporada/festivo, por eso
-            # no se usa estado_dia completo, solo la capa de solicitudes.)
-            from turnos.services.turno_service import TurnoService as _TSv
-            _fc_obj = DateUtils.parse_date(fecha_cesion)
-            _fp_obj = DateUtils.parse_date(fecha_pago)
-            _comp_ces = _TSv.dia_comprometido_por_solicitud(
-                explorador_solicitante, _fc_obj, excluir_id=_excluir_id)
-            if _comp_ces:
-                return False, (
-                    f"Ya tienes el {_fc_obj.strftime('%d/%m/%Y')} comprometido en otra "
-                    f"solicitud aprobada ({_comp_ces['motivo']}); no puedes cederlo de nuevo."
-                )
-            # NO se bloquea ceder un día que se TRABAJA por un favor (ni la jornada que te cedieron
-            # ni la que estás pagando). Antes sí, con el argumento de que el acreedor se quedaba sin
-            # cobertura — y eso no ocurre nunca: quien recibe la jornada la cubre, así que el turno
-            # sigue lleno. La contabilidad también cierra:
-            #
-            #  - Jornada RECIBIDA: es tuya desde que se aprobó el favor. La cedes, el nuevo receptor
-            #    la cubre, y quien te la cedió te sigue debiendo su pago (intacto).
-            #  - Jornada de PAGO: al cederla, el nuevo receptor cubre al acreedor y tu deuda con él
-            #    queda saldada, pero nace una deuda del MISMO tamaño con el nuevo receptor. No te
-            #    libras de trabajar esa media jornada: solo cambia a quién se la debes.
-            #
-            # Los 30 min corporativos siguen a quien REALMENTE dobla: se crean sobre el estado real
-            # de los turnos y se cancelan a quien deja de doblar (ver DobladaDeudaService y
-            # DeudaCorporativaService.sincronizar_deuda_corporativa).
-            #
-            # Los compromisos que sí bloquean son los DESCANSOS (arriba, `dia_comprometido_por_
-            # solicitud`): un día que ya cediste no lo puedes ceder dos veces.
-            _comp_pago = _TSv.dia_comprometido_por_solicitud(
-                explorador_receptor, _fp_obj, excluir_id=_excluir_id)
-            if _comp_pago:
-                # EXCEPCIÓN (sábado, dos mitades al MISMO compañero): si el compromiso del compañero
-                # viene de OTRA doblada TUYA que le pagas ESE MISMO sábado con la mitad CONTRARIA,
-                # no está "no disponible" — lo estás relevando tú de la otra media jornada. En ese
-                # caso se permite: tú terminas doblado (AM+PM) y él descansa el día completo.
-                _es_complemento_sabado = False
-                if _fp_obj.weekday() == 5:
-                    _jps_nueva = str(jornada_pago_sabado or '').upper()
-                    if _jps_nueva in ('AM', 'PM'):
-                        _contraria_nueva = 'PM' if _jps_nueva == 'AM' else 'AM'
-                        _q_comp = SolicitudCambio.objects.filter(
-                            explorador_solicitante=explorador_solicitante,
-                            explorador_receptor=explorador_receptor,
-                            tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
-                            estado='aprobada',
-                            doblada__fecha_pago=_fp_obj,
-                            doblada__jornada_pago_sabado__iexact=_contraria_nueva,
-                        )
-                        if _excluir_id:
-                            _q_comp = _q_comp.exclude(id=_excluir_id)
-                        _es_complemento_sabado = _q_comp.exists()
-                if not _es_complemento_sabado:
-                    return False, (
-                        f"Tu compañero ya tiene el {_fp_obj.strftime('%d/%m/%Y')} comprometido en "
-                        f"otra solicitud aprobada ({_comp_pago['motivo']}); no puede cubrir ese día."
-                    )
-            # PAGAR en un día en que ESTÁS LIBRE está permitido, sea cual sea el motivo del descanso
-            # (temporada, fin de semana, o porque CEDISTE ese día en otra solicitud). Un día libre está
-            # disponible para cubrir la jornada que debes: la última jornada aprobada del día es la
-            # vigente. No se materializa doblada indebida porque `aplicar_doblada_pago` solo suma la
-            # jornada propia del deudor si ESE día trabaja (si está libre, cubre únicamente la del
-            # acreedor → queda con UNA jornada), y `validar_coincidencia_jornadas_pago` omite la
-            # comparación cuando el deudor descansa. Por eso ya no se bloquea el pago en día cedido.
+            # Dia ya comprometido en otra solicitud aprobada (capa L2), extraido en
+            # la Fase 3.
+            _error = self._validar_dia_no_comprometido(entrada)
+            if _error:
+                return False, _error
 
-            # El COMPAÑERO (receptor/acreedor) debe TRABAJAR en la fecha de pago: si ese día DESCANSA
-            # por cualquier motivo REAL (temporada, alternancia de fin de semana, u otra solicitud) no
-            # tiene una jornada que el deudor pueda cubrir para "devolverle" el día → se rechaza con
-            # mensaje CLARO, en vez del confuso "trabajarías dos veces la misma jornada" (que salía al
-            # comparar contra su jornada predeterminada ignorando el descanso). Fuente de verdad:
-            # estado_dia. El sábado y los festivos de semana tienen reglas propias (alternancia /
-            # cobertura del grupo que descansa), por eso se excluyen aquí.
-            if _fp_obj.weekday() < 5 and not SolicitudValidator.es_festivo_semana(_fp_obj):
-                if not _TSv.estado_dia(explorador_receptor, _fp_obj).get('trabaja'):
-                    return False, (
-                        f"El compañero receptor descansa el {_fp_obj.strftime('%d/%m/%Y')}: ese día no "
-                        f"tiene una jornada que puedas cubrir para pagarle la doblada. Elige otra fecha "
-                        f"de pago en la que él trabaje."
-                    )
+            # Reglas propias de la CESIÓN en festivo (los días especiales, sábado×sábado y
+            # festivos-del-mismo-mes ya se validaron arriba, en las reglas comunes).
+            _error = self._validar_cesion_en_festivo(entrada, es_cesion_festivo, es_pago_festivo)
+            if _error:
+                return False, _error
 
-            # (Días especiales, sábado×sábado y festivos-del-mismo-mes: ya validados arriba, en las
-            # reglas comunes. Aquí solo quedan las reglas propias de la CESIÓN en festivo.)
-            if es_cesion_festivo or es_pago_festivo:
-                # En un festivo se trabaja la DOBLADA COMPLETA (AM+PM) y se cede ENTERA: la doblada
-                # de festivo es todo-o-nada. No se admiten cesiones parciales (dejarían media jornada
-                # colgando en un día que por rotación es doblada o descanso).
-                # Se mira TAMBIÉN `jornada_cedida`: al APLICAR manda ella, no `tipo_cesion` (ver
-                # doblada_aplicacion_service._aplicar_cesion), así que un `cesion_completa` con
-                # `jornada_cedida='AM'` cedía media jornada del festivo sin que nadie protestara.
-                if es_cesion_festivo and (
-                    tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm') or jornada_cedida
-                ):
-                    return False, (
-                        f"El {fecha_cesion_obj.strftime('%d/%m/%Y')} es festivo: ese día trabajas la "
-                        f"doblada completa (AM + PM) y debes cederla entera. No puedes ceder solo una "
-                        f"mitad — elige 'ceder la doblada completa'."
-                    )
-                # Solo puedes ceder ese festivo si tu grupo REALMENTE dobla ese día (tu jornada base
-                # coincide con el grupo que dobla). Si te toca descansar (dobla el grupo contrario) no
-                # tienes ninguna jornada que ceder.
-                from turnos.services.turno_service import TurnoService as _TSfv
-                if es_cesion_festivo and not _TSfv.dobla_en_festivo(explorador_solicitante, fecha_cesion_obj):
-                    return False, (
-                        f"No doblas el festivo {fecha_cesion_obj.strftime('%d/%m/%Y')}: ese día descansa "
-                        f"tu grupo (dobla el grupo contrario), así que no tienes una doblada que ceder. "
-                        f"Elige un festivo en el que te corresponda doblar."
-                    )
-
-                try:
-                    from turnos.services.asignacion_especial_service import AsignacionEspecialService
-                    grupo_cesion = AsignacionEspecialService.grupo_trabaja(fecha_cesion_obj)
-                    grupo_pago = AsignacionEspecialService.grupo_trabaja(fecha_pago_obj)
-                    logger.info(
-                        f"DobladaStrategy: Cesión festiva {fecha_cesion_obj} (grupo {grupo_cesion}) "
-                        f"<-> Pago festivo {fecha_pago_obj} (grupo {grupo_pago})"
-                    )
-                except Exception as e:
-                    logger.warning(f"Error al obtener rotación de festivos: {str(e)}", exc_info=True)
-            
             # ===========================
             # Reglas del pago en sabado, extraidas en la Fase 3.
             #
@@ -548,6 +439,159 @@ class DobladaStrategy(SolicitudStrategy):
         return None
 
 
+
+    def _validar_dia_no_comprometido(self, entrada):
+        """
+        El dia no puede estar YA comprometido en otra solicitud APROBADA (capa L2).
+        Devuelve el mensaje de error o None.
+
+        Se consulta solo la capa de SOLICITUDES y no `estado_dia` completo, porque
+        una doblada si admite temporada y festivo: mirar el estado entero rechazaria
+        dias validos.
+
+        Usa `entrada.fecha_cesion_obj` y `entrada.fecha_pago_obj` en vez de volver a
+        parsear las dos fechas, como hacia el bloque original. Es el mismo valor: el
+        contexto se construye con `DateUtils.parse_date` sobre esas mismas cadenas.
+        """
+        # L2 (fuente de verdad): el día no puede estar YA comprometido en otra solicitud
+        # APROBADA (cambio descanso / d_fds / doblada / doblada permanente). Evita el
+        # doble-compromiso del mismo día. (DOBLADA sí permite temporada/festivo, por eso
+        # no se usa estado_dia completo, solo la capa de solicitudes.)
+        from turnos.services.turno_service import TurnoService as _TSv
+        _comp_ces = _TSv.dia_comprometido_por_solicitud(
+            entrada.solicitante, entrada.fecha_cesion_obj, excluir_id=entrada.excluir_id)
+        if _comp_ces:
+            return (
+                f"Ya tienes el {entrada.fecha_cesion_obj.strftime('%d/%m/%Y')} comprometido en otra "
+                f"solicitud aprobada ({_comp_ces['motivo']}); no puedes cederlo de nuevo."
+            )
+        # NO se bloquea ceder un día que se TRABAJA por un favor (ni la jornada que te cedieron
+        # ni la que estás pagando). Antes sí, con el argumento de que el acreedor se quedaba sin
+        # cobertura — y eso no ocurre nunca: quien recibe la jornada la cubre, así que el turno
+        # sigue lleno. La contabilidad también cierra:
+        #
+        #  - Jornada RECIBIDA: es tuya desde que se aprobó el favor. La cedes, el nuevo receptor
+        #    la cubre, y quien te la cedió te sigue debiendo su pago (intacto).
+        #  - Jornada de PAGO: al cederla, el nuevo receptor cubre al acreedor y tu deuda con él
+        #    queda saldada, pero nace una deuda del MISMO tamaño con el nuevo receptor. No te
+        #    libras de trabajar esa media jornada: solo cambia a quién se la debes.
+        #
+        # Los 30 min corporativos siguen a quien REALMENTE dobla: se crean sobre el estado real
+        # de los turnos y se cancelan a quien deja de doblar (ver DobladaDeudaService y
+        # DeudaCorporativaService.sincronizar_deuda_corporativa).
+        #
+        # Los compromisos que sí bloquean son los DESCANSOS (arriba, `dia_comprometido_por_
+        # solicitud`): un día que ya cediste no lo puedes ceder dos veces.
+        _comp_pago = _TSv.dia_comprometido_por_solicitud(
+            entrada.receptor, entrada.fecha_pago_obj, excluir_id=entrada.excluir_id)
+        if _comp_pago:
+            # EXCEPCIÓN (sábado, dos mitades al MISMO compañero): si el compromiso del compañero
+            # viene de OTRA doblada TUYA que le pagas ESE MISMO sábado con la mitad CONTRARIA,
+            # no está "no disponible" — lo estás relevando tú de la otra media jornada. En ese
+            # caso se permite: tú terminas doblado (AM+PM) y él descansa el día completo.
+            _es_complemento_sabado = False
+            if entrada.fecha_pago_obj.weekday() == 5:
+                _jps_nueva = str(entrada.jornada_pago_sabado or '').upper()
+                if _jps_nueva in ('AM', 'PM'):
+                    _contraria_nueva = 'PM' if _jps_nueva == 'AM' else 'AM'
+                    _q_comp = SolicitudCambio.objects.filter(
+                        explorador_solicitante=entrada.solicitante,
+                        explorador_receptor=entrada.receptor,
+                        tipo_cambio__nombre__in=['DOBLADA', 'D FDS'],
+                        estado='aprobada',
+                        doblada__fecha_pago=entrada.fecha_pago_obj,
+                        doblada__jornada_pago_sabado__iexact=_contraria_nueva,
+                    )
+                    if entrada.excluir_id:
+                        _q_comp = _q_comp.exclude(id=entrada.excluir_id)
+                    _es_complemento_sabado = _q_comp.exists()
+            if not _es_complemento_sabado:
+                return (
+                    f"Tu compañero ya tiene el {entrada.fecha_pago_obj.strftime('%d/%m/%Y')} comprometido en "
+                    f"otra solicitud aprobada ({_comp_pago['motivo']}); no puede cubrir ese día."
+                )
+        # PAGAR en un día en que ESTÁS LIBRE está permitido, sea cual sea el motivo del descanso
+        # (temporada, fin de semana, o porque CEDISTE ese día en otra solicitud). Un día libre está
+        # disponible para cubrir la jornada que debes: la última jornada aprobada del día es la
+        # vigente. No se materializa doblada indebida porque `aplicar_doblada_pago` solo suma la
+        # jornada propia del deudor si ESE día trabaja (si está libre, cubre únicamente la del
+        # acreedor → queda con UNA jornada), y `validar_coincidencia_jornadas_pago` omite la
+        # comparación cuando el deudor descansa. Por eso ya no se bloquea el pago en día cedido.
+
+        # El COMPAÑERO (receptor/acreedor) debe TRABAJAR en la fecha de pago: si ese día DESCANSA
+        # por cualquier motivo REAL (temporada, alternancia de fin de semana, u otra solicitud) no
+        # tiene una jornada que el deudor pueda cubrir para "devolverle" el día → se rechaza con
+        # mensaje CLARO, en vez del confuso "trabajarías dos veces la misma jornada" (que salía al
+        # comparar contra su jornada predeterminada ignorando el descanso). Fuente de verdad:
+        # estado_dia. El sábado y los festivos de semana tienen reglas propias (alternancia /
+        # cobertura del grupo que descansa), por eso se excluyen aquí.
+        if entrada.fecha_pago_obj.weekday() < 5 and not SolicitudValidator.es_festivo_semana(entrada.fecha_pago_obj):
+            if not _TSv.estado_dia(entrada.receptor, entrada.fecha_pago_obj).get('trabaja'):
+                return (
+                    f"El compañero receptor descansa el {entrada.fecha_pago_obj.strftime('%d/%m/%Y')}: ese día no "
+                    f"tiene una jornada que puedas cubrir para pagarle la doblada. Elige otra fecha "
+                    f"de pago en la que él trabaje."
+                )
+
+        return None
+
+    def _validar_cesion_en_festivo(self, entrada, es_cesion_festivo, es_pago_festivo):
+        """
+        Reglas propias de ceder un festivo. Devuelve el mensaje de error o None.
+
+        En un festivo se trabaja la DOBLADA COMPLETA (AM+PM), así que la cesión es
+        todo-o-nada: una cesión parcial dejaría media jornada colgando en un día que
+        por rotación es doblada o descanso.
+
+        Recibe los dos indicadores de festivo aparte y no dentro de `entrada`, por
+        la misma razón que el resto de bloques: se calculan con una consulta a la
+        base a mitad de `validar_solicitud`, después de validaciones que pueden
+        cortar antes, y meterlos en el contexto adelantaría esas consultas.
+        """
+        if not (es_cesion_festivo or es_pago_festivo):
+            return None
+
+        # Se mira TAMBIÉN `jornada_cedida`: al APLICAR manda ella, no `tipo_cesion`
+        # (ver doblada_aplicacion_service._aplicar_cesion), así que un
+        # `cesion_completa` con `jornada_cedida='AM'` cedía media jornada del festivo
+        # sin que nadie protestara.
+        if es_cesion_festivo and (
+            entrada.tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm')
+            or entrada.jornada_cedida
+        ):
+            return (
+                f"El {entrada.fecha_cesion_obj.strftime('%d/%m/%Y')} es festivo: ese día trabajas la "
+                f"doblada completa (AM + PM) y debes cederla entera. No puedes ceder solo una "
+                f"mitad — elige 'ceder la doblada completa'."
+            )
+
+        # Solo puedes ceder ese festivo si tu grupo REALMENTE dobla ese día (tu
+        # jornada base coincide con el grupo que dobla). Si te toca descansar (dobla
+        # el grupo contrario) no tienes ninguna jornada que ceder.
+        from turnos.services.turno_service import TurnoService as _TSfv
+        if es_cesion_festivo and not _TSfv.dobla_en_festivo(
+                entrada.solicitante, entrada.fecha_cesion_obj):
+            return (
+                f"No doblas el festivo {entrada.fecha_cesion_obj.strftime('%d/%m/%Y')}: ese día descansa "
+                f"tu grupo (dobla el grupo contrario), así que no tienes una doblada que ceder. "
+                f"Elige un festivo en el que te corresponda doblar."
+            )
+
+        # Solo traza: qué grupo dobla cada uno de los dos días. No valida nada, y por
+        # eso su fallo se registra y se sigue — perder una línea de log no puede
+        # tumbar una solicitud.
+        try:
+            from turnos.services.asignacion_especial_service import AsignacionEspecialService
+            grupo_cesion = AsignacionEspecialService.grupo_trabaja(entrada.fecha_cesion_obj)
+            grupo_pago = AsignacionEspecialService.grupo_trabaja(entrada.fecha_pago_obj)
+            logger.info(
+                f"DobladaStrategy: Cesión festiva {entrada.fecha_cesion_obj} (grupo {grupo_cesion}) "
+                f"<-> Pago festivo {entrada.fecha_pago_obj} (grupo {grupo_pago})"
+            )
+        except Exception as e:
+            logger.warning(f"Error al obtener rotación de festivos: {str(e)}", exc_info=True)
+
+        return None
 
     def _validar_reglas_comunes(self, fecha_cesion, fecha_pago, fecha_creacion_solicitud):
         """
