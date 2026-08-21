@@ -484,7 +484,13 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 **Fase 3 — Descomponer los God Objects (4-8 semanas).**
 15. `doblada_strategy.validar_solicitud` (515 L) → mover a `services/validators/` (que ya existe e infrautiliza).
 16. Vaciar de negocio `views/doblada_api.py`, `views/api_turno_jornada.py` y `permisos/views.py` (este último no tiene capa de servicios propia: crearla).
-17. `SolicitudOrchestrator` deja de devolver `JsonResponse`; devuelve un `Result` y la vista lo serializa.
+17. ~~`SolicitudOrchestrator` deja de devolver `JsonResponse`; devuelve un `Result` y la vista lo serializa.~~ **REENCUADRADO (2026-08-21): era el síntoma, no la causa.** Medido, el `Result` cuesta **~42 puntos de retorno y 20 archivos de test** para desacoplar de HTTP una capa cuyo **único consumidor es una vista HTTP** (el único consumidor no-HTTP que existe es un script de depuración desechable). Coste sin comprador.
+
+    Lo que sí había, una capa más abajo: el error `requiere_cambio_turno_previo` viajaba **metiendo un JSON dentro del mensaje de texto** —tres `json.dumps` en `doblada_strategy`, un `json.loads` arriba— con la forma del diccionario escrita **tres veces sin definición única**. Así fue exactamente como un refactor renombró la clave `fecha_pago` en dos de los tres sitios sin que nadie se enterara: el frontend hace `data.fecha_pago || fechaPagoInput.value` y el `||` tapaba la avería. Había además un segundo lector que decidía si un mensaje era JSON **mirando si contenía una llave `{`**.
+
+    Resuelto con `services/errores_validacion.py`: la forma se define una vez, se reconoce con `isinstance` y el mensaje vuelve a ser legible en los logs. Radio: 3 productores, 2 consumidores, 1 ayudante de test. Los tests del contrato **mejoraron** al hacerlo — antes inspeccionaban el código fuente contando apariciones literales porque no había objeto que interrogar; ahora comprueban comportamiento.
+
+    El `Result` queda pendiente y sin prisa: reconsiderarlo **si aparece un segundo consumidor** (un comando, una tarea en segundo plano, otra forma de API). Hasta entonces es refactorizar por principio.
 18. Sacar el ORM de `domain/bloqueo_partes.py:62`.
 
 **Fase 4 — Frontend (2-4 semanas).**
