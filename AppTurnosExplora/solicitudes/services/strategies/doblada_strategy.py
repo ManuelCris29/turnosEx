@@ -511,62 +511,12 @@ class DobladaStrategy(SolicitudStrategy):
                 )
                 if res is not None:
                     return res
-            # Cobertura explícita AM / PM / AMBAS cuando el receptor tiene doblada en fecha de pago (no aplica a pago sábado especial)
-            if jornada_cubre_en_pago and jornada_cubre_en_pago not in ('AM', 'PM', 'AMBAS'):
-                return False, "Valor inválido para la jornada que cubrirás en la fecha de pago."
-            if fecha_pago_obj.weekday() == 5 and jornada_pago_sabado and jornada_cubre_en_pago:
-                return False, "No uses la opción AM/PM/toda la doblada junto con el pago en sábado; elige solo la jornada del sábado."
-            # La elección "¿qué cubrirás?" (jornada_cubre_en_pago) aplica siempre que el receptor
-            # tenga doblada en la fecha de pago, sin importar el tipo de cesión (parcial o completa).
-            if jornada_cubre_en_pago and not (
-                fecha_pago_obj.weekday() == 5 and jornada_pago_sabado
-            ):
-                # Fuente de verdad (estado_dia), NO solo turnos reales: la doblada del receptor
-                # puede ser VIRTUAL (temporada, alternancia de fin de semana, festivo) sin filas
-                # Turno. Mirar solo turnos reales disparaba un falso "el compañero no tiene doblada"
-                # cuando la doblada venía de temporada (mismo criterio que el deudor unas líneas más
-                # abajo, que ya usa obtener_jornada_display).
-                from turnos.services.turno_service import TurnoService as _TS_rec
-                receptor_doblada_pago = (
-                    _TS_rec.estado_dia(explorador_receptor, fecha_pago_obj).get('jornada') == 'DOBLADA'
-                )
-                if jornada_cubre_en_pago and not receptor_doblada_pago:
-                    return False, (
-                        "La opción de cubrir AM, PM o toda la doblada solo aplica cuando el compañero tiene "
-                        "doblada (AM+PM) en la fecha de pago."
-                    )
-
-                # El deudor SOLO puede cubrir la jornada CONTRARIA a la que él trabaja ese día.
-                # IMPORTANTE: usar la jornada REAL del deudor (incluida la PREDETERMINADA/virtual,
-                # sin fila Turno), no solo turnos explícitos. Si ese día el deudor trabaja una jornada:
-                #   - No puede cubrir AMBAS (su propia jornada quedaría sin cubrir).
-                #   - No puede cubrir la MISMA jornada que ya trabaja (la haría dos veces).
-                if receptor_doblada_pago and jornada_cubre_en_pago:
-                    jcp_u = str(jornada_cubre_en_pago).strip().upper()
-                    from turnos.services.turno_service import TurnoService as _TS_pago
-                    jornada_deudor_pago = _TS_pago.obtener_jornada_display(
-                        explorador_solicitante, fecha_pago_obj
-                    )
-                    if jornada_deudor_pago in ('AM', 'PM'):
-                        contraria = 'PM' if jornada_deudor_pago == 'AM' else 'AM'
-                        if jcp_u == 'AMBAS':
-                            return False, (
-                                f'Ese día ya trabajas tu jornada {jornada_deudor_pago}. No puedes cubrir la '
-                                f'doblada completa del compañero porque tu propia jornada quedaría sin cubrir. '
-                                f'Solo puedes cubrir la jornada contraria ({contraria}), o elige otra fecha de pago '
-                                f'en la que estés libre.'
-                            )
-                        if jcp_u == jornada_deudor_pago:
-                            return False, json.dumps({
-                                'code': 'requiere_cambio_turno_previo',
-                                'message': (
-                                    f'La jornada que quieres cubrir ({jcp_u}) es la MISMA que ya trabajas ese día: '
-                                    f'no puedes hacerla dos veces. Solo puedes cubrir la jornada contraria ({contraria}). '
-                                    f'Si necesitas cambiar tu jornada, primero realiza un cambio de turno sencillo.'
-                                ),
-                                'fecha_pago': str(fecha_pago),
-                                'jornada_comun': jcp_u,
-                            })
+            # Cobertura AM / PM / AMBAS en la fecha de pago, extraida en la Fase 3.
+            # Solo lee de `entrada`, asi que la firma se queda en un parametro: es
+            # lo que el objeto de contexto venia a habilitar.
+            _error = self._validar_cobertura_en_pago(entrada)
+            if _error:
+                return False, _error
 
             # Validaciones finales de jornadas, extraidas a un metodo propio en la
             # Fase 3. Son el ultimo tramo de la validacion y no dejan ninguna variable
@@ -676,6 +626,77 @@ class DobladaStrategy(SolicitudStrategy):
                         'jornada_comun': coincidencia['jornada_comun']
                     })
         
+        return None
+
+
+    def _validar_cobertura_en_pago(self, entrada):
+        """
+        Que jornada cubre el deudor el dia de pago, cuando el companero dobla.
+
+        Devuelve el mensaje de error o None. Extraido de `validar_solicitud` en
+        la Fase 3; la logica no cambia.
+
+        Dos de sus reglas se apoyan en `estado_dia` y no en los turnos reales, y
+        eso es deliberado: la doblada del companero puede ser VIRTUAL (temporada,
+        alternancia de fin de semana, festivo) y no tener filas Turno. Mirar solo
+        turnos reales disparaba un falso "el companero no tiene doblada".
+        """
+        # Cobertura explícita AM / PM / AMBAS cuando el receptor tiene doblada en fecha de pago (no aplica a pago sábado especial)
+        if entrada.jornada_cubre_en_pago and entrada.jornada_cubre_en_pago not in ('AM', 'PM', 'AMBAS'):
+            return "Valor inválido para la jornada que cubrirás en la fecha de pago."
+        if entrada.fecha_pago_obj.weekday() == 5 and entrada.jornada_pago_sabado and entrada.jornada_cubre_en_pago:
+            return "No uses la opción AM/PM/toda la doblada junto con el pago en sábado; elige solo la jornada del sábado."
+        # La elección "¿qué cubrirás?" (jornada_cubre_en_pago) aplica siempre que el receptor
+        # tenga doblada en la fecha de pago, sin importar el tipo de cesión (parcial o completa).
+        if entrada.jornada_cubre_en_pago and not (
+            entrada.fecha_pago_obj.weekday() == 5 and entrada.jornada_pago_sabado
+        ):
+            # Fuente de verdad (estado_dia), NO solo turnos reales: la doblada del receptor
+            # puede ser VIRTUAL (temporada, alternancia de fin de semana, festivo) sin filas
+            # Turno. Mirar solo turnos reales disparaba un falso "el compañero no tiene doblada"
+            # cuando la doblada venía de temporada (mismo criterio que el deudor unas líneas más
+            # abajo, que ya usa obtener_jornada_display).
+            from turnos.services.turno_service import TurnoService as _TS_rec
+            receptor_doblada_pago = (
+                _TS_rec.estado_dia(entrada.receptor, entrada.fecha_pago_obj).get('jornada') == 'DOBLADA'
+            )
+            if entrada.jornada_cubre_en_pago and not receptor_doblada_pago:
+                return (
+                    "La opción de cubrir AM, PM o toda la doblada solo aplica cuando el compañero tiene "
+                    "doblada (AM+PM) en la fecha de pago."
+                )
+
+            # El deudor SOLO puede cubrir la jornada CONTRARIA a la que él trabaja ese día.
+            # IMPORTANTE: usar la jornada REAL del deudor (incluida la PREDETERMINADA/virtual,
+            # sin fila Turno), no solo turnos explícitos. Si ese día el deudor trabaja una jornada:
+            #   - No puede cubrir AMBAS (su propia jornada quedaría sin cubrir).
+            #   - No puede cubrir la MISMA jornada que ya trabaja (la haría dos veces).
+            if receptor_doblada_pago and entrada.jornada_cubre_en_pago:
+                jcp_u = str(entrada.jornada_cubre_en_pago).strip().upper()
+                from turnos.services.turno_service import TurnoService as _TS_pago
+                jornada_deudor_pago = _TS_pago.obtener_jornada_display(
+                    entrada.solicitante, entrada.fecha_pago_obj
+                )
+                if jornada_deudor_pago in ('AM', 'PM'):
+                    contraria = 'PM' if jornada_deudor_pago == 'AM' else 'AM'
+                    if jcp_u == 'AMBAS':
+                        return (
+                            f'Ese día ya trabajas tu jornada {jornada_deudor_pago}. No puedes cubrir la '
+                            f'doblada completa del compañero porque tu propia jornada quedaría sin cubrir. '
+                            f'Solo puedes cubrir la jornada contraria ({contraria}), o elige otra fecha de pago '
+                            f'en la que estés libre.'
+                        )
+                    if jcp_u == jornada_deudor_pago:
+                        return json.dumps({
+                            'code': 'requiere_cambio_turno_previo',
+                            'message': (
+                                f'La jornada que quieres cubrir ({jcp_u}) es la MISMA que ya trabajas ese día: '
+                                f'no puedes hacerla dos veces. Solo puedes cubrir la jornada contraria ({contraria}). '
+                                f'Si necesitas cambiar tu jornada, primero realiza un cambio de turno sencillo.'
+                            ),
+                            'entrada.fecha_pago': str(entrada.fecha_pago),
+                            'jornada_comun': jcp_u,
+                        })
         return None
 
     @staticmethod
