@@ -8,6 +8,7 @@ creating a debt that must be paid back later.
 
 import logging
 import json
+from dataclasses import dataclass
 from typing import Dict, Any, Tuple, Optional
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -22,6 +23,49 @@ from core.utils.date_utils import DateUtils
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class EntradaDoblada:
+    """
+    La entrada de una solicitud de doblada, ya extraida y normalizada.
+
+    POR QUE EXISTE
+    --------------
+    `validar_solicitud` sacaba trece variables locales de `datos` y las arrastraba
+    por 500 lineas. Al empezar a trocear el metodo (Fase 3), el primer bloque
+    extraido necesito ONCE parametros: la firma era mas larga que varias de las
+    validaciones que contenia, y cada corte siguiente iba a ser peor.
+
+    Este objeto es lo que hace baratos los cortes siguientes. No es un dato nuevo:
+    es exactamente lo que ya habia en las locales, con un nombre.
+
+    QUE NO GUARDA, Y POR QUE
+    ------------------------
+    No guarda `es_cesion_festivo` ni `es_pago_festivo`. Esos dos se calculan con
+    una consulta a la base a mitad del metodo, DESPUES de varias validaciones que
+    pueden cortar antes. Meterlos aqui adelantaria esas consultas y cambiaria
+    cuando se ejecutan, que es justo el tipo de efecto lateral que un refactor no
+    debe introducir. Se pasan aparte a quien los necesite.
+
+    Es `frozen` a proposito: la entrada de una peticion no cambia mientras se
+    valida, y congelarla impide que un bloque extraido modifique lo que lee otro.
+    """
+    solicitante: Any
+    receptor: Any
+    fecha_cesion: Any
+    fecha_pago: Any
+    fecha_cesion_obj: Any
+    fecha_pago_obj: Any
+    jornada_cedida: Optional[str]
+    jornada_pago_sabado: Optional[str]
+    fecha_pago_semana: Any
+    jornada_cubre_en_pago: str
+    tipo_cesion: str
+    fecha_creacion_solicitud: Any
+    comentario: str
+    excluir_id: Any
+    es_revalidacion: bool
 
 
 class DobladaStrategy(SolicitudStrategy):
@@ -176,6 +220,33 @@ class DobladaStrategy(SolicitudStrategy):
             SolicitudValidator.validar_dias_especiales_doblada(fecha_pago)
 
             fecha_pago_obj = DateUtils.parse_date(fecha_pago)
+
+            # Entrada ya normalizada, para los bloques que se van extrayendo de este
+            # metodo. Se construye AQUI porque es el primer punto en que todas sus
+            # piezas existen: las dos fechas ya estan parseadas.
+            #
+            # Las variables locales de arriba se dejan como estan a proposito. Este
+            # paso solo pone el contexto a disposicion de los bloques extraidos; ir
+            # sustituyendo las locales por `entrada.x` en las 450 lineas restantes es
+            # trabajo aparte, y hacerlo a la vez que se trocea el metodo mezclaria dos
+            # refactors en un mismo diff, sin poder atribuir un fallo a ninguno.
+            entrada = EntradaDoblada(
+                solicitante=explorador_solicitante,
+                receptor=explorador_receptor,
+                fecha_cesion=fecha_cesion,
+                fecha_pago=fecha_pago,
+                fecha_cesion_obj=fecha_cesion_obj,
+                fecha_pago_obj=fecha_pago_obj,
+                jornada_cedida=jornada_cedida,
+                jornada_pago_sabado=jornada_pago_sabado,
+                fecha_pago_semana=fecha_pago_semana,
+                jornada_cubre_en_pago=jornada_cubre_en_pago,
+                tipo_cesion=tipo_cesion,
+                fecha_creacion_solicitud=fecha_creacion_solicitud,
+                comentario=comentario,
+                excluir_id=_excluir_id,
+                es_revalidacion=_es_reval,
+            )
 
             # Los DOS días de descanso que el supervisor fija en una semana de temporada son
             # territorio exclusivo del formulario de CAMBIO DESCANSO, que ofrece cinco formas de
@@ -501,11 +572,7 @@ class DobladaStrategy(SolicitudStrategy):
             # Fase 3. Son el ultimo tramo de la validacion y no dejan ninguna variable
             # viva hacia abajo, asi que se pueden mover sin tocar el resto.
             _error = self._validar_jornadas_y_coincidencia(
-                explorador_solicitante, explorador_receptor,
-                fecha_cesion, fecha_pago, fecha_pago_obj,
-                es_cesion_festivo, es_pago_festivo,
-                jornada_cedida, jornada_pago_sabado, jornada_cubre_en_pago, tipo_cesion,
-            )
+                entrada, es_cesion_festivo, es_pago_festivo)
             if _error:
                 return False, _error
 
@@ -524,11 +591,7 @@ class DobladaStrategy(SolicitudStrategy):
             raise
     
 
-    def _validar_jornadas_y_coincidencia(
-            self, explorador_solicitante, explorador_receptor,
-            fecha_cesion, fecha_pago, fecha_pago_obj,
-            es_cesion_festivo, es_pago_festivo,
-            jornada_cedida, jornada_pago_sabado, jornada_cubre_en_pago, tipo_cesion):
+    def _validar_jornadas_y_coincidencia(self, entrada, es_cesion_festivo, es_pago_festivo):
         """
         Ultimo tramo de `validar_solicitud`: jornadas contrarias, triple turno,
         doblada activa en la fecha de pago y coincidencia de jornadas.
@@ -552,14 +615,14 @@ class DobladaStrategy(SolicitudStrategy):
         # el grupo que descansa (misma jornada base) cubre válidamente al grupo que trabaja.
         if not es_cesion_festivo:
             SolicitudValidator.validar_jornadas_contrarias_doblada(
-                explorador_solicitante,
-                explorador_receptor,
-                fecha_cesion,
-                jornada_cedida
+                entrada.solicitante,
+                entrada.receptor,
+                entrada.fecha_cesion,
+                entrada.jornada_cedida
             )
         
         # Validar que receptor no tenga doblada activa en fecha de CESIÓN (evitar triple turno)
-        SolicitudValidator.validar_no_triple_turno(explorador_receptor, fecha_cesion)
+        SolicitudValidator.validar_no_triple_turno(entrada.receptor, entrada.fecha_cesion)
         # NO validar triple turno del receptor en fecha_pago:
         # en la fecha de pago el receptor PIERDE una jornada (el deudor se la devuelve),
         # no gana una. La protección real la da la validación de jornada_cedida más abajo.
@@ -567,9 +630,9 @@ class DobladaStrategy(SolicitudStrategy):
         # Validar que deudor no tenga doblada activa en fecha de pago. Mensaje contextual:
         # ya estamos en el formulario de doblada, así que NO decir "usa la Solicitud de Dobladas".
         SolicitudValidator.validar_no_doblada_activa(
-            explorador_solicitante, fecha_pago,
+            entrada.solicitante, entrada.fecha_pago,
             mensaje=(
-                f'No puedes pagar la doblada el {fecha_pago_obj.strftime("%d/%m/%Y")}: ese día ya '
+                f'No puedes pagar la doblada el {entrada.fecha_pago_obj.strftime("%d/%m/%Y")}: ese día ya '
                 f'tienes una jornada doblada (AM + PM), así que no te queda jornada libre para '
                 f'trabajar y devolverla. Elige otra fecha de pago en la que estés libre.'
             )
@@ -582,11 +645,11 @@ class DobladaStrategy(SolicitudStrategy):
         if not es_pago_festivo:
             omitir_coincidencia_pago = False
             if (
-                tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm')
-                and not (fecha_pago_obj.weekday() == 5 and jornada_pago_sabado)
-                and jornada_cubre_en_pago
+                entrada.tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm')
+                and not (entrada.fecha_pago_obj.weekday() == 5 and entrada.jornada_pago_sabado)
+                and entrada.jornada_cubre_en_pago
             ):
-                jcp_coinc = str(jornada_cubre_en_pago).strip().upper()
+                jcp_coinc = str(entrada.jornada_cubre_en_pago).strip().upper()
                 if jcp_coinc in ('AM', 'PM'):
                     # Fuente de verdad (estado_dia), no turnos reales: la doblada del receptor y
                     # la jornada del deudor pueden ser VIRTUALES (temporada/alternancia/festivo).
@@ -594,22 +657,22 @@ class DobladaStrategy(SolicitudStrategy):
                     # cubrir, el pago es limpio → omitir la verificación clásica de coincidencia.
                     from turnos.services.turno_service import TurnoService as _TS_coinc
                     rec_dobla = _TS_coinc.estado_dia(
-                        explorador_receptor, fecha_pago_obj).get('jornada') == 'DOBLADA'
+                        entrada.receptor, entrada.fecha_pago_obj).get('jornada') == 'DOBLADA'
                     sol_jorn = _TS_coinc.estado_dia(
-                        explorador_solicitante, fecha_pago_obj).get('jornada')
+                        entrada.solicitante, entrada.fecha_pago_obj).get('jornada')
                     if rec_dobla and sol_jorn in ('AM', 'PM') and sol_jorn != jcp_coinc:
                         omitir_coincidencia_pago = True
             if not omitir_coincidencia_pago:
                 coincidencia = SolicitudValidator.validar_coincidencia_jornadas_pago(
-                    explorador_solicitante,
-                    explorador_receptor,
-                    fecha_pago
+                    entrada.solicitante,
+                    entrada.receptor,
+                    entrada.fecha_pago
                 )
                 if coincidencia['requiere_cambio_turno']:
                     return json.dumps({
                         'code': 'requiere_cambio_turno_previo',
                         'message': 'No se puede pagar trabajando dos veces la misma jornada. Debes primero realizar un cambio de turno sencillo para tener jornada contraria en la fecha de pago.',
-                        'fecha_pago': str(fecha_pago),
+                        'entrada.fecha_pago': str(entrada.fecha_pago),
                         'jornada_comun': coincidencia['jornada_comun']
                     })
         
