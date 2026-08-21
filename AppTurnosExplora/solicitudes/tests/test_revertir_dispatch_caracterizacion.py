@@ -192,6 +192,44 @@ class TestSinDetalleNoSeRevierteNada(RevertirDispatchTestCase):
         assert self._observar(self._solicitud('TIPO QUE NO EXISTE')) == ([], [])
 
 
+class TestTipoDadoDeBaja(RevertirDispatchTestCase):
+    """
+    Una solicitud de un tipo INACTIVO sigue revirtiendose con su propia logica.
+
+    `activo` significa "se pueden CREAR solicitudes nuevas de este tipo": es una
+    bandera del catalogo, para el formulario. No dice nada sobre como se
+    materializo una solicitud que YA existe, y las cadenas `if tipo == ...`
+    originales nunca la miraron.
+
+    Esto no es teorico: al pasar el despacho a strategy se uso `get_strategy`, que
+    SI filtra por `activo`, y una DOBLADA de un tipo dado de baja dejo de revertirse
+    EN SILENCIO al cancelarla -sus turnos se quedaban aplicados-. Se detecto con una
+    sonda el 2026-08-20 y este test es lo que impide que vuelva.
+    """
+
+    def _desactivar(self, solicitud):
+        tipo = solicitud.tipo_cambio
+        tipo.activo = False
+        tipo.save()
+        solicitud.refresh_from_db()
+        return solicitud
+
+    def test_una_doblada_de_tipo_inactivo_se_revierte_igual(self):
+        solicitud = self._desactivar(self._con_doblada('DOBLADA'))
+
+        revertidores, cache = self._observar(solicitud)
+
+        assert revertidores == ['doblada']
+        assert cache == self._meses((9, 2026))
+
+    def test_un_cambio_turno_de_tipo_inactivo_se_revierte_igual(self):
+        solicitud = self._desactivar(self._solicitud('CAMBIO TURNO'))
+
+        revertidores, _ = self._observar(solicitud)
+
+        assert revertidores == ['cambio_turno']
+
+
 class TestInvalidacionDeCache(RevertirDispatchTestCase):
     """
     Los meses cuya caché se invalida, para AMBAS partes.

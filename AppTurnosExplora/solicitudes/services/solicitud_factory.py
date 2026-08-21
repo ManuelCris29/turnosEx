@@ -209,7 +209,16 @@ class SolicitudFactory:
         reconciliación terminaban SIN `else` justamente por eso, y esta función es
         lo que conserva ese silencio al pasar a despacho por strategy.
         """
-        if not tipo_solicitud or not getattr(tipo_solicitud, 'activo', True):
+        # NO se mira `activo`, y es deliberado. `activo` significa "se pueden CREAR
+        # solicitudes nuevas de este tipo": es una bandera del catalogo, para el
+        # formulario. Aqui la pregunta es otra —como se materializo una solicitud que
+        # YA existe— y esa no cambia porque el tipo se de de baja despues.
+        #
+        # `get_strategy` si lo filtra, y por eso no vale para estos flujos: al pasar
+        # el despacho a strategy, una DOBLADA de un tipo desactivado dejaba de
+        # revertirse EN SILENCIO al cancelarla. Comprobado el 2026-08-20 con una
+        # sonda; las cadenas `if tipo == ...` originales nunca miraron `activo`.
+        if not tipo_solicitud:
             return None
 
         candidatas = []

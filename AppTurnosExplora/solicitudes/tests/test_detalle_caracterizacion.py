@@ -262,3 +262,17 @@ class TestDespacho(DetalleCaracterizacionTestCase):
 
         for tipo in TIPOS:
             assert f"== '{tipo}'" not in ' '.join(codigo), tipo
+
+    def test_un_tipo_dado_de_baja_conserva_SU_detalle(self):
+        """
+        Desactivar un tipo no cambia como se materializo una solicitud que ya
+        existe. Con `get_strategy` (que filtra por `activo`) una DOBLADA inactiva
+        pasaba a mostrar el detalle de un CAMBIO TURNO; se corrigio el 2026-08-20.
+        """
+        from solicitudes.models import TipoSolicitudCambio
+
+        tipo = TipoSolicitudCambio.objects.get_or_create(nombre='DOBLADA')[0]
+        tipo.activo = False
+        tipo.save()
+
+        assert self._strategy_usada('DOBLADA') == ['DobladaStrategy']

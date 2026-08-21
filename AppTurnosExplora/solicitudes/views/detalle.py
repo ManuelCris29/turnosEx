@@ -112,14 +112,21 @@ class ObtenerDetalleSolicitudView(LoginRequiredMixin, View):
         # CAMBIO TURNO. Ese comportamiento SE CONSERVA a propósito —lo fija un test de
         # `test_detalle_caracterizacion.py`— para que un tipo sin strategy registrada
         # siga devolviendo detalle en lugar de una pantalla vacía.
-        # `get_strategy` ya cae a CambioTurnoStrategy cuando el tipo no tiene strategy
-        # registrada, así que ese `else` se conserva solo. Devuelve None únicamente si
-        # el tipo está INACTIVO, y para ese caso se repone el mismo destino explícito:
-        # una solicitud vieja de un tipo dado de baja debe seguir viéndose.
+        # `get_strategy_registrada` y no `get_strategy`: la segunda descarta los tipos
+        # INACTIVOS, y con ella una DOBLADA de un tipo dado de baja pasaba a mostrar
+        # el detalle de un CAMBIO TURNO. Que el tipo ya no admita solicitudes nuevas
+        # no cambia como se materializo una que ya existe.
+        #
+        # El `or CambioTurnoStrategy()` conserva el `else` de la cadena anterior: un
+        # tipo sin strategy propia sigue mostrando el detalle generico en vez de una
+        # pantalla vacia. Aqui esa caida es correcta porque solo se LEE; en los flujos
+        # que escriben (revertir, reconciliar) seria inaceptable y por eso alli no hay
+        # caida por defecto.
         from ..services.solicitud_factory import SolicitudFactory
         from ..services.strategies.cambio_turno_strategy import CambioTurnoStrategy
 
-        estrategia = SolicitudFactory.get_strategy(solicitud.tipo_cambio) or CambioTurnoStrategy()
+        estrategia = (SolicitudFactory.get_strategy_registrada(solicitud.tipo_cambio)
+                      or CambioTurnoStrategy())
         estrategia.detalle(solicitud, datos)
         return datos
 
