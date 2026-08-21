@@ -461,13 +461,6 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
         except Exception:
             return []
 
-    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
-        try:
-            from core.services import get_turno_service
-            return get_turno_service().get_turno_explorador(explorador_id, fecha)
-        except Exception:
-            return {}
-
     def detalle(self, solicitud, datos):
         """
         Detalle propio de DOBLADA PERMANENTE para la pantalla de consulta.

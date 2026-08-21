@@ -105,17 +105,29 @@ class ParametrosTestCase(BaseApiTurno):
 
         self.assertIn(r.status_code, (302, 403))
 
-    def test_un_explorador_inexistente_no_revienta_la_pantalla(self):
+    def test_un_explorador_inexistente_da_404_y_no_un_turno_vacio(self):
         """
-        Caracteriza el `except Exception` que envuelve TODO el metodo: cualquier
-        fallo interno sale como 500 con mensaje generico, nunca como traza.
+        Un id que no existe es un error del CLIENTE. Antes la peticion llegaba
+        hasta la estrategia, que capturaba el DoesNotExist y devolvia `{}`, y la
+        respuesta era `200` con `turno: {}, tiene_turno: true` — "si tiene turno",
+        con un objeto vacio. Ahora se comprueba antes de nada.
         """
-        r, cuerpo = self.pedir(fecha=str(self._un_martes()), explorador_id=999999,
-                               jornada_base='true')
+        r, cuerpo = self.pedir(fecha=str(self._un_martes()), explorador_id=999999)
+
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(cuerpo.get('code'), 'explorador_no_encontrado')
+
+    def test_un_fallo_real_sale_como_500_sin_filtrar_la_traza(self):
+        """La otra mitad: una averia de verdad no se disfraza de dia sin turno."""
+        with patch('turnos.services.turno_service.TurnoService.get_turno_explorador',
+                   side_effect=RuntimeError('boom')):
+            r, cuerpo = self.pedir(fecha=str(self._un_martes()),
+                                   explorador_id=self.emp.id)
 
         self.assertEqual(r.status_code, 500)
         self.assertEqual(cuerpo.get('code'), 'internal_error')
         self.assertNotIn('Traceback', str(cuerpo))
+        self.assertNotIn('boom', str(cuerpo))
 
 
 class ContratoDeRespuestaTestCase(BaseApiTurno):
@@ -362,34 +374,30 @@ class FinDeSemanaTestCase(BaseApiTurno):
             self.assertFalse(cuerpo['corresponde_trabajar_sabado'])
 
 
-class NoSonDuplicadosTestCase(BaseApiTurno):
+class ErroresQueYaNoSeDisfrazanTestCase(BaseApiTurno):
     """
-    Los dos bloques que PARECEN duplicar a TurnoService, y por que no se quitaron.
+    El `{}` que las estrategias devolvian al tragarse una excepcion, y por que se
+    quito.
 
-    Auditando el punto 16 se propuso eliminarlos: `estado_dia` ya calcula la
-    doblada (L1, turno_service.py:456) y ya devuelve None cuando el explorador
-    descansa por una solicitud aprobada (L2 -> DescansoPorSolicitudService, que
-    ademas cubre MAS tipos que la vista). Leidos uno al lado del otro, la consulta,
-    la normalizacion a mayusculas y la condicion AM+PM son identicas; y en 15
-    escenarios diferenciales no aparecio ni una diferencia.
+    HISTORIA, porque explica dos decisiones seguidas y opuestas.
 
-    LA AUDITORIA ENCONTRO QUE NO SON EQUIVALENTES, y por un solo camino: tres
-    estrategias (`cambio_turno`, `d_fds`, `doblada_permanente`) hacen
-    `except Exception: return {}`. Cuando eso pasa, `turno_dict` vale `{}`, que es
-    FALSY pero NO es None:
+    Primero se propuso borrar dos bloques de esta vista por parecer duplicados de
+    `TurnoService`. La auditoria lo impidio: tres estrategias hacian
+    `except Exception: return {}`, y ese `{}` es *falsy* en Python pero
+    `{} is not None` es cierto —y en JavaScript es *truthy*—, asi que los dos
+    bloques no eran duplicados: sostenian la respuesta cuando el servicio fallaba.
 
-      * `if turno_dict:` da False, asi que la senal de doblada del servicio nunca
-        se lee -> el conteo manual de turnos es la UNICA fuente de `es_doblada`.
-      * `{} is not None` da True, asi que sin la anulacion `turno_dict = None` la
-        respuesta seria `turno: {}` con `tiene_turno: True`.
+    Medido despues, ese `{}` resulto ser el problema de fondo. Creaba un TERCER
+    valor de retorno que no declaraba nadie (dict / None / `{}`), era alcanzable
+    desde la URL con un `explorador_id` inexistente, y producia `200` con
+    `turno: {}, tiene_turno: true`. Ademas anulaba una decision explicita de
+    `DobladaStrategy`, que renunciaba al `except` a proposito: el envoltorio de
+    `SolicitudFactory` lo capturaba igual una capa mas arriba.
 
-    Es decir: los dos bloques son redundantes en el camino feliz y SOSTIENEN la
-    respuesta cuando algo ya ha fallado. Quitarlos habria degradado la pantalla
-    justo en el momento en que peor viene, y sin que ningun test de los 19
-    anteriores se pusiera rojo — porque ninguno rompia el servicio.
-
-    Estos dos tests fijan ese comportamiento para que la proxima persona que vea
-    la "duplicacion" encuentre aqui el motivo antes de borrarla.
+    Ahora los errores no se disfrazan: un id inexistente da 404 y una averia real
+    da 500 con traza en el log. Un bug que se hace pasar por "hoy no trabaja" no se
+    encuentra en el log; se encuentra meses despues, por la queja de alguien que se
+    quedo sin turno.
     """
 
     RUTA_SERVICIO = 'turnos.services.turno_service.TurnoService.get_turno_explorador'
@@ -398,36 +406,85 @@ class NoSonDuplicadosTestCase(BaseApiTurno):
         t, _ = TipoSolicitudCambio.objects.get_or_create(nombre='CT')
         return t
 
-    def test_con_el_servicio_caido_el_conteo_manual_sostiene_la_doblada(self):
+    def test_nadie_devuelve_ya_un_diccionario_vacio_como_turno(self):
+        """
+        Control directo: si alguien reintroduce el `return {}`, vuelve el tercer
+        valor y con el toda la ambiguedad.
+
+        Se analiza con AST y no buscando el texto `return {}`, porque los propios
+        docstrings de esos modulos lo MENCIONAN al explicar por que se quito: una
+        busqueda literal se caza a si misma. El AST distingue codigo de prosa.
+        """
+        import ast
+        import inspect
+
+        from solicitudes.services import solicitud_factory as factory_mod
+        from solicitudes.services.strategies import base_strategy as base_mod
+        from solicitudes.services.strategies import (
+            cambio_turno_strategy, d_fds_strategy, doblada_permanente_strategy,
+            doblada_strategy,
+        )
+
+        modulos = (factory_mod, base_mod, cambio_turno_strategy, d_fds_strategy,
+                   doblada_permanente_strategy, doblada_strategy)
+        infractores = []
+        for modulo in modulos:
+            arbol = ast.parse(inspect.getsource(modulo))
+            for nodo in ast.walk(arbol):
+                if (isinstance(nodo, ast.Return)
+                        and isinstance(nodo.value, ast.Dict)
+                        and not nodo.value.keys):
+                    infractores.append(f'{modulo.__name__}:{nodo.lineno}')
+
+        self.assertEqual(infractores, [],
+                         f'volvieron a fabricar un dict vacio: {infractores}')
+
+    def test_las_cuatro_sobrescrituras_identicas_siguen_borradas(self):
+        """
+        Cuatro estrategias sobrescribian `get_turno_explorador` con el MISMO cuerpo
+        que la base; tres de ellas solo anadian el `except` danino. Heredar de la
+        base es lo correcto, y este test evita que alguien vuelva a copiarlo.
+        """
+        from solicitudes.services.strategies.base_strategy import SolicitudStrategy
+        from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
+        from solicitudes.services.strategies.d_fds_strategy import DFDSStrategy
+        from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+
+        for clase in (CambioTurnoStrategy, DobladaStrategy, DFDSStrategy,
+                      DobladaPermanenteStrategy):
+            with self.subTest(estrategia=clase.__name__):
+                self.assertIs(
+                    clase.get_turno_explorador, SolicitudStrategy.get_turno_explorador,
+                    'volvio a sobrescribir un metodo identico al de la base')
+
+    def test_con_el_servicio_caido_la_peticion_falla_de_forma_visible(self):
+        """Antes: 200 con datos vacios. Ahora: 500, que es lo que hay que ver."""
         martes = self._un_martes()
         self._turno(self.emp, martes, self.am)
         self._turno(self.emp, martes, self.pm)
 
         with patch(self.RUTA_SERVICIO, side_effect=RuntimeError('boom')):
-            _, cuerpo = self.pedir(fecha=str(martes), explorador_id=self.emp.id,
-                                   tipo_solicitud_id=self._tipo_ct().id)
+            r, _ = self.pedir(fecha=str(martes), explorador_id=self.emp.id,
+                              tipo_solicitud_id=self._tipo_ct().id)
 
-        self.assertTrue(cuerpo['es_doblada'],
-                        'sin el conteo manual, una doblada real se veria como jornada simple')
-        self.assertEqual(sorted(cuerpo['jornadas']), ['AM', 'PM'])
+        self.assertEqual(r.status_code, 500)
 
-    def test_con_el_servicio_caido_el_descanso_sigue_sin_turno(self):
+    def test_un_tipo_inactivo_sigue_devolviendo_el_turno_real(self):
         """
-        Aqui `turno_dict` llega como `{}` desde la estrategia. La anulacion a None
-        es lo que evita responder `tiene_turno: True` con un turno vacio.
+        `activo` significa "se pueden CREAR solicitudes nuevas de este tipo"; no
+        dice nada sobre consultar que turno tiene alguien un dia. Antes esto
+        devolvia `{}` con `tiene_turno: true` y sin jornada.
         """
         martes = self._un_martes()
-        tipo_doblada, _ = TipoSolicitudCambio.objects.get_or_create(nombre='DOBLADA')
-        sol = SolicitudCambio.objects.create(
-            explorador_solicitante=self.emp, explorador_receptor=self.otro,
-            tipo_cambio=tipo_doblada, estado='aprobada',
-            fecha_cambio_turno=martes, comentario='x')
-        DobladaDetalle.objects.create(solicitud=sol, fecha_pago=martes + timedelta(days=7))
+        self._turno(self.emp, martes, self.am)
+        tipo = self._tipo_ct()
+        tipo.activo = False
+        tipo.save()
 
-        with patch(self.RUTA_SERVICIO, side_effect=RuntimeError('boom')):
-            _, cuerpo = self.pedir(fecha=str(martes), explorador_id=self.emp.id,
-                                   tipo_solicitud_id=self._tipo_ct().id)
+        r, cuerpo = self.pedir(fecha=str(martes), explorador_id=self.emp.id,
+                               tipo_solicitud_id=tipo.id)
 
-        self.assertIsNone(cuerpo['turno'], 'sin la anulacion llegaria {} en vez de None')
-        self.assertFalse(cuerpo['tiene_turno'])
-        self.assertTrue(cuerpo['esta_descansando'])
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(cuerpo['tiene_turno'])
+        self.assertEqual(cuerpo['turno']['jornada'], 'AM')

@@ -457,27 +457,40 @@ class SolicitudFactory:
             raise
     
     @classmethod
-    def get_turno_explorador(cls, tipo_solicitud: TipoSolicitudCambio, 
-                           explorador_id: int, fecha: str) -> Dict[str, Any]:
+    def get_turno_explorador(cls, tipo_solicitud: TipoSolicitudCambio,
+                           explorador_id: int, fecha: str) -> Optional[Dict[str, Any]]:
         """
-        Get turn information for an explorer using the appropriate strategy.
-        
-        Args:
-            tipo_solicitud: TipoSolicitudCambio instance
-            explorador_id: ID of the empleado
-            fecha: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with turn information
+        Turno del explorador según la estrategia del tipo, o None si descansa.
+
+        AQUÍ VIVÍAN DOS FABRICACIONES DE `{}`, y las dos se han quitado:
+
+        1. `except Exception: return {}` — convertía cualquier fallo en un dict
+           vacío que aguas arriba se lee como "sí tiene turno". Anulaba además la
+           decisión explícita de `DobladaStrategy`, que renunciaba al `except` a
+           propósito: daba igual, esto lo capturaba una capa más arriba. Ahora el
+           fallo sube a la vista, que responde 500 y lo deja en el log.
+
+        2. `if not strategy: return {}` — se usaba `get_strategy`, que devuelve
+           None cuando el tipo está INACTIVO. O sea que desactivar un tipo hacía
+           que sus pantallas mostraran "tiene turno" con datos vacíos. Se pasa a
+           `get_strategy_registrada`, que ignora `activo` (misma corrección que en
+           la re-validación al aprobar: `activo` significa "se pueden CREAR
+           solicitudes nuevas", no dice nada sobre consultar el turno de un día).
+
+        Si aun así no hay estrategia registrada, la respuesta correcta no es un
+        dict vacío: es exactamente lo que hace la estrategia base —preguntar a la
+        fuente de verdad—, que es lo mismo que harían las seis.
         """
-        strategy = cls.get_strategy(tipo_solicitud)
+        strategy = cls.get_strategy_registrada(tipo_solicitud)
         if not strategy:
-            return {}
-        
-        try:
-            return strategy.get_turno_explorador(explorador_id, fecha)
-        except Exception:
-            return {}
+            logger.warning(
+                'Sin estrategia registrada para el tipo %s al consultar el turno; '
+                'se consulta la fuente de verdad directamente.',
+                getattr(tipo_solicitud, 'nombre', tipo_solicitud))
+            from core.services import get_turno_service
+            return get_turno_service().get_turno_explorador(explorador_id, fecha)
+
+        return strategy.get_turno_explorador(explorador_id, fecha)
     
     @classmethod
     def get_available_types(cls) -> list:

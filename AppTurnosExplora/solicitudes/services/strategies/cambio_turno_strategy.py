@@ -12,7 +12,7 @@ from django.db.models import Q
 from solicitudes.models import SolicitudCambio
 from empleados.models import Empleado
 from .base_strategy import SolicitudStrategy
-from core.services import get_empleado_disponibilidad_service, get_turno_service
+from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
 from core.constants import TipoCambioTurno
 from django.utils import timezone
@@ -673,24 +673,6 @@ class CambioTurnoStrategy(SolicitudStrategy):
             }, exc_info=True)
             return []
     
-    def get_turno_explorador(self, explorador_id: int, fecha: str) -> Dict[str, Any]:
-        """
-        Get turn information for an explorer.
-        
-        Args:
-            explorador_id: ID of the empleado
-            fecha: Date string in YYYY-MM-DD format
-            
-        Returns:
-            Dictionary with turn information
-        """
-        try:
-            turno_service = get_turno_service()
-            return turno_service.get_turno_explorador(explorador_id, fecha)
-            
-        except Exception:
-            return {}
-
     def detalle(self, solicitud, datos):
         """
         Detalle propio de CAMBIO TURNO para la pantalla de consulta.
