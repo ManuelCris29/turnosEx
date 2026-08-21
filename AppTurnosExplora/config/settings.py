@@ -402,54 +402,48 @@ if 'test' in _sys.argv or 'pytest' in _sys.modules:
 # página, el navegador se NIEGA a ejecutarlo porque ese origen no está aquí.
 # No sustituye al escapado de plantillas: lo respalda.
 #
-# 'unsafe-inline' se mantiene por los scripts/estilos inline ya existentes.
-# Debilita la protección (permite <script> escritos en el propio HTML) y
-# eliminarlo exige migrar esos inline a archivos o usar nonces.
+# MIGRACIÓN A ESTÁTICOS LOCALES: TERMINADA
+# jsDelivr (flatpickr, chart.js, sweetalert2, fullcalendar), cdnjs (Font Awesome)
+# e ionicons se autohospedan en static/plugins/ y ya no los referencia ninguna
+# plantilla. La política estuvo en observación con una segunda cabecera
+# REPORT-ONLY hasta confirmarlo; barridas las 116 plantillas, el ÚNICO origen
+# externo que queda es Google Fonts, así que la report-only se borró y sus
+# valores son ahora los que se aplican de verdad.
 #
-# ESTADO DE LA MIGRACIÓN A ESTÁTICOS LOCALES
-# Todos los recursos de cdn.jsdelivr.net (flatpickr, chart.js, sweetalert2,
-# fullcalendar) se autohospedan en static/plugins/. Igual que ionicons, que no
-# se usa en ninguna plantilla. La política ESTRICTA de abajo elimina esas tres
-# entradas y se publica en modo REPORT-ONLY: el navegador informa de las
-# violaciones en consola SIN bloquear nada. Cuando se confirme que no aparece
-# ninguna, basta con mover ese diccionario a CONTENT_SECURITY_POLICY y borrar
-# el permisivo. Sigue haciendo falta cdnjs (Font Awesome 6 en mis_turnos.html)
-# y Google Fonts (base.html y el login).
+# ---------------------------------------------------------------------------
+# POR QUÉ SE QUEDA 'unsafe-inline' EN script-src (decisión, no pendiente)
+#
+# Debilita la CSP: permite ejecutar <script> escritos en el propio HTML y, sobre
+# todo, manejadores en atributo (onclick, onerror). Quitarlo se evaluó a fondo y
+# NO compensa:
+#
+#   * Los nonces solo cubren los 13 <script> inline. NO cubren los `onclick=` de
+#     20 plantillas ni los `style="…"` de 72: para esos hay que reescribir el
+#     marcado a addEventListener y a clases CSS. Son más de 90 plantillas
+#     tocadas, con riesgo real de regresión visual y funcional.
+#   * Y no cerraría ninguna amenaza viva. El renderizado en servidor está limpio
+#     (2 usos de |safe, ambos sobre help_text de Django, que es una constante;
+#     cero mark_safe), así que el XSS clásico de plantilla no existe aquí. El
+#     único vector era el texto que llega sin escapar a los innerHTML del JS
+#     propio, y ese se cerró por su origen: tras añadir AdminRequiredMixin a
+#     EmpleadoEditView, ningún dato que un explorador controle llega ahí (los
+#     nombres los escribe administración; `motivo` y `comentario` van a
+#     textContent, que no interpreta HTML).
+#
+# Lo que la CSP SÍ aporta hoy, y por eso se mantiene: bloquea cargar scripts de
+# cualquier origen externo, impide exfiltrar por fetch a otro dominio
+# (connect-src 'self') y prohíbe que el sitio se embeba en un iframe ajeno
+# (frame-ancestors 'none'). Son 15 líneas sin mantenimiento.
+#
+# Si algún día se rehace el frontend, ese es el momento de quitar 'unsafe-inline'
+# y añadir nonces: hacerlo sobre el marcado actual es todo coste y ninguna
+# ganancia.
+#
+# AL AÑADIR UN RECURSO EXTERNO NUEVO hay que incluir su origen aquí, o el
+# navegador lo bloqueará SIN error de servidor (falla en silencio, solo se ve en
+# la consola del navegador).
 # ---------------------------------------------------------------------------
 CONTENT_SECURITY_POLICY = {
-    'DIRECTIVES': {
-        'default-src': ["'self'"],
-        'script-src': [
-            "'self'", "'unsafe-inline'",
-            'https://cdn.jsdelivr.net',
-        ],
-        'style-src': [
-            "'self'", "'unsafe-inline'",
-            'https://cdn.jsdelivr.net',
-            'https://cdnjs.cloudflare.com',
-            'https://fonts.googleapis.com',
-            'https://code.ionicframework.com',
-        ],
-        'font-src': [
-            "'self'", 'data:',
-            'https://fonts.gstatic.com',
-            'https://cdnjs.cloudflare.com',
-            'https://code.ionicframework.com',
-        ],
-        'img-src': ["'self'", 'data:'],
-        'connect-src': ["'self'"],
-        'frame-ancestors': ["'none'"],
-    }
-}
-
-# Política objetivo, en observación. Se envía como cabecera
-# Content-Security-Policy-Report-Only: NO bloquea, solo reporta en la consola
-# del navegador.
-#
-# Ya no aparecen jsDelivr, cdnjs ni ionicons: ninguna plantilla los usa. Font Awesome
-# se sirve desde `static/plugins/fontawesome-free` (5.15.4) para TODO el sitio, así que
-# también cayó el único uso de cdnjs. Lo único externo que queda es Google Fonts.
-CONTENT_SECURITY_POLICY_REPORT_ONLY = {
     'DIRECTIVES': {
         'default-src': ["'self'"],
         'script-src': [
