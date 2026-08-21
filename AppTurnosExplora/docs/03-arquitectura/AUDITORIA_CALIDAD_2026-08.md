@@ -20,7 +20,7 @@ correcciones produjo y qué no pudo comprobarse:
 | Django 5.2 | `/websites/djangoproject_en_5_2` | System checks `deploy=True`, `on_commit`, `select_for_update`, caché multiproceso, política de deprecación |
 | django-axes | `/jazzband/django-axes` | Semántica de `AXES_LOCKOUT_PARAMETERS`, ajustes `AXES_IPWARE_PROXY_*` |
 | Gunicorn | `/benoitc/gunicorn` | Fórmula de workers, `--max-requests`, timeouts en Docker |
-| django-csp 4.0 | — | **No indexado en Context7.** Nonces sin verificar contra doc oficial |
+| django-csp 4.0 | — | No indexado en Context7. **Resuelto sin doc: verificado EJECUTÁNDOLO** (2026-08-21) — se comprobó que la cabecera `Content-Security-Policy` se emite con los valores del diccionario. Los nonces quedaron descartados por coste/beneficio, así que su sintaxis ya no hace falta |
 
 ---
 
@@ -193,7 +193,19 @@ Riesgos concretos:
 
 1. ~~**`CACHE_URL` por defecto es LocMemCache** sin prevención.~~ **HALLAZGO RETIRADO (falso positivo).** El proyecto **ya lo previene**: `core/checks.py:15` registra `@register(Tags.caches, deploy=True)` que devuelve el error `core.E001` si `IS_PRODUCTION` y el backend es LocMemCache, con hint accionable. Cubierto por `core/tests/test_checks_cache.py:24`. Hay además un segundo check propio, `core.W002` (`core/checks.py:47`), que avisa si la conexión a RDS no usa TLS. Está deliberadamente restringido a `--deploy` para no romper el `collectstatic` del build. **Es una de las mejores piezas del proyecto y la auditoría la pasó por alto en la primera pasada.**
 2. **django-axes bloquea solo por `username`** (`settings.py:341`, `AXES_LOCKOUT_PARAMETERS = ['username']`): un atacante rota usuarios y evade el límite. *Matizado tras Context7:* la doc de axes documenta `['username']` como elección legítima por privacidad/GDPR (evita almacenar IPs), así que es una decisión defendible, no un descuido — pero deja abierto el credential stuffing. **Ver §7 para el bloqueante de proxy antes de cambiarlo.**
-3. **CSP con `'unsafe-inline'`** en `script-src` y `style-src`, incluso en `_REPORT_ONLY`. La causa raíz son los 14 bloques `<script>` inline en `solicitar_doblada.html`, `solicitar_ct_permanente.html` y `solicitar_cambio_turno.html`. *Nota positiva:* la política `_REPORT_ONLY` ya eliminó jsDelivr, cdnjs e ionicons — solo queda Google Fonts. **`'unsafe-inline'` es el único bloqueante real** para promoverla a política activa; el proyecto está más cerca de lo que sugiere el resto del informe.
+3. ~~**CSP con `'unsafe-inline'`** … `'unsafe-inline'` es el único bloqueante real para promoverla a política activa.~~ **CERRADO Y PARCIALMENTE CORREGIDO (2026-08-21).**
+
+   La frase tachada contenía un **error de razonamiento**: `'unsafe-inline'` estaba en las **dos** políticas, la activa y la `_REPORT_ONLY`, así que nunca fue un bloqueante para promoverla. La única diferencia entre ambas eran los CDN retirados. La promoción se hizo sin tocar `'unsafe-inline'`: barridas las 116 plantillas, el único origen externo que queda es Google Fonts, la estricta pasó a ser la activa y la `_REPORT_ONLY` se borró.
+
+   **`'unsafe-inline'` se queda en `script-src`, como decisión documentada.** Quitarlo se evaluó con números y no compensa: los nonces cubren los 13 `<script>` inline, pero **no** los `onclick=` de 20 plantillas ni los `style="…"` de 72 — más de 90 plantillas reescritas, con riesgo real de regresión. Y no cerraría ninguna amenaza viva: el renderizado en servidor está limpio (2 `|safe`, ambos sobre `help_text` de Django, que es constante; **cero `mark_safe`**), y el único vector real —texto sin escapar en los `innerHTML` del JS propio— se cerró por su origen (ver punto 3-bis). El razonamiento completo vive en el comentario de `settings.py`. Rehacer esto es tarea de un rediseño del frontend, no de esta auditoría.
+
+   Vigilado por `core/tests/test_csp.py`, cuyo test central automatiza el riesgo que de verdad tiene una CSP: **falla en silencio**. Si una plantilla pide un origen fuera de la allowlist, el navegador lo bloquea sin que el servidor dé error. El test recorre las plantillas en cada push y falla nombrando el archivo.
+
+3-bis. **HALLAZGO NUEVO, GRAVE — IDOR en `EmpleadoEditView`.** Encontrado al auditar la CSP, buscando quién controlaba los datos que llegan a `innerHTML`. `empleados/views/empleado.py:137` llevaba solo `LoginRequiredMixin`, mientras sus tres vistas hermanas (`EmpleadoDeleteView`, `EmpleadoUsuarioCreateView`, `AsignarRolesSalasView`) sí llevaban `AdminRequiredMixin`: un olvido, no una decisión. Cualquier explorador con sesión podía hacer POST a `/empleados/edit/<id>/` y reescribir la ficha de **cualquier** compañero — nombre, cédula, email, supervisor y `activo`, con el que se le deja fuera del sistema. Comprobado ejecutándolo: la respuesta era 302 y el nombre de la víctima quedaba reescrito.
+
+   Encadenado, era también el vector de XSS: el nombre se interpola sin escapar en varios `innerHTML` del formulario de cambio de descanso, así que se ejecutaba en el navegador de quien lo abriera, supervisor incluido — y la CSP no lo frenaba, por el `'unsafe-inline'`. **Corregido** añadiendo `AdminRequiredMixin` (y metiendo el botón "Editar" dentro del `{% if is_admin_user %}` de la plantilla, donde faltaba por el mismo descuido). Cubierto por `empleados/tests/test_permisos_edicion_empleado.py`.
+
+   Revisadas las demás fuentes de texto que llegan a `innerHTML` —salas, jornadas, tipos de solicitud— todas estaban ya tras `AdminRequiredMixin`. Ésta era el único hueco.
 4. `DB_PASSWORD: swalp_docker_2026` versionada en `docker-compose.hostdb.yml:36`. Es local, pero queda en el historial de git.
 5. Dockerfile sin `HEALTHCHECK` pese a que `/health/` y `/health/ready/` ya existen y están exentos de redirect; no es multi-stage; el `CMD` ejecuta `migrate` antes de gunicorn (carrera con ≥2 tareas, ya auto-documentada).
 6. **`--workers 3` hardcodeado** en el `CMD` del Dockerfile, independientemente de la máquina. La doc de Gunicorn recomienda `2 × núcleos + 1`. Con 2 vCPU faltan workers; con 0,5 vCPU sobran y compiten por CPU. Falta también `--max-requests` para reciclar workers (mitiga fugas de memoria). Y esos 3 workers **confirman** el riesgo del punto 1: 3 cachés locmem incoherentes.
@@ -476,7 +488,7 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 18. Sacar el ORM de `domain/bloqueo_partes.py:62`.
 
 **Fase 4 — Frontend (2-4 semanas).**
-19. Extraer los `<script>` inline de los 3 `solicitar_*.html` → eliminar `'unsafe-inline'` del CSP.
+19. ~~Extraer los `<script>` inline de los 3 `solicitar_*.html` → eliminar `'unsafe-inline'` del CSP.~~ **DESCARTADO tras auditar (2026-08-21): era sobreingeniería.** Los `<script>` inline no son la causa raíz que el informe suponía. Medido: 13 plantillas con `<script>` inline (los nonces sí las cubren), pero **20** con `onclick=` y **72** con `style="…"`, que los nonces **no** cubren — habría que reescribir el marcado a `addEventListener` y a clases CSS. Son más de 90 plantillas, con riesgo real de regresión visual y funcional en una app que entra a producción. Y no cerraría ninguna amenaza viva (ver §riesgo 3). **Lo que sí se hizo** en su lugar: promover la política estricta, cerrar el IDOR de `EmpleadoEditView` —que era el vector real— y automatizar la vigilancia de la allowlist. Reconsiderar solo si algún día se rehace el frontend.
 20. Factorizar las funciones duplicadas de `cambio-turno/*.js` a los `utils/` y `services/` existentes.
 21. Migrar a `<script type="module">`; eliminar los 94 `console.log`.
 
