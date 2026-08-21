@@ -134,7 +134,23 @@ class EmpleadoEditForm(forms.ModelForm):
             asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado).order_by('-fecha_inicio').first()
             self.fields['jornada'].initial = asignacion.jornada.id if asignacion else None
 
-class EmpleadoEditView(LoginRequiredMixin, UpdateView):
+class EmpleadoEditView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
+    """
+    Edita la ficha de un explorador. Solo administración y supervisores.
+
+    `AdminRequiredMixin` NO estaba, y sus vistas hermanas (`EmpleadoDeleteView`,
+    `EmpleadoUsuarioCreateView`, `AsignarRolesSalasView`) sí lo tienen: fue un
+    olvido, no una decisión. Sin él, cualquier explorador con sesión podía hacer
+    POST a /empleados/edit/<id>/ y cambiar la ficha de CUALQUIER compañero —
+    nombre, cédula, email, supervisor y el campo `activo`, con el que se puede
+    dejar a otro fuera del sistema.
+
+    Además abría una vía de XSS: el nombre se interpola sin escapar en varios
+    `innerHTML` del formulario de cambio de descanso, así que un nombre con
+    `<img src=x onerror=...>` se ejecutaba en el navegador de quien lo abriera,
+    supervisor incluido. La CSP del proyecto no lo frena, porque `script-src`
+    lleva 'unsafe-inline'.
+    """
     model = Empleado
     template_name = 'empleados/edit.html'
     form_class = EmpleadoEditForm
