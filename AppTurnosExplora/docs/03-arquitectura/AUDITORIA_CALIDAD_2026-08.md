@@ -503,8 +503,20 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
 **Fase 4 — Frontend (2-4 semanas).**
 19. ~~Extraer los `<script>` inline de los 3 `solicitar_*.html` → eliminar `'unsafe-inline'` del CSP.~~ **DESCARTADO tras auditar (2026-08-21): era sobreingeniería.** Los `<script>` inline no son la causa raíz que el informe suponía. Medido: 13 plantillas con `<script>` inline (los nonces sí las cubren), pero **20** con `onclick=` y **72** con `style="…"`, que los nonces **no** cubren — habría que reescribir el marcado a `addEventListener` y a clases CSS. Son más de 90 plantillas, con riesgo real de regresión visual y funcional en una app que entra a producción. Y no cerraría ninguna amenaza viva (ver §riesgo 3). **Lo que sí se hizo** en su lugar: promover la política estricta, cerrar el IDOR de `EmpleadoEditView` —que era el vector real— y automatizar la vigilancia de la allowlist. Reconsiderar solo si algún día se rehace el frontend.
-20. Factorizar las funciones duplicadas de `cambio-turno/*.js` a los `utils/` y `services/` existentes.
-21. Migrar a `<script type="module">`; eliminar los 94 `console.log`.
+20. ~~Factorizar las funciones duplicadas de `cambio-turno/*.js` a los `utils/` y `services/` existentes.~~ **DESCARTADO tras medirlo (2026-08-22): la duplicación es de NOMBRES, no de código.**
+
+    Las funciones que se repiten en varios formularios tienen **firmas distintas**, o sea que no son copias sino implementaciones paralelas: `notificar(icon,title,html)` frente a `(icon,title,text)`; `verificarDiaFestivo(fecha,indicador,descripcion)` frente a `verificarDiaFestivo(fecha)`; `renderTurnoYSalas` con 3 parámetros frente a la de doblada con 6; `enviarSolicitud()` frente a `enviarSolicitud(confirmarRestriccion)`. Unificarlas no sería factorizar: sería reescribir comportamientos distintos hasta hacerlos uno.
+
+    Duplicación **literal** encontrada: **una** función de 4 líneas (`notificar` en `solicitar_d_fds.js:47` y `solicitar_doblada_permanente.js:42`, idénticas byte a byte). Extraer 4 líneas no compensa el riesgo, porque —y esto es lo que decide— **el proyecto no tiene NINGUNA infraestructura de pruebas para JavaScript**. Cero tests sobre 9 790 líneas de formularios. Refactorizar ahí es exactamente lo que la Fase 0 quería evitar.
+
+    **Si algún día se quiere abordar el frontend en serio, el primer paso no es factorizar: es montar la red** (Vitest o Jest sobre los `utils/`, que ya están separados y son los más fáciles de probar). Sin eso, cualquier refactor de JS es a ciegas.
+21. Migrar a `<script type="module">`; ~~eliminar los 94 `console.log`.~~ **Los `console.log` HECHOS (2026-08-22): 92 eliminados** (los otros 2 son de `adminlte`, código de terceros, y no se tocan).
+
+    Todos eran restos de depuración con prefijo `[DEBUG]` que viajaban al navegador de cada usuario volcando estado interno —meses cargados, contenido de `Set`s y, en siete de ellos, `new Error().stack`—. Reparto: `mis_turnos.js` 69, `solicitar_ct_permanente.js` 14, `solicitar_doblada.js` 7, y uno en `core/app.js` y en `calendario_festivos_mantenimiento.js`.
+
+    Sin tests de JS, el borrado se hizo por **balance de paréntesis** (siete llamadas eran multilínea y abrían un objeto literal: borrarlas por líneas habría dejado las propiedades sueltas), con **autoverificación** que aborta si alguna línea eliminada contiene `function`, `return`, `if (`, `=>` o una declaración, y con `node --check` en los cinco ficheros tocados.
+
+    La migración a `<script type="module">` **sigue pendiente** y comparte el bloqueante del punto 20: sin red de pruebas de JS no debería tocarse.
 
 ---
 
