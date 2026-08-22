@@ -509,7 +509,7 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
     Duplicación **literal** encontrada: **una** función de 4 líneas (`notificar` en `solicitar_d_fds.js:47` y `solicitar_doblada_permanente.js:42`, idénticas byte a byte). Extraer 4 líneas no compensa el riesgo, porque —y esto es lo que decide— **el proyecto no tiene NINGUNA infraestructura de pruebas para JavaScript**. Cero tests sobre 9 790 líneas de formularios. Refactorizar ahí es exactamente lo que la Fase 0 quería evitar.
 
-    **PRIMER PASO DADO (2026-08-22): la red ya existe.** `tests_js/` con **44 tests** sobre `date-utils.js` y `validators.js`, en un job **bloqueante** del CI. Sin `package.json` ni dependencias: se usa el runner que trae Node, porque los `utils` ya exponían `module.exports` además del global y fueron probables **sin tocar una línea de código de producción**.
+    **PRIMER PASO DADO (2026-08-22): la red ya existe.** `tests_js/` con **76 tests** sobre `date-utils.js`, `validators.js`, `api-client.js` y las funciones puras de `dom-utils.js`, en un job **bloqueante** del CI que corre en **11 segundos**. Sin `package.json` ni dependencias: se usa el runner que trae Node, porque los `utils` ya exponían `module.exports` además del global y fueron probables **sin tocar una línea de código de producción**.
 
     Y encontró dos fallos el primer día, los dos de zona horaria y los dos por parsear `new Date('YYYY-MM-DD')`, que es medianoche **UTC**:
 
@@ -517,9 +517,25 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
     * `Validators.futureDate` **rechazaba HOY** y `pastDate` daba HOY por pasado, en Colombia — pese a que el mensaje dice «hoy o una fecha futura». Corregido.
 
-    Queda sin cubrir lo que necesita DOM (`dom-utils`, `api-client`, `datepicker-service` y los formularios): ahí sí hará falta jsdom, y ese será el momento de traer una herramienta. Ver `tests_js/README.md`.
+    `api-client.js` se cubrió **sin jsdom** tras medirlo: solo usa `fetch` (nativo en Node), `document.cookie` (una cadena) y `document.querySelector` (para leer un `.value`). No recorre el árbol ni escucha eventos, así que un doble es **fiel**. Incluye el token CSRF, con un test que exige `startsWith` y no `includes` para que una cookie `xcsrftoken` no pueda suplantarlo.
 
-    **HALLAZGO COLATERAL:** `validators.js` se carga con `<script>` en cuatro plantillas (`solicitar_cambio_turno`, `solicitar_ct_permanente`, `solicitar_doblada`, `mis_turnos`) pero **no hay una sola referencia a `Validators.` en todo el proyecto**. Son 191 líneas que se descargan para nada. No se retiran los `<script>` aquí porque es una decisión aparte, pero queda medido.
+    Queda sin cubrir lo que sí manipula el DOM (la otra mitad de `dom-utils`, `codigo-referencia`, `datepicker-service` y los formularios). Ahí fingir `classList` o `appendChild` sería **peor que no probar**: el doble pasa siempre y daría por bueno código que en el navegador falla. Eso espera a jsdom. Ver `tests_js/README.md`.
+
+    **HALLAZGO QUE REENFOCA ESTE PUNTO (medido el 2026-08-22): la capa `utils/` está casi entera sin usar.** Las cuatro plantillas de solicitudes cargan `date-utils`, `validators`, `api-client` y `dom-utils`, y los usos reales son:
+
+    | Módulo | Cargado en | Usos |
+    |---|---|---|
+    | `date-utils.js` | 4 plantillas | **0** |
+    | `validators.js` | 4 plantillas | **0** |
+    | `api-client.js` | 4 plantillas | **0** (solo aparece en comentarios) |
+    | `dom-utils.js` | 4 plantillas | **1** — `DomUtils.ready()` en `core/app.js`, con guarda |
+    | `codigo-referencia.js` | 1 plantilla | 8 — este sí se usa |
+
+    Eso explica qué quiso decir este punto: **la duplicación no está entre formularios, sino entre los formularios y estos utils**. Cada `solicitar_*.js` reimplementó por su cuenta lo que ya existía al lado. Por eso las funciones con el mismo nombre tienen firmas distintas: no son copias, son reinvenciones.
+
+    El trabajo real, entonces, es **hacer que los formularios usen los utils** — un refactor de comportamiento sobre 9 790 líneas sin cobertura, que sigue necesitando jsdom antes.
+
+    **NO se borran los utils muertos**, aunque sean ~700 líneas que cuatro páginas descargan para nada: son el DESTINO previsto de ese refactor. Borrarlos dejaría el punto sin sitio adonde ir, y los dos bugs de zona horaria que la red encontró y corrigió habría que volver a escribirlos desde cero.
 21. Migrar a `<script type="module">`; ~~eliminar los 94 `console.log`.~~ **Los `console.log` HECHOS (2026-08-22): 92 eliminados** (los otros 2 son de `adminlte`, código de terceros, y no se tocan).
 
     Todos eran restos de depuración con prefijo `[DEBUG]` que viajaban al navegador de cada usuario volcando estado interno —meses cargados, contenido de `Set`s y, en siete de ellos, `new Error().stack`—. Reparto: `mis_turnos.js` 69, `solicitar_ct_permanente.js` 14, `solicitar_doblada.js` 7, y uno en `core/app.js` y en `calendario_festivos_mantenimiento.js`.

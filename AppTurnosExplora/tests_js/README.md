@@ -1,6 +1,6 @@
 # Pruebas de JavaScript
 
-Primera red de pruebas de JS del proyecto (2026-08-22). Hasta esta fecha el CI solo
+Red de pruebas de JS del proyecto, estrenada el 2026-08-22 con **76 tests**. Hasta esa fecha el CI solo
 ejecutaba `pytest`, que no corre una sola línea de JavaScript: las **9 790 líneas**
 de `static/js/cambio-turno/` no las miraba nadie.
 
@@ -39,11 +39,17 @@ jsdom, y ese será el momento de traer una herramienta. Hoy sería adelantarse.
 |---|---|---|
 | `utils/date-utils.js` | **cubierto** | lógica pura, cero referencias al navegador |
 | `utils/validators.js` | **cubierto** | lógica pura |
-| `utils/dom-utils.js` | sin cubrir | necesita `document` → jsdom |
-| `utils/api-client.js` | sin cubrir | necesita `fetch` → jsdom o un doble |
-| `utils/codigo-referencia.js` | sin cubrir | toca `window.fetch` |
+| `utils/api-client.js` | **cubierto** | solo usa `fetch`, `document.cookie` y `querySelector`: dobles fieles, sin jsdom |
+| `utils/dom-utils.js` | **parcial** | `debounce` y `throttle` cubiertos (JS puro). El resto manipula el DOM |
+| `utils/codigo-referencia.js` | sin cubrir | reemplaza `window.fetch` |
 | `services/datepicker-service.js` | sin cubrir | 25 referencias al navegador y a flatpickr |
 | `cambio-turno/*.js` | sin cubrir | los formularios; requieren DOM completo |
+
+**Sobre los dobles y jsdom.** `api-client` se prueba sin jsdom porque no toca el DOM
+de verdad: `document.cookie` es una cadena y `querySelector` solo sirve para leer un
+`.value`. Un doble ahí es **fiel**. En cambio, fingir `classList` o `appendChild`
+para probar `addClass` o `createElement` sería peor que no probarlos: el doble pasa
+siempre y daría por bueno código que en el navegador falla. Esa mitad espera a jsdom.
 
 ## Cómo añadir un fichero de pruebas
 
@@ -60,6 +66,29 @@ const DateUtils = cargarUtil('utils/date-utils.js');
    `conZonaHoraria`. **No es un lujo**: el proyecto corre en dos husos —Colombia
    (UTC-5) en local y UTC en el CI—, y los dos fallos que esta red encontró el
    primer día eran exactamente de eso.
+
+## Aviso importante: estos módulos casi no se usan
+
+Medido el 2026-08-22. Las cuatro plantillas de solicitudes cargan `date-utils`,
+`validators`, `api-client` y `dom-utils`, pero los usos reales son:
+
+| Módulo | Usos en el proyecto |
+|---|---|
+| `date-utils.js` | **0** |
+| `validators.js` | **0** |
+| `api-client.js` | **0** (solo aparece en comentarios) |
+| `dom-utils.js` | **1** — `DomUtils.ready()` en `core/app.js` |
+| `codigo-referencia.js` | 8 — este sí se usa |
+
+Dicho sin rodeos: **estos tests cubren código que hoy nadie llama.** Aun así valen —
+encontraron dos bugs reales que habrían mordido al primero que los usara, y montan
+la infraestructura— pero conviene no confundir cobertura con protección: hoy no
+protegen ninguna pantalla.
+
+Eso explica el punto 20 del informe de auditoría: la duplicación no está entre
+formularios, sino **entre los formularios y estos utils**. Cada `solicitar_*.js`
+reimplementó por su cuenta lo que ya existía al lado. Hacer que los formularios usen
+los utils es el trabajo pendiente, y necesita jsdom antes.
 
 ## Lo que encontró el primer día
 
