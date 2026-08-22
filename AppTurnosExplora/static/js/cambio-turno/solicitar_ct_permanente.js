@@ -210,7 +210,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Función para cargar datos iniciales si existen
     function cargarDatosIniciales() {
         if (fechaInicioInput && fechaInicioInput.value) {
-            console.log('Cargando datos automáticamente para fecha inicial:', fechaInicioInput.value);
             const fechaInicio = fechaInicioInput.value;
             const fechaFin = fechaFinInput ? fechaFinInput.value : null;
             
@@ -246,7 +245,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Inicializar datepickers y luego cargar datos
     inicializarDatepickers()
         .then(() => {
-            console.log('Datepickers inicializados correctamente');
             // Configurar event listeners después de inicializar
             configurarEventListeners();
             // Cargar datos iniciales después de que los datepickers estén listos
@@ -396,7 +394,6 @@ function cargarEmpleadosDisponibles(fecha) {
 
     // Para CT PERMANENTE, solo cargar empleados si hay rango completo (fecha_inicio Y fecha_fin)
     if (!fechaFin) {
-        console.log('No se cargan empleados: falta fecha de fin para completar el rango');
         const select = document.getElementById('empleado_receptor');
         if (select) {
             select.innerHTML = '<option value="">Selecciona fecha de fin para ver compañeros disponibles...</option>';
@@ -407,18 +404,15 @@ function cargarEmpleadosDisponibles(fecha) {
     const diasSeleccionados = obtenerDiasSeleccionados();
     const diasJSON = JSON.stringify(diasSeleccionados);
     
-    console.log('Cargando empleados para fecha:', fecha, 'tipo:', tipoSolicitudId, 'fin:', fechaFin);
     
     // Construir URL con parámetros (siempre incluir fecha_fin ya que verificamos que existe)
     let url = `/solicitudes/obtener-empleados-disponibles/?fecha=${fecha}&tipo_solicitud_id=${tipoSolicitudId}&fecha_fin=${fechaFin}&dias_seleccionados=${encodeURIComponent(diasJSON)}`;
     
     fetch(url)
         .then(response => {
-            console.log('Respuesta recibida:', response.status);
             return response.json();
         })
         .then(data => {
-            console.log('Datos recibidos:', data);
             const select = document.getElementById('empleado_receptor');
             select.innerHTML = '<option value="">Selecciona un compañero...</option>';
             
@@ -455,13 +449,11 @@ function cargarEmpleadosDisponibles(fecha) {
                     option.textContent = texto;
                     select.appendChild(option);
                 });
-                console.log('Empleados cargados:', data.empleados.length);
             } else {
                 const option = document.createElement('option');
                 option.value = '';
                 option.textContent = 'No hay compañeros disponibles con jornada contraria';
                 select.appendChild(option);
-                console.log('No hay empleados disponibles');
             }
         })
         .catch(error => {
@@ -685,7 +677,6 @@ function toggleDiasOcultos() {
 
 // Función para cargar jornada actual
 function cargarJornadaActual(fecha) {
-    console.log('Cargando jornada actual para fecha:', fecha, 'empleado:', window.solicitanteId);
     
     const fechaFin = document.getElementById('fecha_fin').value;
     const esRango = fechaFin && fechaFin > fecha;
@@ -700,11 +691,9 @@ function cargarJornadaActual(fecha) {
     
     fetch(url)
         .then(response => {
-            console.log('Respuesta jornada actual:', response.status);
             return response.json();
         })
         .then(data => {
-            console.log('Datos jornada actual:', data);
             const container = document.getElementById('jornada_actual_detalles');
             const infoDiv = document.getElementById('turno_actual_info');
             
@@ -781,7 +770,6 @@ function cargarJornadaActual(fecha) {
 }
 
 function cargarJornadaCompanero(empleadoId, fecha) {
-    console.log('Cargando jornada del compañero:', empleadoId, 'fecha:', fecha);
     
     // Si hay rango seleccionado, usar jornada_base para mostrar la jornada base del compañero
     const fechaFin = document.getElementById('fecha_fin').value;
@@ -792,11 +780,9 @@ function cargarJornadaCompanero(empleadoId, fecha) {
     
     fetch(url)
         .then(response => {
-            console.log('Respuesta jornada compañero:', response.status);
             return response.json();
         })
         .then(data => {
-            console.log('Datos jornada compañero:', data);
             const container = document.getElementById('jornada_companero_detalles');
             const infoDiv = document.getElementById('turno_companero_info');
             

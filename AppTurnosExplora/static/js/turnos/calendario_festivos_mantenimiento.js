@@ -16,7 +16,6 @@ const DIAS_SEMANA = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
  * @param {number} anio - Año a renderizar
  */
 function inicializarCalendarioConDatos(datos, anio) {
-    console.log("Inicializando calendario con datos:", datos);
     diasSeleccionadosPorMes = {};
     
     if (datos) {

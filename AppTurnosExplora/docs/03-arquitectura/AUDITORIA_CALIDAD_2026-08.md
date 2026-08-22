@@ -350,7 +350,7 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 
 **Fase 0 — Red de seguridad (1-2 semanas). Sin esto, refactorizar es a ciegas.**
 1. ~~Crear `.github/workflows/ci.yml`.~~ **Ya existía**; ampliado el 2026-08-19 con ejecución en todas las ramas, `-n auto`, gate de cobertura ≥64 % y job de lint (ruff + bandit + pip-audit).
-2. `ruff` (lint + format) en `pyproject.toml` + `pre-commit`. Coste bajo: hoy no hay ningún linter.
+2. ~~`ruff` (lint + format) en `pyproject.toml` + `pre-commit`.~~ **HECHO.** Verificado el 2026-08-22: `[tool.ruff]` en `pyproject.toml`, `.pre-commit-config.yaml` activo, y `ruff check .` en cero durante toda la refactorización (es bloqueante en el CI).
 3. ~~`conftest.py` raíz con fixtures compartidos.~~ **Corregido:** las fixtures de pytest no son accesibles
    desde `TestCase.setUp`, y 67 de los 68 archivos de test usan `TestCase`. Sustituido por
    `core/tests/factories.py`, con **funciones planas** llamables desde ambos mundos (Sesión 6).
@@ -470,14 +470,14 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
    c. Solo entonces: `AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]` (lista **plana** = bloqueo por usuario O por IP; la anidada `[["username","ip_address"]]` cuenta la pareja y NO frena la rotación de usuarios).
 
    *Sin el paso (a), axes vería la IP del intermediario para todos: 5 fallos de cualquier empleado bloquearían a toda la plantilla una hora.*
-7. Sustituir los 6 `print()` por `logger`, auditar los 12 `except: pass` (prioridad: `solicitud_orchestrator.py:314,358,450`).
+7. ~~Sustituir los 6 `print()` por `logger`, auditar los 12 `except: pass`.~~ **HECHO.** Verificado con AST el 2026-08-22: quedan **2 `print()`**, ambos legítimos (un script de `tools/` y una migración, donde imprimir ES la salida esperada), y **6 `except ...: pass`**, todos capturando un tipo CONCRETO (`ValueError`, `OSError`, `TypeError`, `ImportError`). No queda ningún `except:` desnudo ni `except Exception: pass`, que era la preocupación real.
 8. `HEALTHCHECK` en Dockerfile; `--workers $((2*$(nproc)+1))` y `--max-requests` en el `CMD`; alinear `sonar.python.version` a 3.12; rotar la contraseña de compose.
-9. `filterwarnings` en `pytest.ini` para hacer visibles los `DeprecationWarning`.
+9. ~~`filterwarnings` en `pytest.ini`.~~ **HECHO.** `pytest.ini` convierte en error los `RemovedInDjango60Warning` y `RemovedInDjango61Warning`.
 10. ~~Planificar el runner del outbox de correos.~~ **Ya estaba planificado** en los dos checklists y en `MANUAL_OUTBOX_CORREOS.md` §3, marcado como paso obligatorio. Ver §9.
 
 **Fase 2 — Cerrar el OCP (2-4 semanas). El mayor retorno arquitectónico.**
-11. Añadir a `SolicitudStrategy`: `revertir_cambios()`, `detalle()`, `parse()`, `fechas_objetivo()`.
-12. Mover ahí las 5 cadenas `if/elif` (`cancelar_solicitud.py:651`, `detalle.py:124`, `solicitud_request_parser.py:40`, `doblada_snapshot_service.py:258`, `fechas_helper.py:135`).
+11. ~~Añadir a `SolicitudStrategy`: `revertir_cambios()`, `detalle()`, `parse()`, `fechas_objetivo()`.~~ **HECHO en la Fase 2.** El contrato de la base incluye hoy `detalle()`, `parsear_datos()`, `revertir_cambios()`, `reaplicar()`, `pares_que_reescribe()`, `fecha_valida()` y `validar_campos_requeridos()`. Algunos nombres difieren de los propuestos porque se eligieron según lo que la pieza hace de verdad, no según el boceto.
+12. ~~Mover ahí las 5 cadenas `if/elif`.~~ **HECHO en la Fase 2.** Verificado el 2026-08-22: cero comparaciones contra un nombre de tipo en los cinco ficheros. La única coincidencia que queda (`detalle.py:106`) es un COMENTARIO que documenta la cadena que se retiró. Vigilado por el trinquete `solicitudes/tests/test_arquitectura_dispatch_por_tipo.py` (punto 14).
 13. ~~Convertir `_datos_desde_solicitud` en `@abstractmethod` — cerrar el *fail-open* de `base_strategy.py:74-93`.~~ **HECHO (2026-08-21), y eran TRES fail-opens, no uno.** El informe veía solo el defecto por defecto de la base. Auditando aparecieron dos más, ambos confirmados **ejecutándolos** antes de tocar nada: (b) las tres estrategias con detalle devuelven `None` si falta su fila, y eso *aprobaba* con el mensaje `(True, 'Sin re-validación para este tipo')`; y (c) `SolicitudFactory.revalidar_para_aprobar` usaba `get_strategy`, que devuelve `None` cuando el tipo está **inactivo** — devolvía `(True, '')`, o sea que **desactivar un tipo con solicitudes pendientes hacía que se aprobaran todas sin comprobar ninguna**. Es la misma confusión que ya se corrigió al revertir: `activo` significa «se pueden CREAR solicitudes de este tipo», no dice nada sobre las que ya existen. Los tres fallan ahora cerrado. Queda **uno a propósito** —el `except Exception` de la factory— porque bloquear todas las aprobaciones por un bug en la red de seguridad es peor que aprobar algo que quizá dejó de ser válido; está declarado en un test para que sea decisión visible y no descuido. Cubierto por `solicitudes/tests/test_failopen_revalidacion.py`.
 14. ~~Test de arquitectura que falle si aparece un `if tipo == "..."` fuera de las strategies.~~ **HECHO (2026-08-21), como TRINQUETE y no como cero absoluto.** Exigir cero habría forzado un refactor discutible: de las 4 comparaciones que quedan, tres **enrutan a flujos de orquestación completos** (dos solicitudes atómicas que solo tienen sentido juntas, alta multi-compañero) o son banderas de presentación — meterlas en una estrategia sería la misma dependencia, escondida. Solo una (`descanso_solicitud_service.py`, `_mitad_pago`) es deuda real y queda anotada como tal. Se congelan como base conocida que **solo puede menguar**, con un segundo test que falla si alguien migra una y no baja el número, para que la lista no deje hueco. El propio test **encontró 4 casos que el grep manual se había dejado**. Ver `solicitudes/tests/test_arquitectura_dispatch_por_tipo.py`.
 
@@ -503,8 +503,20 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
 **Fase 4 — Frontend (2-4 semanas).**
 19. ~~Extraer los `<script>` inline de los 3 `solicitar_*.html` → eliminar `'unsafe-inline'` del CSP.~~ **DESCARTADO tras auditar (2026-08-21): era sobreingeniería.** Los `<script>` inline no son la causa raíz que el informe suponía. Medido: 13 plantillas con `<script>` inline (los nonces sí las cubren), pero **20** con `onclick=` y **72** con `style="…"`, que los nonces **no** cubren — habría que reescribir el marcado a `addEventListener` y a clases CSS. Son más de 90 plantillas, con riesgo real de regresión visual y funcional en una app que entra a producción. Y no cerraría ninguna amenaza viva (ver §riesgo 3). **Lo que sí se hizo** en su lugar: promover la política estricta, cerrar el IDOR de `EmpleadoEditView` —que era el vector real— y automatizar la vigilancia de la allowlist. Reconsiderar solo si algún día se rehace el frontend.
-20. Factorizar las funciones duplicadas de `cambio-turno/*.js` a los `utils/` y `services/` existentes.
-21. Migrar a `<script type="module">`; eliminar los 94 `console.log`.
+20. ~~Factorizar las funciones duplicadas de `cambio-turno/*.js` a los `utils/` y `services/` existentes.~~ **DESCARTADO tras medirlo (2026-08-22): la duplicación es de NOMBRES, no de código.**
+
+    Las funciones que se repiten en varios formularios tienen **firmas distintas**, o sea que no son copias sino implementaciones paralelas: `notificar(icon,title,html)` frente a `(icon,title,text)`; `verificarDiaFestivo(fecha,indicador,descripcion)` frente a `verificarDiaFestivo(fecha)`; `renderTurnoYSalas` con 3 parámetros frente a la de doblada con 6; `enviarSolicitud()` frente a `enviarSolicitud(confirmarRestriccion)`. Unificarlas no sería factorizar: sería reescribir comportamientos distintos hasta hacerlos uno.
+
+    Duplicación **literal** encontrada: **una** función de 4 líneas (`notificar` en `solicitar_d_fds.js:47` y `solicitar_doblada_permanente.js:42`, idénticas byte a byte). Extraer 4 líneas no compensa el riesgo, porque —y esto es lo que decide— **el proyecto no tiene NINGUNA infraestructura de pruebas para JavaScript**. Cero tests sobre 9 790 líneas de formularios. Refactorizar ahí es exactamente lo que la Fase 0 quería evitar.
+
+    **Si algún día se quiere abordar el frontend en serio, el primer paso no es factorizar: es montar la red** (Vitest o Jest sobre los `utils/`, que ya están separados y son los más fáciles de probar). Sin eso, cualquier refactor de JS es a ciegas.
+21. Migrar a `<script type="module">`; ~~eliminar los 94 `console.log`.~~ **Los `console.log` HECHOS (2026-08-22): 92 eliminados** (los otros 2 son de `adminlte`, código de terceros, y no se tocan).
+
+    Todos eran restos de depuración con prefijo `[DEBUG]` que viajaban al navegador de cada usuario volcando estado interno —meses cargados, contenido de `Set`s y, en siete de ellos, `new Error().stack`—. Reparto: `mis_turnos.js` 69, `solicitar_ct_permanente.js` 14, `solicitar_doblada.js` 7, y uno en `core/app.js` y en `calendario_festivos_mantenimiento.js`.
+
+    Sin tests de JS, el borrado se hizo por **balance de paréntesis** (siete llamadas eran multilínea y abrían un objeto literal: borrarlas por líneas habría dejado las propiedades sueltas), con **autoverificación** que aborta si alguna línea eliminada contiene `function`, `return`, `if (`, `=>` o una declaración, y con `node --check` en los cinco ficheros tocados.
+
+    La migración a `<script type="module">` **sigue pendiente** y comparte el bloqueante del punto 20: sin red de pruebas de JS no debería tocarse.
 
 ---
 
