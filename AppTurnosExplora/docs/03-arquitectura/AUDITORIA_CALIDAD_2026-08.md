@@ -483,7 +483,19 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
 **Fase 3 — Descomponer los God Objects (4-8 semanas).**
 15. `doblada_strategy.validar_solicitud` (515 L) → mover a `services/validators/` (que ya existe e infrautiliza).
-16. Vaciar de negocio `views/doblada_api.py`, `views/api_turno_jornada.py` y `permisos/views.py` (este último no tiene capa de servicios propia: crearla).
+16. ~~Vaciar de negocio `views/doblada_api.py`, `views/api_turno_jornada.py` y `permisos/views.py`.~~ **CERRADO (2026-08-22), aunque no como decía el enunciado.**
+
+    **`permisos/views.py`:** medido, no era un God Object —25 vistas, la mayor de 97 líneas—. Su problema era de TESTS, no de tamaño: los caminos donde el permiso cambia de estado no tenían ninguno. Cubiertos; la cobertura pasó del 61 % al 71 %.
+
+    **`api_turno_jornada.py`:** el `get()` de 310 líneas se troceó a **167**, en cuatro cortes (`_responder_jornada_base`, `_detectar_descanso`, `_normalizar_jornada_mostrada`, `_extras_sabado`), a mano y ejecutando los 26 tests después de cada uno.
+
+    Se hizo AHORA y no antes porque su cobertura funcional era **CERO**: el 5 % que reportaba el CI eran los imports y las líneas de `class` y `def`. Cortar sin red habría sido a ciegas.
+
+    **Queda dentro a propósito** la detección de doblada y el bloque de festivos: ese muta CINCO variables compartidas en secuencia, así que extraerlo obligaría a devolver cinco valores y dejaría el llamador PEOR. Sacarlo bien pide un objeto de contexto — otro refactor, otra decisión.
+
+    **`doblada_api.py`** (504 líneas, un `get()` de 342) sigue sin tocar, y por el mismo motivo que tenía el anterior: hay que medir su cobertura y ponerle red antes de cortar nada.
+
+    Lo que este punto destapó de camino, y valía más que el troceo: el `{}` que las estrategias devolvían al tragarse una excepción, que hacía responder `200` con `tiene_turno: true` y un objeto vacío ante un `explorador_id` inventado en la URL.
 17. ~~`SolicitudOrchestrator` deja de devolver `JsonResponse`; devuelve un `Result` y la vista lo serializa.~~ **REENCUADRADO (2026-08-21): era el síntoma, no la causa.** Medido, el `Result` cuesta **~42 puntos de retorno y 20 archivos de test** para desacoplar de HTTP una capa cuyo **único consumidor es una vista HTTP** (el único consumidor no-HTTP que existe es un script de depuración desechable). Coste sin comprador.
 
     Lo que sí había, una capa más abajo: el error `requiere_cambio_turno_previo` viajaba **metiendo un JSON dentro del mensaje de texto** —tres `json.dumps` en `doblada_strategy`, un `json.loads` arriba— con la forma del diccionario escrita **tres veces sin definición única**. Así fue exactamente como un refactor renombró la clave `fecha_pago` en dos de los tres sitios sin que nadie se enterara: el frontend hace `data.fecha_pago || fechaPagoInput.value` y el `||` tapaba la avería. Había además un segundo lector que decidía si un mensaje era JSON **mirando si contenía una llave `{`**.
