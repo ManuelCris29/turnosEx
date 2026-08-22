@@ -35,44 +35,13 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                               status=404, code='explorador_no_encontrado')
 
         try:
-            # Si se solicita jornada base, obtener directamente de AsignarJornadaExplorador
+            # `jornada_base=true` es una rama COMPLETA y aparte: responde con su
+            # propio `return` y no ejecuta nada del resto del método. La usa
+            # `solicitar_ct_permanente.js`, que necesita la jornada PREDETERMINADA
+            # y no el estado real del día.
             if jornada_base:
-                from turnos.models import AsignarJornadaExplorador
-                
-                fecha_obj = DateUtils.parse_date(fecha)
-                explorador = Empleado.objects.get(id=explorador_id)
-                
-                # Obtener jornada base (sin considerar Turnos)
-                asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
-                    explorador=explorador,
-                    fecha_inicio__lte=fecha_obj
-                ).order_by('-fecha_inicio').first()
-                
-                if asignacion_jornada and asignacion_jornada.jornada:
-                    jornada = asignacion_jornada.jornada
-                    # Obtener salas de competencia
-                    from turnos.models import CompetenciaEmpleado
-                    competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
-                    salas_competencia = [
-                        {'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias
-                    ]
-                    
-                    turno_dict = {
-                        'id': None,
-                        'jornada': jornada.nombre,
-                        'sala': None,
-                        'sala_id': None,
-                        'hora_inicio': jornada.hora_inicio.strftime('%H:%M') if jornada.hora_inicio else None,
-                        'hora_fin': jornada.hora_fin.strftime('%H:%M') if jornada.hora_fin else None,
-                        'es_turno_virtual': True,
-                        'tipo_sala': 'competencia',
-                        'salas_competencia': salas_competencia,
-                        'es_jornada_base': True
-                    }
-                    return json_ok({'turno': turno_dict, 'tiene_turno': True})
-                else:
-                    return json_ok({'turno': None, 'tiene_turno': False})
-            
+                return self._responder_jornada_base(explorador_id, fecha)
+
             # Obtener el tipo de solicitud desde la URL o parámetros
             tipo_solicitud_id = request.GET.get('tipo_solicitud_id')
             tipo_solicitud = None
@@ -136,112 +105,17 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                         es_fin_semana_doblada_predeterminada = True
             
             # Detectar caso especial: está descansando por una doblada aprobada (no hay turnos en BD)
-            esta_descansando = False
-            descanso_info = None
-            # Detectar descanso por DOBLADA para cualquier tipo de solicitud (CT, CT permanente, DOBLADA, etc.)
-            # Solo aplicamos esta lógica cuando NO hay turnos reales en BD para esa fecha.
-            if not turnos_en_fecha:
-                from solicitudes.models import SolicitudCambio
-                
-                # Caso 1: Es SOLICITANTE y cede su jornada en esta fecha (cesión)
-                doblada_como_solicitante = (
-                    SolicitudCambio.objects
-                    .filter(
-                        explorador_solicitante_id=explorador_id,
-                        tipo_cambio__nombre='DOBLADA',
-                        fecha_cambio_turno=fecha_obj,
-                        estado='aprobada'
-                    )
-                    .select_related('doblada', 'explorador_receptor')
-                    .first()
-                )
-                
-                # Caso 2: Es RECEPTOR y descansa en fecha de pago de una doblada
-                doblada_como_receptor = (
-                    SolicitudCambio.objects
-                    .filter(
-                        explorador_receptor_id=explorador_id,
-                        tipo_cambio__nombre='DOBLADA',
-                        estado='aprobada',
-                        doblada__fecha_pago=fecha_obj
-                    )
-                    .select_related('doblada', 'explorador_solicitante')
-                    .first()
-                )
-                
-                if doblada_como_solicitante or doblada_como_receptor:
-                    esta_descansando = True
-                    
-                    if doblada_como_solicitante:
-                        sol = doblada_como_solicitante
-                        rol_descanso = 'cedio'
-                        companero = sol.explorador_receptor
-                    else:
-                        sol = doblada_como_receptor
-                        rol_descanso = 'pago'
-                        companero = sol.explorador_solicitante
-                    
-                    detalle = getattr(sol, 'doblada', None)
-                    fecha_cesion_str = (
-                        sol.fecha_cambio_turno.strftime('%d/%m/%Y')
-                        if sol.fecha_cambio_turno else None
-                    )
-                    fecha_pago_str = (
-                        detalle.fecha_pago.strftime('%d/%m/%Y')
-                        if detalle and detalle.fecha_pago else None
-                    )
-                    
-                    descanso_info = {
-                        'tipo': rol_descanso,  # 'cedio' o 'pago'
-                        'companero_nombre': f"{companero.nombre} {getattr(companero, 'apellido', '')}".strip(),
-                        'companero_id': companero.id,
-                        'solicitud_id': sol.id,
-                        'fecha_cesion': fecha_cesion_str,
-                        'fecha_pago': fecha_pago_str,
-                    }
-                    
-                    # Si está descansando por doblada, no queremos mostrar jornada base
-                    turno_dict = None
-                    turnos_list = []
-
-                # Otros descansos por solicitud APROBADA: D FDS, CAMBIO DESCANSO y
-                # DOBLADA PERMANENTE (el bloque de arriba solo cubre DOBLADA). Usa la fuente
-                # de verdad única para que el display coincida con "Mis Turnos".
-                if not esta_descansando:
-                    from turnos.services.turno_service import TurnoService as _TSv
-                    from empleados.models import Empleado as _Emp
-                    _emp_obj = _Emp.objects.filter(id=explorador_id).first()
-                    _comp = _TSv.dia_comprometido_por_solicitud(_emp_obj, fecha_obj) if _emp_obj else None
-                    if _comp:
-                        esta_descansando = True
-                        _c = _comp.get('companero') or {}
-                        descanso_info = {
-                            'tipo': 'cedio',
-                            'companero_nombre': _c.get('nombre'),
-                            'companero_id': _c.get('id'),
-                            'motivo': _comp.get('motivo'),
-                        }
-                        turno_dict = None
-                        turnos_list = []
-
-                # Descanso de ENTRE SEMANA (manual de temporada/festivo o lunes de mantenimiento).
-                # Debe verse igual que en Mis Turnos: es un descanso, no la jornada predeterminada.
-                if not esta_descansando and fecha_obj.weekday() < 5:
-                    from turnos.services.descanso_semana_service import DescansoSemanaService
-                    from turnos.models import DiaEspecial as _DE
-                    from turnos.services.jornada_service import JornadaService as _JS
-                    _pred = _JS.get_jornada_explorador_fecha(explorador_id, fecha)
-                    _jb = _pred.nombre.upper() if _pred else None
-                    _motivo_ds = None
-                    if DescansoSemanaService.es_descanso_semana_manual(_jb, fecha_obj):
-                        _motivo_ds = 'temporada'
-                    elif _DE.es_mantenimiento_efectivo(fecha_obj):
-                        _motivo_ds = 'mantenimiento'
-                    if _motivo_ds:
-                        esta_descansando = True
-                        descanso_info = {'tipo': 'descanso_semana', 'motivo': _motivo_ds}
-                        turno_dict = None
-                        turnos_list = []
+            # Descanso sin turnos en BD, extraido en la Fase 3. Devuelve el
+            # `descanso_info` o None; las tres ramas que tenia dentro fijaban
+            # EXACTAMENTE lo mismo al detectar descanso (anular el turno y la
+            # lista de jornadas), asi que eso se deriva aqui en vez de
+            # devolver cuatro valores.
+            descanso_info = self._detectar_descanso(explorador_id, fecha, fecha_obj,
+                                                    turnos_en_fecha)
+            esta_descansando = descanso_info is not None
+            if esta_descansando:
+                turno_dict = None
+                turnos_list = []
 
             # Regla adicional para festivos de lunes a viernes:
             # - Solo mostrar DOBLADA (AM+PM) si en BD tiene realmente ambos turnos.
@@ -282,25 +156,12 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 except Exception:
                     logger.warning("Error resolviendo estado de doblada/festivo del día", exc_info=True)
 
-            # Si el día quedó como DOBLADA (festivo del grupo que dobla o doblada real), la
-            # jornada mostrada debe ser 'DOBLADA' (no la base), igual que estado_dia / Mis Turnos.
-            if es_doblada and turno_dict and turno_dict.get('jornada') != 'DOBLADA':
-                turno_dict['jornada'] = 'DOBLADA'
+            # Coherencia de la jornada que se muestra, extraida en la Fase 3.
+            # Modifica `turno_dict` in situ, que es lo que ya hacia.
+            self._normalizar_jornada_mostrada(
+                turno_dict, es_doblada, es_fin_semana_doblada_predeterminada,
+                explorador_id, fecha)
 
-            # Solo convertir DOBLADA a jornada simple si:
-            # 1. NO es doblada real (no hay turnos AM+PM en BD)
-            # 2. Y NO es sábado/domingo con doblada predeterminada (porque para fines de semana la predeterminada ES doblada)
-            if turno_dict and turno_dict.get('jornada') == 'DOBLADA' and not es_doblada and not es_fin_semana_doblada_predeterminada:
-                # Es jornada predeterminada de un día de semana, no doblada real
-                # Obtener jornada real del día
-                from turnos.services.jornada_service import JornadaService
-                jornada_real = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
-                if jornada_real:
-                    turno_dict['jornada'] = jornada_real.nombre
-                    # Ajustar horario según jornada real
-                    if jornada_real.hora_inicio and jornada_real.hora_fin:
-                        turno_dict['hora_inicio'] = jornada_real.hora_inicio.strftime('%H:%M')
-                        turno_dict['hora_fin'] = jornada_real.hora_fin.strftime('%H:%M')
             response_data = {
                 'turno': turno_dict,
                 'tiene_turno': turno_dict is not None,
@@ -310,29 +171,247 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 'descanso_info': descanso_info,
             }
             
-            # Si la fecha es sábado, incluir qué jornada trabaja ese sábado (grupo EFECTIVO:
-            # override manual o alternancia) — para doblada: ocultar selector si ya le corresponde.
+            # Datos propios del sábado, extraídos en la Fase 3. Solo LEEN, así que
+            # devuelven un diccionario que se fusiona en vez de escribir dentro.
             if fecha_obj.weekday() == 5:
-                from turnos.services.asignacion_especial_service import AsignacionEspecialService as _AES2
-                from turnos.models import AsignarJornadaExplorador as _AJE2
-                _grupo_trabaja_sab = _AES2.grupo_trabaja(fecha_obj)
-                response_data['jornada_trabaja_sabado'] = _grupo_trabaja_sab
-                # ¿Al empleado le corresponde trabajar ese sábado por su GRUPO (alternancia)?
-                # Debe basarse en su jornada BASE (AsignarJornadaExplorador), NO en el turno del día
-                # (que otra doblada pudo alterar y coincidir con el grupo que trabaja → falso positivo).
-                # Si su grupo trabaja → la doblada se devuelve en su jornada habitual (sin elegir);
-                # si su grupo descansa → viene especialmente (elige jornada).
-                _asig_sab = (_AJE2.objects.filter(explorador_id=explorador_id, fecha_inicio__lte=fecha_obj)
-                             .select_related('jornada').order_by('-fecha_inicio').first())
-                _jb_sab_nombre = _asig_sab.jornada.nombre.upper() if _asig_sab else None
-                response_data['corresponde_trabajar_sabado'] = bool(
-                    _grupo_trabaja_sab and _jb_sab_nombre and _jb_sab_nombre == str(_grupo_trabaja_sab).upper()
-                )
-            
+                response_data.update(self._extras_sabado(explorador_id, fecha_obj))
+
             return json_ok(response_data)
         except Exception:
             logger.exception('Error en ObtenerTurnoExploradorView')
             return json_error('Error al procesar la solicitud', status=500, code='internal_error')
+
+
+    def _detectar_descanso(self, explorador_id, fecha, fecha_obj, turnos_en_fecha):
+        """
+        Por que descansa el explorador ese dia, cuando NO tiene turnos en la base.
+
+        Devuelve el `descanso_info` que consume el formulario, o None si no
+        descansa. Extraido de `get` en la Fase 3; la logica no cambia.
+
+        Las tres capas van en orden y la primera que acierta manda:
+
+          1. DOBLADA aprobada: cedio su jornada, o le pagan ese dia. Es la unica
+             que aporta datos que la fuente de verdad no da (nombre del companero,
+             fechas de cesion y pago), y por eso sigue aqui.
+          2. Cualquier otro compromiso por solicitud aprobada (D FDS, CAMBIO
+             DESCANSO, DOBLADA PERMANENTE), via `dia_comprometido_por_solicitud`.
+          3. Descanso de ENTRE SEMANA por temporada o mantenimiento.
+
+        Solo se llama cuando no hay turnos reales: con turno en la base, el turno
+        manda y ninguna de estas capas aplica.
+        """
+        descanso_info = None
+        # Detectar descanso por DOBLADA para cualquier tipo de solicitud (CT, CT permanente, DOBLADA, etc.)
+        # Solo aplicamos esta lógica cuando NO hay turnos reales en BD para esa fecha.
+        if not turnos_en_fecha:
+            from solicitudes.models import SolicitudCambio
+            
+            # Caso 1: Es SOLICITANTE y cede su jornada en esta fecha (cesión)
+            doblada_como_solicitante = (
+                SolicitudCambio.objects
+                .filter(
+                    explorador_solicitante_id=explorador_id,
+                    tipo_cambio__nombre='DOBLADA',
+                    fecha_cambio_turno=fecha_obj,
+                    estado='aprobada'
+                )
+                .select_related('doblada', 'explorador_receptor')
+                .first()
+            )
+            
+            # Caso 2: Es RECEPTOR y descansa en fecha de pago de una doblada
+            doblada_como_receptor = (
+                SolicitudCambio.objects
+                .filter(
+                    explorador_receptor_id=explorador_id,
+                    tipo_cambio__nombre='DOBLADA',
+                    estado='aprobada',
+                    doblada__fecha_pago=fecha_obj
+                )
+                .select_related('doblada', 'explorador_solicitante')
+                .first()
+            )
+            
+            if doblada_como_solicitante or doblada_como_receptor:
+                
+                if doblada_como_solicitante:
+                    sol = doblada_como_solicitante
+                    rol_descanso = 'cedio'
+                    companero = sol.explorador_receptor
+                else:
+                    sol = doblada_como_receptor
+                    rol_descanso = 'pago'
+                    companero = sol.explorador_solicitante
+                
+                detalle = getattr(sol, 'doblada', None)
+                fecha_cesion_str = (
+                    sol.fecha_cambio_turno.strftime('%d/%m/%Y')
+                    if sol.fecha_cambio_turno else None
+                )
+                fecha_pago_str = (
+                    detalle.fecha_pago.strftime('%d/%m/%Y')
+                    if detalle and detalle.fecha_pago else None
+                )
+                
+                descanso_info = {
+                    'tipo': rol_descanso,  # 'cedio' o 'pago'
+                    'companero_nombre': f"{companero.nombre} {getattr(companero, 'apellido', '')}".strip(),
+                    'companero_id': companero.id,
+                    'solicitud_id': sol.id,
+                    'fecha_cesion': fecha_cesion_str,
+                    'fecha_pago': fecha_pago_str,
+                }
+                
+                # Si está descansando por doblada, no queremos mostrar jornada base
+
+            # Otros descansos por solicitud APROBADA: D FDS, CAMBIO DESCANSO y
+            # DOBLADA PERMANENTE (el bloque de arriba solo cubre DOBLADA). Usa la fuente
+            # de verdad única para que el display coincida con "Mis Turnos".
+            if descanso_info is None:
+                from turnos.services.turno_service import TurnoService as _TSv
+                from empleados.models import Empleado as _Emp
+                _emp_obj = _Emp.objects.filter(id=explorador_id).first()
+                _comp = _TSv.dia_comprometido_por_solicitud(_emp_obj, fecha_obj) if _emp_obj else None
+                if _comp:
+                    _c = _comp.get('companero') or {}
+                    descanso_info = {
+                        'tipo': 'cedio',
+                        'companero_nombre': _c.get('nombre'),
+                        'companero_id': _c.get('id'),
+                        'motivo': _comp.get('motivo'),
+                    }
+
+            # Descanso de ENTRE SEMANA (manual de temporada/festivo o lunes de mantenimiento).
+            # Debe verse igual que en Mis Turnos: es un descanso, no la jornada predeterminada.
+            if descanso_info is None and fecha_obj.weekday() < 5:
+                from turnos.services.descanso_semana_service import DescansoSemanaService
+                from turnos.models import DiaEspecial as _DE
+                from turnos.services.jornada_service import JornadaService as _JS
+                _pred = _JS.get_jornada_explorador_fecha(explorador_id, fecha)
+                _jb = _pred.nombre.upper() if _pred else None
+                _motivo_ds = None
+                if DescansoSemanaService.es_descanso_semana_manual(_jb, fecha_obj):
+                    _motivo_ds = 'temporada'
+                elif _DE.es_mantenimiento_efectivo(fecha_obj):
+                    _motivo_ds = 'mantenimiento'
+                if _motivo_ds:
+                    descanso_info = {'tipo': 'descanso_semana', 'motivo': _motivo_ds}
+        return descanso_info
+
+    def _normalizar_jornada_mostrada(self, turno_dict, es_doblada,
+                                     es_fin_semana_doblada_predeterminada,
+                                     explorador_id, fecha):
+        """
+        Deja la jornada del turno coherente con lo que el día realmente es.
+
+        Modifica `turno_dict` in situ y no devuelve nada, que es exactamente lo que
+        hacía dentro de `get`. Son dos ajustes en sentidos opuestos:
+
+          * Si el día quedó como DOBLADA —por ser festivo del grupo que dobla, o
+            por tener los dos turnos reales— la jornada mostrada debe decir
+            'DOBLADA' y no la base, igual que hacen `estado_dia` y Mis Turnos.
+
+          * Al revés: si el servicio dijo 'DOBLADA' pero NO es doblada real ni un
+            fin de semana con doblada predeterminada, entonces era la jornada
+            predeterminada de un día de semana y se sustituye por la real, ajustando
+            también el horario.
+
+        La condición de fin de semana no es un detalle: ahí la jornada
+        predeterminada ES doblada, así que convertirla a simple mostraría media
+        jornada donde se trabaja el día entero.
+        """
+        if es_doblada and turno_dict and turno_dict.get('jornada') != 'DOBLADA':
+            turno_dict['jornada'] = 'DOBLADA'
+
+        if (turno_dict and turno_dict.get('jornada') == 'DOBLADA'
+                and not es_doblada and not es_fin_semana_doblada_predeterminada):
+            from turnos.services.jornada_service import JornadaService
+            jornada_real = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
+            if jornada_real:
+                turno_dict['jornada'] = jornada_real.nombre
+                if jornada_real.hora_inicio and jornada_real.hora_fin:
+                    turno_dict['hora_inicio'] = jornada_real.hora_inicio.strftime('%H:%M')
+                    turno_dict['hora_fin'] = jornada_real.hora_fin.strftime('%H:%M')
+
+    def _extras_sabado(self, explorador_id, fecha_obj):
+        """
+        Las dos claves que el formulario de doblada solo recibe en sábado.
+
+        `jornada_trabaja_sabado` es el grupo EFECTIVO que trabaja ese día (el
+        override manual del supervisor si lo hay; si no, la alternancia).
+
+        `corresponde_trabajar_sabado` decide si el formulario muestra el selector
+        de media jornada: si al explorador le toca por su grupo, la doblada se
+        devuelve en su jornada habitual y no hay nada que elegir; si su grupo
+        descansa, viene especialmente y sí elige.
+
+        Se calcula sobre la jornada BASE (`AsignarJornadaExplorador`) y NO sobre el
+        turno del día, y eso es lo importante de este método: otra doblada pudo
+        alterar el turno hasta coincidir con el grupo que trabaja, y entonces daría
+        un falso positivo — el selector desaparecería para quien sí debía elegir.
+        """
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        from turnos.models import AsignarJornadaExplorador
+
+        grupo_trabaja = AsignacionEspecialService.grupo_trabaja(fecha_obj)
+        asignacion = (AsignarJornadaExplorador.objects
+                      .filter(explorador_id=explorador_id, fecha_inicio__lte=fecha_obj)
+                      .select_related('jornada').order_by('-fecha_inicio').first())
+        jornada_base = asignacion.jornada.nombre.upper() if asignacion else None
+
+        return {
+            'jornada_trabaja_sabado': grupo_trabaja,
+            'corresponde_trabajar_sabado': bool(
+                grupo_trabaja and jornada_base and jornada_base == str(grupo_trabaja).upper()
+            ),
+        }
+
+    def _responder_jornada_base(self, explorador_id, fecha):
+        """
+        Jornada PREDETERMINADA del explorador, sin mirar los turnos del día.
+
+        Extraído de `get` en la Fase 3; la lógica no cambia.
+
+        Es deliberado que ignore los turnos reales: `solicitar_ct_permanente.js`
+        pide esto justo cuando necesita saber a qué grupo pertenece alguien, no qué
+        le pasa ese día concreto. Si algún refactor la unificara con la rama
+        general, CT permanente empezaría a ver el estado del día —con sus dobladas
+        y descansos— en vez de la base.
+        """
+        from turnos.models import AsignarJornadaExplorador
+
+        fecha_obj = DateUtils.parse_date(fecha)
+        explorador = Empleado.objects.get(id=explorador_id)
+
+        asignacion_jornada = AsignarJornadaExplorador.objects.select_related('jornada').filter(
+            explorador=explorador,
+            fecha_inicio__lte=fecha_obj
+        ).order_by('-fecha_inicio').first()
+
+        if not (asignacion_jornada and asignacion_jornada.jornada):
+            return json_ok({'turno': None, 'tiene_turno': False})
+
+        jornada = asignacion_jornada.jornada
+        from turnos.models import CompetenciaEmpleado
+        competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
+        salas_competencia = [
+            {'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias
+        ]
+
+        turno_dict = {
+            'id': None,
+            'jornada': jornada.nombre,
+            'sala': None,
+            'sala_id': None,
+            'hora_inicio': jornada.hora_inicio.strftime('%H:%M') if jornada.hora_inicio else None,
+            'hora_fin': jornada.hora_fin.strftime('%H:%M') if jornada.hora_fin else None,
+            'es_turno_virtual': True,
+            'tipo_sala': 'competencia',
+            'salas_competencia': salas_competencia,
+            'es_jornada_base': True
+        }
+        return json_ok({'turno': turno_dict, 'tiene_turno': True})
 
 
 class VerificarCoincidenciaJornadasView(LoginRequiredMixin, View):
