@@ -54,7 +54,7 @@ from django.urls import reverse
 from core.tests.factories import crear_empleado, crear_jornada, crear_sala
 from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio, TipoSolicitudCambio
-from turnos.models import AsignarJornadaExplorador, Turno
+from turnos.models import AsignarJornadaExplorador, DiaEspecial, Turno
 
 
 class BaseApiTurno(TestCase):
@@ -488,3 +488,72 @@ class ErroresQueYaNoSeDisfrazanTestCase(BaseApiTurno):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(cuerpo['tiene_turno'])
         self.assertEqual(cuerpo['turno']['jornada'], 'AM')
+
+
+class ConteoManualDeDobladaTestCase(BaseApiTurno):
+    """
+    Por que el conteo manual de turnos de la vista NO se puede borrar.
+
+    Parece un duplicado de `estado_dia`: misma consulta, misma normalizacion a
+    mayusculas, misma condicion AM+PM. Se propuso quitarlo dos veces. La segunda,
+    ya sin el `{}` de por medio, un banco diferencial de 12 escenarios encontro
+    UNO que diverge, y este test lo fija.
+
+    LA CAUSA es el ORDEN DE CAPAS de `estado_dia`: el festivo entre semana (L5,
+    turno_service.py:430) se evalua ANTES que los turnos reales (L1, :456). Y esa
+    capa de festivo solo mira los turnos que llevan `tipo_cambio`:
+
+        explicitos = [t for t in turnos_fv if t.tipo_cambio]
+
+    Asi que un festivo con turnos AM+PM SIN `tipo_cambio` no entra por ahi: sigue
+    hasta la rotacion de grupo, y si el anio no esta sembrado responde
+    `sin_planificar` -> `trabaja: False`. `get_turno_explorador` construye entonces
+    el dict con `jornada: None`, la senal del servicio no dice DOBLADA, y sin el
+    conteo manual el dia se mostraria sin jornada.
+
+    Y el anio sin sembrar no es una anomalia: el mantenimiento se carga a mano cada
+    diciembre, asi que los anios futuros SIN planificar son el estado normal
+    durante parte del anio.
+
+    Medido:
+        estado_dia          -> trabaja: False, jornada: None, fuente: sin_planificar
+        con conteo manual   -> es_doblada: True,  turno.jornada: 'DOBLADA'
+        sin conteo manual   -> es_doblada: False, turno.jornada: None
+    """
+
+    def _festivo_entre_semana(self):
+        d = date.today() + timedelta(days=14)
+        while d.weekday() != 2:
+            d += timedelta(days=1)
+        DiaEspecial.objects.create(fecha=d, tipo='festivo', descripcion='Prueba')
+        return d
+
+    def test_un_festivo_sin_planificar_con_turnos_reales_sigue_siendo_doblada(self):
+        festivo = self._festivo_entre_semana()
+        self._turno(self.emp, festivo, self.am)
+        self._turno(self.emp, festivo, self.pm)
+
+        _, cuerpo = self.pedir(fecha=str(festivo), explorador_id=self.emp.id)
+
+        self.assertTrue(cuerpo['es_doblada'],
+                        'sin el conteo manual este dia se queda sin jornada')
+        self.assertEqual(cuerpo['turno']['jornada'], 'DOBLADA')
+        self.assertEqual(sorted(cuerpo['jornadas']), ['AM', 'PM'])
+
+    def test_y_la_fuente_de_verdad_efectivamente_dice_que_descansa(self):
+        """
+        La otra mitad: deja constancia de que la divergencia es REAL y no un efecto
+        del montaje. Si algun dia `estado_dia` empieza a mirar tambien los turnos
+        sin `tipo_cambio` en festivo, este test se pondra rojo y entonces SI se
+        podra quitar el conteo manual.
+        """
+        from turnos.services.turno_service import TurnoService
+
+        festivo = self._festivo_entre_semana()
+        self._turno(self.emp, festivo, self.am)
+        self._turno(self.emp, festivo, self.pm)
+
+        estado = TurnoService.estado_dia(self.emp, festivo)
+
+        self.assertFalse(estado['trabaja'])
+        self.assertIsNone(estado['jornada'])
