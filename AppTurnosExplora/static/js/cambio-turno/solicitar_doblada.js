@@ -827,7 +827,6 @@
             const data = await response.json();
             if (data.success && Array.isArray(data.fechas)) {
                 fechasDescanso = data.fechas;
-                console.log(`✅ Fechas de descanso cargadas: ${fechasDescanso.length}`);
                 
                 // Aplicar marcado visual en el calendario
                 if (flatpickrCesion) {
@@ -1142,10 +1141,8 @@
         .then(data => {
             // Descartar si ya se seleccionó otra fecha de cesión mientras cargaba.
             if (token != null && token !== cesionReqToken) {
-                console.log('[DEBUG] Respuesta jornada solicitante DESCARTADA (token obsoleto):', token, '!=', cesionReqToken);
                 return;
             }
-            console.log('[DEBUG] Respuesta obtener-turno-explorador:', data);
             solicitanteCesionEnDescanso = false;
             // Descanso en la fecha de cesión, ya sea por la semana (temporada/mantenimiento) O por una
             // solicitud aprobada (doblada, cambio de turno, cambio de descanso). En vez de las tarjetas
@@ -1889,7 +1886,6 @@
         if (!fecha) return;
         // Nueva selección de fecha de cesión: invalida cualquier respuesta en vuelo de una fecha anterior.
         const myToken = ++cesionReqToken;
-        console.log('[DEBUG] Verificando doblada existente para fecha:', fecha, 'token:', myToken);
         fetch(`/solicitudes/verificar-doblada-existente/?fecha=${fecha}`)
             .then(response => {
                 if (!response.ok) {
@@ -1900,10 +1896,8 @@
             .then(data => {
                 // Si ya se seleccionó otra fecha de cesión, descartar esta respuesta obsoleta.
                 if (myToken !== cesionReqToken) {
-                    console.log('[DEBUG] Respuesta verificar-doblada-existente DESCARTADA (token obsoleto):', myToken, '!=', cesionReqToken);
                     return;
                 }
-                console.log('[DEBUG] Respuesta verificar-doblada-existente:', data);
                 if (data.success) {
                     // El endpoint retorna: {success: true, tiene_doblada, esta_descansando, puede_ceder, jornadas, mensaje}
                     tieneDobladaExistente = data.tiene_doblada || false;
@@ -1912,7 +1906,6 @@
                     const puedeCeder = data.puede_ceder !== false; // Default true
                     // Guardar flag global para uso al cargar compañeros
                     solicitanteDescansaCesion = !!estaDescansando;
-                    console.log('[DEBUG] tieneDobladaExistente:', tieneDobladaExistente, 'jornadas:', jornadasDobladaExistente, 'estaDescansando:', estaDescansando);
                     
                     // CASO 1: Usuario está descansando (cedió su jornada)
                     if (estaDescansando) {

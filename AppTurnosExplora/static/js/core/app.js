@@ -35,7 +35,6 @@ class App {
 
     // Log de inicialización en modo debug
     if (this.config.debug) {
-      console.log('[App] Aplicación inicializada');
     }
   }
 

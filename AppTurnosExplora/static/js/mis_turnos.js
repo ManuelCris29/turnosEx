@@ -16,15 +16,9 @@ function cargarDatos(anio, mes) {
     // Crear clave única para el mes
     const claveMes = `${anio}-${mes}`;
     
-    console.log(`[DEBUG cargarDatos] Llamado para ${claveMes}`, {
-        mesesCargando: Array.from(mesesCargando),
-        mesesCargados: Array.from(mesesCargados),
-        stack: new Error().stack.split('\n').slice(1, 5).join('\n')
-    });
     
     // Si ya está cargando este mes, no hacer nada
     if (mesesCargando.has(claveMes)) {
-        console.log(`[DEBUG cargarDatos] Ya se está cargando ${claveMes}, ignorando...`);
         return Promise.resolve();
     }
     
@@ -38,35 +32,27 @@ function cargarDatos(anio, mes) {
         const UN_MINUTO = 60 * 1000; // 1 minuto en milisegundos
         
         if (timestampAnterior && tiempoTranscurrido < UN_MINUTO) {
-            console.log(`[DEBUG cargarDatos] El mes ${claveMes} ya está cargado (hace ${Math.round(tiempoTranscurrido / 1000)}s)`);
             return Promise.resolve();
         } else {
             // Han pasado más de 1 minuto, forzar recarga
-            console.log(`[DEBUG cargarDatos] El mes ${claveMes} está cargado pero expirado (hace ${Math.round(tiempoTranscurrido / 1000)}s), forzando recarga...`);
             mesesCargados.delete(claveMes);
             delete mesesCargadosTimestamps[claveMes];
         }
     }
     
-    console.log(`[DEBUG cargarDatos] INICIANDO carga de datos para ${anio}-${mes}`);
     mesesCargando.add(claveMes);
 
-    console.log(`[DEBUG cargarDatos] Haciendo fetch a /turnos/api/mis-turnos-por-mes/?mes=${mes}&anio=${anio}`);
     return fetch(`/turnos/api/mis-turnos-por-mes/?mes=${mes}&anio=${anio}`)
         .then(response => {
-            console.log(`[DEBUG cargarDatos] Respuesta recibida, status: ${response.status}`);
             return response.json();
         })
         .then(data => {
-            console.log(`[DEBUG cargarDatos] Datos parseados, fechas recibidas:`, Object.keys(data).length);
             turnosMes = Object.assign({}, turnosMes, data); // Merge en lugar de reemplazar
-            console.log('[DEBUG cargarDatos] Datos cargados, total fechas en turnosMes:', Object.keys(turnosMes).length);
             
             // Marcar como cargado con timestamp
             mesesCargando.delete(claveMes);
             mesesCargados.add(claveMes);
             mesesCargadosTimestamps[claveMes] = Date.now();
-            console.log(`[DEBUG cargarDatos] Mes ${claveMes} marcado como cargado (timestamp: ${mesesCargadosTimestamps[claveMes]})`);
 
             // Refrescar detalles si ya hay una fecha seleccionada
             // NO llamar a mostrarDetallesDia aquí porque puede causar bucles
@@ -82,14 +68,11 @@ function cargarDatos(anio, mes) {
                 clearTimeout(window.aplicarEstilosTimeout);
             }
             window.aplicarEstilosTimeout = setTimeout(function() {
-                console.log('[DEBUG cargarDatos] Aplicando estilos después de cargar datos');
                 // Verificar que las celdas estén en el DOM antes de aplicar estilos
                 const celdas = document.querySelectorAll('.fc-daygrid-day');
                 if (celdas.length > 0) {
-                    console.log(`[DEBUG cargarDatos] ${celdas.length} celdas encontradas, aplicando estilos`);
                     aplicarEstilosCambios();
                 } else {
-                    console.log('[DEBUG cargarDatos] No hay celdas aún, esperando más tiempo...');
                     // Reintentar después de más tiempo
                     setTimeout(function() {
                         aplicarEstilosCambios();
@@ -107,21 +90,13 @@ function cargarDatos(anio, mes) {
 var aplicandoEstilos = false; // Prevenir múltiples ejecuciones simultáneas
 
 function aplicarEstilosCambios() {
-    console.log('[DEBUG aplicarEstilosCambios] Llamado', {
-        aplicandoEstilos: aplicandoEstilos,
-        datosDisponibles: Object.keys(turnosMes).length,
-        stack: new Error().stack.split('\n').slice(1, 4).join('\n')
-    });
     
     // Prevenir múltiples ejecuciones simultáneas
     if (aplicandoEstilos) {
-        console.log('[DEBUG aplicarEstilosCambios] Ya se está aplicando, ignorando...');
         return;
     }
     aplicandoEstilos = true;
     
-    console.log("[DEBUG aplicarEstilosCambios] Aplicando estilos de cambios...");
-    console.log("[DEBUG aplicarEstilosCambios] Datos disponibles:", Object.keys(turnosMes).length, "fechas");
     
     // Limpiar estilos anteriores (cambios y descansos)
     document.querySelectorAll('.dia-con-cambio').forEach(el => {
@@ -177,16 +152,13 @@ function aplicarEstilosCambios() {
                 if (currentDate) {
                     mesVisible = currentDate.getMonth() + 1;
                     anioVisible = currentDate.getFullYear();
-                    console.log(`[DEBUG aplicarEstilosCambios] Mes visible detectado desde calendar.view: ${anioVisible}-${mesVisible}`);
                 }
             }
         } catch (e) {
-            console.log(`[DEBUG aplicarEstilosCambios] Error obteniendo mes visible desde calendar.view: ${e.message}`);
         }
         
         // Si no se pudo obtener el mes visible, intentar desde las celdas del DOM
         if (!mesVisible || !anioVisible) {
-            console.log('[DEBUG aplicarEstilosCambios] Intentando obtener mes visible desde las celdas del DOM...');
             const primeraCelda = document.querySelector('.fc-daygrid-day:not(.fc-day-other)');
             if (primeraCelda) {
                 const dataDate = primeraCelda.getAttribute('data-date');
@@ -194,14 +166,12 @@ function aplicarEstilosCambios() {
                     const fechaObj = new Date(dataDate + 'T00:00:00');
                     mesVisible = fechaObj.getMonth() + 1;
                     anioVisible = fechaObj.getFullYear();
-                    console.log(`[DEBUG aplicarEstilosCambios] Mes visible detectado desde DOM: ${anioVisible}-${mesVisible}`);
                 }
             }
         }
         
         // Si aún no se tiene, usar el mes más común en los datos
         if (!mesVisible || !anioVisible) {
-            console.log('[DEBUG aplicarEstilosCambios] Usando mes más común en los datos...');
             const mesesEnDatos = {};
             for (const fechaStr of Object.keys(turnosMes)) {
                 const fechaObj = new Date(fechaStr + 'T00:00:00');
@@ -216,15 +186,12 @@ function aplicarEstilosCambios() {
                 const [anio, mes] = mesMasComun.split('-');
                 mesVisible = parseInt(mes);
                 anioVisible = parseInt(anio);
-                console.log(`[DEBUG aplicarEstilosCambios] Mes visible detectado desde datos: ${anioVisible}-${mesVisible}`);
             }
         }
         
-        console.log(`[DEBUG aplicarEstilosCambios] Mes visible final: ${anioVisible}-${mesVisible}`);
         
         // Verificar primero si hay celdas renderizadas en el DOM
         const celdasExistentes = document.querySelectorAll('.fc-daygrid-day');
-        console.log(`[DEBUG aplicarEstilosCambios] Celdas encontradas en DOM: ${celdasExistentes.length}`);
 
         // LIMPIEZA: quitar marcadores de descanso "viejos" de celdas que, según los datos
         // actuales, ya NO son descanso. Sin esto, un ícono agregado en un render previo
@@ -243,7 +210,6 @@ function aplicarEstilosCambios() {
         });
         
         if (celdasExistentes.length === 0) {
-            console.log('[DEBUG aplicarEstilosCambios] No hay celdas en el DOM aún, reintentando...');
             if (intentos < maxIntentos) {
                 setTimeout(intentarAplicarEstilos, 200);
                 return;
@@ -293,12 +259,10 @@ function aplicarEstilosCambios() {
                 const mesFecha = fechaObj.getMonth() + 1;
                 const anioFecha = fechaObj.getFullYear();
                 
-                console.log(`[DEBUG aplicarEstilosCambios] Procesando fecha ${fechaStr}: mesFecha=${mesFecha}, anioFecha=${anioFecha}, mesVisible=${mesVisible}, anioVisible=${anioVisible}`);
                 
                 // Si hay un mes visible, solo procesar fechas de ese mes
                 if (mesVisible && anioVisible && (mesFecha !== mesVisible || anioFecha !== anioVisible)) {
                     fechasFiltradas++;
-                    console.log(`[DEBUG aplicarEstilosCambios] Fecha ${fechaStr} filtrada (no está en mes visible ${anioVisible}-${mesVisible})`);
                     continue; // Saltar fechas que no están en el mes visible
                 }
                 
@@ -561,16 +525,13 @@ function aplicarEstilosCambios() {
             }
         }
 
-        console.log(`[DEBUG aplicarEstilosCambios] Intento ${intentos}/${maxIntentos}: ${totalFechasConCambios} fechas con cambios, ${totalFechasConDescanso} fechas con descanso, ${fechasFiltradas} filtradas, ${elementosEncontrados} encontrados, ${elementosNoEncontrados.length} no encontrados`);
         
         // Si hay elementos no encontrados y aún tenemos intentos, reintentar
         if (elementosNoEncontrados.length > 0 && intentos < maxIntentos) {
-            console.log(`[DEBUG aplicarEstilosCambios] Reintentando en 200ms...`);
             setTimeout(intentarAplicarEstilos, 200); // Aumentar delay entre intentos
         } else {
             aplicandoEstilos = false; // Permitir nuevas ejecuciones
             if (elementosEncontrados > 0) {
-                console.log(`[DEBUG aplicarEstilosCambios] Estilos aplicados correctamente a ${elementosEncontrados} día(s) (cambios y descansos)`);
             }
             if (elementosNoEncontrados.length > 0 && intentos >= maxIntentos) {
                 // Solo mostrar warning si ya agotamos los intentos
@@ -607,8 +568,6 @@ function esFinDeSemana(fechaStr) {
 }
 
 function mostrarDetallesDia(fechaStr) {
-    console.log('Mostrando detalles para:', fechaStr);
-    console.log('Turnos disponibles:', turnosMes);
     
     const info = turnosMes[fechaStr];
 
@@ -823,11 +782,9 @@ function mostrarDetallesDia(fechaStr) {
             }
 
             jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
-            console.log('Jornada mostrada:', info.jornada, 'Clase:', claseJornada, 'Es cambio:', info.es_cambio, 'Coincide:', info.coincide_con_predeterminada);
         } else {
             // Si no hay datos aún, mostrar "Cargando..." temporalmente
             jornadaDiv.innerHTML = `<span class="detail-content por-asignar">Cargando...</span>`;
-            console.log('No hay información disponible para esta fecha aún. Datos disponibles:', Object.keys(turnosMes));
             
             // Intentar cargar datos si no están disponibles
             const fechaObj = new Date(fechaStr + 'T00:00:00'); // Asegurar zona horaria
@@ -843,15 +800,11 @@ function mostrarDetallesDia(fechaStr) {
             
             // Verificar si el mes ya está cargado o cargando
             if (!fechaStrInMes && !mesesCargados.has(claveMes) && !mesesCargando.has(claveMes)) {
-                console.log('Cargando datos para el mes:', mes, anio);
                 cargarDatos(anio, mes);
             } else {
                 if (mesesCargando.has(claveMes)) {
-                    console.log('El mes ya se está cargando, esperando...');
                 } else if (mesesCargados.has(claveMes)) {
-                    console.log('El mes ya está cargado');
                 } else {
-                    console.log('Datos del mes ya están cargados, pero no hay información para esta fecha específica');
                 }
             }
         }
@@ -902,7 +855,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Invalidar caché del mes actual para forzar recarga
     if (mesesCargados.has(claveMesActual)) {
-        console.log(`[DEBUG] Invalidando caché del mes actual (${claveMesActual}) para forzar recarga al cargar la página`);
         mesesCargados.delete(claveMesActual);
         delete mesesCargadosTimestamps[claveMesActual];
     }
@@ -918,12 +870,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
         datesSet: function(info) {
             // DEBUG: Log detallado
-            console.log('[DEBUG datesSet] Evento disparado', {
-                start: info.start,
-                end: info.end,
-                view: info.view ? info.view.type : 'N/A',
-                stack: new Error().stack.split('\n').slice(1, 4).join('\n')
-            });
             
             // Cuando cambia el mes, cargar datos del nuevo mes
             // IMPORTANTE: Este evento se puede disparar múltiples veces durante el renderizado
@@ -938,38 +884,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const claveMes = `${anio}-${mes}`;
             const ahora = Date.now();
             
-            console.log('[DEBUG datesSet] Mes detectado', {
-                infoStart: info.start,
-                fechaCentro: fechaCentro,
-                anio: anio,
-                mes: mes,
-                claveMes: claveMes
-            });
             
-            console.log('[DEBUG datesSet] Estado actual', {
-                claveMes: claveMes,
-                ultimoMesProcesado: ultimoMesProcesado,
-                fechaUltimoProcesamiento: fechaUltimoProcesamiento,
-                tiempoDesdeUltimo: fechaUltimoProcesamiento ? (ahora - fechaUltimoProcesamiento) : 'N/A',
-                mesesCargando: Array.from(mesesCargando),
-                mesesCargados: Array.from(mesesCargados)
-            });
             
             // Prevenir ejecuciones múltiples del mismo mes en un corto período
             if (ultimoMesProcesado === claveMes && fechaUltimoProcesamiento && (ahora - fechaUltimoProcesamiento) < 2000) {
-                console.log(`[DEBUG datesSet] IGNORADO para ${claveMes} (ejecutado hace ${ahora - fechaUltimoProcesamiento}ms)`);
                 return;
             }
             
             // Prevenir ejecuciones múltiples con debounce
             if (window.datesSetTimeout) {
-                console.log('[DEBUG datesSet] Cancelando timeout anterior');
                 clearTimeout(window.datesSetTimeout);
             }
             
-            console.log('[DEBUG datesSet] Programando carga de datos en 500ms');
             window.datesSetTimeout = setTimeout(function() {
-                console.log('[DEBUG datesSet] Timeout ejecutado');
                 // Verificar de nuevo después del delay
                 // IMPORTANTE: Usar calendar.getDate() que devuelve la fecha central del mes visible
                 // NO usar info.start porque puede ser del mes anterior
@@ -978,27 +905,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 const mes2 = fechaCentro2.getMonth() + 1;
                 const claveMes2 = `${anio2}-${mes2}`;
                 
-                console.log('[DEBUG datesSet] Verificando antes de cargar', {
-                    fechaCentro2: fechaCentro2,
-                    anio2: anio2,
-                    mes2: mes2,
-                    claveMes2: claveMes2,
-                    mesesCargados: mesesCargados.has(claveMes2),
-                    mesesCargando: mesesCargando.has(claveMes2)
-                });
                 
                 // Solo cargar si no está cargado o cargando
                 if (!mesesCargados.has(claveMes2) && !mesesCargando.has(claveMes2)) {
-                    console.log(`[DEBUG datesSet] Llamando a cargarDatos para ${claveMes2}`);
                     ultimoMesProcesado = claveMes2;
                     fechaUltimoProcesamiento = Date.now();
                     cargarDatos(anio2, mes2);
                 } else {
-                    console.log('[DEBUG datesSet] NO se carga porque ya está cargado o cargando');
                     // NUEVO: Aplicar estilos aunque el mes ya esté cargado
                     // Esperar a que las celdas se rendericen
                     setTimeout(() => {
-                        console.log('[DEBUG datesSet] Aplicando estilos para mes ya cargado');
                         aplicarEstilosCambios();
                     }, 800); // Delay para asegurar que viewDidMount haya renderizado
                 }
@@ -1087,10 +1003,6 @@ document.addEventListener('DOMContentLoaded', function() {
         },
         viewDidMount: function() {
             const datosDisponibles = Object.keys(turnosMes).length;
-            console.log('[DEBUG viewDidMount] Evento disparado', {
-                datosDisponibles,
-                stack: new Error().stack.split('\n').slice(1, 4).join('\n')
-            });
             
             // Cuando el calendario se renderiza completamente, aplicar estilos
             // Este evento se dispara después de que todas las celdas están en el DOM
@@ -1100,17 +1012,14 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Prevenir ejecuciones múltiples con debounce
             if (window.viewDidMountTimeout) {
-                console.log('[DEBUG viewDidMount] Cancelando timeout anterior');
                 clearTimeout(window.viewDidMountTimeout);
             }
             
             // Función helper para aplicar estilos con verificación de celdas
             const intentarAplicarEstilos = () => {
                 const celdas = document.querySelectorAll('.fc-daygrid-day');
-                console.log(`[DEBUG viewDidMount] ${celdas.length} celdas encontradas en DOM`);
                 
                 if (celdas.length > 0) {
-                    console.log('[DEBUG viewDidMount] Celdas encontradas, aplicando estilos');
                     aplicarEstilosCambios();
                     return true;
                 }
@@ -1118,30 +1027,24 @@ document.addEventListener('DOMContentLoaded', function() {
             };
             
             // Siempre intentar aplicar estilos cuando las celdas estén renderizadas
-            console.log('[DEBUG viewDidMount] Programando aplicarEstilosCambios en 300ms');
             window.viewDidMountTimeout = setTimeout(() => {
-                console.log('[DEBUG viewDidMount] Timeout ejecutado, verificando celdas y datos');
                 
                 // Intentar aplicar estilos si hay datos
                 if (datosDisponibles > 0) {
                     if (!intentarAplicarEstilos()) {
-                        console.log('[DEBUG viewDidMount] Hay datos pero no hay celdas aún, reintentando...');
                         // Reintentar con más tiempo
                         setTimeout(() => {
                             if (intentarAplicarEstilos()) {
-                                console.log('[DEBUG viewDidMount] Celdas encontradas en reintento, estilos aplicados');
                             }
                         }, 500);
                     }
                 } else {
-                    console.log('[DEBUG viewDidMount] No hay datos aún, pero las celdas ya están renderizadas');
                 }
             }, 300);
         },
         dateClick: function(info) {
             // Cuando hace click en un día, mostrar detalles
             fechaSeleccionada = info.dateStr;
-            console.log('Fecha clickeada:', info.dateStr);
             mostrarDetallesDia(info.dateStr);
             
             // Si los datos no están cargados, cargarlos
@@ -1157,7 +1060,6 @@ document.addEventListener('DOMContentLoaded', function() {
             
             const claveMes = `${anio}-${mes}`;
             if (!tieneDatosMes && !mesesCargados.has(claveMes) && !mesesCargando.has(claveMes)) {
-                console.log('Cargando datos del mes:', mes, anio);
                 cargarDatos(anio, mes);
             } else {
                 // Forzar actualización de detalles después de un pequeño delay
@@ -1224,7 +1126,6 @@ document.addEventListener('DOMContentLoaded', function() {
         // Si es inmediato, redimensionar sin delay
         if (inmediato) {
             if (window.calendar && typeof window.calendar.updateSize === 'function') {
-                console.log('[DEBUG] Redimensionando calendario INMEDIATAMENTE después de cambio de sidebar');
                 window.calendar.updateSize();
                 // Re-aplicar estilos después de redimensionar
                 setTimeout(() => {
@@ -1240,7 +1141,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         window.calendarResizeTimeout = setTimeout(() => {
             if (window.calendar && typeof window.calendar.updateSize === 'function') {
-                console.log('[DEBUG] Redimensionando calendario después de cambio de sidebar');
                 window.calendar.updateSize();
                 // Re-aplicar estilos después de redimensionar
                 setTimeout(() => {
@@ -1255,23 +1155,19 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof $ !== 'undefined' && $.fn) {
         // Escuchar cuando se colapsa (inmediato para que se vean todos los días)
         $(document).on('collapsed.lte.pushmenu', '[data-widget="pushmenu"]', () => {
-            console.log('[DEBUG] Sidebar colapsado, redimensionando inmediatamente');
             redimensionarCalendario(true);
         });
         
         // Escuchar cuando termina la animación de colapsado
         $(document).on('collapsed.lte.pushmenu.done', '[data-widget="pushmenu"]', () => {
-            console.log('[DEBUG] Animación de colapsado terminada, redimensionando');
             redimensionarCalendario();
         });
         
         // Escuchar cuando se expande
         $(document).on('shown.lte.pushmenu', '[data-widget="pushmenu"]', () => {
-            console.log('[DEBUG] Sidebar expandido, redimensionando');
             redimensionarCalendario();
         });
         
-        console.log('[DEBUG] Listeners de AdminLTE pushmenu registrados');
     }
     
     // SIEMPRE usar MutationObserver como respaldo adicional
@@ -1279,7 +1175,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const observer = new MutationObserver(() => {
         const isCollapsed = document.body.classList.contains('sidebar-collapse');
         if (isCollapsed !== window.sidebarWasCollapsed) {
-            console.log('[DEBUG] MutationObserver detectó cambio en sidebar-collapse:', isCollapsed);
             window.sidebarWasCollapsed = isCollapsed;
             // Si se colapsa, redimensionar inmediatamente para que se vean todos los días
             // Si se expande, usar delay normal
