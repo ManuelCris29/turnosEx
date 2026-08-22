@@ -543,6 +543,40 @@ except OSError:
 
 _DESTINOS = ['console', 'file'] if LOG_A_FICHERO else ['console']
 
+# ROTACIÓN: solo en producción.
+#
+# `RotatingFileHandler` no es seguro entre procesos, y fuera de producción SIEMPRE
+# hay varios escribiendo el mismo fichero: `runserver` levanta dos (el vigilante de
+# cambios y el hijo que sirve) y `pytest -n 4` levanta cuatro. Al llegar a
+# `maxBytes` cada uno intenta rotar con `os.rename`, y en Windows renombrar un
+# fichero que otro proceso tiene abierto falla con `PermissionError: [WinError 32]`.
+#
+# No era un fallo aislado: con el fichero YA por encima del umbral, el intento se
+# repetía en CADA línea de log y la consola quedaba inservible a base de
+# tracebacks. En Linux no ocurre —ahí sí se puede renombrar un fichero abierto—, y
+# por eso el CI nunca lo vio.
+#
+# Lo que falla es el RENAME, no la escritura: varios procesos pueden añadir al
+# mismo fichero sin problema. Así que en desarrollo se usa un handler sin rotación
+# y ya está. El fichero crece, pero son logs locales y desechables: si molesta, se
+# borra la carpeta `logs/` (está en .gitignore).
+#
+# No se pone un nombre por PID —que también resolvería la contienda— porque crearía
+# un fichero por cada ejecución de `manage.py`, y en una semana `logs/` sería un
+# vertedero.
+#
+# NOTA para producción: con `--workers 3` la rotación también es racy en Linux (dos
+# workers pueden rotar a la vez y perder líneas). Ahí no molesta porque el fichero
+# es secundario: CloudWatch lee de stdout, que es donde escribe gunicorn.
+if IS_PRODUCTION:
+    _HANDLER_FICHERO = {
+        'class': 'logging.handlers.RotatingFileHandler',
+        'maxBytes': 10 * 1024 * 1024,   # 10 MB
+        'backupCount': 5,               # ~50 MB como techo
+    }
+else:
+    _HANDLER_FICHERO = {'class': 'logging.FileHandler'}
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -568,10 +602,13 @@ LOGGING = {
             'filters': ['request_id'],
         },
         'file': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            # `class`, `maxBytes` y `backupCount` salen de `_HANDLER_FICHERO`: con
+            # rotación en producción y sin ella en desarrollo (ver arriba el porqué).
+            **_HANDLER_FICHERO,
             'filename': str(LOG_DIR / 'appturnos.log'),
-            'maxBytes': 10 * 1024 * 1024,   # 10 MB
-            'backupCount': 5,               # ~50 MB como techo
+            # `delay`: no abrir el fichero hasta que haya algo que escribir. Evita
+            # crear un fichero vacío por cada proceso que solo importa settings.
+            'delay': True,
             'encoding': 'utf-8',
             'formatter': 'verbose',
             'filters': ['request_id'],
