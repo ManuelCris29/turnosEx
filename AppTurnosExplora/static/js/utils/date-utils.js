@@ -160,11 +160,33 @@ class DateUtils {
   static getMonthRange(year, month) {
     const fechaInicio = new Date(year, month - 1, 1);
     const fechaFin = new Date(year, month, 0);
-    
+
+    // Se formatea en LOCAL, no con `toISOString()`. Ambas fechas se construyen a
+    // medianoche local, y `toISOString()` las pasa a UTC antes de recortar: en
+    // husos POSITIVOS eso retrocede un día, así que enero de 2026 salía como
+    // 2025-12-31 .. 2026-01-30 en Europe/Madrid o Asia/Tokyo.
+    //
+    // No afectaba a nadie —la app corre en Colombia (UTC-5) y el CI en UTC, ambos
+    // con offset ≤ 0, donde la medianoche local cae más tarde en UTC y el día se
+    // conserva—, pero era un fallo esperando a un despliegue en otro huso. La
+    // salida en Bogotá y en UTC es IDÉNTICA antes y después de este cambio.
+    //
+    // Es el mismo motivo por el que `getToday()` tampoco usa `toISOString()`.
     return {
-      fechaInicio: fechaInicio.toISOString().split('T')[0],
-      fechaFin: fechaFin.toISOString().split('T')[0],
+      fechaInicio: DateUtils.aFechaLocal(fechaInicio),
+      fechaFin: DateUtils.aFechaLocal(fechaFin),
     };
+  }
+
+  /**
+   * Formatea un Date como YYYY-MM-DD usando sus componentes LOCALES.
+   * @param {Date} date - Fecha a formatear
+   * @returns {string} Fecha en formato YYYY-MM-DD
+   */
+  static aFechaLocal(date) {
+    return date.getFullYear() + '-' +
+      String(date.getMonth() + 1).padStart(2, '0') + '-' +
+      String(date.getDate()).padStart(2, '0');
   }
 }
 

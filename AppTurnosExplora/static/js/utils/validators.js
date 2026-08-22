@@ -46,14 +46,35 @@ class Validators {
   static futureDate(date) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-    const dateObj = new Date(date);
-    dateObj.setHours(0, 0, 0, 0);
-    
+
+    const dateObj = Validators.aMedianocheLocal(date);
+
     return {
       valid: dateObj >= today,
       message: 'La fecha debe ser hoy o una fecha futura',
     };
+  }
+
+  /**
+   * Convierte una fecha a medianoche LOCAL.
+   *
+   * `new Date('2026-01-15')` se interpreta como medianoche UTC, que en Colombia
+   * (UTC-5) es el 14 a las 19:00. Al aplicarle después `setHours(0,0,0,0)` la
+   * fecha se quedaba en el día ANTERIOR, y por eso `futureDate` rechazaba HOY
+   * —pese a que su mensaje dice «hoy o una fecha futura»— y `pastDate` daba HOY
+   * por pasado. Comprobado ejecutándolo: en Bogotá `futureDate(hoy)` devolvía
+   * `false` y `pastDate(hoy)` devolvía `true`.
+   *
+   * Añadir `T00:00:00` fuerza la interpretación local, que es lo que hace
+   * `DateUtils` desde el principio.
+   *
+   * @param {string|Date} date - Fecha en YYYY-MM-DD o un Date
+   * @returns {Date} La misma fecha a las 00:00 locales
+   */
+  static aMedianocheLocal(date) {
+    const d = typeof date === 'string' ? new Date(`${date}T00:00:00`) : new Date(date);
+    d.setHours(0, 0, 0, 0);
+    return d;
   }
 
   /**
@@ -65,9 +86,8 @@ class Validators {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     
-    const dateObj = new Date(date);
-    dateObj.setHours(0, 0, 0, 0);
-    
+    const dateObj = Validators.aMedianocheLocal(date);
+
     return {
       valid: dateObj < today,
       message: 'La fecha debe ser una fecha pasada',
