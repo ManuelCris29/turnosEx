@@ -67,6 +67,29 @@ const DateUtils = cargarUtil('utils/date-utils.js');
    (UTC-5) en local y UTC en el CI—, y los dos fallos que esta red encontró el
    primer día eran exactamente de eso.
 
+## Aviso importante: estos módulos casi no se usan
+
+Medido el 2026-08-22. Las cuatro plantillas de solicitudes cargan `date-utils`,
+`validators`, `api-client` y `dom-utils`, pero los usos reales son:
+
+| Módulo | Usos en el proyecto |
+|---|---|
+| `date-utils.js` | **0** |
+| `validators.js` | **0** |
+| `api-client.js` | **0** (solo aparece en comentarios) |
+| `dom-utils.js` | **1** — `DomUtils.ready()` en `core/app.js` |
+| `codigo-referencia.js` | 8 — este sí se usa |
+
+Dicho sin rodeos: **estos tests cubren código que hoy nadie llama.** Aun así valen —
+encontraron dos bugs reales que habrían mordido al primero que los usara, y montan
+la infraestructura— pero conviene no confundir cobertura con protección: hoy no
+protegen ninguna pantalla.
+
+Eso explica el punto 20 del informe de auditoría: la duplicación no está entre
+formularios, sino **entre los formularios y estos utils**. Cada `solicitar_*.js`
+reimplementó por su cuenta lo que ya existía al lado. Hacer que los formularios usen
+los utils es el trabajo pendiente, y necesita jsdom antes.
+
 ## Lo que encontró el primer día
 
 Los `utils` ya traían `module.exports` además del global, así que fueron probables
