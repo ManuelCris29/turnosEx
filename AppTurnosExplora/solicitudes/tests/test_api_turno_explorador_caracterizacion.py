@@ -511,9 +511,28 @@ class ConteoManualDeDobladaTestCase(BaseApiTurno):
     el dict con `jornada: None`, la senal del servicio no dice DOBLADA, y sin el
     conteo manual el dia se mostraria sin jornada.
 
-    Y el anio sin sembrar no es una anomalia: el mantenimiento se carga a mano cada
-    diciembre, asi que los anios futuros SIN planificar son el estado normal
-    durante parte del anio.
+    HASTA DONDE LLEGA ESTE ESCENARIO (corregido tras auditarlo).
+    De las tres condiciones, dos son normales y una NO:
+
+      * festivo entre semana .......... normal
+      * anio sin sembrar .............. normal: el mantenimiento se carga a mano
+                                        cada diciembre, asi que tener anios futuros
+                                        sin planificar es habitual
+      * AM+PM SIN `tipo_cambio` ....... NO lo produce ningun flujo de la aplicacion
+
+    Auditado con AST: hay CERO `Turno.objects.create` que no pasen `tipo_cambio`.
+    Los dos sitios que pasan `None` restauran UN turno base al revertir, y estan
+    guardados por `if not Turno.objects.filter(...).exists()`. Las dobladas que
+    crean las solicitudes llevan siempre `tipo_cambio='DOBLADA'`, y con turnos
+    marcados NO hay divergencia (L5 los ve por `explicitos` y responde DOBLADA).
+
+    La unica via que produce este estado es el ADMIN de Django: `tipo_cambio` es
+    `null=True, blank=True` y `TurnoAdmin` no restringe campos, asi que se pueden
+    crear los dos turnos a mano sin marcar.
+
+    Por eso el conteo manual se conserva: cuesta una linea y cubre un estado que
+    administracion puede crear al arreglar datos. Pero que quede claro el alcance
+    real, y no el que se le atribuyo en la primera version de este comentario.
 
     Medido:
         estado_dia          -> trabaja: False, jornada: None, fuente: sin_planificar
