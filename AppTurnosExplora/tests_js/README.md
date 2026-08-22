@@ -1,6 +1,6 @@
 # Pruebas de JavaScript
 
-Primera red de pruebas de JS del proyecto (2026-08-22). Hasta esta fecha el CI solo
+Red de pruebas de JS del proyecto, estrenada el 2026-08-22 con **76 tests**. Hasta esa fecha el CI solo
 ejecutaba `pytest`, que no corre una sola línea de JavaScript: las **9 790 líneas**
 de `static/js/cambio-turno/` no las miraba nadie.
 
@@ -39,11 +39,17 @@ jsdom, y ese será el momento de traer una herramienta. Hoy sería adelantarse.
 |---|---|---|
 | `utils/date-utils.js` | **cubierto** | lógica pura, cero referencias al navegador |
 | `utils/validators.js` | **cubierto** | lógica pura |
-| `utils/dom-utils.js` | sin cubrir | necesita `document` → jsdom |
-| `utils/api-client.js` | sin cubrir | necesita `fetch` → jsdom o un doble |
-| `utils/codigo-referencia.js` | sin cubrir | toca `window.fetch` |
+| `utils/api-client.js` | **cubierto** | solo usa `fetch`, `document.cookie` y `querySelector`: dobles fieles, sin jsdom |
+| `utils/dom-utils.js` | **parcial** | `debounce` y `throttle` cubiertos (JS puro). El resto manipula el DOM |
+| `utils/codigo-referencia.js` | sin cubrir | reemplaza `window.fetch` |
 | `services/datepicker-service.js` | sin cubrir | 25 referencias al navegador y a flatpickr |
 | `cambio-turno/*.js` | sin cubrir | los formularios; requieren DOM completo |
+
+**Sobre los dobles y jsdom.** `api-client` se prueba sin jsdom porque no toca el DOM
+de verdad: `document.cookie` es una cadena y `querySelector` solo sirve para leer un
+`.value`. Un doble ahí es **fiel**. En cambio, fingir `classList` o `appendChild`
+para probar `addClass` o `createElement` sería peor que no probarlos: el doble pasa
+siempre y daría por bueno código que en el navegador falla. Esa mitad espera a jsdom.
 
 ## Cómo añadir un fichero de pruebas
 
