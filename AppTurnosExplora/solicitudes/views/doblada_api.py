@@ -229,76 +229,15 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
                 "VerificarDobladaExistente CASO 1.5: es_doblada_turnos=%s es_festivo_semana=%s fecha=%s usuario_id=%s",
                 es_doblada_turnos, es_festivo, str(fecha_obj), usuario_actual.id
             )
+            # Doblada por ROTACION en festivo, extraida en la Fase 3. Devuelve la
+            # respuesta o None si este caso no aplica.
             if not es_doblada_turnos and es_festivo:
-                try:
-                    from turnos.services.asignacion_especial_service import AsignacionEspecialService
-                    from turnos.services.jornada_service import JornadaService
-                    grupo_que_dobla = AsignacionEspecialService.grupo_trabaja(fecha_obj)
-                    jornada_usuario = None
-                    if jornadas:
-                        jornada_usuario = jornadas[0].upper()  # Un solo turno en BD
-                    else:
-                        pred = JornadaService.get_jornada_explorador_fecha(
-                            usuario_actual.id, fecha_obj.strftime('%Y-%m-%d')
-                        )
-                        jornada_usuario = pred.nombre.upper() if pred else None
-                    # `grupo_que_dobla` es None si el año no tiene la alternancia publicada:
-                    # entonces no se afirma nada sobre ese festivo.
-                    coincide = bool(grupo_que_dobla and jornada_usuario
-                                    and jornada_usuario == grupo_que_dobla)
-                    logger.info(
-                        "VerificarDobladaExistente festivo: grupo_que_dobla=%s jornada_usuario=%s coincide=%s",
-                        grupo_que_dobla, jornada_usuario, coincide
-                    )
-                    if not coincide and jornada_usuario:
-                        grupo_descansa = jornada_usuario
-                        mensaje_festivo_descansa = (
-                            f'Este día es festivo y le toca doblar al grupo {grupo_que_dobla}; '
-                            f'tú eres del grupo {grupo_descansa}, así que descansas y no tienes jornada que ceder.'
-                        )
-                    tiene_doblada_real_bd = set(jornadas) == {'AM', 'PM'}
-                    # Mensaje único para festivo: el día se trabaja COMPLETO (AM + PM) y, por la regla
-                    # de negocio de festivos, solo se puede ceder el día entero (no media jornada) y la
-                    # fecha de pago debe ser otro festivo del mismo mes. El frontend usa `es_festivo`
-                    # para ocultar el selector de "Tipo de Cesión" (parcial/total) y forzar cesión completa.
-                    mensaje_festivo_doblada = (
-                        f'Este día es festivo: trabajas la jornada completa (AM + PM) porque le corresponde '
-                        f'doblar al grupo {grupo_que_dobla}. Por regla de festivos solo puedes ceder el día '
-                        f'completo a un compañero, y la fecha de pago debe ser otro día festivo del mismo mes.'
-                    )
-                    # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
-                    if not jornadas and grupo_que_dobla and jornada_usuario == grupo_que_dobla:
-                        return json_ok({
-                            'tiene_doblada': True,
-                            'esta_descansando': False,
-                            'puede_ceder': True,
-                            'jornadas': ['AM', 'PM'],
-                            'es_festivo': True,
-                            'mensaje': mensaje_festivo_doblada,
-                            'solicitud_id': None,
-                            'datos_inconsistentes': False,
-                            'requiere_atencion_admin': False
-                        })
-                    # Doblada real en BD (2 turnos AM+PM)
-                    if tiene_doblada_real_bd and grupo_que_dobla and jornada_usuario == grupo_que_dobla:
-                        return json_ok({
-                            'tiene_doblada': True,
-                            'esta_descansando': False,
-                            'puede_ceder': True,
-                            'jornadas': ['AM', 'PM'],
-                            'es_festivo': True,
-                            'mensaje': mensaje_festivo_doblada,
-                            'solicitud_id': None,
-                            'datos_inconsistentes': False,
-                            'requiere_atencion_admin': False
-                        })
-                except Exception as e:
-                    logger.warning(
-                        "VerificarDobladaExistente: error al evaluar doblada en festivo: %s",
-                        e,
-                        extra={'fecha': str(fecha_obj), 'usuario_id': usuario_actual.id},
-                        exc_info=True
-                    )
+                _resp, _msg_festivo = self._caso_doblada_en_festivo(
+                    usuario_actual, fecha_obj, jornadas)
+                if _msg_festivo:
+                    mensaje_festivo_descansa = _msg_festivo
+                if _resp is not None:
+                    return _resp
             
             # CASO TEMPORADA: día entre semana donde el usuario trabaja el día COMPLETO por
             # temporada (el grupo contrario descansa). No hay turnos reales, pero trabaja AM+PM.
@@ -459,6 +398,105 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
         except Exception:
             logger.exception("Error verificando doblada existente")
             return json_error('Error al verificar doblada existente', status=500, code='internal_error')
+
+
+    def _caso_doblada_en_festivo(self, usuario_actual, fecha_obj, jornadas):
+        """
+        Festivo entre semana: el grupo al que le toca por rotacion dobla (AM+PM) y
+        el contrario descansa.
+
+        Devuelve la PAREJA `(respuesta, mensaje_festivo_descansa)`, y no solo la
+        respuesta: cuando al explorador NO le toca doblar, este caso no responde
+        pero SI produce el texto que explica por que, y ese texto lo consumen tres
+        respuestas distintas mas abajo en `get`. Devolver solo la respuesta perdia
+        el mensaje en silencio -- lo detecto ruff con un F841, no los tests.
+
+        Extraido de `get` en la Fase 3; la logica no cambia.
+
+        Aplica tanto con CERO turnos como con UNO: la regla del festivo manda sobre
+        el horario predeterminado, asi que se mira el GRUPO del explorador y no lo
+        que haya en la base ese dia.
+
+        `grupo_que_dobla` es None cuando el anio no tiene la alternancia publicada,
+        y entonces NO se afirma nada sobre ese festivo: se deja pasar al siguiente
+        caso en vez de inventar un grupo. Es habitual, porque el mantenimiento se
+        carga a mano cada diciembre.
+
+        El `except` que envuelve todo es deliberado y se conserva tal cual: si la
+        rotacion falla, este caso simplemente NO aplica y el flujo sigue con los
+        demas, en vez de tumbar la peticion entera por una regla accesoria.
+        """
+        mensaje_festivo_descansa = None
+        try:
+            from turnos.services.asignacion_especial_service import AsignacionEspecialService
+            from turnos.services.jornada_service import JornadaService
+            grupo_que_dobla = AsignacionEspecialService.grupo_trabaja(fecha_obj)
+            jornada_usuario = None
+            if jornadas:
+                jornada_usuario = jornadas[0].upper()  # Un solo turno en BD
+            else:
+                pred = JornadaService.get_jornada_explorador_fecha(
+                    usuario_actual.id, fecha_obj.strftime('%Y-%m-%d')
+                )
+                jornada_usuario = pred.nombre.upper() if pred else None
+            # `grupo_que_dobla` es None si el año no tiene la alternancia publicada:
+            # entonces no se afirma nada sobre ese festivo.
+            coincide = bool(grupo_que_dobla and jornada_usuario
+                            and jornada_usuario == grupo_que_dobla)
+            logger.info(
+                "VerificarDobladaExistente festivo: grupo_que_dobla=%s jornada_usuario=%s coincide=%s",
+                grupo_que_dobla, jornada_usuario, coincide
+            )
+            if not coincide and jornada_usuario:
+                grupo_descansa = jornada_usuario
+                mensaje_festivo_descansa = (
+                    f'Este día es festivo y le toca doblar al grupo {grupo_que_dobla}; '
+                    f'tú eres del grupo {grupo_descansa}, así que descansas y no tienes jornada que ceder.'
+                )
+            tiene_doblada_real_bd = set(jornadas) == {'AM', 'PM'}
+            # Mensaje único para festivo: el día se trabaja COMPLETO (AM + PM) y, por la regla
+            # de negocio de festivos, solo se puede ceder el día entero (no media jornada) y la
+            # fecha de pago debe ser otro festivo del mismo mes. El frontend usa `es_festivo`
+            # para ocultar el selector de "Tipo de Cesión" (parcial/total) y forzar cesión completa.
+            mensaje_festivo_doblada = (
+                f'Este día es festivo: trabajas la jornada completa (AM + PM) porque le corresponde '
+                f'doblar al grupo {grupo_que_dobla}. Por regla de festivos solo puedes ceder el día '
+                f'completo a un compañero, y la fecha de pago debe ser otro día festivo del mismo mes.'
+            )
+            # Festivo sin modificaciones (0 turnos): mostrar DOBLADA por regla si el grupo trabaja
+            if not jornadas and grupo_que_dobla and jornada_usuario == grupo_que_dobla:
+                return json_ok({
+                    'tiene_doblada': True,
+                    'esta_descansando': False,
+                    'puede_ceder': True,
+                    'jornadas': ['AM', 'PM'],
+                    'es_festivo': True,
+                    'mensaje': mensaje_festivo_doblada,
+                    'solicitud_id': None,
+                    'datos_inconsistentes': False,
+                    'requiere_atencion_admin': False
+                }), mensaje_festivo_descansa
+            # Doblada real en BD (2 turnos AM+PM)
+            if tiene_doblada_real_bd and grupo_que_dobla and jornada_usuario == grupo_que_dobla:
+                return json_ok({
+                    'tiene_doblada': True,
+                    'esta_descansando': False,
+                    'puede_ceder': True,
+                    'jornadas': ['AM', 'PM'],
+                    'es_festivo': True,
+                    'mensaje': mensaje_festivo_doblada,
+                    'solicitud_id': None,
+                    'datos_inconsistentes': False,
+                    'requiere_atencion_admin': False
+                }), mensaje_festivo_descansa
+        except Exception as e:
+            logger.warning(
+                "VerificarDobladaExistente: error al evaluar doblada en festivo: %s",
+                e,
+                extra={'fecha': str(fecha_obj), 'usuario_id': usuario_actual.id},
+                exc_info=True
+            )
+        return None, mensaje_festivo_descansa
 
 
 class ObtenerFechasDescansoView(LoginRequiredMixin, View):
