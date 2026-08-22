@@ -509,7 +509,17 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
     Duplicación **literal** encontrada: **una** función de 4 líneas (`notificar` en `solicitar_d_fds.js:47` y `solicitar_doblada_permanente.js:42`, idénticas byte a byte). Extraer 4 líneas no compensa el riesgo, porque —y esto es lo que decide— **el proyecto no tiene NINGUNA infraestructura de pruebas para JavaScript**. Cero tests sobre 9 790 líneas de formularios. Refactorizar ahí es exactamente lo que la Fase 0 quería evitar.
 
-    **Si algún día se quiere abordar el frontend en serio, el primer paso no es factorizar: es montar la red** (Vitest o Jest sobre los `utils/`, que ya están separados y son los más fáciles de probar). Sin eso, cualquier refactor de JS es a ciegas.
+    **PRIMER PASO DADO (2026-08-22): la red ya existe.** `tests_js/` con **44 tests** sobre `date-utils.js` y `validators.js`, en un job **bloqueante** del CI. Sin `package.json` ni dependencias: se usa el runner que trae Node, porque los `utils` ya exponían `module.exports` además del global y fueron probables **sin tocar una línea de código de producción**.
+
+    Y encontró dos fallos el primer día, los dos de zona horaria y los dos por parsear `new Date('YYYY-MM-DD')`, que es medianoche **UTC**:
+
+    * `getMonthRange` retrocedía un día en husos positivos (enero de 2026 salía `2025-12-31 .. 2026-01-30` en Madrid o Tokio). Latente: la app corre en UTC-5. Corregido, y verificado que la salida en Bogotá y UTC es **idéntica** a la anterior en 168 meses comparados.
+
+    * `Validators.futureDate` **rechazaba HOY** y `pastDate` daba HOY por pasado, en Colombia — pese a que el mensaje dice «hoy o una fecha futura». Corregido.
+
+    Queda sin cubrir lo que necesita DOM (`dom-utils`, `api-client`, `datepicker-service` y los formularios): ahí sí hará falta jsdom, y ese será el momento de traer una herramienta. Ver `tests_js/README.md`.
+
+    **HALLAZGO COLATERAL:** `validators.js` se carga con `<script>` en cuatro plantillas (`solicitar_cambio_turno`, `solicitar_ct_permanente`, `solicitar_doblada`, `mis_turnos`) pero **no hay una sola referencia a `Validators.` en todo el proyecto**. Son 191 líneas que se descargan para nada. No se retiran los `<script>` aquí porque es una decisión aparte, pero queda medido.
 21. Migrar a `<script type="module">`; ~~eliminar los 94 `console.log`.~~ **Los `console.log` HECHOS (2026-08-22): 92 eliminados** (los otros 2 son de `adminlte`, código de terceros, y no se tocan).
 
     Todos eran restos de depuración con prefijo `[DEBUG]` que viajaban al navegador de cada usuario volcando estado interno —meses cargados, contenido de `Set`s y, en siete de ellos, `new Error().stack`—. Reparto: `mis_turnos.js` 69, `solicitar_ct_permanente.js` 14, `solicitar_doblada.js` 7, y uno en `core/app.js` y en `calendario_festivos_mantenimiento.js`.

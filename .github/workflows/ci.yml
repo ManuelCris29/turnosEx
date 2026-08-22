@@ -144,6 +144,35 @@ jobs:
       - name: ruff
         run: ruff check .
 
+  tests_js:
+    name: Tests JavaScript (bloqueante)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: AppTurnosExplora
+    # Primera red de pruebas de JavaScript del proyecto (2026-08-22). Hasta ahora
+    # el CI solo ejecutaba pytest, que no corre una sola línea de JS: los 9.790
+    # renglones de los formularios no los miraba nadie.
+    #
+    # Se usa el runner que trae Node (`node --test`), sin package.json ni
+    # dependencias. Por eso este job no necesita `npm install` ni caché: arranca en
+    # segundos.
+    #
+    # BLOQUEANTE desde el primer día, y a propósito: el baseline es CERO fallos, así
+    # que no hay deuda vieja que tolerar. Empezar en verde es lo que evita que se
+    # repita la historia de ruff, que estuvo meses en modo informativo.
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # El glob lo expande la shell. Se listan los ficheros en vez de pasar la
+      # carpeta porque `node --test tests_js/` intenta cargarla como módulo.
+      - name: node --test
+        run: node --test tests_js/*.test.cjs
+
   seguridad:
     name: Seguridad (informativo)
     runs-on: ubuntu-latest
