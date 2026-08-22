@@ -509,7 +509,7 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
     Duplicación **literal** encontrada: **una** función de 4 líneas (`notificar` en `solicitar_d_fds.js:47` y `solicitar_doblada_permanente.js:42`, idénticas byte a byte). Extraer 4 líneas no compensa el riesgo, porque —y esto es lo que decide— **el proyecto no tiene NINGUNA infraestructura de pruebas para JavaScript**. Cero tests sobre 9 790 líneas de formularios. Refactorizar ahí es exactamente lo que la Fase 0 quería evitar.
 
-    **PRIMER PASO DADO (2026-08-22): la red ya existe.** `tests_js/` con **44 tests** sobre `date-utils.js` y `validators.js`, en un job **bloqueante** del CI. Sin `package.json` ni dependencias: se usa el runner que trae Node, porque los `utils` ya exponían `module.exports` además del global y fueron probables **sin tocar una línea de código de producción**.
+    **PRIMER PASO DADO (2026-08-22): la red ya existe.** `tests_js/` con **76 tests** sobre `date-utils.js`, `validators.js`, `api-client.js` y las funciones puras de `dom-utils.js`, en un job **bloqueante** del CI que corre en **11 segundos**. Sin `package.json` ni dependencias: se usa el runner que trae Node, porque los `utils` ya exponían `module.exports` además del global y fueron probables **sin tocar una línea de código de producción**.
 
     Y encontró dos fallos el primer día, los dos de zona horaria y los dos por parsear `new Date('YYYY-MM-DD')`, que es medianoche **UTC**:
 
@@ -517,7 +517,9 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 
     * `Validators.futureDate` **rechazaba HOY** y `pastDate` daba HOY por pasado, en Colombia — pese a que el mensaje dice «hoy o una fecha futura». Corregido.
 
-    Queda sin cubrir lo que necesita DOM (`dom-utils`, `api-client`, `datepicker-service` y los formularios): ahí sí hará falta jsdom, y ese será el momento de traer una herramienta. Ver `tests_js/README.md`.
+    `api-client.js` se cubrió **sin jsdom** tras medirlo: solo usa `fetch` (nativo en Node), `document.cookie` (una cadena) y `document.querySelector` (para leer un `.value`). No recorre el árbol ni escucha eventos, así que un doble es **fiel**. Incluye el token CSRF, con un test que exige `startsWith` y no `includes` para que una cookie `xcsrftoken` no pueda suplantarlo.
+
+    Queda sin cubrir lo que sí manipula el DOM (la otra mitad de `dom-utils`, `codigo-referencia`, `datepicker-service` y los formularios). Ahí fingir `classList` o `appendChild` sería **peor que no probar**: el doble pasa siempre y daría por bueno código que en el navegador falla. Eso espera a jsdom. Ver `tests_js/README.md`.
 
     **HALLAZGO COLATERAL:** `validators.js` se carga con `<script>` en cuatro plantillas (`solicitar_cambio_turno`, `solicitar_ct_permanente`, `solicitar_doblada`, `mis_turnos`) pero **no hay una sola referencia a `Validators.` en todo el proyecto**. Son 191 líneas que se descargan para nada. No se retiran los `<script>` aquí porque es una decisión aparte, pero queda medido.
 21. Migrar a `<script type="module">`; ~~eliminar los 94 `console.log`.~~ **Los `console.log` HECHOS (2026-08-22): 92 eliminados** (los otros 2 son de `adminlte`, código de terceros, y no se tocan).
