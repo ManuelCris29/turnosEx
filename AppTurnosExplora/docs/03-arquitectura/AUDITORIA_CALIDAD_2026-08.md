@@ -111,10 +111,13 @@ strategy. Ese es el coste real de esta violación.
 
 ### LSP (5/10) — dos roturas, una peligrosa
 
-1. `base_strategy.py:74-93`: `_datos_desde_solicitud` devuelve `None` por defecto y `revalidar_para_aprobar`
-   traduce ese `None` a `return True, 'Sin re-validación para este tipo'`. **Una strategy futura que olvide
-   implementar el hook aprobará solicitudes sin revalidar, en silencio.** Es un *fail-open*: el default inseguro.
-   Hoy las 6 strategies lo implementan, así que el bug está latente, no activo.
+1. ~~`base_strategy.py:74-93`: `_datos_desde_solicitud` devuelve `None` por defecto…~~ **CORREGIDO
+   (2026-08-21), y eran TRES fail-opens, no uno.** El hook es hoy `@abstractmethod` —olvidarlo impide
+   instanciar la clase— y el `None` dejó de significar «déjalo pasar»: ahora falla CERRADO. Los otros dos
+   los encontró la auditoría y **no estaban en este informe**: las tres estrategias con detalle devolvían
+   `None` si faltaba su fila, y `SolicitudFactory` usaba `get_strategy`, que devuelve `None` para un tipo
+   INACTIVO — o sea que desactivar un tipo hacía que se aprobaran **todas** sus pendientes sin comprobar
+   ninguna. Ver punto 13 y `solicitudes/tests/test_failopen_revalidacion.py`.
 2. `d_fds_strategy.py:391,429` invierte la precondición de `disponibilidad_companero` de la base. Está
    documentado (`base_strategy.py:117-121`) y es deliberado, pero significa que la clase base no es una
    abstracción sino una implementación concreta que una subclase contradice.
@@ -192,7 +195,7 @@ Dockerfile con usuario no root; requirements 100 % pineados; **system checks pro
 Riesgos concretos:
 
 1. ~~**`CACHE_URL` por defecto es LocMemCache** sin prevención.~~ **HALLAZGO RETIRADO (falso positivo).** El proyecto **ya lo previene**: `core/checks.py:15` registra `@register(Tags.caches, deploy=True)` que devuelve el error `core.E001` si `IS_PRODUCTION` y el backend es LocMemCache, con hint accionable. Cubierto por `core/tests/test_checks_cache.py:24`. Hay además un segundo check propio, `core.W002` (`core/checks.py:47`), que avisa si la conexión a RDS no usa TLS. Está deliberadamente restringido a `--deploy` para no romper el `collectstatic` del build. **Es una de las mejores piezas del proyecto y la auditoría la pasó por alto en la primera pasada.**
-2. **django-axes bloquea solo por `username`** (`settings.py:341`, `AXES_LOCKOUT_PARAMETERS = ['username']`): un atacante rota usuarios y evade el límite. *Matizado tras Context7:* la doc de axes documenta `['username']` como elección legítima por privacidad/GDPR (evita almacenar IPs), así que es una decisión defendible, no un descuido — pero deja abierto el credential stuffing. **Ver §7 para el bloqueante de proxy antes de cambiarlo.**
+2. ~~**django-axes bloquea solo por `username`**: un atacante rota usuarios y evade el límite.~~ **CORREGIDO.** Hoy `AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']` (lista PLANA, o sea usuario **O** IP). Se hizo en el orden obligatorio del punto 6: primero resolver la IP real detrás del balanceador, después endurecer. Y ese primer paso destapó que `AXES_IPWARE_PROXY_COUNT` estaba **INERTE** —faltaba el extra `[ipware]` y el orden de precedencia—, así que los ajustes existían pero no hacían nada. Verificado **ejecutándolo** con `manage.py verificar_ip_cliente`; vigilado por el check `core.E004`.
 3. ~~**CSP con `'unsafe-inline'`** … `'unsafe-inline'` es el único bloqueante real para promoverla a política activa.~~ **CERRADO Y PARCIALMENTE CORREGIDO (2026-08-21).**
 
    La frase tachada contenía un **error de razonamiento**: `'unsafe-inline'` estaba en las **dos** políticas, la activa y la `_REPORT_ONLY`, así que nunca fue un bloqueante para promoverla. La única diferencia entre ambas eran los CDN retirados. La promoción se hizo sin tocar `'unsafe-inline'`: barridas las 116 plantillas, el único origen externo que queda es Google Fonts, la estricta pasó a ser la activa y la `_REPORT_ONLY` se borró.
@@ -206,16 +209,22 @@ Riesgos concretos:
    Encadenado, era también el vector de XSS: el nombre se interpola sin escapar en varios `innerHTML` del formulario de cambio de descanso, así que se ejecutaba en el navegador de quien lo abriera, supervisor incluido — y la CSP no lo frenaba, por el `'unsafe-inline'`. **Corregido** añadiendo `AdminRequiredMixin` (y metiendo el botón "Editar" dentro del `{% if is_admin_user %}` de la plantilla, donde faltaba por el mismo descuido). Cubierto por `empleados/tests/test_permisos_edicion_empleado.py`.
 
    Revisadas las demás fuentes de texto que llegan a `innerHTML` —salas, jornadas, tipos de solicitud— todas estaban ya tras `AdminRequiredMixin`. Ésta era el único hueco.
-4. `DB_PASSWORD: swalp_docker_2026` versionada en `docker-compose.hostdb.yml:36`. Es local, pero queda en el historial de git.
-5. Dockerfile sin `HEALTHCHECK` pese a que `/health/` y `/health/ready/` ya existen y están exentos de redirect; no es multi-stage; el `CMD` ejecuta `migrate` antes de gunicorn (carrera con ≥2 tareas, ya auto-documentada).
-6. **`--workers 3` hardcodeado** en el `CMD` del Dockerfile, independientemente de la máquina. La doc de Gunicorn recomienda `2 × núcleos + 1`. Con 2 vCPU faltan workers; con 0,5 vCPU sobran y compiten por CPU. Falta también `--max-requests` para reciclar workers (mitiga fugas de memoria). Y esos 3 workers **confirman** el riesgo del punto 1: 3 cachés locmem incoherentes.
+4. ~~`DB_PASSWORD` versionada en `docker-compose.hostdb.yml:36`.~~ **CORREGIDO (2026-08-22), y el riesgo real era otro.** La contraseña sale ahora de `.env` (gitignored) con `${DB_PASSWORD:?...}`. Pero medido, lo grave no era esa línea: `docker-compose.local.yml` publicaba el MySQL como `"3307:3306"` —o sea en `0.0.0.0`, accesible desde **cualquier equipo de la red** con una contraseña escrita en el mismo fichero— y el manual pedía crear `'swalp'@'%'`, un usuario alcanzable desde **cualquier host** con todos los privilegios. Corregidos los tres: puerto a `127.0.0.1`, usuario a `172.%`, contraseña fuera del repo. **NO se reescribe el historial de git**: para un repositorio privado con credenciales locales no compensa; lo que hace falta es no reutilizarla, y eso queda escrito donde se crea el usuario.
+5. ~~Dockerfile sin `HEALTHCHECK`…~~ **`HEALTHCHECK` AÑADIDO** (verificado en el Dockerfile). Siguen abiertos, y son decisiones de despliegue más que de código: el multi-stage y mover el `migrate` fuera del `CMD` (esto último solo importa con ≥2 tareas — ver §despliegue, punto 2).
+6. ~~**`--workers 3` hardcodeado**; falta `--max-requests`.~~ **CORREGIDO.** El `CMD` usa hoy `${GUNICORN_WORKERS:-3}` —ajustable por entorno sin reconstruir la imagen— y lleva `--max-requests 1000 --max-requests-jitter 100`.
+
+   **Efecto colateral detectado el 2026-08-22 y NO corregido:** con varios workers, la rotación del fichero de log es *racy* — dos pueden rotar a la vez y perderse líneas. No molesta porque el fichero es secundario (CloudWatch lee de *stdout*, que es donde escribe gunicorn), pero la decisión de quitar el handler de fichero en producción queda pendiente. Documentado en `settings.py`.
 7. ~~Sin `pip-audit` ni Dependabot; no detecto vulnerabilidades abiertas.~~ **CORREGIDO — la segunda mitad era infundada.** La afirmación se hizo sin ejecutar ninguna herramienta. Al añadir `pip-audit` al CI (2026-08-19) reporta **15 vulnerabilidades conocidas en 3 paquetes**:
    - `django==5.2.16` → PYSEC-2026-3717, corregido en **5.2.17** (parche dentro de la misma LTS).
    - `sqlparse==0.5.3` → 5 avisos, corregidos en 0.5.4 / 0.6.0.
    - `cryptography==46.0.3` → 8 avisos; 5 se cierran en la serie 46.0.5-46.0.7, 3 exigen saltar a 48/49/50.
    
    Lección: **no afirmar «no hay CVE» sin correr la herramienta.** El proceso automático ya existe (job `seguridad` del CI, informativo a propósito para que un CVE nuevo no bloquee los merges). Falta decidir y aplicar las subidas de versión.
-8. `settings.py` es un único archivo de 584 líneas con 5 ramas por entorno, en lugar de `settings/base|dev|prod.py`.
+8. `settings.py` es un único archivo, en lugar de `settings/base|dev|prod.py`. **MATIZADO tras medirlo (2026-08-22): el número engaña.** Son 679 líneas, sí, pero **305 son comentarios** — el 45 %. El código real son ~374 líneas con **6 ramas** por entorno, y cuatro de ellas son de una sola línea (`default=X if IS_PRODUCTION else Y`).
+
+    Y esos comentarios no son relleno: son el razonamiento que estas sesiones fueron acumulando —por qué `axes` necesita el extra `[ipware]`, por qué la CSP conserva `'unsafe-inline'`, por qué el logging no rota fuera de producción—. Partir el fichero los **dispersaría en tres**, y justo la pregunta que uno hace al abrir `settings.py` es «¿qué cambia entre entornos?», que hoy se responde leyendo seis líneas seguidas.
+
+    **Sigue abierto**, pero baja de prioridad: el coste es real (los errores de configuración son silenciosos y peligrosos) y la ganancia, discutible. Reconsiderarlo si las ramas por entorno se multiplican.
 
 ---
 
@@ -482,7 +491,7 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
 14. ~~Test de arquitectura que falle si aparece un `if tipo == "..."` fuera de las strategies.~~ **HECHO (2026-08-21), como TRINQUETE y no como cero absoluto.** Exigir cero habría forzado un refactor discutible: de las 4 comparaciones que quedan, tres **enrutan a flujos de orquestación completos** (dos solicitudes atómicas que solo tienen sentido juntas, alta multi-compañero) o son banderas de presentación — meterlas en una estrategia sería la misma dependencia, escondida. Solo una (`descanso_solicitud_service.py`, `_mitad_pago`) es deuda real y queda anotada como tal. Se congelan como base conocida que **solo puede menguar**, con un segundo test que falla si alguien migra una y no baja el número, para que la lista no deje hueco. El propio test **encontró 4 casos que el grep manual se había dejado**. Ver `solicitudes/tests/test_arquitectura_dispatch_por_tipo.py`.
 
 **Fase 3 — Descomponer los God Objects (4-8 semanas).**
-15. `doblada_strategy.validar_solicitud` (515 L) → mover a `services/validators/` (que ya existe e infrautiliza).
+15. `doblada_strategy.validar_solicitud` (515 L) → mover a `services/validators/`. **A MEDIAS.** El método se descompuso de **512 a 244 líneas** en ocho métodos con nombre (`_validar_pago_sabado`, `_validar_dia_no_comprometido`, `_validar_cobertura_en_pago`…), que era el problema real: 512 líneas no se pueden leer. **NO se movió a `services/validators/`**, y hay una razón para dudarlo: esos ocho métodos leen del objeto `EntradaDoblada` y de `self`, así que moverlos exigiría pasar la estrategia entera o duplicar el contexto. Antes de hacerlo conviene medir qué gana el traslado más allá de la simetría con los cuatro validadores que ya existen.
 16. ~~Vaciar de negocio `views/doblada_api.py`, `views/api_turno_jornada.py` y `permisos/views.py`.~~ **CERRADO (2026-08-22), aunque no como decía el enunciado.**
 
     **`permisos/views.py`:** medido, no era un God Object —25 vistas, la mayor de 97 líneas—. Su problema era de TESTS, no de tamaño: los caminos donde el permiso cambia de estado no tenían ninguno. Cubiertos; la cobertura pasó del 61 % al 71 %.
