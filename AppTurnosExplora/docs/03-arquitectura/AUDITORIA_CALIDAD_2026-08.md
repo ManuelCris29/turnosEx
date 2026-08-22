@@ -350,7 +350,7 @@ ninguna arquitectura contempla CloudFront). **La decisión de despliegue no bloq
 
 **Fase 0 — Red de seguridad (1-2 semanas). Sin esto, refactorizar es a ciegas.**
 1. ~~Crear `.github/workflows/ci.yml`.~~ **Ya existía**; ampliado el 2026-08-19 con ejecución en todas las ramas, `-n auto`, gate de cobertura ≥64 % y job de lint (ruff + bandit + pip-audit).
-2. `ruff` (lint + format) en `pyproject.toml` + `pre-commit`. Coste bajo: hoy no hay ningún linter.
+2. ~~`ruff` (lint + format) en `pyproject.toml` + `pre-commit`.~~ **HECHO.** Verificado el 2026-08-22: `[tool.ruff]` en `pyproject.toml`, `.pre-commit-config.yaml` activo, y `ruff check .` en cero durante toda la refactorización (es bloqueante en el CI).
 3. ~~`conftest.py` raíz con fixtures compartidos.~~ **Corregido:** las fixtures de pytest no son accesibles
    desde `TestCase.setUp`, y 67 de los 68 archivos de test usan `TestCase`. Sustituido por
    `core/tests/factories.py`, con **funciones planas** llamables desde ambos mundos (Sesión 6).
@@ -470,9 +470,9 @@ proxy de axes, y de nuevo a la baja al resolverse esa incógnita en §9. Queda l
    c. Solo entonces: `AXES_LOCKOUT_PARAMETERS = ["username", "ip_address"]` (lista **plana** = bloqueo por usuario O por IP; la anidada `[["username","ip_address"]]` cuenta la pareja y NO frena la rotación de usuarios).
 
    *Sin el paso (a), axes vería la IP del intermediario para todos: 5 fallos de cualquier empleado bloquearían a toda la plantilla una hora.*
-7. Sustituir los 6 `print()` por `logger`, auditar los 12 `except: pass` (prioridad: `solicitud_orchestrator.py:314,358,450`).
+7. ~~Sustituir los 6 `print()` por `logger`, auditar los 12 `except: pass`.~~ **HECHO.** Verificado con AST el 2026-08-22: quedan **2 `print()`**, ambos legítimos (un script de `tools/` y una migración, donde imprimir ES la salida esperada), y **6 `except ...: pass`**, todos capturando un tipo CONCRETO (`ValueError`, `OSError`, `TypeError`, `ImportError`). No queda ningún `except:` desnudo ni `except Exception: pass`, que era la preocupación real.
 8. `HEALTHCHECK` en Dockerfile; `--workers $((2*$(nproc)+1))` y `--max-requests` en el `CMD`; alinear `sonar.python.version` a 3.12; rotar la contraseña de compose.
-9. `filterwarnings` en `pytest.ini` para hacer visibles los `DeprecationWarning`.
+9. ~~`filterwarnings` en `pytest.ini`.~~ **HECHO.** `pytest.ini` convierte en error los `RemovedInDjango60Warning` y `RemovedInDjango61Warning`.
 10. ~~Planificar el runner del outbox de correos.~~ **Ya estaba planificado** en los dos checklists y en `MANUAL_OUTBOX_CORREOS.md` §3, marcado como paso obligatorio. Ver §9.
 
 **Fase 2 — Cerrar el OCP (2-4 semanas). El mayor retorno arquitectónico.**
