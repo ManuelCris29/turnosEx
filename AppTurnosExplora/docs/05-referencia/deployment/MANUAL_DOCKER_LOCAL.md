@@ -13,12 +13,18 @@ con una base efímera propia, o **contra tu MySQL local con tus datos reales**.
 ## 0. Guía rápida (probar con tus datos reales)
 
 Credenciales del usuario de base de datos para el contenedor:
-**usuario `swalp` · contraseña `swalp_docker_2026` · acceso solo a `bdturnosex`**.
+**usuario `swalp` · contraseña la que pongas en tu `.env` · acceso solo a `bdturnosex`**.
+
+> La contraseña ya NO se escribe en el compose ni aquí: sale de `DB_PASSWORD` en tu
+> `.env`, que está en `.gitignore`. Y el usuario se crea acotado a `172.%` (el rango
+> del puente de Docker) en vez de `%`: con `%` podía conectarse desde cualquier
+> máquina de la red, y la contraseña estaba versionada. Si no conecta, mira tu rango
+> con `docker network inspect bridge`.
 
 ```sql
 -- (1) UNA SOLA VEZ: crear el usuario en tu MySQL local (Workbench o cliente mysql)
-CREATE USER 'swalp'@'%' IDENTIFIED BY 'swalp_docker_2026';
-GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'%';
+CREATE USER 'swalp'@'172.%' IDENTIFIED BY 'LA-QUE-PONGAS-EN-.env';
+GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'172.%';
 FLUSH PRIVILEGES;
 ```
 
@@ -36,7 +42,7 @@ docker compose -f docker-compose.hostdb.yml down
 
 ```sql
 -- (5) Cuando ya NO lo necesites: eliminar el usuario
-DROP USER 'swalp'@'%';
+DROP USER 'swalp'@'172.%';
 ```
 
 > Detalle de cada paso, la opción con base de datos vacía y el troubleshooting,
@@ -164,15 +170,15 @@ llega por la red de Docker, no por `localhost`). Se crea un usuario dedicado **u
 sola vez** (en tu MySQL local, con Workbench o el cliente `mysql`):
 
 ```sql
-CREATE USER 'swalp'@'%' IDENTIFIED BY 'swalp_docker_2026';
-GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'%';
+CREATE USER 'swalp'@'172.%' IDENTIFIED BY 'LA-QUE-PONGAS-EN-.env';
+GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'172.%';
 FLUSH PRIVILEGES;
 ```
 
 > **Por qué `@'%'`:** permite la conexión desde la IP de la red de Docker. En una
 > estación de trabajo (con el 3306 no expuesto a internet) es aceptable para
 > desarrollo. Para restringir más, usa el rango de Docker en vez de `%`. Para
-> quitarlo cuando termines: `DROP USER 'swalp'@'%';`.
+> quitarlo cuando termines: `DROP USER 'swalp'@'172.%';`.
 
 También tu MySQL debe **escuchar en todas las interfaces** (`bind_address = *`, que
 es el caso). Compruébalo con `SELECT @@bind_address;`.

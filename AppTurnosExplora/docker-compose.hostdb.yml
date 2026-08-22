@@ -2,10 +2,25 @@
 # Solo levanta el contenedor web; usa la base bdturnosex de tu MySQL local.
 # NO corre migraciones (command sobrescrito) para no modificar tu base real.
 #
-# Requisito (una sola vez): un usuario MySQL que acepte conexión desde el
-# contenedor, p. ej.:
-#   CREATE USER 'swalp'@'%' IDENTIFIED BY 'swalp_docker_2026';
-#   GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'%'; FLUSH PRIVILEGES;
+# Requisito (una sola vez): un usuario MySQL que acepte la conexión del contenedor.
+#
+#   CREATE USER 'swalp'@'172.%' IDENTIFIED BY 'LA-QUE-PONGAS-EN-.env';
+#   GRANT ALL PRIVILEGES ON bdturnosex.* TO 'swalp'@'172.%'; FLUSH PRIVILEGES;
+#
+# DOS CAMBIOS respecto a lo que decía antes, y los dos importan:
+#
+#   1. El host es `172.%` (el rango del puente de Docker) y ya no `%`. Con `%` ese
+#      usuario podía conectarse desde CUALQUIER máquina, y como la contraseña
+#      estaba escrita aquí abajo —en un fichero versionado—, cualquiera con acceso
+#      a la red y al MySQL del equipo entraba con ALL PRIVILEGES sobre la base.
+#      Comprueba tu rango con `docker network inspect bridge` si no conecta.
+#
+#   2. La contraseña ya no se escribe aquí: sale de `DB_PASSWORD` en tu `.env`
+#      (que está en .gitignore y que ya usas para `runserver`). Compose lo lee solo.
+#
+# NOTA: la contraseña anterior (`swalp_docker_2026`) queda en el historial de git y
+# reescribirlo no compensa para un repo privado con credenciales locales. Lo que sí
+# hay que hacer es NO reutilizarla: al crear el usuario, pon una nueva.
 #
 #   docker compose -f docker-compose.hostdb.yml up --build -d
 #   Abrir:  http://localhost:8000
@@ -33,7 +48,10 @@ services:
       SITE_URL: http://localhost:8000
       DB_NAME: bdturnosex
       DB_USER: swalp
-      DB_PASSWORD: swalp_docker_2026
+      # Sale de tu `.env` (gitignored). Sin definir, compose aborta con el mensaje
+      # de abajo en vez de arrancar con una contraseña vacía y fallar más adelante
+      # con un error de conexión que no dice por qué.
+      DB_PASSWORD: ${DB_PASSWORD:?define DB_PASSWORD en tu .env}
       DB_HOST: host.docker.internal     # tu MySQL local
       DB_PORT: "3306"
       EMAIL_SEND_ASYNC: "False"
