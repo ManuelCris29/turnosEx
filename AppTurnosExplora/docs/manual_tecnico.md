@@ -1436,7 +1436,7 @@ la plantilla es `.env.example`.
 | `CACHE_URL` | no | str | `''` (LocMem) | Con más de un worker, la invalidación de "Mis Turnos" solo limpia un proceso | `config/settings.py:283` |
 | `CORS_ALLOWED_ORIGINS` | no | lista | `localhost:8000` | Peticiones cruzadas bloqueadas | `config/settings.py:321` |
 | `SECURE_HTTPS` | no | bool | `True` en prod | Sin redirección a HTTPS, o bucle de redirección si no hay proxy | `config/settings.py:437` |
-| `LOG_DIR` | no | str (ruta) | `<BASE_DIR>/logs` | Nada: si no es escribible se renuncia al fichero y todo sale por stdout (§ 13.5) | `config/settings.py:502` |
+| `LOG_DIR` | no | str (ruta) | `<BASE_DIR>/logs` | Nada. Solo aplica en desarrollo: en producción no se escribe fichero y todo sale por stdout (§ 13.5) | `config/settings.py:535` |
 
 **Valores de `CACHE_URL`** (`config/settings.py:283-301`): vacío → `LocMemCache`, solo
 desarrollo con un proceso; `redis://host:6379/1` o `rediss://…` → backend Redis nativo de
@@ -1791,7 +1791,7 @@ salen por aquí, y solo por aquí. Dos destinos, cada uno por un motivo distinto
 | Handler | Destino | Por qué |
 |---|---|---|
 | `console` | stdout | En ECS/Fargate el log driver `awslogs` recoge stdout y lo publica en CloudWatch Logs **sin dependencias extra**. Si el contenedor muere, el driver ya envió lo que había |
-| `file` | `logs/appturnos.log`, `RotatingFileHandler` de 10 MB × 5 backups (~50 MB de techo) | Sobrevive a un corte de red con CloudWatch y permite un `tail -f` inmediato por SSH. El CloudWatch agent puede además vigilar el fichero si se quiere un segundo grupo con otra retención |
+| `file` | `logs/appturnos.log`, sin rotación. **Solo en desarrollo** | Comodidad local: poder abrir el log sin depender de la consola donde corre `runserver`. En producción este handler **no se usa** (ver abajo) |
 
 Loggers configurados: `solicitudes` e `turnos` a `INFO`; `django.request` a `ERROR` —**aquí
 aterrizan los 500 con su traceback completo**, es el logger que sustituye a la pantalla de debug—;
@@ -1808,12 +1808,25 @@ aws logs filter-log-events --log-group-name /swalp/app --filter-pattern '"A3F91C
 
 Fuera de una petición el campo vale `-`.
 
-**El fichero puede no existir, y es intencionado.** `LOG_DIR` se puede reapuntar por entorno —por
-ejemplo a un volumen montado, cuando el contenedor arranca con el sistema de ficheros en **solo
-lectura**, que es lo recomendable en Fargate—. Si el directorio no se puede crear o no es
-escribible, `LOG_A_FICHERO` queda en `False` y `_DESTINOS` se reduce a `['console']`: la aplicación
-**no se cae por no poder escribir un log**, simplemente renuncia al fichero y todo sale por stdout,
-que es de donde tira CloudWatch de todos modos.
+**En producción no se escribe fichero, y es deliberado.** `LOG_A_FICHERO` queda en `False` en
+cuanto `IS_PRODUCTION`, así que `_DESTINOS` se reduce a `['console']`. Tres razones, comprobadas
+sobre este despliegue:
+
+1. **No sobrevive.** No hay ningún volumen montado para logs, ni en el `Dockerfile` ni en los
+   compose: el fichero vive en la capa efímera del contenedor y desaparece cuando ECS reinicia la
+   tarea. Un log que se borra solo justo cuando ha pasado algo interesante no es un log.
+2. **No se puede leer.** El `tail -f` por SSH que justificaba el fichero no existe en Fargate: no
+   hay máquina a la que entrar.
+3. **Y encima corrompe.** Con `--workers 3` hay tres procesos con su propio handler sobre el mismo
+   fichero; al rotar, los tres renombran a la vez. En Linux no da error: se pierden líneas y algún
+   worker sigue escribiendo en un fichero ya desenlazado.
+
+La aplicación **emite** eventos; dónde se guardan es decisión de la plataforma. En desarrollo, si
+`LOG_DIR` no se puede crear o no es escribible, la aplicación tampoco se cae: renuncia al fichero y
+todo sale por stdout.
+
+Fijado por `core/tests/test_logging_destinos.py` (4 tests), que además impide que vuelva a
+colarse un handler con rotación.
 
 > **Retención y datos personales.** Estos logs contienen nombres de empleado y detalles de
 > solicitudes. La retención se configura **en el grupo de CloudWatch**, no en el fichero, y el
@@ -2276,7 +2289,7 @@ rama `fix/cambio-descanso-temporada`. Detalle completo en § 9.5 y
 | Nuevas plantillas `templates/errors/_base_error.html` y `templates/{400,403,403_csrf,404,500}.html` | Autocontenidas: no heredan de `base.html` ni cargan recursos externos, así que funcionan con la base o los estáticos caídos |
 | `handler400/403/404/500` en `config/urls.py`; ruta de previsualización `/__error__/<codigo>/` solo bajo `DEBUG` | Las páginas se pueden revisar en desarrollo, donde Django nunca llega a usar los handlers |
 | `core.errors.RequestIDMiddleware` como **primer** middleware y `CSRF_FAILURE_VIEW` propio | Cada petición lleva código opaco en `X-Request-ID`; el motivo exacto del fallo CSRF deja de mostrarse al cliente |
-| `LOGGING` reescrito: filtro `request_id` en ambos formatters, `RotatingFileHandler` junto a stdout, loggers `django.security` y `core.errors`, degradación a solo stdout si `LOG_DIR` no es escribible | El detalle del error va al equipo, no al usuario. Ver § 13.5 |
+| `LOGGING` reescrito: filtro `request_id` en ambos formatters, loggers `django.security` y `core.errors`, y **solo stdout en producción** (el fichero quedó como comodidad de desarrollo) | El detalle del error va al equipo, no al usuario. Ver § 13.5 |
 | Se cierra la misma fuga en la página de los enlaces de correo: los cuatro `except Exception` de `views/aprobacion_email.py` dejan de imprimir `str(e)`, y esas vistas pasan de responder siempre 200 a 403/409/500 | Era CWE-209 en una página visible sin sesión iniciada, y el 200 la hacía invisible para las alarmas. Nuevo `core/tests/test_error_token.py` (8 tests) |
 | Se cierra el tercer frente, las APIs JSON: nuevo helper `json_error_inesperado` en `core/utils/json_responses.py:68` y nueve `except Exception` corregidos en `dias_especiales.py`, `calculo_automatico.py`, `turnos_mes.py`, `api_turno_jornada.py` y `gestion_solicitudes.py` | `str(e)` de MySQL llegaba en el JSON: nombres de tabla y columna, y en el peor caso el endpoint de RDS. **Seis de los ocho no dejaban traza** (tres no registraban nada y tres usaban `logger.error` sin `exc_info`), así que el cambio además añade observabilidad. Se conserva un mensaje **específico por endpoint** en vez de un genérico único. Nuevo `core/tests/test_json_error_inesperado.py` (16 tests). La novena era la peor: `MisTurnosPorMesView` publicaba el traceback entero a cualquier `is_staff`, y la primera versión del test —que comparaba línea a línea— no la detectaba. Ver § 9.5 |
 | Nuevo `core/tests/test_paginas_error.py` (19 tests) y `logs/` en `.gitignore` | Regresión sobre las fugas, el código de referencia y la autonomía de las plantillas. Los dos últimos se añadieron después, al descubrir que los `.catch()` de los formularios lanzarían `ReferenceError` si el stub de `CodigoReferencia` no estuviera |
