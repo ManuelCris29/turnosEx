@@ -422,6 +422,55 @@ class EmpleadoUsuarioForm(forms.Form):
     def es_supervisor(self):
         return self._roles_incluyen_supervisor(self.cleaned_data.get('roles'))
 
+    def clean_cedula(self):
+        cedula = (self.cleaned_data.get('cedula') or '').strip()
+        if Empleado.objects.filter(cedula=cedula).exists():
+            raise forms.ValidationError('Ya hay un empleado con esa cédula.')
+        return cedula
+
+    def _validar_cuenta(self, cleaned):
+        """
+        Decide de dónde sale la cuenta del empleado: de una que ya existe o de una
+        nueva. Son excluyentes, y la vista actúa en consecuencia
+        (`empleados/views/empleado.py`): si hay usuario existente lo usa y NO mira
+        `username` ni `password`.
+
+        Ese "no los mira" es justo lo que se valida aquí. Sin esta comprobación el
+        administrador podía elegir un usuario existente, escribir además una
+        contraseña nueva, y recibir "Usuario y empleado creados correctamente"
+        habiéndose descartado la contraseña en silencio. El fallo no se veía hasta
+        que la persona intentaba entrar con una clave que nunca se guardó.
+
+        Las tres unicidades (username, user del empleado, cédula) se comprueban
+        antes de crear nada porque, si no, saltaba la restricción UNIQUE de la base
+        y el administrador veía un 500 en vez del campo marcado en rojo. Las
+        restricciones siguen ahí como última defensa: esto no las sustituye, evita
+        llegar a ellas por el camino normal.
+        """
+        usuario = cleaned.get('usuario_existente')
+        username = (cleaned.get('username') or '').strip()
+        password = cleaned.get('password') or ''
+
+        if usuario:
+            if username:
+                self.add_error('username', 'Has elegido un usuario existente: deja este campo vacío.')
+            if password:
+                self.add_error(
+                    'password',
+                    'Has elegido un usuario existente: conserva su contraseña actual, '
+                    'deja este campo vacío.'
+                )
+            if Empleado.objects.filter(user=usuario).exists():
+                self.add_error('usuario_existente', 'Ese usuario ya está asociado a otro empleado.')
+            return
+
+        if not username:
+            self.add_error('username', 'Escribe el usuario, o elige uno existente arriba.')
+        elif User.objects.filter(username=username).exists():
+            self.add_error('username', 'Ese usuario ya existe. Elígelo en «Usuario existente».')
+        if not password:
+            self.add_error('password', 'Escribe la contraseña del usuario nuevo.')
+
     def clean(self):
         cleaned = super().clean()
         if not self._roles_incluyen_supervisor(cleaned.get('roles')):
@@ -430,4 +479,5 @@ class EmpleadoUsuarioForm(forms.Form):
                 self.add_error('salas', 'Selecciona al menos una sala (obligatorio para no supervisores).')
             if not cleaned.get('jornada'):
                 self.add_error('jornada', 'Selecciona una jornada (obligatorio para no supervisores).')
+        self._validar_cuenta(cleaned)
         return cleaned
