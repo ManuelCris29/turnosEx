@@ -71,7 +71,7 @@
     if(!id){ mensaje('Selecciona un explorador para ver sus deudas pendientes.'); recalcular(); return; }
     mensaje('Cargando deudas…');
     fetch(`${URL_DEUDAS}?explorador_id=${encodeURIComponent(id)}`, {headers:{'X-Requested-With':'XMLHttpRequest'}})
-      .then(r => r.json())
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(data => render(data.deudas, marcar))
       .catch(() => { mensaje('Error al cargar las deudas.', 'text-danger'); recalcular(); });
   }

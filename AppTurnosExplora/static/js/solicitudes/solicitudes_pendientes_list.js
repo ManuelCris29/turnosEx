@@ -93,7 +93,7 @@ function aprobarSolicitudAmbos(solicitudId) {
                     'X-Requested-With': 'XMLHttpRequest',
                 }
             })
-            .then(response => response.json())
+            .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
             .then(data => {
                 if (data.success) {
                     Swal.fire({
@@ -173,7 +173,7 @@ function responderCancelacion(solicitudId, aprobar) {
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             if (data.success) {
                 Swal.fire({
@@ -224,7 +224,7 @@ function cancelarSolicitud(solicitudId) {
                     'X-Requested-With': 'XMLHttpRequest',
                 }
             })
-            .then(response => response.json())
+            .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
             .then(data => {
                 if (data.success) {
                     Swal.fire({
@@ -789,7 +789,7 @@ $('#confirmarAccion').click(function() {
             'X-Requested-With': 'XMLHttpRequest',
         }
     })
-    .then(response => response.json())
+    .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
     .then(data => {
         $('#accionSolicitudModal').modal('hide');
         $('#comentario_respuesta').val('').removeClass('is-invalid');

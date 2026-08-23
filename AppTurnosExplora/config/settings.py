@@ -516,10 +516,10 @@ if SECURE_HTTPS:
 #               lo publica en CloudWatch Logs sin ninguna dependencia extra.
 #               Es la vía recomendada en AWS: si el contenedor muere, el driver
 #               ya ha enviado lo que había.
-#   fichero  -> logs/appturnos.log con rotación. Sobrevive a un fallo de red
-#               con CloudWatch y permite un `tail -f` inmediato por SSH. El
-#               CloudWatch Agent puede además vigilar este fichero si se quiere
-#               un segundo grupo de logs con retención distinta.
+#   fichero  -> logs/appturnos.log. SOLO EN DESARROLLO, por comodidad: poder
+#               abrir el log sin depender de la consola donde corre runserver.
+#               En producción NO se escribe fichero; el porqué está abajo, junto
+#               a LOG_A_FICHERO.
 #
 # Cada línea lleva el request_id, así que buscar el código de referencia que el
 # usuario ve en la página de error basta para reconstruir la petición entera:
@@ -533,49 +533,64 @@ if SECURE_HTTPS:
 # escribible cuando el contenedor arranca con el sistema de ficheros en solo
 # lectura, que es lo recomendable en Fargate).
 LOG_DIR = Path(env('LOG_DIR', default=str(BASE_DIR / 'logs')))
-try:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    LOG_A_FICHERO = os.access(LOG_DIR, os.W_OK)
-except OSError:
-    # Sin permiso de escritura NO se cae la aplicación: se renuncia al fichero
-    # y todo sale por stdout, que es de donde tira CloudWatch de todos modos.
+
+# EN PRODUCCIÓN NO SE ESCRIBE FICHERO. Tres razones, comprobadas sobre este
+# despliegue y no heredadas de una costumbre:
+#
+#   1. No sobrevive. No hay ningún volumen montado para logs (ni en el Dockerfile
+#      ni en los compose): el fichero vive en la capa efímera del contenedor y
+#      desaparece entero cuando ECS reinicia la tarea. Un log que se borra solo
+#      justo cuando ha pasado algo interesante no es un log.
+#   2. No se puede leer. El `tail -f por SSH` que justificaba el fichero no existe
+#      en Fargate: no hay máquina a la que entrar.
+#   3. Y encima corrompe. Con `--workers 3` hay tres procesos con su propio
+#      handler sobre el mismo fichero; al rotar, los tres renombran a la vez. En
+#      Linux no da error: simplemente se pierden líneas y algún worker sigue
+#      escribiendo en un fichero ya desenlazado, cuyo contenido no vuelve a
+#      aparecer.
+#
+# O sea que se estaba pagando una condición de carrera por escribir en un disco
+# que se borra solo. La información útil ya sale por stdout, que es de donde el
+# log driver `awslogs` alimenta CloudWatch —y para lo que el Dockerfile ya fija
+# PYTHONUNBUFFERED—.
+#
+# La aplicación emite eventos; DÓNDE se guardan es decisión de la plataforma. Por
+# eso esto no se arregla con más configuración aquí, sino con menos.
+if IS_PRODUCTION:
     LOG_A_FICHERO = False
+else:
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        LOG_A_FICHERO = os.access(LOG_DIR, os.W_OK)
+    except OSError:
+        # Sin permiso de escritura NO se cae la aplicación: se renuncia al fichero
+        # y todo sale por stdout.
+        LOG_A_FICHERO = False
 
 _DESTINOS = ['console', 'file'] if LOG_A_FICHERO else ['console']
 
-# ROTACIÓN: solo en producción.
+# SIN ROTACIÓN, en ningún entorno. No es un descuido:
 #
-# `RotatingFileHandler` no es seguro entre procesos, y fuera de producción SIEMPRE
-# hay varios escribiendo el mismo fichero: `runserver` levanta dos (el vigilante de
-# cambios y el hijo que sirve) y `pytest -n 4` levanta cuatro. Al llegar a
-# `maxBytes` cada uno intenta rotar con `os.rename`, y en Windows renombrar un
-# fichero que otro proceso tiene abierto falla con `PermissionError: [WinError 32]`.
+# `RotatingFileHandler` no es seguro entre procesos, y aquí SIEMPRE hay varios
+# escribiendo el mismo fichero: `runserver` levanta dos (el vigilante de cambios y
+# el hijo que sirve) y `pytest -n 4` levanta cuatro. Al llegar a `maxBytes` cada uno
+# intenta rotar con `os.rename`, y en Windows renombrar un fichero que otro proceso
+# tiene abierto falla con `PermissionError: [WinError 32]`.
 #
 # No era un fallo aislado: con el fichero YA por encima del umbral, el intento se
 # repetía en CADA línea de log y la consola quedaba inservible a base de
 # tracebacks. En Linux no ocurre —ahí sí se puede renombrar un fichero abierto—, y
 # por eso el CI nunca lo vio.
 #
-# Lo que falla es el RENAME, no la escritura: varios procesos pueden añadir al
-# mismo fichero sin problema. Así que en desarrollo se usa un handler sin rotación
-# y ya está. El fichero crece, pero son logs locales y desechables: si molesta, se
-# borra la carpeta `logs/` (está en .gitignore).
+# Lo que falla es el RENAME, no la escritura: varios procesos pueden añadir al mismo
+# fichero sin problema. Así que se usa un handler sin rotación y ya está. El fichero
+# crece, pero son logs locales y desechables: si molesta, se borra la carpeta `logs/`
+# (está en .gitignore).
 #
 # No se pone un nombre por PID —que también resolvería la contienda— porque crearía
 # un fichero por cada ejecución de `manage.py`, y en una semana `logs/` sería un
 # vertedero.
 #
-# NOTA para producción: con `--workers 3` la rotación también es racy en Linux (dos
-# workers pueden rotar a la vez y perder líneas). Ahí no molesta porque el fichero
-# es secundario: CloudWatch lee de stdout, que es donde escribe gunicorn.
-if IS_PRODUCTION:
-    _HANDLER_FICHERO = {
-        'class': 'logging.handlers.RotatingFileHandler',
-        'maxBytes': 10 * 1024 * 1024,   # 10 MB
-        'backupCount': 5,               # ~50 MB como techo
-    }
-else:
-    _HANDLER_FICHERO = {'class': 'logging.FileHandler'}
 
 LOGGING = {
     'version': 1,
@@ -602,9 +617,10 @@ LOGGING = {
             'filters': ['request_id'],
         },
         'file': {
-            # `class`, `maxBytes` y `backupCount` salen de `_HANDLER_FICHERO`: con
-            # rotación en producción y sin ella en desarrollo (ver arriba el porqué).
-            **_HANDLER_FICHERO,
+            # Sin rotación a propósito (ver arriba): este handler solo se usa en
+            # desarrollo, donde el fichero es desechable, y `RotatingFileHandler`
+            # no es seguro entre procesos.
+            'class': 'logging.FileHandler',
             'filename': str(LOG_DIR / 'appturnos.log'),
             # `delay`: no abrir el fichero hasta que haya algo que escribir. Evita
             # crear un fichero vacío por cada proceso que solo importa settings.

@@ -538,7 +538,7 @@ function cancelarSolicitud(solicitudId) {
                     'X-Requested-With': 'XMLHttpRequest',
                 }
             })
-            .then(response => response.json())
+            .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
             .then(data => {
                 if (data.success) {
                     Swal.fire({
@@ -635,7 +635,7 @@ function cancelarSolicitudAprobada(solicitudId, fechaResolucionIso, nombreRecept
             body: formData,
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             if (data.success) {
                 Swal.fire({
