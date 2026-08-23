@@ -142,7 +142,7 @@ function cargarDiasFestivos(añoEspecifico = null) {
             'X-Requested-With': 'XMLHttpRequest',
         }
     })
-    .then(response => response.json())
+    .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
     .then(data => {
         // Combinar festivos calculados + festivos de BD
         if (festivosCacheGlobal === null) {
@@ -261,7 +261,7 @@ function cargarDiasMantenimiento(añoEspecifico = null) {
                 'X-Requested-With': 'XMLHttpRequest',
             }
         })
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             const mantenimientoMap = new Map();
             if (data.dias) {
@@ -462,7 +462,7 @@ function cargarDiasTemporada(anio = null) {
     
     // Marcar que hay una carga en curso para este año
     const promesaCarga = fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             const temporadaMap = new Map();
             

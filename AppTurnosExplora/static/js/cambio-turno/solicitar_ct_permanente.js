@@ -1548,7 +1548,7 @@ function cargarJornadaSolicitante() {
     }
     
     return fetch(`/solicitudes/obtener-turno-explorador/?explorador_id=${window.solicitanteId}&fecha=${fechaInicioInput.value}`)
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             if (data.turno && data.turno.jornada) {
                 cacheJornadaSolicitante = data.turno.jornada;
@@ -1568,7 +1568,7 @@ function cargarJornadaReceptor() {
     }
     
     return fetch(`/solicitudes/obtener-turno-explorador/?explorador_id=${receptorSelect.value}&fecha=${fechaInicioInput.value}`)
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             if (data.turno && data.turno.jornada) {
                 cacheJornadaReceptor = data.turno.jornada;
@@ -1613,7 +1613,7 @@ function cargarFestivosMantenimientoYTemporadas() {
 // Función para cargar temporadas de un año específico
 function cargarTemporadas(anio) {
     return fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             // El endpoint devuelve {por_mes: {mes: [dias]}, ...} o {temporadas: [...], por_mes: {...}}
             if (data.por_mes) {
@@ -1693,7 +1693,7 @@ function enviarSolicitudCTPermanente() {
             'X-Requested-With': 'XMLHttpRequest',
         }
     })
-    .then(response => response.json())
+    .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
     .then(data => {
         if (data.success) {
             // Mostrar mensaje de éxito

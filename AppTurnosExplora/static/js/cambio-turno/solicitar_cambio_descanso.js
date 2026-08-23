@@ -177,7 +177,7 @@
         cont.innerHTML = '<div class="text-muted">Cargando fines de semana…</div>';
         const q = (anio && mes) ? `?anio=${anio}&mes=${mes}` : '';
         return fetch(`${URLs.FINDES}${q}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(res => {
                 if (res && res.meses && !mesSelectorInit) {
                     mesesDisponibles = res.meses;
@@ -310,7 +310,7 @@
         fetch(`${URLs.COMPANEROS_FINDE}?fecha=${encodeURIComponent(fechaISO)}&tipo_solicitud_id=${TIPO_ID}`, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(res => {
                 const data = (res && res.data) ? res.data : res;
                 const comps = data.companeros || [];
@@ -655,7 +655,7 @@
         fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(data => {
                 if (token !== cargaCompañerosToken) return;  // llegó tarde: la ignoramos
                 const emps = (data && data.empleados) || [];
@@ -918,7 +918,7 @@
         const params = new URLSearchParams({ fecha_trabajo: miDiaTrabajo(), opcion });
         if (cobDiaPago) params.set('fecha_pago', cobDiaPago);
         fetch(`${URLs.COBERTURA_CANDIDATOS}?${params.toString()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(res => {
                 const data = (res && res.data) || res || {};
                 const cands = data.candidatos || [];
@@ -1102,7 +1102,7 @@
             deudor_id: MI_EMPLEADO_ID, acreedor_id: empleadoReceptor.id, fecha_pago: cobDiaPago,
         });
         fetch(`${URLs.COINCIDENCIA}?${params.toString()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(res => {
                 const data = (res && res.data) || res || {};
                 if (data.requiere_cambio_turno) {
@@ -1126,7 +1126,7 @@
         fetch(`${URLs.DOBLADAS_SEMANA}?fecha=${encodeURIComponent(miDiaTrabajo())}`, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(res => {
                 const data = (res && res.data) || res || {};
                 const dobladas = data.dobladas || [];

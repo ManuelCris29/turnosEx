@@ -197,7 +197,7 @@ function seleccionarRango(mes, diaInicio, diaFin) {
  */
 function cargarTemporadasExistentes(anio) {
     fetch(`/turnos/api/dias-temporada/?anio=${anio}`)
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             if (data.por_mes) {
                 diasSeleccionadosPorMes = {};

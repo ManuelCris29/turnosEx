@@ -344,7 +344,7 @@
         }
         const _sid = (typeof solicitudIdActual !== 'undefined' && solicitudIdActual) ? `&solicitud_id=${solicitudIdActual}` : '';
         fetch(`/solicitudes/sabado-pago-comprometido/?fecha=${fecha}${_sid}`)
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(d => {
                 // Descartar si la fecha de pago cambió mientras cargaba.
                 if (token != null && token !== pagoReqToken) return;
@@ -1278,7 +1278,7 @@
                 'X-Requested-With': 'XMLHttpRequest',
             }
         })
-        .then(response => response.json())
+        .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
         .then(data => {
             // Descartar respuesta OBSOLETA: si el usuario ya cambió de compañero o de fecha de
             // cesión, no pisar las etiquetas con datos viejos (evita que se queden "pegadas").
@@ -1751,7 +1751,7 @@
         const fc = fechaCesionInput ? fechaCesionInput.value : '';
         const qs = `fecha=${fp}` + (fc ? `&fecha_cesion=${fc}` : '');
         fetch(`/solicitudes/exploradores-con-doblada/?${qs}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
-            .then(r => r.json())
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(d => {
                 // Respuesta obsoleta (se salió del modo o cambió la fecha): descartar.
                 if (myToken !== interReqToken || !modoIntercambio) return;
