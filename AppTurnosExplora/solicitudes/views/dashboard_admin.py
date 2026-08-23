@@ -46,31 +46,3 @@ class TipoSolicitudCambioDeleteView(LoginRequiredMixin, AdminRequiredMixin, Dele
     model = TipoSolicitudCambio
     template_name = 'solicitudes/tiposolicitudcambio_confirm_delete.html'
     success_url = '/solicitudes/tipos-solicitud/'
-
-# CRUD de PermisoDetalle - COMENTADO TEMPORALMENTE (modelo no existe)
-# class PermisoDetalleListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
-#     model = PermisoDetalle
-#     template_name = 'solicitudes/permisodetalle_list.html'
-#     context_object_name = 'permisos_detalle'
-
-#     def get_queryset(self):
-#         # Usar el servicio para obtener permisos
-#         return PermisoService.get_permisos_pendientes()
-
-# class PermisoDetalleCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
-#     model = PermisoDetalle
-#     template_name = 'solicitudes/permisodetalle_create.html'
-#     fields = ['solicitud', 'horas_solicitadas']
-#     success_url = '/solicitudes/permisos-detalle/'
-
-# class PermisoDetalleUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
-#     model = PermisoDetalle
-#     template_name = 'solicitudes/permisodetalle_edit.html'
-#     fields = ['solicitud', 'horas_solicitadas']
-#     success_url = '/solicitudes/permisos-detalle/'
-
-# class PermisoDetalleDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
-#     model = PermisoDetalle
-#     template_name = 'solicitudes/permisodetalle_confirm_delete.html'
-#     success_url = '/solicitudes/permisos-detalle/'
-
