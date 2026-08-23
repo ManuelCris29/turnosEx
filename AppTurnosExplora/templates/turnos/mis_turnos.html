@@ -85,10 +85,6 @@
 {% block extra_js %}
 {{ block.super }}
 <!-- Módulos modernos (cargar primero) -->
-<script src="{% static_v 'js/utils/api-client.js' %}"></script>
-<script src="{% static_v 'js/utils/date-utils.js' %}"></script>
-<script src="{% static_v 'js/utils/dom-utils.js' %}"></script>
-<script src="{% static_v 'js/utils/validators.js' %}"></script>
 <script src="{% static_v 'js/core/app.js' %}"></script>
 
 <!-- FullCalendar y script específico -->
