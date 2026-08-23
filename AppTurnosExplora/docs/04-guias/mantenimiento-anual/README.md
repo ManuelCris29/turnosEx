@@ -21,7 +21,7 @@
 
 ## 2. Conceptos clave (para decidir bien)
 
-- **Serie LTS (Long-Term Support):** actualmente **Django 5.2 LTS**. Los parches dentro de la misma serie (`5.2.16 → 5.2.17 → …`) son **solo correcciones de bugs y seguridad**, sin cambios de API. Son **seguros de aplicar** y solo requieren correr los tests.
+- **Serie LTS (Long-Term Support):** actualmente **Django 5.2 LTS** (pin vigente: `Django==5.2.17`). Los parches dentro de la misma serie (`5.2.16 → 5.2.17 → …`) son **solo correcciones de bugs y seguridad**, sin cambios de API. Son **seguros de aplicar** y solo requieren correr los tests.
 - **Versión mayor (5.2 → 6.x):** trae **cambios de API** y puede romper compatibilidad. Es una decisión aparte, con más pruebas. **No la mezcles** con el parche de seguridad anual.
 - **Rango seguro en `pip`:** usar `"Django>=X.Y,<X.(Y+1)"` toma el último parche de la serie **sin saltar** a la mayor.
 - **"Último en PyPI":** `pip` solo instala lo que está **publicado** en el índice. Si un CVE se anuncia en el blog pero el parche aún no está en PyPI, hay que esperar a que se publique. Lo fiable es `pip index versions Django`, no la fecha del anuncio.
@@ -50,19 +50,23 @@ PY -m pip index versions Django # últimos parches disponibles de cada serie
 # Sube al último parche de la serie LTS actual (5.2.x), sin saltar a 6.x
 PY -m pip install --upgrade "Django>=5.2,<5.3"
 ```
-Actualiza el pin en **los tres** archivos de requerimientos:
-- [requirements.txt](../../../requirements.txt) *(raíz, UTF-16 LE — editar con cuidado de codificación)*
-- [AppTurnosExplora/requirements.txt](../../../AppTurnosExplora/requirements.txt) *(UTF-16 LE)*
-- [AppTurnosExplora/requirements-dev.txt](../../../AppTurnosExplora/requirements-dev.txt) *(UTF-8)*
+Actualiza el pin en **los dos** archivos de requerimientos (ambos UTF-8; ya **no** hay
+copia en la raíz del repo):
+- [AppTurnosExplora/requirements.txt](../../requirements.txt) — producción
+- [AppTurnosExplora/requirements-dev.txt](../../requirements-dev.txt) — desarrollo/tests, incluye `-r requirements.txt`
 
-> ⚠️ Los dos `requirements.txt` están en **UTF-16 LE con BOM**. Si los editas, preserva esa codificación
-> (o normalízalos a UTF-8 de forma intencional). El `requirements-dev.txt` es UTF-8 normal.
+> Nota histórica: estos ficheros estuvieron en **UTF-16 LE con BOM** y había una tercera copia
+> en la raíz. Hoy son UTF-8 y la copia de la raíz no existe; si te encuentras instrucciones que
+> hablan de tres ficheros o de UTF-16, están desactualizadas.
 
 ### Paso 3 — Auditar vulnerabilidades conocidas
 ```bash
 PY -m pip install pip-audit     # si no está instalado
-PY -m pip audit                 # reporta CVEs en las dependencias instaladas
+PY -m pip_audit                 # reporta CVEs en las dependencias instaladas
 ```
+
+> `pip audit` **no existe** como subcomando de pip: `pip-audit` es un paquete aparte.
+> Con el ejecutable en el PATH del venv también vale `venvturnos\Scripts\pip-audit.exe`.
 
 ### Paso 4 — (Opcional) Actualizar otros paquetes
 Actualiza de a pocos, corriendo los tests entre cada grupo. Prioriza paquetes de seguridad
@@ -73,8 +77,16 @@ Actualiza de a pocos, corriendo los tests entre cada grupo. Prioriza paquetes de
 cd AppTurnosExplora
 PY manage.py check
 PY manage.py check --deploy      # revisa configuración de seguridad para producción
-PY manage.py test                # suite completa (debe quedar en OK)
+PY -m pytest -n 4                # suite completa de Python (~3 min). NO uses manage.py test
+node --test tests_js/*.test.cjs  # suite de JavaScript (bloqueante en el CI)
 ```
+
+> El proyecto usa **pytest**, no el runner de Django: `pytest.ini` define los `testpaths`
+> y convierte en ERROR los avisos de deprecación de Django 6.0/6.1. Ese filtro es
+> justamente la red que avisa antes de un salto de versión mayor: si tras actualizar
+> aparece un `RemovedInDjango60Warning`, la suite falla a propósito.
+>
+> La cobertura local con `--cov` no es fiable en Python 3.14; toma la del artefacto del CI.
 
 ### Paso 6 — Registrar y cerrar
 1. Copia la plantilla [CHECKLIST-anual.md](./CHECKLIST-anual.md) a `bitacora/AAAA.md` y complétala.

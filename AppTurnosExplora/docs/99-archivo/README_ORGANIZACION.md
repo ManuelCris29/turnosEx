@@ -1,3 +1,13 @@
+> ## ⚠️ DOCUMENTO HISTÓRICO — NO DESCRIBE LA ESTRUCTURA ACTUAL
+>
+> Esta era la organización de `docs/` **antes** de la reorganización por temas. Las carpetas
+> que nombra (`docs/analisis/`, `docs/guias/`, `docs/manuales/`, `docs/database/`…) **ya no
+> existen**: hoy la documentación está en `00-introduccion/` … `99-archivo/`.
+>
+> Se conserva solo para trazabilidad, para poder rastrear dónde vivía un documento antiguo.
+> **La estructura vigente está en [`docs/README.md`](../README.md)** — empieza por ahí.
+> Verificado el 2026-08-23.
+
 # Estructura de Documentación y Archivos del Proyecto
 
 Este documento explica la organización de todos los archivos del proyecto AppTurnosExplora.
