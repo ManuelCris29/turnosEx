@@ -421,9 +421,12 @@ class SolicitudStrategy(ABC):
     # AM+PM, asi que no le queda una jornada libre que intercambiar.
     excluye_doblada_activa = False
 
-    # Motivos de exclusion que invalidan una fecha para CUALQUIER tipo. Ni un dia
-    # de mantenimiento ni uno de temporada admiten solicitudes: no es una politica
-    # por tipo, es que esos dias no operan con normalidad.
+    # Motivos que bloquean la regla PERMISIVA por defecto (`fecha_valida_generica`),
+    # la que aplica solo a un tipo SIN strategy propia. No es la politica real de
+    # ningun formulario existente: CT sencillo y DOBLADA si permiten temporada, y
+    # CT PERMANENTE / DOBLADA PERMANENTE la rechazan con su propia lista de motivos
+    # (ver ct_permanente_helper.py), no con esta. Detalle completo de que formulario
+    # permite temporada en tests/test_politica_temporada.py.
     MOTIVOS_UNIVERSALES = ('Mantenimiento', 'Temporada')
 
     @staticmethod
