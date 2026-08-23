@@ -213,7 +213,13 @@ Riesgos concretos:
 5. ~~Dockerfile sin `HEALTHCHECK`…~~ **`HEALTHCHECK` AÑADIDO** (verificado en el Dockerfile). Siguen abiertos, y son decisiones de despliegue más que de código: el multi-stage y mover el `migrate` fuera del `CMD` (esto último solo importa con ≥2 tareas — ver §despliegue, punto 2).
 6. ~~**`--workers 3` hardcodeado**; falta `--max-requests`.~~ **CORREGIDO.** El `CMD` usa hoy `${GUNICORN_WORKERS:-3}` —ajustable por entorno sin reconstruir la imagen— y lleva `--max-requests 1000 --max-requests-jitter 100`.
 
-   **Efecto colateral detectado el 2026-08-22 y NO corregido:** con varios workers, la rotación del fichero de log es *racy* — dos pueden rotar a la vez y perderse líneas. No molesta porque el fichero es secundario (CloudWatch lee de *stdout*, que es donde escribe gunicorn), pero la decisión de quitar el handler de fichero en producción queda pendiente. Documentado en `settings.py`.
+   **Efecto colateral detectado el 2026-08-22, ~~NO corregido~~ CORREGIDO el 2026-08-23.** Se dijo entonces que la rotación *racy* «no molesta porque el fichero es secundario». Al medirlo, el diagnóstico se quedaba corto en la dirección contraria: **el fichero de log de producción no servía para nada**.
+
+   - **No sobrevive.** No hay ningún volumen montado para logs, ni en el `Dockerfile` ni en los compose: vive en la capa efímera del contenedor y desaparece cuando ECS reinicia la tarea.
+   - **No se puede leer.** El `tail -f` por SSH que lo justificaba no existe en Fargate: no hay máquina a la que entrar.
+   - **Y encima corrompe.** Con `--workers 3`, al rotar los tres renombran a la vez; en Linux no da error, se pierden líneas y algún worker sigue escribiendo en un fichero ya desenlazado.
+
+   Es decir: se pagaba una condición de carrera por escribir en un disco que se borra solo. `LOG_A_FICHERO` pasa a `False` en producción, y con ello desaparecen la rama de producción y el `RotatingFileHandler` — **el arreglo quita código**. El fichero queda como lo que era, una comodidad de desarrollo. Fijado por `core/tests/test_logging_destinos.py` (4 tests, verificados por mutación).
 7. ~~Sin `pip-audit` ni Dependabot; no detecto vulnerabilidades abiertas.~~ **CORREGIDO — la segunda mitad era infundada.** La afirmación se hizo sin ejecutar ninguna herramienta. Al añadir `pip-audit` al CI (2026-08-19) reporta **15 vulnerabilidades conocidas en 3 paquetes**:
    - `django==5.2.16` → PYSEC-2026-3717, corregido en **5.2.17** (parche dentro de la misma LTS).
    - `sqlparse==0.5.3` → 5 avisos, corregidos en 0.5.4 / 0.6.0.
