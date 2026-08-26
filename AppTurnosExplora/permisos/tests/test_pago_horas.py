@@ -106,13 +106,22 @@ class AplicarPagoTest(PagoHorasBase):
         self.assertEqual(d.estado, 'pagada')
 
     def test_permiso_pagado_y_revertido(self):
+        """
+        Un permiso ya no se paga como un bloque: se paga MES a mes. La clave del formulario
+        es la deuda mensual, y el `pagado` del permiso pasa a derivarse de sus meses.
+        """
+        from permisos.deuda_permiso_service import sincronizar
+
         p = PermisoEspecial.objects.create(
             empleado=self.explorador, tipo='PERSONAL', fecha_inicio=self.ayer,
             fecha_fin=self.ayer, tiempo=2, motivo='x', estado='APROBADO',
         )
+        sincronizar(p)
+        deuda_mes = p.deudas_mes.get()
+
         pdh, error = PagoHorasService.aplicar_pago(
             supervisor=self.supervisor, explorador=self.explorador,
-            fecha=date.today(), keys=[f'permiso:{p.id}'],
+            fecha=date.today(), keys=[f'permisomes:{deuda_mes.id}'],
         )
         self.assertIsNone(error)
         p.refresh_from_db()

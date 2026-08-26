@@ -20,6 +20,13 @@ class PDH(models.Model):
     deudas_pagadas = models.ManyToManyField('solicitudes.DeudaCorporativa', blank=True,
                                             related_name='pdhs_pago',
                                             help_text='Dobladas (0.5 h c/u) que paga este registro.')
+    # Deuda MENSUAL de permisos que salda este pago. Va por una tabla intermedia y no por
+    # un M2M plano porque un mes se puede pagar A TROZOS: hay que guardar cuántos minutos
+    # cubre este PDH de cada mes, o al borrarlo no se sabría cuánto devolver.
+    deudas_permiso_mes = models.ManyToManyField('permisos.DeudaPermisoMes', blank=True,
+                                                through='permisos.PagoDeudaPermisoMes',
+                                                related_name='pdhs',
+                                                help_text='Meses de permiso que paga este registro.')
     permisos_pagados = models.ManyToManyField('permisos.PermisoEspecial', blank=True,
                                               related_name='pdhs_pago',
                                               help_text='Permisos aprobados que paga este registro.')
@@ -146,24 +153,54 @@ class PermisoEspecial(models.Model):
         dias = [int(d) for d in self.dias_semana.split(',') if d.strip().isdigit()]
         return ', '.join(nombres[d] for d in sorted(dias) if 0 <= d <= 6)
 
+    def ocurrencias_por_mes(self, hasta=None):
+        """
+        Las obligaciones de este permiso repartidas por mes: [(anio, mes, ocurrencias)].
+
+        Un permiso permanente de agosto a noviembre no es UNA deuda de 8 h 30: son cuatro
+        deudas mensuales independientes, porque cada una vence al cerrar SU mes y se
+        sanciona por separado. Tratarlas como un bloque obligaba a esperar a noviembre para
+        reclamar lo de agosto.
+
+        Un permiso puntual es el caso degenerado: un único mes con una ocurrencia.
+
+        Con `hasta` se cuentan solo las ocurrencias que YA han ocurrido a esa fecha. Sirve
+        para la consulta "a 25 de agosto, ¿cuánto lleva debido este mes?": lo que aún no ha
+        pasado todavía no se debe. Sin `hasta` (el uso normal: `horas_totales`,
+        `desglose_mensual`) cuenta el rango entero y el resultado no cambia.
+        """
+        if hasta is not None and self.fecha_inicio > hasta:
+            return []
+        if not self.es_permanente:
+            return [(self.fecha_inicio.year, self.fecha_inicio.month, 1)]
+
+        from datetime import timedelta
+        dias = {int(d) for d in self.dias_semana.split(',') if d.strip().isdigit()}
+        if not dias:
+            return []
+
+        fin = self.fecha_fin if hasta is None else min(self.fecha_fin, hasta)
+        conteo = {}
+        d = self.fecha_inicio
+        while d <= fin:
+            if d.weekday() in dias:
+                clave = (d.year, d.month)
+                conteo[clave] = conteo.get(clave, 0) + 1
+            d += timedelta(days=1)
+        return [(anio, mes, n) for (anio, mes), n in sorted(conteo.items())]
+
     def horas_totales(self):
         """
         Horas que este permiso acumula a la deuda del explorador.
         - Normal: el tiempo solicitado.
         - Permanente: tiempo × número de ocurrencias (días de la semana en el rango).
+
+        Se calcula sumando el desglose mensual en vez de recorrer el rango otra vez: dos
+        recorridos paralelos pueden divergir, y entonces el total mostrado en pantalla no
+        cuadraría con la suma de las deudas que de verdad se cobran.
         """
-        if not self.es_permanente:
-            return float(self.tiempo or 0)
-        from datetime import timedelta
-        dias = {int(d) for d in self.dias_semana.split(',') if d.strip().isdigit()}
-        if not dias:
-            return 0.0
-        n, d = 0, self.fecha_inicio
-        while d <= self.fecha_fin:
-            if d.weekday() in dias:
-                n += 1
-            d += timedelta(days=1)
-        return round(float(self.tiempo or 0) * n, 2)
+        ocurrencias = sum(n for _, _, n in self.ocurrencias_por_mes())
+        return round(float(self.tiempo or 0) * ocurrencias, 2)
 
     class Meta:
         verbose_name = "Permiso Especial"
@@ -184,6 +221,119 @@ class PermisoEspecial(models.Model):
 
 
 
+class DeudaPermisoMes(models.Model):
+    """
+    Lo que un explorador debe por UN permiso en UN mes concreto.
+
+    Existe porque `PermisoEspecial` no puede representarlo: tiene un único `pagado`
+    booleano para todo su rango, así que un permanente de agosto a noviembre era una deuda
+    global de todo-o-nada. Eso impedía tres cosas a la vez: reclamar agosto al cerrar
+    agosto, aceptar un pago parcial, y —efecto colateral— pagar siquiera un permiso largo,
+    porque el total superaba el tope de horas de un solo PDH.
+
+    La deuda de cada mes vence al terminar ese mes y se evalúa sola. Varios permisos que
+    caen en el mismo mes generan VARIAS filas, no una fusionada: la deuda se suma para
+    decidir la sanción, pero cada obligación conserva de qué permiso viene.
+
+    No se borra nunca: se paga, se cancela, o la consume una sanción cumplida.
+    """
+    ESTADO_CHOICES = [
+        ('activa', 'Activa'),
+        ('pagada', 'Pagada'),
+        ('consumida_por_sancion', 'Consumida por sanción'),
+        ('cancelada', 'Cancelada'),
+    ]
+
+    permiso = models.ForeignKey(
+        PermisoEspecial, on_delete=models.CASCADE, related_name='deudas_mes',
+        help_text='Permiso que generó esta obligación mensual.')
+    # Desnormalizado a propósito: casi todas las consultas son "qué debe esta persona",
+    # y sin él cada una tendría que pasar por el permiso para llegar al empleado.
+    explorador = models.ForeignKey(
+        Empleado, on_delete=models.CASCADE, related_name='deudas_permiso_mes')
+    anio = models.PositiveSmallIntegerField()
+    mes = models.PositiveSmallIntegerField(help_text='1..12')
+    minutos_generados = models.PositiveIntegerField(
+        help_text='Tiempo del permiso × ocurrencias en ESE mes.')
+    minutos_pagados = models.PositiveIntegerField(
+        default=0, help_text='Lo abonado hasta ahora. Permite el pago parcial.')
+    ocurrencias = models.PositiveSmallIntegerField(
+        help_text='Cuántos días del permiso caen en ese mes (trazabilidad del cálculo).')
+    estado = models.CharField(max_length=25, choices=ESTADO_CHOICES, default='activa')
+    fecha_pago = models.DateField(
+        null=True, blank=True,
+        help_text='Fecha del pago que la SALDÓ (no la del primer abono parcial).')
+    # Si una sanción cumplida extinguió esta deuda, aquí queda de cuál se trata. Es la
+    # trazabilidad que exige la regla: la deuda deja de cobrarse, pero no de explicarse.
+    sancion_consumidora = models.ForeignKey(
+        'empleados.SancionEmpleado', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='deudas_permiso_consumidas')
+    fecha_consumo = models.DateField(null=True, blank=True)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Deuda mensual de permiso'
+        verbose_name_plural = 'Deudas mensuales de permisos'
+        ordering = ['anio', 'mes', 'permiso']
+        constraints = [
+            models.UniqueConstraint(fields=['permiso', 'anio', 'mes'],
+                                    name='deuda_permiso_mes_unica'),
+        ]
+        indexes = [
+            models.Index(fields=['explorador', 'estado'], name='dpm_exp_estado_idx'),
+            models.Index(fields=['explorador', 'anio', 'mes'], name='dpm_exp_periodo_idx'),
+        ]
+
+    @property
+    def minutos_pendientes(self) -> int:
+        """Lo que falta por pagar. Nunca negativo: un exceso no genera crédito."""
+        return max(0, self.minutos_generados - self.minutos_pagados)
+
+    @property
+    def horas_generadas(self) -> float:
+        return round(self.minutos_generados / 60, 2)
+
+    @property
+    def horas_pagadas(self) -> float:
+        return round(self.minutos_pagados / 60, 2)
+
+    @property
+    def horas_pendientes(self) -> float:
+        return round(self.minutos_pendientes / 60, 2)
+
+    @property
+    def periodo(self):
+        """El mes al que pertenece, en el vocabulario de la capa de cálculo de sanciones."""
+        from solicitudes.services.sancion_deuda_calculo import Periodo
+        return Periodo(self.anio, self.mes)
+
+    def __str__(self):
+        return (f'{self.explorador} — permiso {self.permiso_id} '
+                f'{self.anio}-{self.mes:02d}: {self.horas_pendientes} h pendientes')
 
 
-# Create your models here.
+class PagoDeudaPermisoMes(models.Model):
+    """
+    Cuántos minutos de una deuda mensual cubre un PDH concreto.
+
+    Es la tabla intermedia del M2M y guarda el importe porque el pago puede ser PARCIAL:
+    sin este dato, borrar un PDH no sabría cuánto devolver a la deuda y la dejaría o
+    saldada de más o resucitada entera.
+    """
+    pdh = models.ForeignKey(PDH, on_delete=models.CASCADE, related_name='detalles_permiso_mes')
+    # PROTECT: una deuda con pagos encima no puede desaparecer y dejar el PDH cuadrando
+    # con la nada. Primero se revierte el pago, después se toca la deuda.
+    deuda = models.ForeignKey(DeudaPermisoMes, on_delete=models.PROTECT, related_name='pagos')
+    minutos = models.PositiveIntegerField(help_text='Minutos de esa deuda que cubre este pago.')
+
+    class Meta:
+        verbose_name = 'Detalle de pago de deuda mensual'
+        verbose_name_plural = 'Detalles de pago de deudas mensuales'
+        constraints = [
+            models.UniqueConstraint(fields=['pdh', 'deuda'], name='pago_deuda_permiso_mes_unico'),
+        ]
+
+    def __str__(self):
+        return f'PDH {self.pdh_id} → deuda {self.deuda_id}: {self.minutos} min'

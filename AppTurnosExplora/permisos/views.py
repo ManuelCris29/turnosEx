@@ -82,6 +82,25 @@ def _dia_no_laborable(empleado, fecha):
         return False
 
 
+def _sincronizar_deuda_mensual(permiso):
+    """
+    Rehace las obligaciones mensuales del permiso tras un cambio de estado.
+
+    Se llama en cada transición (aprobar, rechazar, cancelar) porque es la aprobación la
+    que convierte el permiso en deuda exigible, y la cancelación la que la retira. No se
+    hace con un signal: la aprobación ya mueve turnos y snapshots, y meter escritura de
+    deuda dentro de ese flujo por la puerta de atrás lo vuelve difícil de seguir.
+
+    No puede tumbar la resolución del permiso: si falla, se registra y la red de seguridad
+    de `asegurar_deudas` lo recompone en la siguiente consulta.
+    """
+    try:
+        from .deuda_permiso_service import sincronizar
+        sincronizar(permiso)
+    except Exception:
+        logger.exception('Error sincronizando la deuda mensual del permiso %s', permiso.id)
+
+
 def _invalidar_turnos_cache(permiso):
     """Invalida la caché de Mis Turnos del explorador para que el permiso se vea al instante."""
     try:
@@ -159,10 +178,12 @@ class PermisoEspecialListView(LoginRequiredMixin, ListView):
             context['exploradores'] = Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
             context['filtro_explorador'] = self.request.GET.get('explorador', '')
         else:
-            # Si el explorador está sancionado, avisamos y bloqueamos los botones (popup)
-            from empleados.sancion_utils import sancion_activa, mensaje_sancion
+            # Si el explorador está sancionado, avisamos y bloqueamos los botones (popup).
+            # `refrescar_y_sancion` y no `sancion_activa`: la sanción por deuda vencida puede
+            # no existir todavía, y esta pantalla es la que decide si los botones se ofrecen.
+            from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
             emp = getattr(self.request.user, 'empleado', None)
-            s = sancion_activa(emp) if emp else None
+            s = refrescar_y_sancion(emp)
             if s:
                 context['sancion_msg'] = mensaje_sancion(s)
         return context
@@ -177,14 +198,8 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
         # Bloqueo por sanción antes de mostrar/procesar el formulario (un solo aviso)
         empleado = getattr(request.user, 'empleado', None)
         if empleado:
-            # Generar/levantar automáticamente la sanción por deuda de doblada vencida
-            try:
-                from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-                DeudaCorporativaService.gestionar_sancion_por_deuda(empleado)
-            except Exception:
-                logger.warning("Error gestionando sanción por deuda (empleado=%s)", empleado.id, exc_info=True)
-            from empleados.sancion_utils import sancion_activa, mensaje_sancion
-            sancion = sancion_activa(empleado)
+            from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
+            sancion = refrescar_y_sancion(empleado)
             if sancion:
                 messages.warning(request, mensaje_sancion(sancion))
                 return redirect('permisos_especiales_list')
@@ -331,6 +346,7 @@ class PermisoEspecialAprobarView(LoginRequiredMixin, View):
             permiso.estado = 'RECHAZADO'
             messages.info(request, 'Permiso rechazado.')
         permiso.save()
+        _sincronizar_deuda_mensual(permiso)
         if permiso.estado == 'APROBADO' and permiso.tipo == 'MEDIA_JORNADA_TEMPORADA':
             from .services import PermisoMediaJornadaService
             PermisoMediaJornadaService.aplicar(permiso)
@@ -364,6 +380,7 @@ class PermisoEspecialResolverEmailView(View):
             if permiso.estado == 'APROBADO':
                 permiso.fecha_aprobacion = timezone.now()
             permiso.save()
+            _sincronizar_deuda_mensual(permiso)
             if permiso.estado == 'APROBADO' and permiso.tipo == 'MEDIA_JORNADA_TEMPORADA':
                 from .services import PermisoMediaJornadaService
                 PermisoMediaJornadaService.aplicar(permiso)
@@ -525,6 +542,7 @@ class PermisoMediaJornadaCancelView(LoginRequiredMixin, View):
         if nota:
             permiso.comentario_supervisor = f"{permiso.comentario_supervisor or ''}\n\n{nota}".strip()
         permiso.save()
+        _sincronizar_deuda_mensual(permiso)
         _invalidar_turnos_cache(permiso)
         messages.success(request, 'Permiso cancelado y turnos restaurados.')
         return redirect('permisos_especiales_list')
@@ -710,13 +728,8 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
 
         # Bloqueo por sanción de deuda: igual que los permisos normales, un empleado
         # sancionado NO puede realizar solicitudes ni permisos mientras dure la sanción.
-        try:
-            from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-            DeudaCorporativaService.gestionar_sancion_por_deuda(emp)
-        except Exception:
-            logger.warning("Error gestionando sanción por deuda (empleado=%s)", emp.id, exc_info=True)
-        from empleados.sancion_utils import sancion_activa, mensaje_sancion
-        _sancion = sancion_activa(emp)
+        from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
+        _sancion = refrescar_y_sancion(emp)
         if _sancion:
             return json_error(mensaje_sancion(_sancion), status=403, code='sancionado')
 
