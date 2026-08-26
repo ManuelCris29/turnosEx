@@ -191,6 +191,14 @@ aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-ty
 - [ ] Crear una **EventBridge Scheduled Rule** (`rate(5 minutes)`) que lance una tarea ECS con la misma Task Definition, sobrescribiendo el comando a `["python","manage.py","procesar_email_outbox"]`. En Fargate no hay crontab.
 - [ ] **Sin esto, un correo que falle queda guardado pero no se reintenta nunca.** Paso a paso en **[MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md)**.
 
+**Sanciones por deuda de horas — ⚠️ paso obligatorio:**
+- [ ] Crear una **EventBridge Scheduled Rule** con schedule `cron(15 10 * * ? *)` (**UTC** → 05:15 en Colombia) que lance una tarea ECS con la misma Task Definition, sobrescribiendo el comando a `["python","manage.py","revisar_sanciones_por_deuda"]`.
+- [ ] Retry attempts: **2**. Un fallo transitorio (RDS que aún no acepta conexiones, una tarea que no arranca) se arregla reintentando; sin reintentos ese día se pierde entero. La ejecución es idempotente —el candado de `RevisionSancionesDeuda` garantiza que solo una haga el trabajo—, así que reintentar es seguro.
+- [ ] **Sin esto, la sanción de un moroso solo nace cuando esa misma persona abre la aplicación**, así que quien no entra no aparece bloqueado en ningún informe del supervisor.
+- [ ] **Alarma de que la tarea dejó de correr.** Crear un *metric filter* sobre el log group del contenedor con el patrón **`REVISION_SANCIONES_NO_EJECUTADA`** y una alarma que notifique a un SNS. El comando emite esa cadena en nivel `CRITICAL` cuando detecta que lleva días sin ejecutarse. **Es la única forma de enterarse sin mirar:** una tarea programada que deja de dispararse no da ningún error, simplemente deja de ocurrir.
+- [ ] Probada la alarma: lanzar la tarea a mano con la base sin ninguna fila en `RevisionSancionesDeuda` (o esperar 3 días) y comprobar que **llega la notificación**. Un aviso sin probar no es un aviso.
+- [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](./MANUAL_SANCIONES_DEUDA.md)**.
+
 ---
 
 ## FASE 10 — Verificación

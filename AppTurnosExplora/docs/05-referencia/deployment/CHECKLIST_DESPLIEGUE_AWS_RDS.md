@@ -274,6 +274,28 @@ sudo systemctl status certbot.timer     # renovación automática
 - [ ] Programar el cron `procesar_email_outbox` (cada 5 min). **Sin él, un correo que falle queda guardado pero no se reintenta nunca.**
 - [ ] Ver el paso a paso completo en **[MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md)**.
 
+**Sanciones por deuda de horas — ⚠️ paso obligatorio:**
+- [ ] Programar el cron `revisar_sanciones_por_deuda` (una vez al día, de madrugada).
+- [ ] **Sin él, la sanción de un moroso solo nace cuando esa misma persona abre la aplicación**, así que quien no entra no aparece bloqueado en ningún informe del supervisor.
+- [ ] Correr antes `--dry-run` para ver a quién afectaría la primera ejecución (puede sancionar con fechas retroactivas).
+- [ ] **Aviso de que el cron dejó de correr.** El comando emite `REVISION_SANCIONES_NO_EJECUTADA`
+      en nivel `CRITICAL` cuando lleva días sin ejecutarse. Un cron que deja de dispararse no da
+      ningún error —simplemente deja de ocurrir—, así que hay que vigilarlo desde fuera. Mismo
+      patrón que el aviso del cierre semanal (FASE 11):
+      ```bash
+      # /etc/cron.daily/swalp-alerta-sanciones  (chmod +x)
+      #!/bin/sh
+      # Solo el final del log: una linea vieja puede ser de un problema ya resuelto.
+      tail -n 200 /var/log/appturnos/sanciones_deuda.log \
+        | grep -q "REVISION_SANCIONES_NO_EJECUTADA" \
+        && echo "La revision de sanciones por deuda no se esta ejecutando. Revisar crontab -l." \
+           | mail -s "SWALP: revision de sanciones caida" <tu-correo>
+      ```
+- [ ] Probado el aviso: fuerza la condición (renombra temporalmente la fila de hoy en
+      `/admin/solicitudes/revisionsancionesdeuda/`, o espera 3 días) y comprueba que **llega el
+      correo**. Un aviso sin probar no es un aviso.
+- [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](./MANUAL_SANCIONES_DEUDA.md)**.
+
 ---
 
 ## FASE 11 — Verificación final
@@ -302,6 +324,10 @@ sudo systemctl status certbot.timer     # renovación automática
       [manual técnico § 13.6](../../manual_tecnico.md).
 - [ ] Probado el aviso: fuerza una línea con ese texto en el journal y comprueba que llega el
       correo. **Un aviso sin probar no es un aviso.**
+- [ ] **Revisión de sanciones: confirmar que corrió.** Al día siguiente del despliegue,
+      `/admin/solicitudes/revisionsancionesdeuda/` debe tener **una fila con la fecha de ayer**.
+      Si no la hay, el cron no está funcionando. El supervisor también lo verá como un banner
+      rojo en el dashboard a los tres días.
 
 ---
 
