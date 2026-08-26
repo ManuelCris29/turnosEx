@@ -5,8 +5,12 @@ Una sanción tiene un rango de fechas durante el cual el explorador NO puede
 realizar ninguna solicitud (cambio de turno ni permiso).
 """
 
+import logging
+
 from django.db.models import Q
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 
 def vigentes_en(fecha=None):
@@ -52,3 +56,32 @@ def mensaje_sancion(sancion):
         f'Estás sancionado del {sancion.fecha_inicio.strftime("%d/%m/%Y")} al {fin}. '
         'Durante la sanción no puedes realizar solicitudes de cambio de turno ni de permisos.'
     )
+
+
+def refrescar_y_sancion(empleado, fecha=None):
+    """
+    Punto de entrada ÚNICO para "¿puede este explorador hacer solicitudes?".
+
+    Primero refresca la auto-sanción por deuda de doblada vencida y solo después consulta.
+    El orden importa: la sanción por deuda NO existe hasta que algo la crea, así que
+    llamar a `sancion_activa()` a secas responde "no sancionado" sobre una deuda vencida
+    que todavía nadie evaluó. Eso es justo lo que dejaba las pantallas abiertas a un
+    explorador moroso: los formularios se abrían y se llenaban enteros, y el bloqueo solo
+    aparecía al enviar (que era, además, el momento en que la sanción nacía).
+
+    Usa esta función en TODA pantalla o endpoint que decida si alguien puede solicitar.
+    `sancion_activa()` queda para lecturas que ya vienen detrás de un refresco, o para
+    consultar la sanción de OTRA persona en una fecha dada (informes, aprobación).
+
+    Nunca lanza: si el refresco falla, se registra y se responde con lo que haya en BD.
+    Un fallo aquí no puede tumbar la pantalla de un explorador que no debe nada.
+    """
+    if not empleado:
+        return None
+    try:
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        DeudaCorporativaService.gestionar_sancion_por_deuda(empleado)
+    except Exception:
+        logger.exception('Error gestionando la sanción automática por deuda (empleado=%s)',
+                         getattr(empleado, 'id', '?'))
+    return sancion_activa(empleado, fecha)

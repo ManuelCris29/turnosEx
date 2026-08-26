@@ -220,6 +220,20 @@ class SancionEmpleado(models.Model):
         related_name='sanciones_levantadas',
         help_text='Supervisor que la levantó (vacío si la levantó el sistema por pago de deuda).')
     levantada_motivo = models.TextField(blank=True, default='')
+    # Mes cuya deuda originó la sanción (solo las automáticas). Se guarda en vez de
+    # deducirse del `motivo` porque de él depende QUÉ deuda extingue la sanción al
+    # cumplirse: leerlo de un texto libre haría que un retoque de redacción cambiara
+    # silenciosamente qué se condona.
+    periodo_anio = models.PositiveSmallIntegerField(null=True, blank=True)
+    periodo_mes = models.PositiveSmallIntegerField(null=True, blank=True)
+    # Qué número de la cadena de reincidencia es esta sanción: 1 = primera (15 días),
+    # 2 = primera reincidencia (30 días)… Se GUARDA en vez de recalcularse porque el nivel
+    # depende de una ventana configurable: si el supervisor la cambia mañana, las sanciones
+    # ya notificadas no pueden reinterpretarse con la regla nueva. Aquí queda lo que se le
+    # dijo al explorador en su momento.
+    nivel_reincidencia = models.PositiveSmallIntegerField(
+        default=1,
+        help_text='1 = primera sanción; 2, 3… reincidencias sucesivas. Duración = nivel × 15 días.')
     historial = HistoricalRecords()
 
     class Meta:
@@ -229,6 +243,8 @@ class SancionEmpleado(models.Model):
         indexes = [
             models.Index(fields=['explorador', 'fecha_inicio'], name='sanc_exp_fecha_idx'),
             models.Index(fields=['supervisor'], name='sanc_supervisor_idx'),
+            models.Index(fields=['explorador', 'periodo_anio', 'periodo_mes'],
+                         name='sanc_exp_periodo_idx'),
         ]
 
     def clean(self):

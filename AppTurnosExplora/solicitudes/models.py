@@ -678,6 +678,10 @@ class DeudaCorporativa(models.Model):
     ESTADO_CHOICES = [
         ('activa', 'Activa'),
         ('pagada', 'Pagada'),
+        # La sanción cumplida ES el pago: la deuda se extingue sin dinero de por medio.
+        # No se marca 'pagada' para no confundir en los informes lo que alguien abonó con
+        # lo que se saldó cumpliendo un castigo.
+        ('consumida_por_sancion', 'Consumida por sanción'),
         ('cancelada', 'Cancelada'),
     ]
 
@@ -707,10 +711,10 @@ class DeudaCorporativa(models.Model):
         help_text='Fecha en que se realizó la doblada que generó esta deuda'
     )
     estado = models.CharField(
-        max_length=20,
+        max_length=25,
         choices=ESTADO_CHOICES,
         default='activa',
-        help_text='Estado de la deuda: activa, pagada o cancelada'
+        help_text='Estado de la deuda: activa, pagada, consumida por sanción o cancelada'
     )
     fecha_pago = models.DateField(
         null=True,
@@ -722,6 +726,12 @@ class DeudaCorporativa(models.Model):
         blank=True,
         help_text='Comentario opcional sobre la deuda'
     )
+    # Si una sanción cumplida extinguió esta deuda, aquí queda cuál. La deuda deja de
+    # cobrarse pero no de explicarse: es la trazabilidad que pide la regla de negocio.
+    sancion_consumidora = models.ForeignKey(
+        'empleados.SancionEmpleado', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='deudas_corporativas_consumidas')
+    fecha_consumo = models.DateField(null=True, blank=True)
     historial = HistoricalRecords()
     
     class Meta:
@@ -731,6 +741,8 @@ class DeudaCorporativa(models.Model):
             models.Index(fields=['explorador', 'estado'], name='deuda_corp_exp_estado_idx'),
             models.Index(fields=['fecha_generacion', 'estado'], name='deuda_corp_fecha_estado_idx'),
             models.Index(fields=['fecha_doblada'], name='deuda_corp_fecha_dob_idx'),
+            models.Index(fields=['explorador', 'estado', 'fecha_doblada'],
+                         name='deuda_corp_exp_est_fec_idx'),
         ]
         ordering = ['-fecha_generacion']
     
@@ -877,6 +889,148 @@ class CierreSemanaOverride(models.Model):
 
     def __str__(self):
         return f"Override {self.semana_lunes} — {'ON' if self.habilitado else 'OFF'} {self.get_dia_cierre_display()} {self.hora_cierre}"
+
+
+
+class ConfiguracionSanciones(models.Model):
+    """
+    Configuración GLOBAL de las sanciones por deuda de horas. Singleton (una sola fila).
+
+    Existe por la VENTANA DE REINCIDENCIA. Sin ella la escalada 15 → 30 → 45 era acumulativa
+    para siempre: quien incumplió una vez hace dos años arrastraba ese antecedente el resto
+    de su vida laboral, y la sanción por un descuido aislado acababa siendo de meses. El
+    antecedente tiene que poder prescribir.
+
+    La ventana es un parámetro de política disciplinaria, no una constante técnica: la
+    decide quien dirige el área, y cambiarla no debería exigir un despliegue.
+    """
+    # 45 y no 30, que sería el número redondo: entre el fin de una sanción y el vencimiento
+    # del mes siguiente hay días muertos (una sanción de 15 días por enero acaba el 16/02,
+    # pero la deuda de marzo no vence hasta el 01/04 → 44 días de hueco). Con 30, un mes
+    # limpio bastaba para borrar el antecedente, y encima de forma desigual: quien venía de
+    # una sanción larga sí seguía escalando y quien venía de una corta no. 45 cubre el hueco
+    # en todos los niveles; a partir de dos meses limpios sí prescribe.
+    dias_ventana_reincidencia = models.PositiveSmallIntegerField(
+        default=45,
+        help_text='Días desde que TERMINA una sanción durante los cuales una nueva cuenta '
+                  'como reincidencia. Si pasan sin sanciones nuevas, el contador vuelve a cero.')
+    actualizado_en = models.DateTimeField(auto_now=True)
+    actualizado_por = models.ForeignKey(
+        Empleado, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='configuraciones_sancion',
+        help_text='Quién hizo el último cambio. Es una decisión de política: debe poder rastrearse.')
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Sanciones (configuración)'
+        verbose_name_plural = 'Sanciones (configuración)'
+
+    def __str__(self):
+        return f'Ventana de reincidencia: {self.dias_ventana_reincidencia} días'
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        if self.dias_ventana_reincidencia < 1:
+            raise ValidationError(
+                {'dias_ventana_reincidencia':
+                 'La ventana debe ser de al menos un día. Para desactivar la reincidencia '
+                 'no se pone cero: se usa una ventana corta.'})
+
+    @classmethod
+    def obtener(cls):
+        """
+        La fila única, creándola con los valores por defecto si no existe.
+
+        `get_or_create(pk=1)` y no `first()` + `create()`: dos peticiones concurrentes sobre
+        una base vacía crearían dos filas y `first()` elegiría cualquiera de ellas.
+        """
+        obj = cls.objects.first()
+        if obj is None:
+            obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @classmethod
+    def ventana_reincidencia(cls) -> int:
+        """
+        Días de ventana, a prueba de fallos: si la configuración no se puede leer se
+        devuelve el valor por defecto en vez de reventar. Una sanción mal calculada es
+        mejor que una pantalla caída, y el valor por defecto es el que ya estaba acordado.
+        """
+        try:
+            return cls.obtener().dias_ventana_reincidencia
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                'No se pudo leer la configuración de sanciones; se usa la ventana por defecto',
+                exc_info=True)
+            return cls._meta.get_field('dias_ventana_reincidencia').default
+
+
+class RevisionSancionesDeuda(models.Model):
+    """
+    CAPA 2 — Marca que la revisión diaria de sanciones por deuda ya se ejecutó un día.
+
+    Es el mecanismo de coordinación, y vive en la BASE DE DATOS a propósito. La aplicación
+    corre con `--workers 3` y la caché por defecto es `LocMemCache`, que es POR PROCESO: un
+    lock de caché haría que los tres workers creyeran cada uno haber ganado, y podrían
+    materializar la misma sanción tres veces. La restricción `unique` de `fecha` la impone
+    el motor de la base de datos, que es el único punto que los tres comparten.
+
+    El uso es `get_or_create(fecha=hoy)`: quien recibe `created=True` es el único que hace
+    el trabajo ese día. Los demás salen sin tocar nada.
+
+    NO es un registro de auditoría disciplinaria —eso es `SancionEmpleado`—, sino la
+    bitácora operativa del proceso: sirve para responder "¿corrió ayer?" cuando el cron
+    falla en silencio.
+    """
+    fecha = models.DateField(
+        unique=True,
+        help_text='Día al que corresponde la revisión. Único: garantiza una sola ejecución.')
+    ejecutado_en = models.DateTimeField(auto_now_add=True)
+    sanciones_creadas = models.IntegerField(default=0)
+    sanciones_levantadas = models.IntegerField(default=0)
+    detalle = models.TextField(blank=True, default='')
+
+    class Meta:
+        verbose_name = 'Revisión de sanciones por deuda'
+        verbose_name_plural = 'Revisiones de sanciones por deuda'
+        ordering = ['-fecha']
+
+    # Cuántos días seguidos sin correr se toleran antes de dar la voz de alarma. Uno solo
+    # no es noticia: el proceso se autocura y un día de retraso solo atrasa el aviso. A
+    # partir de dos, algo está roto y nadie se está enterando.
+    DIAS_TOLERADOS = 2
+
+    @classmethod
+    def dias_sin_ejecutar(cls, hoy=None) -> int:
+        """
+        Cuántos días han pasado desde la última revisión registrada.
+
+        0 = corrió hoy. `None` no existe: si NUNCA ha corrido devuelve un número grande,
+        porque un sistema recién desplegado en el que el cron no se llegó a programar es
+        exactamente el caso que hay que denunciar, no una excepción que ignorar.
+        """
+        from django.utils import timezone
+        hoy = hoy or timezone.localdate()
+        ultima = cls.objects.order_by('-fecha').values_list('fecha', flat=True).first()
+        if ultima is None:
+            return 9999
+        return (hoy - ultima).days
+
+    @classmethod
+    def hay_hueco(cls, hoy=None) -> bool:
+        """
+        ¿Lleva el proceso demasiados días sin correr?
+
+        Existe porque un cron que falla lo hace EN SILENCIO: no hay error que nadie vea, y
+        el síntoma —morosos que siguen solicitando— tarda semanas en notarse y no se
+        atribuye a esto. Convertirlo en algo visible es más barato que descubrirlo tarde.
+        """
+        return cls.dias_sin_ejecutar(hoy) > cls.DIAS_TOLERADOS
+
+    def __str__(self):
+        return (f'Revisión {self.fecha}: {self.sanciones_creadas} creada(s), '
+                f'{self.sanciones_levantadas} deuda(s) saldada(s)')
 
 
 # Create your models here.
