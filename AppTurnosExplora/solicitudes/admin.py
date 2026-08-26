@@ -4,8 +4,8 @@ from .models import (
     CambioPermanenteDetalle, CambioPermanenteDia,
     DobladaDetalle, DeudaExplorador, DeudaCorporativa,
     ReprogramacionDiaDoblada,
-    CierreSolicitudesConfig, CierreSemanaOverride,
-    EmailOutbox,
+    CierreSolicitudesConfig, CierreSemanaOverride, ConfiguracionSanciones,
+    EmailOutbox, RevisionSancionesDeuda,
 )
 
 
@@ -45,6 +45,19 @@ class EmailOutboxAdmin(admin.ModelAdmin):
 @admin.register(CierreSolicitudesConfig)
 class CierreSolicitudesConfigAdmin(admin.ModelAdmin):
     list_display = ['habilitado', 'dia_cierre', 'hora_cierre', 'actualizado_en']
+
+
+@admin.register(ConfiguracionSanciones)
+class ConfiguracionSancionesAdmin(admin.ModelAdmin):
+    list_display = ['dias_ventana_reincidencia', 'actualizado_por', 'actualizado_en']
+
+    def has_add_permission(self, request):
+        # Singleton: una segunda fila dejaría ambiguo cuál es la configuración vigente.
+        return not ConfiguracionSanciones.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        # Sin fila no hay política que consultar. Para cambiarla se edita, no se borra.
+        return False
 
 
 @admin.register(CierreSemanaOverride)
@@ -164,3 +177,24 @@ class ReprogramacionDiaDobladaAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('explorador', 'doblada_origen', 'registrado_por')
+
+
+@admin.register(RevisionSancionesDeuda)
+class RevisionSancionesDeudaAdmin(admin.ModelAdmin):
+    """
+    Bitácora de la revisión diaria de sanciones por deuda.
+
+    Sirve para responder "¿corrió ayer?" cuando el cron falla en silencio: debe haber una
+    fila por día. Un hueco en las fechas es la señal de que la tarea programada no se
+    ejecutó — ver MANUAL_SANCIONES_DEUDA.md, sección 8.
+    """
+    list_display = ('fecha', 'ejecutado_en', 'sanciones_creadas', 'sanciones_levantadas')
+    list_filter = ('fecha',)
+    ordering = ('-fecha',)
+    readonly_fields = ('fecha', 'ejecutado_en', 'sanciones_creadas',
+                       'sanciones_levantadas', 'detalle')
+
+    def has_add_permission(self, request):
+        # Crear una fila a mano equivaldría a decirle al proceso que ese día ya se hizo,
+        # y el trabajo real quedaría sin ejecutar.
+        return False

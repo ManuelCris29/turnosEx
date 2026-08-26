@@ -45,16 +45,8 @@ class SolicitudOrchestrator:
     @staticmethod
     def _refrescar_y_sancion(empleado):
         """Refresca la auto-sanción por deuda del empleado y devuelve su sanción activa (o None)."""
-        if empleado is None:
-            return None
-        try:
-            from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-            DeudaCorporativaService.gestionar_sancion_por_deuda(empleado)
-        except Exception:
-            logger.exception('Error gestionando sanción automática por deuda de %s', getattr(empleado, 'id', '?'))
-
-        from empleados.sancion_utils import sancion_activa
-        return sancion_activa(empleado)
+        from empleados.sancion_utils import refrescar_y_sancion
+        return refrescar_y_sancion(empleado)
 
     @staticmethod
     def _verificar_dedupe(post, tipo_nombre: str, solicitante) -> JsonResponse | None:
