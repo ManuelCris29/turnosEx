@@ -284,8 +284,10 @@
 
 {% block extra_js %}
 <script>window.CSRF_TOKEN = "{{ csrf_token }}";</script>
-{# Los textos los pone el servidor: son los mismos literales que devuelve al rechazar el
-   POST, para que el aviso de pantalla y el del sistema no se contradigan. #}
+{% comment %}
+Los textos los pone el servidor: son los mismos literales que devuelve al rechazar el
+POST, para que el aviso de pantalla y el del sistema no se contradigan.
+{% endcomment %}
 <script>window.MSG_COMENTARIOS = {comentario: "{{ MSG_COMENTARIO|escapejs }}", motivo: "{{ MSG_MOTIVO|escapejs }}"};</script>
 <script src="{% static_v 'js/core/comentario_obligatorio.js' %}"></script>
 <script src="{% static_v 'js/solicitudes/solicitudes_pendientes_list.js' %}"></script>

@@ -68,8 +68,36 @@ class DashboardView(LoginRequiredMixin, TemplateView):
                 logging.getLogger(__name__).warning(
                     'No se pudo evaluar la apertura de año para el dashboard', exc_info=True)
 
+        # Morosos con deuda vencida que todavía nadie ha sancionado. Solo para el
+        # supervisor, y solo si hay alguno: la sanción por deuda se calcula cuando el
+        # explorador entra a la app, así que quien no entra no aparece bloqueado en ningún
+        # sitio. Este aviso es lo que hace que el supervisor se entere sin ir a buscarlo.
+        morosos_pendientes = 0
+        revision_dias_sin_correr = 0
+        if es_admin:
+            try:
+                from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+                morosos_pendientes = DeudaCorporativaService.contar_pendientes_de_sancion()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    'No se pudo contar los morosos para el dashboard', exc_info=True)
+            # Un cron caído no avisa: deja de ocurrir y ya. El síntoma —morosos que siguen
+            # solicitando— tarda semanas en notarse y no se atribuye a esto. Aquí lo ve
+            # alguien al día siguiente, sin tener que mirar logs de servidor.
+            try:
+                from solicitudes.models import RevisionSancionesDeuda
+                if RevisionSancionesDeuda.hay_hueco():
+                    revision_dias_sin_correr = RevisionSancionesDeuda.dias_sin_ejecutar()
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning(
+                    'No se pudo comprobar la última revisión de sanciones', exc_info=True)
+
         context.update({
             'es_admin': es_admin,
+            'morosos_pendientes': morosos_pendientes,
+            'revision_dias_sin_correr': revision_dias_sin_correr,
             'anio': anio,
             'apertura_aviso': apertura_aviso,
             'kpi_cambios': kpi_cambios,

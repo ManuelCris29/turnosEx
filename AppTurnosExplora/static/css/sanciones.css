@@ -31,3 +31,62 @@
 .sanciones-page .btn-filtrar:hover { background: #991b1b; }
 .sanciones-page .filtros-box select:focus,
 .sanciones-page .filtros-box input[type="date"]:focus { border-color: #dc2626; }
+
+/* ---- Deudas de horas vencidas (morosos) ---- */
+/* Banda de acción: solo se pinta cuando hay sanciones por aplicar, así que se permite
+   destacar sin competir con el resto de la página. */
+.mrs-accion { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; justify-content: space-between;
+  margin-bottom: 18px; padding: 1rem 1.25rem; border-radius: 12px;
+  background: #fffbeb; border: 1px solid #fcd34d; box-shadow: 0 2px 8px rgba(180,83,9,.08); }
+.mrs-accion-txt { display: flex; flex-direction: column; gap: .15rem; color: #78350f; min-width: 260px; flex: 1; }
+.mrs-accion-txt span { font-size: .87rem; color: #92400e; }
+.mrs-accion-btn { margin: 0; }
+.mrs-fecha { display: inline-block; margin: 0 .25rem .25rem 0; padding: .15rem .5rem; border-radius: 6px;
+  background: #fee2e2; color: #991b1b; font-size: .75rem; font-weight: 600; white-space: nowrap; }
+.mrs-nota { margin: 1rem 0 0; padding-top: .85rem; border-top: 1px solid #e5e7eb;
+  color: #6b7280; font-size: .85rem; line-height: 1.5; }
+
+/* --- Configuración de la ventana de reincidencia (pantalla de morosos) ---------
+   Vive junto a la tabla de deudas y no en una pantalla aparte: es donde el
+   supervisor está mirando cuando se pregunta por qué a alguien le tocan 30 días
+   en vez de 15. */
+.mrs-config { border-top: 1px dashed #e5e7eb; margin-top: 16px; padding-top: 14px; }
+.mrs-config-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mrs-config-form label { font-weight: 600; margin: 0; }
+.mrs-config-form input[type="number"] { width: 90px; padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 6px; text-align: right; font-weight: 600; }
+.mrs-config-unidad { color: #6b7280; font-size: 13px; }
+
+/* --- Consulta "quién debe a fecha X" (corte a día dentro del mes en curso) ------
+   Es informativa, no accionable, así que va en azul y no en el ámbar/rojo que en esta
+   pantalla significa "hay algo que sancionar". El color es la primera pista de que aquí
+   no hay ningún botón que apretar. */
+.mrs-filtro-ayuda { flex: 1 1 100%; margin: .35rem 0 0; color: #6b7280; font-size: .85rem; }
+.mrs-corte { display: flex; align-items: center; gap: 1rem;
+  margin-bottom: 18px; padding: 1rem 1.25rem; border-radius: 12px;
+  background: #eff6ff; border: 1px solid #bfdbfe; box-shadow: 0 2px 8px rgba(29,78,216,.08); }
+.mrs-corte-icono { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0;
+  background: #1d4ed8; color: #fff; display: flex; align-items: center; justify-content: center; }
+.mrs-corte-txt { display: flex; flex-direction: column; gap: .15rem; color: #1e3a8a; }
+.mrs-corte-txt strong { font-size: 1.02rem; }
+.mrs-corte-txt span { font-size: .87rem; color: #1d4ed8; }
+
+/* Inicial del explorador: da un ancla visual a cada fila en una tabla de puros números. */
+.mrs-persona { display: flex; align-items: center; gap: .6rem; }
+.mrs-avatar { width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
+  background: #e0e7ff; color: #3730a3; font-size: .78rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; letter-spacing: .5px; }
+
+/* Las cifras se alinean a la derecha para poder compararlas de un vistazo. */
+.mrs-col-num { text-align: right; }
+.sanc-unidad { font-size: .9rem; font-weight: 600; color: #9ca3af; }
+.sanc-sub { font-size: .78rem; color: #9ca3af; margin-top: 3px; }
+.mrs-col-mid { text-align: center; }
+.mrs-deuda { font-size: 1.05rem; font-weight: 700; color: #b45309; white-space: nowrap; }
+
+/* Los chips del desglose se apilan si no caben, en vez de ensanchar la columna. */
+.pg-table .pg-chip + .pg-chip { margin-left: .3rem; }
+@media (max-width: 768px) {
+  .pg-table .pg-chip { display: block; margin: 0 0 .25rem; }
+  .pg-table .pg-chip + .pg-chip { margin-left: 0; }
+}
+

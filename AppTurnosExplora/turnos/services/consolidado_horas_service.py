@@ -95,26 +95,32 @@ class ConsolidadoHorasService:
             return round(sum(f['horas'] for f in filas), 2)
 
         # --- Permisos especiales aprobados: acumulan horas que el explorador debe ---
-        from permisos.models import PermisoEspecial
-        pe_qs = (
-            PermisoEspecial.objects
-            .filter(empleado=empleado, estado='APROBADO', pagado=False)
-            .order_by('fecha_inicio')
+        # Se leen de las deudas MENSUALES y no de `horas_totales()`. La diferencia importa:
+        # el total del permiso ignora lo ya abonado a cuenta, así que un permanente medio
+        # pagado seguiría figurando por su importe completo. Aquí se suma lo PENDIENTE, mes
+        # a mes, que es lo que de verdad se le puede reclamar.
+        from permisos.models import DeudaPermisoMes
+        deudas_mes = (
+            DeudaPermisoMes.objects
+            .filter(explorador=empleado, estado='activa')
+            .select_related('permiso')
+            .order_by('anio', 'mes', 'id')
         )
         permisos = []
         total_permisos = 0.0
-        for pe in pe_qs:
-            h = pe.horas_totales()
+        for d in deudas_mes:
+            if d.minutos_pendientes <= 0:
+                continue
+            pe = d.permiso
+            h = d.horas_pendientes
             total_permisos += h
             if pe.es_permanente:
-                fecha_txt = f"{_fecha_es(pe.fecha_inicio)} – {_fecha_es(pe.fecha_fin)}"
                 detalle = pe.dias_semana_legible()
             else:
-                fecha_txt = _fecha_es(pe.fecha_inicio)
                 detalle = pe.especificacion or ''
             permisos.append({
-                'fecha_str': fecha_txt,
-                'horas': round(h, 2),
+                'fecha_str': f'{_MESES_ES[d.mes].capitalize()} {d.anio}',
+                'horas': h,
                 'tiempo': float(pe.tiempo or 0),
                 'es_permanente': pe.es_permanente,
                 'tipo': pe.get_tipo_display(),

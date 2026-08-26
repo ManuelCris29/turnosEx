@@ -70,10 +70,15 @@ class DeudasPendientesExploradorView(LoginRequiredMixin, AdminRequiredMixin, Vie
             emp = Empleado.objects.get(id=int(explorador_id))
         except Empleado.DoesNotExist:
             return JsonResponse({'success': False, 'deudas': [], 'total_horas': 0})
-        items = PagoHorasService.deudas_pendientes(emp)
-        data = [{k: v for k, v in it.items() if k != 'fecha'} for it in items]
-        total = round(sum(it['horas'] for it in items), 2)
-        return JsonResponse({'success': True, 'deudas': data, 'total_horas': total})
+        grupos = PagoHorasService.deudas_pendientes(emp)
+        # `fecha` es un objeto date y no viaja a JSON; la pantalla usa `fecha_str`.
+        data = [
+            {**g, 'items': [{k: v for k, v in it.items() if k != 'fecha'}
+                            for it in g['items']]}
+            for g in grupos
+        ]
+        total = round(sum(g['horas_pendientes'] for g in grupos), 2)
+        return JsonResponse({'success': True, 'meses': data, 'total_horas': total})
 
 
 class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
@@ -107,6 +112,13 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         fecha_str = request.POST.get('fecha', '')
         comentario = (request.POST.get('comentario') or '').strip()
         keys = request.POST.getlist('deudas')
+        # Importes de los pagos PARCIALES: llegan como `horas_permisomes:<id>`. Lo que no
+        # venga se abona íntegro, que es el caso corriente.
+        importes = {
+            campo[len('horas_'):]: valor
+            for campo, valor in request.POST.items()
+            if campo.startswith('horas_permisomes:')
+        }
         datos = {'explorador': explorador_id, 'fecha': fecha_str,
                  'comentario': comentario, 'deudas': keys}
 
@@ -139,16 +151,20 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
             fecha=fecha,
             keys=keys,
             comentario=comentario,
+            importes=importes,
         )
         if error:
             return self._error(request, error, datos)
 
-        saldadas = pdh.deudas_pagadas.count() + pdh.permisos_pagados.count()
+        saldadas = pdh.deudas_pagadas.count() + pdh.detalles_permiso_mes.count()
         messages.success(
             request,
             f'Pago de {pdh.horas} h registrado para {explorador.nombre} {explorador.apellido}. '
             f'Se saldaron {saldadas} deuda(s) y se descuenta de su consolidado.'
         )
+        # Ya no puede LEVANTAR nada —la sanción se cumple entera—, pero sigue haciendo
+        # falta: si el pago fue parcial y el mes sigue con saldo vencido, la sanción que
+        # corresponda debe nacer ahora y no esperar al cron de mañana.
         try:
             from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
             DeudaCorporativaService.gestionar_sancion_por_deuda(explorador)

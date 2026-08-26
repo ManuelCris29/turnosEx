@@ -1,0 +1,295 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Deudas de horas vencidas{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/sanciones.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-hourglass-half"></i> Deudas de horas</h1>
+      <p class="pg-subtitle">
+        Quién debe horas —de una doblada o de un permiso especial— y todavía no las ha
+        pagado. La deuda vence al terminar el mes al que corresponde.
+      </p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+
+    {% comment %}
+    Dos preguntas distintas en la misma pantalla. Sin fecha: a quién toca sancionar (mes ya
+    vencido). Con fecha: quién debe de lo que va de ESE mes, que es la consulta del día a día
+    y no dispara nada.
+    {% endcomment %}
+    <div class="filtros-box">
+      <form method="get" class="filtros-row">
+        <div class="filtro-campo" style="min-width:200px;">
+          <label for="f_corte"><i class="fas fa-calendar-day mr-1"></i> Ver qui&eacute;n debe a fecha</label>
+          <input type="date" name="corte" id="f_corte" value="{{ corte|date:'Y-m-d' }}">
+        </div>
+        <div class="filtro-campo" style="min-width:auto;">
+          <button type="submit" class="btn-filtrar"><i class="fas fa-search mr-1"></i> Consultar</button>
+        </div>
+        {% if corte %}
+        <div class="filtro-campo" style="min-width:auto;">
+          <a href="{% url 'sanciones_morosos' %}" class="btn-limpiar">Quitar filtro</a>
+        </div>
+        {% endif %}
+        <p class="mrs-filtro-ayuda">
+          Muestra la deuda todav&iacute;a sin pagar generada desde el d&iacute;a 1 de ese mes
+          hasta el d&iacute;a que elijas.
+        </p>
+      </form>
+    </div>
+
+    {% if corte %}
+    <div class="mrs-corte">
+      <div class="mrs-corte-icono"><i class="fas fa-calendar-day"></i></div>
+      <div class="mrs-corte-txt">
+        <strong>Deuda al {{ corte|date:'j' }} de {{ corte|date:'F'|lower }} de {{ corte|date:'Y' }}</strong>
+        <span>
+          Pendiente de pago generada del 1 al {{ corte|date:'j' }}.
+          Vista de consulta: no aplica sanciones ni cambia nada.
+        </span>
+      </div>
+    </div>
+
+    <div class="sanc-stats">
+      <div class="sanc-stat">
+        <div class="lbl">Exploradores que deben</div>
+        <div class="num" style="color:#b45309;">{{ total_exploradores }}</div>
+      </div>
+      <div class="sanc-stat">
+        <div class="lbl">Total pendiente</div>
+        <div class="num" style="color:#4b5563;">{{ total_horas_corte }} <small class="sanc-unidad">h</small></div>
+        <div class="sanc-sub">{{ total_minutos_corte }} min</div>
+      </div>
+    </div>
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#1d4ed8,#3b82f6);">
+        <h3><i class="fas fa-user-clock"></i> Al {{ corte|date:'d/m/Y' }}</h3>
+        <div class="pg-actions">
+          <a href="{% url 'pdh_list' %}" class="pg-btn pg-btn-light"><i class="fas fa-hand-holding-usd"></i> Registrar pago (PDH)</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th style="width:34%;">Explorador</th>
+                <th class="mrs-col-num" style="width:12%;">Debe</th>
+                <th style="width:28%;">De d&oacute;nde viene</th>
+                <th class="mrs-col-mid" style="width:12%;">Ocasiones</th>
+                <th style="width:14%;">Desde</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in filas_corte %}
+              <tr>
+                <td>
+                  <div class="mrs-persona">
+                    <span class="mrs-avatar">{{ f.explorador.nombre|first|upper }}{{ f.explorador.apellido|first|upper }}</span>
+                    <span>
+                      <strong>{{ f.explorador.nombre }} {{ f.explorador.apellido }}</strong>
+                      {% if f.explorador.supervisor %}<div class="small text-muted">Supervisa: {{ f.explorador.supervisor.nombre }} {{ f.explorador.supervisor.apellido }}</div>{% endif %}
+                    </span>
+                  </div>
+                </td>
+                <td class="mrs-col-num">
+                  <span class="mrs-deuda">{{ f.horas }} h</span>
+                  <div class="small text-muted">{{ f.minutos }} min</div>
+                </td>
+                <td>
+                  {% if f.minutos_dobladas %}<span class="pg-chip pg-chip-pend">Dobladas &middot; {{ f.minutos_dobladas }} min</span>{% endif %}
+                  {% if f.minutos_permisos %}<span class="pg-chip pg-chip-info">Permisos &middot; {{ f.minutos_permisos }} min</span>{% endif %}
+                </td>
+                <td class="mrs-col-mid">{{ f.dias }}</td>
+                <td class="text-muted">{{ f.deuda_mas_antigua|date:'d/m/Y' }}</td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="5" class="pg-empty">
+                  <i class="fas fa-check-circle mr-2" style="color:#16a34a;"></i>
+                  Nadie debe nada del 1 al {{ corte|date:'j' }} de {{ corte|date:'F'|lower }}.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mrs-nota">
+          <i class="fas fa-info-circle mr-1"></i>
+          Solo cuenta lo ya devengado a esa fecha: de un permiso permanente entran
+          &uacute;nicamente las ocurrencias que ya han pasado. La deuda de meses anteriores no
+          aparece &mdash; a estas alturas o est&aacute; pagada o la consumi&oacute; una sanci&oacute;n.
+        </p>
+      </div>
+    </div>
+    {% else %}
+    <div class="sanc-stats">
+      <div class="sanc-stat"><div class="lbl">Sin sancionar</div><div class="num" style="color:#b45309;">{{ total_pendientes }}</div></div>
+      <div class="sanc-stat"><div class="lbl">Ya sancionados</div><div class="num" style="color:#dc2626;">{{ total_sancionados }}</div></div>
+      <div class="sanc-stat"><div class="lbl">Aún en plazo</div><div class="num" style="color:#2563eb;">{{ total_en_plazo }}</div></div>
+      <div class="sanc-stat"><div class="lbl">Minutos debidos</div><div class="num" style="color:#4b5563;">{{ total_minutos }}</div></div>
+    </div>
+
+    {% if total_pendientes %}
+    {% comment %}
+    La acción principal solo aparece cuando hay algo que hacer: un botón que casi siempre
+    no hace nada enseña a ignorarlo.
+    {% endcomment %}
+    <div class="mrs-accion">
+      <div class="mrs-accion-txt">
+        <strong>{{ total_pendientes }} explorador{{ total_pendientes|pluralize:"es" }} deber&iacute;a{{ total_pendientes|pluralize:"n" }} estar sancionado.</strong>
+        <span>Tienen un mes cerrado con deuda que el sistema todav&iacute;a no ha juzgado, as&iacute; que siguen pudiendo solicitar.</span>
+      </div>
+      <form method="post" class="mrs-accion-btn">
+        {% csrf_token %}
+        <button type="submit" class="pg-btn pg-btn-warn">
+          <i class="fas fa-gavel"></i> Aplicar sanciones ({{ total_pendientes }})
+        </button>
+      </form>
+    </div>
+    {% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#1f2937,#4b5563);">
+        <h3><i class="fas fa-user-clock"></i> Exploradores con deuda</h3>
+        <div class="pg-actions">
+          <a href="{% url 'sanciones_list' %}" class="pg-btn pg-btn-light"><i class="fas fa-gavel"></i> Ver sanciones</a>
+          <a href="{% url 'pdh_list' %}" class="pg-btn pg-btn-light"><i class="fas fa-hand-holding-usd"></i> Registrar pago (PDH)</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th style="width:22%;">Explorador</th>
+                <th class="mrs-col-num" style="width:11%;">Deuda</th>
+                <th style="width:15%;">Plazo</th>
+                <th style="width:30%;">Situaci&oacute;n</th>
+                <th style="width:22%;">D&iacute;as vencidos</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for f in filas %}
+              <tr>
+                <td>
+                  <div class="mrs-persona">
+                    <span class="mrs-avatar">{{ f.explorador.nombre|first|upper }}{{ f.explorador.apellido|first|upper }}</span>
+                    <span>
+                      <strong>{{ f.explorador.nombre }} {{ f.explorador.apellido }}</strong>
+                      {% if f.explorador.supervisor %}<div class="small text-muted">Supervisa: {{ f.explorador.supervisor.nombre }} {{ f.explorador.supervisor.apellido }}</div>{% endif %}
+                    </span>
+                  </div>
+                </td>
+                <td class="mrs-col-num">
+                  <span class="mrs-deuda">{{ f.minutos }} min</span>
+                  <div class="small text-muted">{{ f.dias }} d&iacute;a{{ f.dias|pluralize }} doblado{{ f.dias|pluralize }}</div>
+                </td>
+                <td>
+                  <div class="small">M&aacute;s antigua: {{ f.deuda_mas_antigua|date:'d/m/Y' }}</div>
+                  <div class="small text-muted">Plazo hasta: {{ f.plazo_hasta|date:'d/m/Y' }}</div>
+                </td>
+                <td>
+                  {% if f.estado == 'pendiente' %}
+                    <span class="pg-chip pg-chip-pend">Sin sancionar</span>
+                    <div class="small text-muted mt-1">Deber&iacute;a estarlo: puede seguir solicitando.</div>
+                  {% elif f.estado == 'levantada' %}
+                    {% comment %}
+                    Ni "sancionado" ni "sin sancionar": el sistema lo juzgó y el supervisor
+                    levantó el castigo. La deuda sigue viva, pero la sanción no vuelve sola;
+                    si quiere volver a bloquearlo tiene que crearla a mano. Mostrarlo como
+                    pendiente ponía un botón de "aplicar" que no podía hacer nada.
+                    {% endcomment %}
+                    <span class="pg-chip pg-chip-info">Sanci&oacute;n levantada</span>
+                    <div class="small text-muted mt-1">
+                      La levant&oacute; {% if f.sancion.levantada_por %}{{ f.sancion.levantada_por.nombre }}{% else %}el supervisor{% endif %}
+                      {% if f.sancion.levantada_en %}el {{ f.sancion.levantada_en|date:'d/m/Y' }}{% endif %};
+                      no se recrea sola. Sigue debiendo.
+                    </div>
+                  {% elif f.estado == 'sancionado' %}
+                    <span class="pg-chip pg-chip-no">Sancionado</span>
+                    <div class="small text-muted mt-1">
+                      Hasta {% if f.sancion.fecha_fin %}{{ f.sancion.fecha_fin|date:'d/m/Y' }}{% else %}<em>indefinida</em>{% endif %}
+                    </div>
+                  {% else %}
+                    <span class="pg-chip pg-chip-info">En plazo</span>
+                    <div class="small text-muted mt-1">A&uacute;n puede pagar sin sanci&oacute;n.</div>
+                  {% endif %}
+                  {% if f.sancion_manual %}
+                    {% comment %}
+                    Una sanción manual bloquea a la persona hoy pero NO salda la deuda, así que
+                    no cambia su estado aquí. Se muestra igualmente: el supervisor debe saber
+                    que ya está bloqueado por otra vía antes de decidir nada.
+                    {% endcomment %}
+                    <div class="small text-muted mt-1">
+                      <i class="fas fa-user-lock mr-1"></i>Tambi&eacute;n sancionado a mano
+                      {% if f.sancion_manual.fecha_fin %}hasta {{ f.sancion_manual.fecha_fin|date:'d/m/Y' }}{% endif %}
+                    </div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if f.vencidas %}
+                    {% for fecha in f.vencidas %}<span class="mrs-fecha">{{ fecha|date:'d/m/Y' }}</span>{% endfor %}
+                  {% else %}
+                    <span class="text-muted">&mdash;</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% empty %}
+              <tr>
+                <td colspan="5" class="pg-empty">
+                  <i class="fas fa-check-circle mr-2" style="color:#16a34a;"></i>
+                  Nadie debe horas de doblada.
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mrs-config">
+          <form method="post" class="mrs-config-form">
+            {% csrf_token %}
+            <input type="hidden" name="accion" value="config">
+            <label for="dias_ventana_reincidencia">
+              <i class="fas fa-sliders-h mr-1"></i> Ventana de reincidencia
+            </label>
+            <input type="number" id="dias_ventana_reincidencia"
+                   name="dias_ventana_reincidencia" min="1" max="365"
+                   value="{{ config_sanciones.dias_ventana_reincidencia }}">
+            <span class="mrs-config-unidad">d&iacute;as</span>
+            <button type="submit" class="pg-btn pg-btn-secondary pg-btn-sm">Guardar</button>
+          </form>
+          <small class="text-muted d-block mt-1">
+            Tras cumplir una sanci&oacute;n, el explorador tiene este plazo de prueba: si vuelve
+            a ser sancionado dentro de &eacute;l, cuenta como reincidencia y la sanci&oacute;n sube
+            15 d&iacute;as. Si el plazo pasa sin sanciones nuevas, el contador vuelve a cero y la
+            siguiente ser&aacute; otra vez de 15 d&iacute;as.
+            Afecta solo a las sanciones futuras.
+          </small>
+        </div>
+
+        <p class="mrs-nota">
+          <i class="fas fa-info-circle mr-1"></i>
+          La sanci&oacute;n es de 15 d&iacute;as la primera vez y suma 15 m&aacute;s por cada
+          reincidencia. Se cumple completa: pagar la deuda despu&eacute;s NO la levanta ni la
+          acorta. Al terminar, la deuda de ese mes queda saldada por la propia sanci&oacute;n.
+        </p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

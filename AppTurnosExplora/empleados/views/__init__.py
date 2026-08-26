@@ -47,6 +47,7 @@ from .sanciones import (
     SancionUpdateView,
     SancionLevantarView,
     SancionVisualizarListView,
+    MorososDeudaView,
     _invalidar_turnos_cache_sancion,
 )
 from .indicadores import (
@@ -79,7 +80,7 @@ __all__ = [
     '_invalidar_turnos_cache_restriccion',
     # sanciones
     'SancionListView', 'SancionCreateView', 'SancionUpdateView', 'SancionLevantarView',
-    'SancionVisualizarListView', '_invalidar_turnos_cache_sancion',
+    'SancionVisualizarListView', 'MorososDeudaView', '_invalidar_turnos_cache_sancion',
     # indicadores
     'IndicadoresView', 'MisIndicadoresView',
     # pdh

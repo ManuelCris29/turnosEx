@@ -1,7 +1,7 @@
 import logging
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView, UpdateView
+from django.views.generic import ListView, TemplateView, UpdateView
 from django.views.generic.edit import CreateView, FormView
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
@@ -348,3 +348,136 @@ class SancionVisualizarListView(LoginRequiredMixin, ListView):
             messages.warning(self.request, 'Tu usuario no está asociado a un empleado, por lo que no puedes ver sanciones.')
 
         return context
+
+
+class MorososDeudaView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
+    """
+    Quién debe horas de doblada, visto desde fuera.
+
+    La razón de existir: la auto-sanción por deuda es PEREZOSA — solo se calcula cuando el
+    propio explorador abre una pantalla. Mientras no entre, su deuda vencida no está en
+    ninguna parte y el supervisor no puede verla ni actuar. Esta pantalla la calcula sin
+    depender de él.
+
+    GET no escribe nada: es un diagnóstico que se puede mirar con tranquilidad. El POST
+    ('Aplicar sanciones') es el que crea las que falten y levanta las de quien ya pagó,
+    exactamente lo mismo que ocurriría si cada explorador entrara por su cuenta. Separarlos
+    evita que recargar la página tenga efectos disciplinarios.
+
+    Con `?corte=AAAA-MM-DD` la pantalla cambia de pregunta: en vez de "a quién toca sancionar"
+    muestra "quién debe de lo que va de este mes, a día de hoy". Es puramente informativa —sin
+    botón de sanciones—, porque el mes aún no ha vencido y no hay nada que aplicar todavía.
+    """
+    template_name = 'empleados/sanciones_morosos.html'
+
+    def _corte(self):
+        """La fecha de corte pedida, o None. Un valor con basura se ignora, no rompe."""
+        return parse_date(self.request.GET.get('corte') or '')
+
+    def get_context_data(self, **kwargs):
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+
+        from solicitudes.models import ConfiguracionSanciones
+
+        corte = self._corte()
+        if corte:
+            context = super().get_context_data(**kwargs)
+            filas_corte = DeudaCorporativaService.deuda_a_corte(corte)
+            minutos_corte = sum(f['minutos'] for f in filas_corte)
+            context.update({
+                'corte': corte,
+                'filas_corte': filas_corte,
+                'hoy': timezone.localdate(),
+                'total_exploradores': len(filas_corte),
+                'total_minutos_corte': minutos_corte,
+                # En horas, que es como se paga: el PDH se registra en horas.
+                'total_horas_corte': round(minutos_corte / 60, 2),
+            })
+            return context
+
+        context = super().get_context_data(**kwargs)
+        filas = DeudaCorporativaService.auditar_morosos(aplicar=False)
+        context.update({
+            'filas': filas,
+            'config_sanciones': ConfiguracionSanciones.obtener(),
+            'hoy': timezone.localdate(),
+            'total_pendientes': sum(1 for f in filas if f['estado'] == 'pendiente'),
+            'total_sancionados': sum(1 for f in filas if f['estado'] == 'sancionado'),
+            'total_en_plazo': sum(1 for f in filas if f['estado'] == 'en_plazo'),
+            'total_levantadas': sum(1 for f in filas if f['estado'] == 'levantada'),
+            'total_minutos': sum(f['minutos'] for f in filas),
+        })
+        return context
+
+    def post(self, request, *args, **kwargs):
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+
+        if request.POST.get('accion') == 'config':
+            return self._guardar_config(request)
+
+        # La vista con corte es de consulta: no debe poder sancionar. La plantilla ya no
+        # muestra el botón, pero el POST también lo rechaza — si llegara igual, sancionaría a
+        # TODOS los vencidos y no a los del rango que el supervisor tiene delante.
+        if self._corte():
+            messages.info(request, 'La vista por fecha de corte es solo de consulta. '
+                                   'Quita el filtro para aplicar sanciones.')
+            return redirect('sanciones_morosos')
+
+        antes = DeudaCorporativaService.auditar_morosos(aplicar=False)
+        pendientes = [f for f in antes if f['estado'] == 'pendiente']
+        DeudaCorporativaService.auditar_morosos(aplicar=True)
+
+        if pendientes:
+            nombres = ', '.join(f"{f['explorador'].nombre} {f['explorador'].apellido}"
+                                for f in pendientes)
+            messages.success(
+                request,
+                f'{len(pendientes)} sanción(es) por deuda vencida aplicadas: {nombres}. '
+                'Quedan bloqueados hasta que la sanción termine; pagar la deuda no la levanta.'
+            )
+        else:
+            messages.info(
+                request,
+                'No había ninguna sanción pendiente de aplicar. Todo al día.'
+            )
+        logger.info('Revisión de morosos ejecutada por %s: %s sanción(es) aplicadas',
+                    getattr(request.user, 'username', '?'), len(pendientes))
+        return redirect('sanciones_morosos')
+
+    def _guardar_config(self, request):
+        """
+        Guarda la ventana de reincidencia.
+
+        Es una decisión de política disciplinaria, así que queda registrado quién la tomó.
+        No recalcula nada de lo ya grabado: lo que se comunicó a un explorador no puede
+        reinterpretarse después con una regla distinta.
+        """
+        from django.core.exceptions import ValidationError
+
+        from solicitudes.models import ConfiguracionSanciones
+
+        crudo = (request.POST.get('dias_ventana_reincidencia') or '').strip()
+        if not crudo.isdigit():
+            messages.error(request, 'La ventana de reincidencia debe ser un número de días.')
+            return redirect('sanciones_morosos')
+
+        config = ConfiguracionSanciones.obtener()
+        anterior = config.dias_ventana_reincidencia
+        config.dias_ventana_reincidencia = int(crudo)
+        config.actualizado_por = getattr(request.user, 'empleado', None)
+        try:
+            config.full_clean()
+        except ValidationError as e:
+            messages.error(request, ' '.join(m for ms in e.message_dict.values() for m in ms))
+            return redirect('sanciones_morosos')
+        config.save()
+
+        messages.success(
+            request,
+            f'Ventana de reincidencia: {anterior} → {config.dias_ventana_reincidencia} días. '
+            'Aplica a las sanciones que se generen a partir de ahora; las ya existentes no '
+            'cambian.')
+        logger.info('Ventana de reincidencia cambiada de %s a %s días por %s',
+                    anterior, config.dias_ventana_reincidencia,
+                    getattr(request.user, 'username', '?'))
+        return redirect('sanciones_morosos')

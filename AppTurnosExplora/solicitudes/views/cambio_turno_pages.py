@@ -1,4 +1,5 @@
-from django.shortcuts import render, get_object_or_404
+from django.contrib import messages
+from django.shortcuts import render, get_object_or_404, redirect
 from django.views.generic import TemplateView
 from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
@@ -19,7 +20,15 @@ class CambioTurnoInicioView(LoginRequiredMixin, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         from ..services.solicitud_consulta_service import SolicitudConsultaService
+        from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
         context['tipos_solicitud'] = SolicitudConsultaService.get_tipos_solicitud_activos()
+
+        # Un explorador sancionado ve las tarjetas, pero desactivadas y con el motivo.
+        # Antes esta pantalla no miraba la sanción en absoluto: el moroso entraba, elegía
+        # tipo, llenaba el formulario entero y solo chocaba con el 403 al enviarlo.
+        sancion = refrescar_y_sancion(getattr(self.request.user, 'empleado', None))
+        if sancion:
+            context['sancion_msg'] = mensaje_sancion(sancion)
         return context
     
 class SolicitarCambioTurnoView(LoginRequiredMixin, View):
@@ -45,6 +54,16 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
     }
 
     def get(self, request, tipo_id):
+        # Sanción ANTES de servir el formulario: el POST ya rechaza al sancionado
+        # (`SolicitudOrchestrator.procesar`, paso 1), pero llegar hasta ahí obliga a llenar
+        # todo el formulario para descubrirlo. Se comprueba aquí también, no en vez de allí:
+        # la pantalla es comodidad, el POST es la puerta que de verdad cierra.
+        from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
+        sancion = refrescar_y_sancion(getattr(request.user, 'empleado', None))
+        if sancion:
+            messages.warning(request, mensaje_sancion(sancion))
+            return redirect('solicitudes:cambio_turno_inicio')
+
         tipo_solicitud = get_object_or_404(TipoSolicitudCambio, id=tipo_id)
 
         codigo = (tipo_solicitud.codigo_estrategia or '').strip().upper()

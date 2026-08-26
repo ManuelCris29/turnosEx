@@ -8,3 +8,20 @@
 .deuda-horas { margin-left: auto; font-weight: 700; color: #b45309; }
 #pdh_total_box { font-size: 18px; font-weight: 700; }
 .pdh-empty { color: #6b7280; padding: 14px; text-align: center; }
+
+/* --- Deudas agrupadas por mes ---------------------------------------------
+   El mes es la unidad en que la deuda vence y en que se sanciona, así que la
+   pantalla lo agrupa por meses en vez de dar una lista plana: el supervisor
+   necesita ver de un vistazo qué periodo está a punto de costar una sanción. */
+.pdh-mes { border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px 12px; margin-bottom: 14px; }
+.pdh-mes-vencido { border-color: #fca5a5; background: #fef2f2; }
+.pdh-mes-cabecera { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed #e5e7eb; }
+.pdh-mes-nombre { font-weight: 700; font-size: 15px; }
+.pdh-mes-cifra { font-size: 12px; color: #6b7280; }
+.pdh-mes-pendiente { margin-left: auto; font-weight: 700; color: #b45309; }
+.badge-vencido { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: #dc2626; color: #fff; }
+/* Campo de pago parcial: solo lo llevan las deudas de permiso, que se pueden
+   abonar por partes (una doblada son 30 min indivisibles). */
+.deuda-importe { width: 80px; margin-left: auto; padding: 4px 6px; border: 1px solid #d1d5db; border-radius: 6px; font-weight: 600; text-align: right; }
+.deuda-importe:disabled { background: #f3f4f6; color: #9ca3af; }
+.deuda-importe + .deuda-horas { margin-left: 0; font-weight: 500; color: #6b7280; font-size: 12px; }

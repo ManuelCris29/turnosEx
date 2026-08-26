@@ -32,6 +32,11 @@
         <h3><i class="fas fa-clipboard-list"></i> Historial de sanciones</h3>
         {% if es_supervisor %}
         <div class="pg-actions">
+          {% comment %}
+          La sanción por deuda solo se calcula cuando el explorador entra a la app, así que
+          desde aquí no se ve al moroso que todavía no ha entrado. Este es el atajo a esa lista.
+          {% endcomment %}
+          <a href="{% url 'sanciones_morosos' %}" class="pg-btn pg-btn-light"><i class="fas fa-hourglass-half"></i> Deudas de horas</a>
           <a href="{% url 'sanciones_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Nueva sanción</a>
         </div>
         {% endif %}

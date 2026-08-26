@@ -6,6 +6,7 @@ from .views import (
     JornadaListView, JornadaCreateView, JornadaUpdateView, JornadaDeleteView,
     RestriccionListView, RestriccionCreateView, RestriccionUpdateView, RestriccionDeleteView,
     SancionListView, SancionCreateView, SancionUpdateView, SancionLevantarView,
+    MorososDeudaView,
     PDHListView, PDHCreateView, PDHUpdateView, PDHDeleteView, DeudasPendientesExploradorView,
     ChangePasswordView, RoleUpdateView, RoleDeleteView,
     SancionVisualizarListView, RestriccionVisualizarListView,
@@ -43,6 +44,9 @@ urlpatterns = [
     path('sanciones/edit/<int:pk>/', SancionUpdateView.as_view(), name='sanciones_edit'),
     # Sin ruta de borrado a propósito: una sanción no se elimina, se levanta.
     path('sanciones/levantar/<int:pk>/', SancionLevantarView.as_view(), name='sanciones_levantar'),
+    # Deudas de horas vencidas: la sanción automática es perezosa, así que sin esta
+    # pantalla el supervisor no puede ver al moroso que todavía no ha entrado a la app.
+    path('sanciones/morosos/', MorososDeudaView.as_view(), name='sanciones_morosos'),
     path('pdh/', PDHListView.as_view(), name='pdh_list'),
     path('pdh/create/', PDHCreateView.as_view(), name='pdh_create'),
     path('pdh/deudas-pendientes/', DeudasPendientesExploradorView.as_view(), name='pdh_deudas_pendientes'),

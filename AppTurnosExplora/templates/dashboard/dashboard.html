@@ -20,6 +20,36 @@
   <a href="{% url 'apertura_anio' apertura_aviso.anio %}" class="pg-btn pg-btn-primary pg-btn-sm">Ver checklist</a>
 </div>
 {% endif %}
+{% if revision_dias_sin_correr %}
+<div class="alert alert-danger" style="border-radius:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+  <span style="font-size:20px;">🚨</span>
+  <div style="flex:1; min-width:260px;">
+    <strong>La revisión automática de sanciones no se está ejecutando.</strong>
+    {% if revision_dias_sin_correr >= 9999 %}
+      No hay constancia de que haya corrido nunca: es probable que la tarea programada no
+      llegara a configurarse en el despliegue.
+    {% else %}
+      Lleva {{ revision_dias_sin_correr }} días sin correr.
+    {% endif %}
+    <small class="d-block mt-1">
+      Mientras no corra, nadie queda sancionado hasta que entra a la app por su cuenta.
+      Avisa a soporte técnico: hay que revisar la tarea <code>revisar_sanciones_por_deuda</code>.
+    </small>
+  </div>
+  <a href="{% url 'sanciones_morosos' %}" class="btn btn-light btn-sm" style="text-decoration:none; white-space:nowrap;">Revisar a mano</a>
+</div>
+{% endif %}
+{% if morosos_pendientes %}
+<div class="alert alert-warning" style="border-radius:8px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+  <span style="font-size:20px;">⏳</span>
+  <div style="flex:1; min-width:260px;">
+    <strong>{{ morosos_pendientes }} explorador{{ morosos_pendientes|pluralize:"es" }} con deuda de horas vencida sin sancionar.</strong>
+    Su plazo de pago terminó y todavía pueden solicitar cambios de turno y permisos.
+    <small class="d-block mt-1">La sanción se aplica sola cuando el explorador entra a la app; desde aquí puedes adelantarla.</small>
+  </div>
+  <a href="{% url 'sanciones_morosos' %}" class="btn btn-primary btn-sm" style="text-decoration:none; white-space:nowrap;">Ver deudas</a>
+</div>
+{% endif %}
 <!-- Hero / bienvenida -->
 <div class="dash-hero">
   <div>
