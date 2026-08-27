@@ -52,7 +52,9 @@
     importe.disabled = !ch.checked;
   }
 
-  function crearItem(item, marcar){
+  // Un mes vencido ya no se cobra: se salda cumpliendo la sanción. La casilla se deshabilita
+  // en vez de ocultar el mes, porque el supervisor necesita seguir viendo lo que se debe.
+  function crearItem(item, marcar, pagable){
     const label = document.createElement('label');
     label.className = 'deuda-item';
 
@@ -61,7 +63,12 @@
     ch.name = 'deudas';
     ch.value = item.key;
     ch.dataset.horas = item.horas;
-    ch.checked = (marcar || []).indexOf(item.key) !== -1;
+    ch.checked = pagable && (marcar || []).indexOf(item.key) !== -1;
+    ch.disabled = !pagable;
+    if (!pagable) {
+      label.classList.add('deuda-item-bloqueada');
+      label.title = 'El plazo de este mes venció: esta deuda ya no se paga.';
+    }
 
     label.appendChild(ch);
     label.appendChild(span('badge-tipo ' + (item.tipo === 'doblada' ? 'badge-doblada' : 'badge-permiso'),
@@ -79,6 +86,7 @@
       importe.max = String(item.horas_pendientes);
       importe.value = String(item.horas_pendientes);
       importe.title = 'Puedes abonar solo una parte de este mes';
+      importe.disabled = !pagable;
       importe.addEventListener('input', recalcular);
       // Un clic en el campo no debe marcar/desmarcar la casilla que lo envuelve.
       importe.addEventListener('click', e => e.stopPropagation());
@@ -103,13 +111,17 @@
     if (mes.vencido) {
       cabecera.appendChild(span('badge-vencido', 'VENCIDO'));
     }
+    if (!mes.pagable) {
+      cabecera.appendChild(span('pdh-mes-nota', 'No se puede pagar: el plazo cerró'));
+    }
     cabecera.appendChild(span('pdh-mes-cifra', 'Debido ' + mes.horas_debidas + ' h'));
     cabecera.appendChild(span('pdh-mes-cifra', 'Pagado ' + mes.horas_pagadas + ' h'));
     cabecera.appendChild(span('pdh-mes-cifra pdh-mes-pendiente',
                               'Pendiente ' + mes.horas_pendientes + ' h'));
     bloque.appendChild(cabecera);
 
-    (mes.items || []).forEach(item => bloque.appendChild(crearItem(item, marcar)));
+    // `pagable` lo decide el servidor (PagoHorasService): aquí no se recalcula la fecha.
+    (mes.items || []).forEach(item => bloque.appendChild(crearItem(item, marcar, mes.pagable !== false)));
     return bloque;
   }
 

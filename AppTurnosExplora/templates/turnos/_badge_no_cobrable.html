@@ -1,0 +1,5 @@
+{% comment %}
+Marca una línea de deuda cuyo mes ya cerró: se sigue debiendo, pero ya no se puede cobrar
+—se extingue cuando el explorador termina de cumplir la sanción—. Es un parcial y no HTML
+repetido en cada tabla para que el texto no se desincronice entre secciones.
+{% endcomment %}{% if f.vencida %} <span class="badge badge-nocobrable" title="El plazo de este mes venció: ya no se puede pagar. Se salda cumpliendo la sanción.">En sanción · no cobrable</span>{% endif %}

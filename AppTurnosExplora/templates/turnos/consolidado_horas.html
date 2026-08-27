@@ -45,8 +45,17 @@
             <div class="ch-horas">
                 <div class="lbl">Saldo (horas pendientes)</div>
                 <div class="val">{{ consolidado.total_horas }}</div>
-                <div style="font-size:.72rem;color:#6b7280;margin-top:4px;">
-                    Acumulado {{ consolidado.total_acumulado }} h − Pagado {{ consolidado.total_pagado }} h
+                {% comment %}
+                El histórico NO es una resta: es el reparto de las MISMAS horas entre los tres
+                estados por los que pueden pasar. Escrito como suma se lee solo.
+                {% endcomment %}
+                <div class="ch-historico">
+                    <div class="ch-historico-tit">Histórico: {{ consolidado.total_acumulado }} h</div>
+                    <div class="ch-historico-desglose">
+                        <span><b>{{ consolidado.total_horas }}</b> pendiente</span>
+                        <span>+ <b>{{ consolidado.total_pagado }}</b> pagado</span>
+                        <span>+ <b>{{ consolidado.total_saldado_sancion }}</b> saldado por sanción</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -64,7 +73,7 @@
                     <tbody>
                     {% for f in consolidado.solicitante %}
                         <tr>
-                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.fecha_str }}{% include 'turnos/_badge_no_cobrable.html' %}</td>
                             <td>{{ f.horas }}</td>
                             <td>{{ f.contraparte }}</td>
                             <td><span class="badge badge-light">{{ f.tipo }}</span></td>
@@ -91,7 +100,7 @@
                     <tbody>
                     {% for f in consolidado.reemplazante %}
                         <tr>
-                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.fecha_str }}{% include 'turnos/_badge_no_cobrable.html' %}</td>
                             <td>{{ f.horas }}</td>
                             <td>{{ f.contraparte }}</td>
                             <td><span class="badge badge-light">{{ f.tipo }}</span></td>
@@ -118,7 +127,7 @@
                     <tbody>
                     {% for f in consolidado.otras %}
                         <tr>
-                            <td>{{ f.fecha_str }}</td>
+                            <td>{{ f.fecha_str }}{% include 'turnos/_badge_no_cobrable.html' %}</td>
                             <td>{{ f.horas }}</td>
                             <td>{{ f.comentario }}</td>
                         </tr>
@@ -142,7 +151,11 @@
                     <tbody>
                     {% for f in consolidado.permisos %}
                         <tr>
-                            <td>{{ f.fecha_str }}</td>
+                            {% comment %}
+                            Un permanente no ocupa un tramo continuo: son días sueltos repartidos
+                            por el mes, así que el mes con su número de días es lo exacto.
+                            {% endcomment %}
+                            <td>{{ f.fecha_str }}{% if f.es_permanente %} <span class="text-muted small">· {{ f.ocurrencias }} día{{ f.ocurrencias|pluralize }}</span>{% endif %}{% include 'turnos/_badge_no_cobrable.html' %}</td>
                             <td>{{ f.horas }}{% if f.es_permanente %} <span class="text-muted small">({{ f.tiempo }}×ocurr.)</span>{% endif %}</td>
                             <td>{% if f.es_permanente %}<span class="badge badge-info">Permanente</span>{% else %}<span class="badge badge-light">Puntual</span>{% endif %} {{ f.tipo }}</td>
                             <td>{{ f.detalle|default:"—" }}</td>
@@ -202,10 +215,50 @@
             {% endif %}
         </div>
 
+        {# --- Saldado por sanción cumplida: no se cobró, se cumplió --- #}
+        {% if consolidado.saldadas_sancion %}
+        <div class="ch-section">
+            <div class="ch-section-title" style="background:#f5f3ff;color:#5b21b6;">
+                <span><i class="fas fa-gavel mr-2"></i>Saldado por sanción cumplida</span>
+                <span class="badge badge-horas">− {{ consolidado.total_saldado_sancion }} h</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Mes debido</th><th>Horas</th><th>Deudas extinguidas</th><th>Sanción cumplida</th></tr></thead>
+                    <tbody>
+                    {% for f in consolidado.saldadas_sancion %}
+                        <tr>
+                            <td>{{ f.periodo_str }}</td>
+                            <td class="text-danger">−{{ f.horas }}</td>
+                            <td>
+                                <details class="pago-detalle">
+                                    <summary><i class="fas fa-chevron-right chev mr-1"></i><i class="fas fa-list-ul mr-1"></i>Ver {{ f.detalle_deudas|length }} deuda{{ f.detalle_deudas|length|pluralize }}</summary>
+                                    <div class="pago-detalle-list">
+                                        {% for d in f.detalle_deudas %}
+                                            <div class="item">
+                                                <span class="badge {% if d.tipo == 'doblada' %}badge-info{% else %}badge-secondary{% endif %}">{% if d.tipo == 'doblada' %}Doblada{% else %}Permiso{% endif %}</span>
+                                                <span>{{ d.descripcion }}</span>
+                                                <span class="text-muted">· {{ d.horas }} h</span>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </details>
+                            </td>
+                            <td>Del {{ f.inicio_str }} al {{ f.fin_str }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="ch-nota">
             <i class="fas fa-info-circle mr-1"></i>
             El <strong>saldo</strong> = horas acumuladas (dobladas + permisos especiales aprobados) menos los
-            <strong>pagos de horas</strong> (PDH) autorizados por un supervisor.
+            <strong>pagos de horas</strong> (PDH) autorizados por un supervisor y lo que se
+            <strong>saldó cumpliendo una sanción</strong>. Un mes que vence sin pagarse ya no se cobra:
+            se extingue cuando el explorador termina de cumplir la sanción que generó.
         </div>
 
     {% elif es_supervisor %}

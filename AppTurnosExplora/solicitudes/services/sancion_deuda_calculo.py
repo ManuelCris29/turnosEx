@@ -96,6 +96,16 @@ class Periodo:
         """Primer día en que la deuda de este mes ya está vencida."""
         return self.fin_de_plazo() + timedelta(days=1)
 
+    def esta_vencido(self, hoy: date) -> bool:
+        """
+        True si el plazo para pagar este mes ya pasó.
+
+        Sigue siendo una función pura: el reloj lo pone quien llama. Vive aquí, y no en la
+        pantalla de pago, porque es exactamente el mismo corte que decide si un mes sanciona
+        —y dos definiciones de "vencido" acabarían discrepando algún día 1 de mes—.
+        """
+        return hoy > self.fin_de_plazo()
+
     def nombre(self) -> str:
         """'agosto 2026', para redactar avisos y motivos."""
         return f'{_MESES[self.mes - 1]} {self.anio}'

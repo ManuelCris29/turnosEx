@@ -87,6 +87,14 @@ meses limpios para prescribir.
 > **Cuidado al bajarla mucho.** Por debajo de 13 días la reincidencia no se encadena ni
 > entre meses consecutivos, y todas las sanciones salen de 15 días.
 
+**Una deuda vencida ya no se paga.** La pantalla de PDH sigue mostrando los meses cerrados
+—el supervisor tiene que ver qué se debe— pero con la casilla **deshabilitada**, y el
+servicio rechaza el pago aunque el POST se reenvíe. Solo se cobra el mes en curso: lo
+anterior se extingue cumpliendo la sanción. En el consolidado esas horas aparecen en la
+sección **«Saldado por sanción cumplida»**, con el detalle de qué deudas extinguió cada
+sanción; no cuentan como pendientes ni como pagadas, pero siguen sumando en el histórico
+acumulado.
+
 **Pagar la deuda NO levanta la sanción.** Se cumple completa. Esto cambió a propósito:
 mientras el pago la levantaba, la sanción funcionaba como una fianza reembolsable —el
 moroso decidía cuándo dejar de estar bloqueado— en vez de como una consecuencia.

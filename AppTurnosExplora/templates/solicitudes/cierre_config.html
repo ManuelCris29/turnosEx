@@ -75,8 +75,10 @@
       </div>
       <div class="pg-card-body">
 
-        {# Los formularios viven fuera de la tabla (un <form> no es válido dentro de <tbody>);
-           cada control se asocia con el atributo `form`. #}
+        {% comment %}
+        Los formularios viven fuera de la tabla (un <form> no es válido dentro de <tbody>);
+        cada control se asocia con el atributo `form`.
+        {% endcomment %}
         {% for s in semanas %}
           <form method="post" id="cc-ov-{{ forloop.counter }}"></form>
           {% if s.override %}

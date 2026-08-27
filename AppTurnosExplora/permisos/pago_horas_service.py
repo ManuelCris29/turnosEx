@@ -14,6 +14,11 @@ Las deudas de permiso admiten PAGO PARCIAL. Antes la unidad mínima era el permi
 lo que tenía dos consecuencias malas: no se podía abonar una parte, y un permiso permanente
 largo era directamente impagable porque su total superaba el tope de un solo registro.
 
+Solo se puede pagar el mes EN CURSO. Un mes ya cerrado está vencido: su deuda dejó de ser
+cobrable y se salda por otra vía (la sanción cumplida la extingue). Aceptar ese pago sería
+cobrar dos veces lo mismo —el castigo y las horas— y además dejaría al supervisor creyendo
+que con pagar levanta el bloqueo, que es justo lo que la regla de sanciones descartó.
+
 Al pagar, las deudas quedan marcadas y vinculadas al PDH; al borrarlo, se reactivan con el
 importe exacto que este cubría.
 """
@@ -24,6 +29,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from solicitudes.models import DeudaCorporativa
+from solicitudes.services.sancion_deuda_calculo import Periodo
 
 from .models import PDH, DeudaPermisoMes, PagoDeudaPermisoMes
 
@@ -48,12 +54,12 @@ def _horas(minutos):
 class PagoHorasService:
 
     @staticmethod
-    def deudas_pendientes(explorador):
+    def deudas_pendientes(explorador, hoy=None):
         """
         Deudas pendientes del explorador AGRUPADAS POR MES, del más antiguo al más reciente.
 
         Cada grupo:
-            {periodo, anio, mes, etiqueta, vencido,
+            {periodo, anio, mes, etiqueta, vencido, pagable,
              horas_debidas, horas_pagadas, horas_pendientes, items: [...]}
 
         Cada item:
@@ -63,7 +69,11 @@ class PagoHorasService:
         ítems con `parcial=True` aceptan un importe; los demás se pagan enteros.
 
         `vencido` marca los meses ya cerrados: son los que sancionan, y por eso la pantalla
-        tiene que poder destacarlos.
+        tiene que poder destacarlos. `pagable` es su negación, y existe aparte porque es lo
+        que la pantalla necesita para deshabilitar la casilla: si algún día un mes vencido
+        volviera a admitir pago, cambia aquí y no en el JavaScript.
+
+        `hoy` se inyecta para poder fijar el día en las pruebas; por defecto, el de hoy.
         """
         # Red de seguridad: un permiso aprobado por una vía que no sincronizara sus meses
         # sería invisible aquí, y el explorador parecería no deber nada.
@@ -139,15 +149,17 @@ class PagoHorasService:
                                 f'{d.ocurrencias} día(s) en el mes'),
             })
 
-        hoy = date.today()
+        hoy = hoy or date.today()
         salida = []
         for (anio, mes), grupo in sorted(grupos.items()):
             pendientes = sum(i['horas_pendientes'] for i in grupo['items'])
+            vencido = Periodo(anio, mes).esta_vencido(hoy)
             salida.append({
                 'periodo': grupo['periodo'],
                 'anio': anio, 'mes': mes,
                 'etiqueta': grupo['etiqueta'],
-                'vencido': (anio, mes) < (hoy.year, hoy.month),
+                'vencido': vencido,
+                'pagable': not vencido,
                 'horas_debidas': _horas(grupo['minutos_debidos']),
                 'horas_pagadas': _horas(grupo['minutos_pagados']),
                 'horas_pendientes': round(pendientes, 2),
@@ -173,7 +185,8 @@ class PagoHorasService:
 
     @staticmethod
     @transaction.atomic
-    def aplicar_pago(supervisor, explorador, fecha, keys, comentario='', importes=None):
+    def aplicar_pago(supervisor, explorador, fecha, keys, comentario='', importes=None,
+                     hoy=None):
         """
         Crea el PDH por las deudas seleccionadas y las marca como pagadas.
         Devuelve (pdh, error). Si error != None, no se creó nada.
@@ -183,6 +196,8 @@ class PagoHorasService:
         se abona íntegro. Un importe mayor que lo pendiente se rechaza en vez de recortarse
         en silencio: casi siempre es un error de quien lo teclea, y aceptarlo dejaría el
         PDH diciendo que se pagó más de lo que se debía.
+
+        `hoy` fija el día que decide qué meses están vencidos (inyectable para las pruebas).
         """
         dob_ids, permes_ids = PagoHorasService._split_keys(keys)
         if not dob_ids and not permes_ids:
@@ -202,6 +217,12 @@ class PagoHorasService:
         )
         if len(dobladas) != len(dob_ids) or len(deudas_mes) != len(permes_ids):
             return None, 'Alguna deuda seleccionada ya no está pendiente. Recarga la lista e intenta de nuevo.'
+
+        vencidos = PagoHorasService._periodos_vencidos(dobladas, deudas_mes, hoy or date.today())
+        if vencidos:
+            meses = ', '.join(p.nombre() for p in vencidos)
+            return None, (f'No se puede pagar la deuda de {meses}: ese plazo ya venció. '
+                          f'Un mes cerrado se salda cumpliendo la sanción, no pagándolo.')
 
         importes = importes or {}
         a_pagar = {}
@@ -275,6 +296,19 @@ class PagoHorasService:
         logger.info("PDH %s creado: %s dobladas + %s meses de permiso = %s h (explorador %s)",
                     pdh.id, len(dobladas), len(deudas_mes), total_horas, explorador.id)
         return pdh, None
+
+    @staticmethod
+    def _periodos_vencidos(dobladas, deudas_mes, hoy):
+        """
+        Los meses de la selección cuyo plazo ya pasó, ordenados y sin repetir.
+
+        Se comprueba en el servicio y no solo en la pantalla porque la casilla deshabilitada
+        es una cortesía, no una defensa: el POST se puede reenviar con la lista de meses de
+        ayer, y ese reenvío es precisamente el que llega el día 1 a las 00:05.
+        """
+        periodos = {Periodo.de_fecha(d.fecha_doblada) for d in dobladas}
+        periodos |= {d.periodo for d in deudas_mes}
+        return sorted(p for p in periodos if p.esta_vencido(hoy))
 
     @staticmethod
     def _recalcular_permisos(permiso_ids):

@@ -18,8 +18,10 @@
     {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
 
     {% if es_admin_total %}
-    {# Sin este aviso, el administrador marcaría casillas durante un rato antes de
-       descubrir que a este usuario no le afecta ninguna. #}
+    {% comment %}
+    Sin este aviso, el administrador marcaría casillas durante un rato antes de
+    descubrir que a este usuario no le afecta ninguna.
+    {% endcomment %}
     <div class="alert alert-warning shadow-sm">
       <i class="fas fa-exclamation-triangle"></i>
       <strong>Este usuario es administrador de la aplicación</strong> (<code>is_staff</code>),

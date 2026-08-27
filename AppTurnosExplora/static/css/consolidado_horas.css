@@ -13,6 +13,19 @@
 }
 .ch-horas .val { font-size: 1.7rem; font-weight: 700; line-height: 1; }
 .ch-horas .lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .5px; color: #6b7280; }
+
+/* Histórico: el mismo total repartido en tres estados. Se escribe como SUMA, no como resta,
+   porque leído con signos menos parecía que el histórico bajaba al pagar o al sancionar. */
+.ch-historico { margin-top: 8px; text-align: right; }
+.ch-historico-tit { font-size: .74rem; font-weight: 700; color: #4b5563; }
+.ch-historico-desglose { font-size: .7rem; color: #6b7280; display: flex; gap: 8px;
+                         justify-content: flex-end; flex-wrap: wrap; margin-top: 2px; }
+.ch-historico-desglose b { color: #374151; font-weight: 700; }
+
+/* Deuda de un mes ya cerrado: se sigue debiendo, pero ya no se puede cobrar. */
+.badge-nocobrable { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe;
+                    font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+                    margin-left: 6px; white-space: nowrap; cursor: help; }
 .ch-section { background: #fff; border-radius: 12px; box-shadow: 0 4px 14px rgba(15,23,42,.06); margin-bottom: 18px; overflow: hidden; }
 .ch-section-title { padding: 12px 18px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
 .ch-section-title.solic { background: #eef2ff; color: #3730a3; }

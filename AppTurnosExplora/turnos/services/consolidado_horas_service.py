@@ -9,8 +9,13 @@ Se separa por rol del explorador en la solicitud que originó cada deuda:
 
 Pendiente (futuro): Permisos Especiales y Pago de Horas (descuentos) también afectan el total.
 """
+
+from django.db import models
+from django.utils import timezone
+
 from empleados.models import Empleado
 from solicitudes.models import DeudaCorporativa
+from solicitudes.services.sancion_deuda_calculo import Periodo
 
 _MESES_ES = [
     '', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
@@ -23,6 +28,29 @@ def _fecha_es(d):
     if not d:
         return ''
     return f"{d.day} de {_MESES_ES[d.month]} de {d.year}"
+
+
+def _dias_del_permiso(permiso):
+    """
+    Los días que abarca un permiso puntual, en español: '26 de junio de 2026'.
+
+    La columna «Fecha» del consolidado decía «Junio 2026» aquí y «6 de noviembre de 2026»
+    en las demás secciones, porque la deuda de permiso se guarda por mes y las dobladas por
+    día. Dos vocabularios en la misma columna hacen dudar de si falta el día o es que no lo
+    hay, así que el puntual —que tiene un día concreto— lo enseña.
+
+    NO se recorta contra el mes de la deuda. Un permiso puntual genera UNA sola obligación,
+    en el mes de su fecha de inicio, aunque el rango cruce de mes (`ocurrencias_por_mes`).
+    Recortarlo escondería días que sí se deben: un permiso del 28/06 al 02/07 diría «28 al
+    30 de junio» y se perderían dos días de vista.
+    """
+    desde = permiso.fecha_inicio
+    hasta = permiso.fecha_fin or desde
+    if hasta <= desde:
+        return _fecha_es(desde)
+    if (desde.year, desde.month) == (hasta.year, hasta.month):
+        return f'{desde.day} al {hasta.day} de {_MESES_ES[desde.month]} de {desde.year}'
+    return f'{_fecha_es(desde)} al {_fecha_es(hasta)}'
 
 
 class ConsolidadoHorasService:
@@ -44,7 +72,66 @@ class ConsolidadoHorasService:
         return Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
 
     @staticmethod
-    def get_consolidado(empleado) -> dict:
+    def _saldadas_por_sancion(empleado) -> list:
+        """
+        Deudas que extinguió una sanción ya cumplida, agrupadas por la sanción que las saldó.
+
+        Estas horas no están pendientes (ya no se pueden cobrar) ni pagadas (no hubo PDH),
+        así que sin esta sección desaparecían del consolidado sin dejar rastro y el
+        explorador no tenía dónde ver por qué dejó de deberlas. Se muestran aparte, con el
+        mismo detalle que un pago, porque cumplen la misma función: explicar una extinción.
+        """
+        from empleados.models import SancionEmpleado
+
+        consumidas = (
+            SancionEmpleado.objects
+            .filter(explorador=empleado)
+            .filter(models.Q(deudas_corporativas_consumidas__isnull=False)
+                    | models.Q(deudas_permiso_consumidas__isnull=False))
+            .prefetch_related(
+                'deudas_corporativas_consumidas__solicitud_origen__tipo_cambio',
+                'deudas_permiso_consumidas__permiso',
+            )
+            .distinct()
+            .order_by('fecha_inicio', 'id')
+        )
+
+        filas = []
+        for sancion in consumidas:
+            detalle, minutos = [], 0
+            for d in sancion.deudas_corporativas_consumidas.all():
+                origen = (d.solicitud_origen.tipo_cambio.nombre
+                          if d.solicitud_origen and d.solicitud_origen.tipo_cambio else 'Doblada')
+                minutos += d.minutos
+                detalle.append({
+                    'tipo': 'doblada',
+                    'horas': round(d.minutos / 60, 2),
+                    'descripcion': f'{origen} {_fecha_es(d.fecha_doblada)}',
+                })
+            for d in sancion.deudas_permiso_consumidas.all():
+                # Lo extinguido es lo que quedaba SIN pagar: si abonó una parte a tiempo,
+                # esa parte ya figura en la sección de pagos y contarla aquí la duplicaría.
+                minutos += d.minutos_pendientes
+                detalle.append({
+                    'tipo': 'permiso',
+                    'horas': d.horas_pendientes,
+                    'descripcion': f'Permiso {d.permiso.get_tipo_display()} — {d.periodo.nombre()}',
+                })
+            if not detalle:
+                continue
+            filas.append({
+                'periodo_str': (Periodo(sancion.periodo_anio, sancion.periodo_mes).nombre().capitalize()
+                                if sancion.periodo_anio and sancion.periodo_mes else '—'),
+                'horas': round(minutos / 60, 2),
+                'inicio_str': _fecha_es(sancion.fecha_inicio),
+                'fin_str': _fecha_es(sancion.fecha_fin),
+                'motivo': sancion.motivo,
+                'detalle_deudas': detalle,
+            })
+        return filas
+
+    @staticmethod
+    def get_consolidado(empleado, hoy=None) -> dict:
         """
         Devuelve el consolidado de horas del explorador, separado por rol.
 
@@ -55,7 +142,13 @@ class ConsolidadoHorasService:
               'otras': [...],
               'total_solicitante', 'total_reemplazante', 'total_otras', 'total_horas'
             }
+
+        Cada línea de deuda lleva `vencida`: su mes ya cerró, así que sigue debiéndose pero
+        YA NO SE PUEDE COBRAR —se extingue cumpliendo la sanción—. Sin esa marca, entre el
+        vencimiento y el fin de la sanción el consolidado enseña una deuda con pinta de
+        normal que en realidad nadie puede reclamar. `hoy` se inyecta para las pruebas.
         """
+        hoy = hoy or timezone.localdate()
         deudas = (
             DeudaCorporativa.objects
             .filter(explorador=empleado, estado='activa')
@@ -80,6 +173,7 @@ class ConsolidadoHorasService:
                 'horas': round(d.minutos / 60, 2),
                 'tipo': (s.tipo_cambio.nombre if s and s.tipo_cambio else 'Fin de semana'),
                 'comentario': d.comentario or '',
+                'vencida': Periodo.de_fecha(d.fecha_doblada).esta_vencido(hoy),
             }
             if s and s.explorador_solicitante_id == empleado.id:
                 fila['contraparte'] = f"{s.explorador_receptor.nombre} {s.explorador_receptor.apellido}" if s.explorador_receptor else '—'
@@ -94,12 +188,13 @@ class ConsolidadoHorasService:
         def _suma(filas):
             return round(sum(f['horas'] for f in filas), 2)
 
+        from permisos.models import DeudaPermisoMes
+
         # --- Permisos especiales aprobados: acumulan horas que el explorador debe ---
         # Se leen de las deudas MENSUALES y no de `horas_totales()`. La diferencia importa:
         # el total del permiso ignora lo ya abonado a cuenta, así que un permanente medio
         # pagado seguiría figurando por su importe completo. Aquí se suma lo PENDIENTE, mes
         # a mes, que es lo que de verdad se le puede reclamar.
-        from permisos.models import DeudaPermisoMes
         deudas_mes = (
             DeudaPermisoMes.objects
             .filter(explorador=empleado, estado='activa')
@@ -116,16 +211,21 @@ class ConsolidadoHorasService:
             total_permisos += h
             if pe.es_permanente:
                 detalle = pe.dias_semana_legible()
+                fecha_str = f'{_MESES_ES[d.mes].capitalize()} {d.anio}'
             else:
                 detalle = pe.especificacion or ''
+                fecha_str = _dias_del_permiso(pe)
             permisos.append({
-                'fecha_str': f'{_MESES_ES[d.mes].capitalize()} {d.anio}',
+                'fecha_str': fecha_str,
+                'ocurrencias': d.ocurrencias,
+                'mes_str': f'{_MESES_ES[d.mes].capitalize()} {d.anio}',
                 'horas': h,
                 'tiempo': float(pe.tiempo or 0),
                 'es_permanente': pe.es_permanente,
                 'tipo': pe.get_tipo_display(),
                 'detalle': detalle,
                 'motivo': pe.motivo,
+                'vencida': d.periodo.esta_vencido(hoy),
             })
         total_permisos = round(total_permisos, 2)
 
@@ -173,8 +273,15 @@ class ConsolidadoHorasService:
                 'detalle_deudas': detalle_deudas,
             })
         total_pagado = round(sum(p['horas'] for p in pagos), 2)
-        # Histórico = lo que aún debe + lo que ya pagó (solo informativo).
-        total_acumulado = round(saldo + total_pagado, 2)
+
+        # --- Saldado por sanción cumplida: ni pendiente ni pagado, pero tampoco invisible ---
+        sanciones = ConsolidadoHorasService._saldadas_por_sancion(empleado)
+        total_saldado_sancion = round(float(sum(x['horas'] for x in sanciones)), 2)
+
+        # Histórico = lo que aún debe + lo que pagó + lo que extinguió cumpliendo sanciones.
+        # Sin el tercer sumando, el acumulado de una persona ENCOGÍA al cumplir el castigo,
+        # como si esas horas no hubieran existido nunca.
+        total_acumulado = round(saldo + total_pagado + total_saldado_sancion, 2)
 
         return {
             'solicitante': solicitante,
@@ -182,6 +289,8 @@ class ConsolidadoHorasService:
             'otras': otras,
             'permisos': permisos,
             'pagos': pagos,
+            'saldadas_sancion': sanciones,
+            'total_saldado_sancion': total_saldado_sancion,
             'total_solicitante': _suma(solicitante),
             'total_reemplazante': _suma(reemplazante),
             'total_otras': _suma(otras),

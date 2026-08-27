@@ -74,16 +74,18 @@ class AplicarPagoTest(PagoHorasBase):
 
     def test_tope_de_24_horas(self):
         """PDH.clean() limita a 24 h, pero solo se aplica si alguien lo ejecuta."""
+        # Todas del mes EN CURSO: una deuda vencida se rechaza antes de llegar al tope, y
+        # entonces esta prueba dejaría de comprobar lo que dice comprobar.
         keys = []
-        for i in range(50):  # 50 × 0.5 h = 25 h
-            keys.append(f'doblada:{self._deuda(fecha=self.ayer - timedelta(days=i)).id}')
+        for _ in range(25):  # 25 × 1 h = 25 h
+            keys.append(f'doblada:{self._deuda(minutos=60, fecha=date.today()).id}')
         pdh, error = PagoHorasService.aplicar_pago(
             supervisor=self.supervisor, explorador=self.explorador, fecha=date.today(), keys=keys,
         )
         self.assertIsNone(pdh)
         self.assertIn('24', error)
         self.assertEqual(PDH.objects.count(), 0)
-        self.assertEqual(DeudaCorporativa.objects.filter(estado='activa').count(), 50)
+        self.assertEqual(DeudaCorporativa.objects.filter(estado='activa').count(), 25)
 
     def test_fecha_futura_permitida(self):
         # El pago se acuerda con el explorador: el supervisor puede fecharlo a futuro.
