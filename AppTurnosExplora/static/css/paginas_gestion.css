@@ -106,6 +106,9 @@
 .pg-btn-success:hover { color: #fff; }
 .pg-btn-secondary { background: #e5e7eb; color: #374151; }
 .pg-btn-danger { background: #ef4444; color: #fff; }
+/* Guardado atómico: sin cambios que guardar, el botón se apaga (ver js/utils/guardado_atomico.js). */
+.pg-btn:disabled, .pg-btn.pg-btn-disabled { opacity: .5; cursor: not-allowed; filter: grayscale(.4); }
+.pg-btn:disabled:hover, .pg-btn.pg-btn-disabled:hover { transform: none; box-shadow: none; }
 .pg-btn-warn { background: #f59e0b; color: #fff; }
 .pg-btn-sm { padding: .35rem .55rem; font-size: .82rem; }
 
