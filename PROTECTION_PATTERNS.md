@@ -68,7 +68,8 @@ with transaction.atomic():
 
 **Por qué:** Evita corrupción de snapshot si la operación se re-aplica accidentalmente (doble clic a pesar de otras protecciones).
 
-**Dónde:** Antes de capturar estado que se revertirá en cancellations (ventana de 30 min).
+**Dónde:** Antes de capturar estado que se revertirá si la solicitud se cancela (ver #17: se
+pide dentro de 24 h y la contraparte tiene otras 24 h para responder).
 
 **Implementación:**
 ```python
@@ -294,7 +295,8 @@ solicitudes = SolicitudCambio.objects\
 ---
 
 ### 13. **Snapshot para Rollback** (Backend)
-**Qué es:** Capturar el estado ANTES de aplicar cambios, para poder revertirlo si se cancela dentro de 30 min.
+**Qué es:** Capturar el estado ANTES de aplicar cambios, para poder revertirlo si la solicitud
+acaba cancelada (el plazo y el consentimiento los define #17).
 
 **Por qué:** Los usuarios pueden cambiar de opinión. El snapshot es el "undo" de la operación.
 
@@ -315,7 +317,8 @@ DobladaAplicacionService.restaurar_turnos_desde_snapshot(snapshot)
 **Estado:** ✅ **APLICADO**
 - `doblada_aplicacion_service.py` - capturar y restaurar snapshot
 - Todas las strategies de aplicación (doblada, D FDS, cambio descanso, permanentes)
-- Ventana de 30 min: `aprobacion_views.py` - `VENTANA_CANCELACION_MINUTOS = 30`
+- Plazos de cancelación: `core/constants.py` - `VENTANA_PEDIR_CANCELACION_HORAS` /
+  `VENTANA_RESPONDER_CANCELACION_HORAS` (24 h cada una). Ver #17
 
 ---
 
@@ -394,25 +397,72 @@ class DFDSStrategy(SolicitudStrategy):
 
 ---
 
-### 17. **Restricción de Ventana Temporal** (Backend)
-**Qué es:** Solo se puede cancelar solicitud aprobada dentro de los primeros 30 minutos. Después, es final.
+### 17. **Deshacer un acuerdo exige a las DOS partes, y el silencio no perjudica a nadie** (Backend)
 
-**Por qué:** Previene que los usuarios cancelen impulsivamente, pero les da tiempo si se arrepienten.
+> ⚠️ **Corregido el 2026-08-27.** Este patrón describía una ventana de **30 minutos** con
+> cancelación **unilateral e inmediata**, y un snippet con la constante
+> `VENTANA_CANCELACION_MINUTOS`. Nada de eso existe ya en el código: la regla cambió con el
+> [ADR 009](AppTurnosExplora/docs/03-arquitectura/adr/009-cancelacion-consensuada.md) y el
+> documento se quedó atrás. Si lees una versión vieja en algún sitio, es esta.
 
-**Dónde:** `CancelarSolicitudView` en `aprobacion_views.py`
+**Qué es:** Una solicitud `aprobada` no es un acto de una persona: es un **acuerdo entre dos**.
+El receptor ya dijo que sí y ya reorganizó su semana. Por eso cancelar no se concede por pulsar
+un botón — se **pide**, y la contraparte aprueba o rechaza. Y si la contraparte calla, la
+petición **caduca a favor del statu quo**: el cambio queda firme.
 
-**Implementación:**
+**Por qué:** Dos problemas distintos, y el segundo es el sutil.
+
+1. Que una sola parte pudiera deshacer el acuerdo convierte el turno del otro en algo revocable
+   por sorpresa.
+2. **El silencio de un tercero no puede perjudicarte.** Si la petición quedara colgada para
+   siempre esperando respuesta, quien no contesta —por vacaciones, por descuido— dejaría el
+   calendario del otro en el aire indefinidamente. La caducidad convierte el silencio en un
+   resultado *definido* en lugar de en un limbo.
+
+Los 30 minutos originales tampoco encajaban: eran un plazo para «me equivoqué al enviar», no
+para que otra persona lea una notificación y conteste.
+
+**Dónde:** Los seis formularios de `solicitudes` y la media jornada de temporada de `permisos`.
+
+**Implementación:** Dos ventanas independientes y una máquina de estados con salida por
+caducidad. Las constantes viven en un solo sitio (`core/constants.py`), no en las vistas.
+
 ```python
-VENTANA_CANCELACION_MINUTOS = 30
-tiempo_transcurrido = timezone.now() - solicitud.fecha_resolucion
-minutos = tiempo_transcurrido.total_seconds() / 60
-if minutos > VENTANA_CANCELACION_MINUTOS:
-    return json_error('Ya expiró la ventana de cancelación')
+# core/constants.py
+VENTANA_PEDIR_CANCELACION_HORAS = 24      # el SOLICITANTE, desde fecha_resolucion
+VENTANA_RESPONDER_CANCELACION_HORAS = 24  # la CONTRAPARTE, desde cancelacion_solicitada_en
+
+class EstadoCancelacion:
+    NINGUNA, PENDIENTE, APROBADA, RECHAZADA, CADUCADA = ...
+    TERMINALES = frozenset({APROBADA, RECHAZADA, CADUCADA})
+
+# El plazo se evalúa AL LEER, no con una tarea programada: si el receptor se pasó,
+# la petición se marca CADUCADA y el cambio queda firme.
+if horas > VENTANA_RESPONDER_CANCELACION_HORAS:
+    solicitud.cancelacion_estado = EstadoCancelacion.CADUCADA
 ```
 
-**Estado:** ✅ **APLICADO**
-- `aprobacion_views.py` - `CancelarSolicitudView.VENTANA_CANCELACION_MINUTOS = 30`
-- Validado en: `test_cancelacion_fuera_ventana.py` (si existe)
+**Estado:** ✅ **APLICADO** (ADR 009)
+- `core/constants.py` - `VENTANA_PEDIR_CANCELACION_HORAS`, `VENTANA_RESPONDER_CANCELACION_HORAS`,
+  `EstadoCancelacion` con `TERMINALES`
+- `solicitudes/use_cases/cancelar_solicitud.py` - pedir, responder y la caducidad al leer
+- `solicitudes/models.py`, `permisos/models.py` - `cancelacion_estado`, `cancelacion_solicitada_en`
+- `permisos/views.py` - la misma regla para la media jornada de temporada
+- `solicitudes/views/notificaciones_listas.py` - la petición pendiente le llega a la contraparte
+- Test: `solicitudes/tests/test_cancelacion_lifo.py`,
+  `permisos/tests/test_cancelacion_permiso_consenso.py`
+
+⚠️ **La caducidad se evalúa AL LEER, no con un cron.** No hay tarea programada que barra
+peticiones vencidas: quien consulta la solicitud dispara la evaluación. Si algún día se añade un
+barrido, tiene que dar el MISMO veredicto — dos relojes que discrepan sobre si algo caducó es
+justo el bug que este diseño evita.
+
+⚠️ **Caducar NO es cancelar.** Al caducar gana el statu quo: el cambio **queda firme**. Es lo
+contrario de lo que sugiere la palabra, y confundirlo invierte el resultado para dos personas.
+
+⚠️ **La gestión administrativa no pasa por aquí.** Un supervisor cancela directo: es
+intervención, no parte del acuerdo. Si añades un flujo nuevo, decide primero en cuál de los tres
+casos cae (`pendiente` = unilateral, `aprobada` = consensuado, gestión = directo).
 
 ---
 
@@ -1166,15 +1216,17 @@ Y el form rechaza cualquier nombre que **contenga** un protegido sin serlo, para
 existir un "Supervisor de sala" ambiguo.
 
 **Una sola definición del permiso.** La regla estaba copiada en cinco sitios (`core/mixins.py`,
-`core/middleware.py`, `empleados/admin.py`, `empleados/forms.py` ×2,
-`empleado_repository.py`); arreglar uno solo habría dejado la escalada viva en los otros cuatro.
-`middleware._es_admin()` ahora delega en `es_supervisor()`.
+`core/middleware.py`, `empleados/admin.py`, `empleados/forms.py` ×2 y un
+`empleado_repository.py` que se borró después en `b69cb80` por no usarlo nadie); arreglar uno
+solo habría dejado la escalada viva en los otros cuatro. `middleware._es_admin()` ahora delega
+en `es_supervisor()`, que es hoy la ÚNICA definición (`core/mixins.py:33`).
 
 **Estado:** ✅ **APLICADO** (2026-08-01)
 - `empleados/models.py` - `Role.NOMBRES_PROTEGIDOS`, `nombre` único, `EmpleadoRole.role` PROTECT
 - `empleados/forms.py` - `RoleForm` (normaliza, unicidad case-insensitive, bloquea ambiguos y renombrado)
 - `empleados/views/roles.py` - bloqueo de borrado de protegidos + `ProtectedError` con mensaje
-- `core/mixins.py`, `core/middleware.py`, `empleados/admin.py`, `empleado_repository.py` - `iexact`
+- `core/mixins.py` - `es_supervisor()`, la definición única; `core/middleware.py` delega en ella.
+  `empleados/admin.py` y `empleados/forms.py` comparan con `iexact` contra `Role.SUPERVISOR`
 - `empleados/migrations/0006_role_nombre_unico_y_empleadorole_protect.py`
 - Test: `empleados/tests/test_roles.py` - `RolePermisoTest.test_rol_parecido_no_concede_permisos`,
   `RoleBorradoTest.test_borrado_no_arrastra_asignaciones` (25 tests)
@@ -1791,6 +1843,54 @@ antes de mover nada.**
 #31-#40. Esa matriz es por flujo de solicitud; este invariante es global al código y no depende
 de ningún flujo.
 
+### 42. **Un TRINQUETE: la deuda conocida se congela y solo puede MENGUAR** (Backend / Arquitectura)
+
+**Qué es:** Cuando limpias una deuda estructural y no puedes llegar a cero, no dejas el resto
+«pendiente» en un documento: lo **congelas en un test**. La base conocida se declara como lista
+explícita, y el test falla si aparece un caso NUEVO. Quitar una línea de la lista siempre pasa;
+añadir una, nunca. El trinquete gira en un solo sentido.
+
+**Por qué:** «Lo arreglamos del todo más adelante» no sobrevive a la siguiente urgencia. Sin
+trinquete, la deuda que acabas de reducir se repone sola una línea cada vez, y nadie ve el
+momento en que ocurre porque cada reposición individual parece razonable. El trinquete separa
+dos cosas que se confunden: **no crear deuda nueva** (automatizable, y por tanto obligatorio) de
+**saldar la vieja** (un proyecto, que se hace cuando toca).
+
+**Dónde:** Después de cualquier limpieza estructural que no llegue a cero.
+
+**Implementación:** Un test que recorre el código —**con AST o regex sobre el árbol, no con
+revisión humana**— y compara contra la base congelada.
+
+```python
+# La lista NO es una allowlist de excepciones permanentes: es una foto del día que se congeló,
+# y cada entrada dice por qué sigue ahí.
+BASE_CONGELADA = {
+    'solicitud_orchestrator.py': 'enruta a flujos enteros distintos, no calcula por tipo',
+    # …
+}
+# Aparece uno nuevo -> falla. Se migra uno -> quitas su línea y sigue pasando.
+```
+
+**Estado:** ✅ **APLICADO** — dos instancias hoy
+- `solicitudes/tests/test_arquitectura_dispatch_por_tipo.py` - impide que vuelvan las cadenas
+  `if tipo == 'DOBLADA': … elif …` fuera de `services/strategies/`. Congela **3 archivos / 5
+  ocurrencias** en su diccionario `PERMITIDAS`, cada uno con su razón escrita al lado, y una
+  marcada como «DEUDA RECONOCIDA, la única de esta lista que SÍ debería migrar algún día»
+- `core/tests/test_arquitectura_api_privada.py` - el guardia del patrón #41. **No tiene lista**:
+  se llegó a cero, y ahí el trinquete impide volver a salir de cero
+
+⚠️ **Justifica cada entrada congelada, una por una.** Una lista sin razones se convierte en un
+vertedero: nadie sabe cuáles siguen siendo legítimas y cuáles son deuda esperando. El test de
+dispatch explica por qué sus cuatro no son lo mismo que las que sí se migraron.
+
+⚠️ **Congelar NO es absolver.** El trinquete evita que crezca; no dice que lo congelado esté
+bien. Si una entrada deja de tener justificación, migra el caso y quita la línea.
+
+⚠️ **Verifica que el test MUERDE en las dos direcciones** antes de darlo por bueno: que falla al
+añadir un caso, y que pasa al quitar uno de la lista. Un trinquete que no puede ponerse en rojo
+es una lista de la compra. Los dos de este proyecto se comprobaron así, y el de dispatch encontró
+al escribirse **4 casos que el `grep` manual se había dejado**.
+
 ---
 
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
@@ -1844,6 +1944,9 @@ Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
       **Contrato de API privada** (#41) - un `_nombre` importado desde fuera es un contrato
       falso. El guardia de AST lo vigila; si se pone en rojo, promueve el símbolo o arregla
       al consumidor, nunca lo metas en una allowlist
+- [ ] **¿Acabas de limpiar una deuda estructural y no llegaste a cero?** → **Trinquete**
+      (#42) - congela la base conocida en un test que solo deje MENGUAR la lista, con una
+      justificación por entrada. Comprueba que muerde en las dos direcciones
 - [ ] **¿Puede haber errores?** → **Error Handling** (#19) - try/except + logging
 
 ---
@@ -2006,6 +2109,9 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | 11 símbolos promovidos a públicos y 2 re-exportaciones retiradas de `empleados/views/__init__.py` | #41 | Eran API pública de facto marcada como privada. Las dos re-exportaciones no las consumía nadie: ahí lo correcto fue REDUCIR superficie pública, no ampliarla |
 | | `ct_permanente_helper.py` renombrado a `cambios_permanentes_helper.py` | #41 | El nombre decía CT pero el módulo sirve a los dos formularios permanentes. Ese desajuste llevó a proponer por error partir el módulo; el grafo de dependencias mostró que hacerlo habría RECREADO las fugas recién cerradas |
 | | Sacados del repositorio los 50 `.pyc` versionados | — | Bytecode compilado en control de versiones, 7 de ellos fósiles de módulos que ya no existen. `.gitignore` ya tenía las reglas pero no desrastrea lo ya rastreado. Producción no se veía afectada: `.dockerignore` ya los excluía de la imagen |
+| | **Reescrito el patrón #17**: la ventana de 30 minutos con cancelación unilateral ya no existe | #17 | El documento describía una regla MUERTA y un snippet con `VENTANA_CANCELACION_MINUTOS`, constante que no está en el código. Hoy son 24 h para pedirla + 24 h para que la contraparte responda, con estado CADUCADA si calla ([ADR 009](AppTurnosExplora/docs/03-arquitectura/adr/009-cancelacion-consensuada.md)). Afecta también a los patrones #3 y #13, que citaban los 30 min |
+| | Agregado patrón #42 (trinquete: la deuda congelada solo puede menguar) | #42 (nuevo) | Ya existían DOS trinquetes en el código sin documentar: `test_arquitectura_dispatch_por_tipo.py` y `test_arquitectura_api_privada.py`. El patrón separa no crear deuda nueva (automatizable) de saldar la vieja (un proyecto) |
+| | #31: retirada la referencia a `empleado_repository.py` | #31 | El archivo se borró en `b69cb80` por no importarlo nadie, pero el patrón seguía listándolo como sitio donde la protección está aplicada. La definición única del permiso vive hoy en `core/mixins.py:33` |
 
 ---
 
