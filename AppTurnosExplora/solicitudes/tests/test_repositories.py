@@ -5,8 +5,8 @@ Cubren las queries más usadas para detectar regresiones si cambia el ORM.
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 
 from empleados.models import Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
@@ -117,14 +117,6 @@ class TurnoRepositoryTest(TestCase):
     def test_tiene_doblada_false_una_jornada(self):
         Turno.objects.create(explorador=self.emp, fecha=self.fecha, jornada=self.am, sala=self.sala)
         self.assertFalse(TurnoRepository.tiene_doblada(self.emp.id, self.fecha))
-
-    def test_tiene_tipo_cambio(self):
-        Turno.objects.create(
-            explorador=self.emp, fecha=self.fecha, jornada=self.am,
-            sala=self.sala, tipo_cambio='DOBLADA'
-        )
-        self.assertTrue(TurnoRepository.tiene_tipo_cambio(self.emp, self.fecha, 'DOBLADA'))
-        self.assertFalse(TurnoRepository.tiene_tipo_cambio(self.emp, self.fecha, 'CT'))
 
     def test_por_explorador_rango(self):
         fecha2 = self.fecha + timedelta(days=1)

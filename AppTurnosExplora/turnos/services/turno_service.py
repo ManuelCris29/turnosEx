@@ -3,13 +3,15 @@ Servicio para gestión de turnos.
 
 Responsabilidad única: Obtener y procesar información de turnos de exploradores.
 """
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from turnos.models import AsignarJornadaExplorador, Turno
-from datetime import timedelta
-import re
 import logging
+import re
+from datetime import timedelta
+
+from core.constants import JornadaDisplay
 from core.interfaces import ITurnoService
 from core.utils.date_utils import DateUtils
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
+from turnos.models import AsignarJornadaExplorador, Turno
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +150,7 @@ class TurnoService(ITurnoService):
                 turno = turnos.first()
                 
                 # Si es doblada, obtener horarios combinados (AM inicio, PM fin)
-                if jornada_display == 'DOBLADA':
+                if jornada_display == JornadaDisplay.DOBLADA:
                     turno_am = turnos.filter(jornada__nombre__iexact='AM').first()
                     turno_pm = turnos.filter(jornada__nombre__iexact='PM').first()
                     hora_inicio = turno_am.jornada.hora_inicio.strftime('%H:%M') if turno_am else turno.jornada.hora_inicio.strftime('%H:%M')
@@ -159,7 +161,7 @@ class TurnoService(ITurnoService):
                 
                 return {
                     'id': turno.id,
-                    'jornada': jornada_display,  # 'DOBLADA', 'AM', o 'PM'
+                    'jornada': jornada_display,  # JornadaDisplay: DOBLADA | AM | PM
                     'sala': turno.sala.nombre,
                     'sala_id': turno.sala.id,
                     'hora_inicio': hora_inicio,
@@ -167,7 +169,7 @@ class TurnoService(ITurnoService):
                     'es_turno_virtual': False,
                     'tipo_cambio': turno.tipo_cambio,
                     'tipo_sala': 'turno',
-                    'es_doblada': jornada_display == 'DOBLADA'
+                    'es_doblada': jornada_display == JornadaDisplay.DOBLADA
                 }
             
             # 2. Sin turno real: FUENTE DE VERDAD ÚNICA (estado_dia) para el estado virtual.
@@ -180,18 +182,18 @@ class TurnoService(ITurnoService):
                 # Descansa ese día (igual contrato que antes: sin jornada → None)
                 return None
 
-            jornada_display = estado['jornada']  # 'AM' | 'PM' | 'DOBLADA'
+            jornada_display = estado['jornada']  # JornadaDisplay: AM | PM | DOBLADA
             competencias = CompetenciaEmpleado.objects.filter(empleado=explorador).select_related('sala')
             salas_competencia = [
                 {'id': c.sala.id, 'nombre': c.sala.nombre} for c in competencias
             ]
 
-            if jornada_display == 'DOBLADA':
+            if jornada_display == JornadaDisplay.DOBLADA:
                 jornada_am = Jornada.objects.filter(nombre__iexact='AM').first()
                 jornada_pm = Jornada.objects.filter(nombre__iexact='PM').first()
                 return {
                     'id': None,
-                    'jornada': 'DOBLADA',
+                    'jornada': JornadaDisplay.DOBLADA,
                     'sala': None,
                     'sala_id': None,
                     'hora_inicio': jornada_am.hora_inicio.strftime('%H:%M') if jornada_am and jornada_am.hora_inicio else None,
@@ -277,6 +279,7 @@ class TurnoService(ITurnoService):
         `excluir_id`: ignora esa solicitud (la PROPIA, al re-validarla o re-aplicarla).
         """
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha, str):
@@ -411,7 +414,7 @@ class TurnoService(ITurnoService):
         y el análisis completo, con las opciones de arreglo, en
         `docs/05-referencia/turnos/PUNTO_CIEGO_TEMPORADA_ESTADO_DIA.md`.
         """
-        from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador
+        from turnos.models import AsignarJornadaExplorador, DiaEspecial, Turno
         from turnos.services.descanso_semana_service import DescansoSemanaService
 
         if isinstance(fecha, str):
@@ -559,9 +562,9 @@ class TurnoService(ITurnoService):
         """
         from bisect import bisect_right
         from datetime import timedelta as _td
-        from turnos.models import (Turno, DiaEspecial, AsignarJornadaExplorador,
-                                   DescansoSemanaManual)
+
         from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
+        from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, DiaEspecial, Turno
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
 
         if isinstance(ini, str):

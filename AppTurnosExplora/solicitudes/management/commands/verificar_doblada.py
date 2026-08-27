@@ -18,11 +18,14 @@ Este comando verifica:
 Ejemplo:
     python manage.py verificar_doblada 123
 """
+import logging
+
 from django.core.management.base import BaseCommand, CommandError
-from solicitudes.models import SolicitudCambio, DeudaExplorador, DeudaCorporativa
+
+from core.constants import JornadaDisplay
+from solicitudes.models import DeudaCorporativa, DeudaExplorador, SolicitudCambio
 from turnos.models import Turno
 from turnos.services.turno_service import TurnoService
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +284,7 @@ class Command(BaseCommand):
                     jornada_display = TurnoService.obtener_jornada_display(
                         deuda.explorador, deuda.fecha_doblada
                     )
-                    if jornada_display == 'DOBLADA':
+                    if jornada_display == JornadaDisplay.DOBLADA:
                         self.stdout.write(self.style.SUCCESS('     ✅ Corresponde a DOBLADA efectiva (AM+PM)'))
                     else:
                         self.stdout.write(self.style.WARNING(

@@ -1,16 +1,20 @@
-from django.views import View
-from django.contrib.auth.mixins import LoginRequiredMixin
-from core.services import get_turno_service
-from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, SolicitudCambio
-from ..services.solicitud_factory import SolicitudFactory
-from core.utils.date_utils import DateUtils
 import logging
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+
+from core.services import get_turno_service
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+
+from ..models import SolicitudCambio, TipoSolicitudCambio
+from ..services.solicitud_factory import SolicitudFactory
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error, json_error_inesperado
+from core.constants import JornadaDisplay
+from core.utils.json_responses import json_error, json_error_inesperado, json_ok
 
 # Create your views here.
 
@@ -82,7 +86,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             # Misma señal que TurnoService.get_turno_explorador (tarjeta de horario / jornada DOBLADA)
             if turno_dict:
                 svc_doblada = (
-                    turno_dict.get('jornada') == 'DOBLADA'
+                    turno_dict.get('jornada') == JornadaDisplay.DOBLADA
                     or turno_dict.get('es_doblada')
                     or turno_dict.get('es_doblada_sabado')
                 )
@@ -166,7 +170,7 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
                 'turno': turno_dict,
                 'tiene_turno': turno_dict is not None,
                 'es_doblada': es_doblada,
-                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict and turno_dict['jornada'] != 'DOBLADA' else []),
+                'jornadas': turnos_list if turnos_list else ([turno_dict['jornada']] if turno_dict and 'jornada' in turno_dict and turno_dict['jornada'] != JornadaDisplay.DOBLADA else []),
                 'esta_descansando': esta_descansando,
                 'descanso_info': descanso_info,
             }
@@ -269,8 +273,8 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             # DOBLADA PERMANENTE (el bloque de arriba solo cubre DOBLADA). Usa la fuente
             # de verdad única para que el display coincida con "Mis Turnos".
             if descanso_info is None:
-                from turnos.services.turno_service import TurnoService as _TSv
                 from empleados.models import Empleado as _Emp
+                from turnos.services.turno_service import TurnoService as _TSv
                 _emp_obj = _Emp.objects.filter(id=explorador_id).first()
                 _comp = _TSv.dia_comprometido_por_solicitud(_emp_obj, fecha_obj) if _emp_obj else None
                 if _comp:
@@ -285,8 +289,8 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
             # Descanso de ENTRE SEMANA (manual de temporada/festivo o lunes de mantenimiento).
             # Debe verse igual que en Mis Turnos: es un descanso, no la jornada predeterminada.
             if descanso_info is None and fecha_obj.weekday() < 5:
-                from turnos.services.descanso_semana_service import DescansoSemanaService
                 from turnos.models import DiaEspecial as _DE
+                from turnos.services.descanso_semana_service import DescansoSemanaService
                 from turnos.services.jornada_service import JornadaService as _JS
                 _pred = _JS.get_jornada_explorador_fecha(explorador_id, fecha)
                 _jb = _pred.nombre.upper() if _pred else None
@@ -321,10 +325,10 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
         predeterminada ES doblada, así que convertirla a simple mostraría media
         jornada donde se trabaja el día entero.
         """
-        if es_doblada and turno_dict and turno_dict.get('jornada') != 'DOBLADA':
+        if es_doblada and turno_dict and turno_dict.get('jornada') != JornadaDisplay.DOBLADA:
             turno_dict['jornada'] = 'DOBLADA'
 
-        if (turno_dict and turno_dict.get('jornada') == 'DOBLADA'
+        if (turno_dict and turno_dict.get('jornada') == JornadaDisplay.DOBLADA
                 and not es_doblada and not es_fin_semana_doblada_predeterminada):
             from turnos.services.jornada_service import JornadaService
             jornada_real = JornadaService.get_jornada_explorador_fecha(explorador_id, fecha)
@@ -351,8 +355,8 @@ class ObtenerTurnoExploradorView(LoginRequiredMixin, View):
         alterar el turno hasta coincidir con el grupo que trabaja, y entonces daría
         un falso positivo — el selector desaparecería para quien sí debía elegir.
         """
-        from turnos.services.asignacion_especial_service import AsignacionEspecialService
         from turnos.models import AsignarJornadaExplorador
+        from turnos.services.asignacion_especial_service import AsignacionEspecialService
 
         grupo_trabaja = AsignacionEspecialService.grupo_trabaja(fecha_obj)
         asignacion = (AsignarJornadaExplorador.objects
@@ -491,9 +495,10 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                             status=400, code='missing_params')
         
         try:
-            from datetime import timedelta
-            from turnos.services.jornada_service import JornadaService
             import json
+            from datetime import timedelta
+
+            from turnos.services.jornada_service import JornadaService
             
             fecha_inicio_obj = DateUtils.parse_date(fecha_inicio)
             fecha_fin_obj = DateUtils.parse_date(fecha_fin)
@@ -529,12 +534,16 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             # Obtener jornada para cada fecha
             dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
             
-            from turnos.models import Turno, Jornada
             from empleados.models import Empleado as _EmpRango
             from solicitudes.services.ct_permanente_helper import (
-                _es_festivo, _es_mantenimiento, _es_temporada, _estado_ct,
-                _dia_libre_por_solicitud, precargar_ct_permanente,
+                _dia_libre_por_solicitud,
+                _es_festivo,
+                _es_mantenimiento,
+                _es_temporada,
+                _estado_ct,
+                precargar_ct_permanente,
             )
+            from turnos.models import Jornada, Turno
             _emp_rango = _EmpRango.objects.filter(id=explorador_id).first()
 
             # Turnos del rango de una sola vez (antes: una consulta por fecha).
@@ -586,7 +595,7 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                                            'festivo': 'FESTIVO', 'solicitud': 'COMPROMETIDO'}
                             jornada_nombre = _map_fuente.get(_est.get('fuente'), 'DESCANSO')
                             jornada_id = None
-                        elif _est.get('jornada') == 'DOBLADA':
+                        elif _est.get('jornada') == JornadaDisplay.DOBLADA:
                             jornada_nombre, jornada_id = 'DOBLADA', None
                         else:
                             _nom = _est.get('jornada')
@@ -612,7 +621,7 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                 'total_dias': len(jornadas_por_dia),
                 'dias_am': len([j for j in jornadas_por_dia if j['jornada'] == 'AM']),
                 'dias_pm': len([j for j in jornadas_por_dia if j['jornada'] == 'PM']),
-                'dias_doblada': len([j for j in jornadas_por_dia if j['jornada'] == 'DOBLADA']),
+                'dias_doblada': len([j for j in jornadas_por_dia if j['jornada'] == JornadaDisplay.DOBLADA]),
                 'dias_mantenimiento': len([j for j in jornadas_por_dia if j['jornada'] == 'MANTENIMIENTO']),
                 'dias_festivo': len([j for j in jornadas_por_dia if j['jornada'] == 'FESTIVO']),
                 'dias_temporada': len([j for j in jornadas_por_dia if j['jornada'] == 'TEMPORADA']),
@@ -646,6 +655,7 @@ class ObtenerCambioAprobadoView(LoginRequiredMixin, View):
         
         try:
             from django.db.models import Q
+
             from turnos.models import Turno
             
             fecha_obj = DateUtils.parse_date(fecha)

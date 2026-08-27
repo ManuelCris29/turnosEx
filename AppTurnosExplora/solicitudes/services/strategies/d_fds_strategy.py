@@ -18,19 +18,22 @@ Reutiliza:
 - DFDSAplicacionService: aplicación de turnos y deudas al aprobar.
 """
 
-from typing import Dict, Any, Tuple, Optional
 import logging
+from typing import Any, Dict, Optional, Tuple
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from solicitudes.models import SolicitudCambio, DobladaDetalle
-from empleados.models import Empleado
-from .base_strategy import SolicitudStrategy
-from core.utils.date_utils import DateUtils
 # A nivel de módulo, no dentro de la función: los tests parchean `localdate`
 # alcanzando el módulo por aquí (`patch.object(_d_fds_mod.timezone, 'localdate')`).
 from django.utils import timezone
+
+from core.constants import JornadaDisplay
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+
+from .base_strategy import SolicitudStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +182,7 @@ class DFDSStrategy(SolicitudStrategy):
             if not est_sol_ces['trabaja']:
                 motivo = est_sol_ces.get('motivo') or 'descansas ese día'
                 return False, f"No tienes un turno que ceder el {f_ces} ({motivo})."
-            if est_sol_ces.get('jornada') != 'DOBLADA':
+            if est_sol_ces.get('jornada') != JornadaDisplay.DOBLADA:
                 return False, (
                     f"El {f_ces} solo tienes media jornada ({est_sol_ces.get('jornada') or 'parcial'}) "
                     "por un cambio previo; no tienes el día completo del fin de semana para ceder."
@@ -202,7 +205,7 @@ class DFDSStrategy(SolicitudStrategy):
                 return False, (
                     f"Tu compañero no trabaja el {f_pago} ({motivo}); no hay día que cubrir."
                 )
-            if est_rec_pago.get('jornada') != 'DOBLADA':
+            if est_rec_pago.get('jornada') != JornadaDisplay.DOBLADA:
                 return False, (
                     f"En la fecha de pago ({f_pago}) tu compañero solo tiene media jornada "
                     f"({est_rec_pago.get('jornada') or 'parcial'}) por un cambio previo; "
@@ -308,9 +311,10 @@ class DFDSStrategy(SolicitudStrategy):
     # ----------------------------------------------------------------- aplicar
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         try:
+            from core.services.cache_service import CacheService
+
             from ..d_fds_aplicacion_service import DFDSAplicacionService
             from ..doblada_aplicacion_service import DobladaAplicacionService
-            from core.services.cache_service import CacheService
 
             with transaction.atomic():
                 detalle = solicitud.doblada
@@ -407,6 +411,7 @@ class DFDSStrategy(SolicitudStrategy):
         son justamente a quienes se les puede ceder.
         """
         from datetime import timedelta
+
         from turnos.services.turno_service import TurnoService
 
         otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5

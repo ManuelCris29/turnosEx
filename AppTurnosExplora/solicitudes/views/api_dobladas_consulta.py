@@ -1,14 +1,18 @@
-from django.views import View
-from django.contrib.auth.mixins import LoginRequiredMixin
-from empleados.models import Empleado
-from ..models import SolicitudCambio
-from core.utils.date_utils import DateUtils
 import logging
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+
+from ..models import SolicitudCambio
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error
+from core.constants import JornadaDisplay
+from core.utils.json_responses import json_error, json_ok
 
 # Create your views here.
 
@@ -25,12 +29,13 @@ class DobladasSemanaView(LoginRequiredMixin, View):
     tumbaba con "tu compañero trabaja el ...; debe estar descansando".
     """
     def get(self, request):
-        from datetime import datetime as _dt, timedelta as _td
         from collections import defaultdict
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+
+        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
         from turnos.models import Turno
         from turnos.services.turno_service import TurnoService
-        from solicitudes.services.cambio_descanso_aplicacion_service import (
-            CambioDescansoAplicacionService as _App)
 
         emp = getattr(request.user, 'empleado', None)
         if not emp:
@@ -103,7 +108,7 @@ class ExploradoresConDobladaView(LoginRequiredMixin, View):
         con_doblada_b = 0   # cuántos tienen doblada el día B (antes del filtro "libre el día A")
         out = []
         for emp in Empleado.objects.filter(activo=True).exclude(id=getattr(yo, 'id', None)):
-            if _TS.estado_dia(emp, fecha_obj).get('jornada') != 'DOBLADA':
+            if _TS.estado_dia(emp, fecha_obj).get('jornada') != JornadaDisplay.DOBLADA:
                 continue
             con_doblada_b += 1
             # Debe estar LIBRE el día A para poder cubrir tu doblada ese día.

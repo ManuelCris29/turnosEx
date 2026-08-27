@@ -6,16 +6,19 @@ migrating the current SolicitudService functionality to the new architecture.
 """
 
 import logging
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
+
 from django.core.exceptions import ValidationError
 from django.db.models import Q
-from solicitudes.models import SolicitudCambio
-from empleados.models import Empleado
-from .base_strategy import SolicitudStrategy
+from django.utils import timezone
+
+from core.constants import JornadaDisplay, TipoCambioTurno
 from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
-from core.constants import TipoCambioTurno
-from django.utils import timezone
+from empleados.models import Empleado
+from solicitudes.models import SolicitudCambio
+
+from .base_strategy import SolicitudStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -115,12 +118,12 @@ class CambioTurnoStrategy(SolicitudStrategy):
             # DOBLADA (AM+PM) ese día, no hay una sola jornada que intercambiar → bloquear con
             # un mensaje claro (fuente de verdad: estado_dia).
             from turnos.services.turno_service import TurnoService as _TSv
-            if _TSv.estado_dia(explorador_solicitante, _fecha_obj).get('jornada') == 'DOBLADA':
+            if _TSv.estado_dia(explorador_solicitante, _fecha_obj).get('jornada') == JornadaDisplay.DOBLADA:
                 return False, (
                     f"Tienes una jornada doblada (AM+PM) el {_fecha_obj.strftime('%d/%m/%Y')}. "
                     f"El cambio de turno solo intercambia AM por PM; no aplica sobre una doblada."
                 )
-            if _TSv.estado_dia(explorador_receptor, _fecha_obj).get('jornada') == 'DOBLADA':
+            if _TSv.estado_dia(explorador_receptor, _fecha_obj).get('jornada') == JornadaDisplay.DOBLADA:
                 return False, (
                     f"{explorador_receptor.nombre} {explorador_receptor.apellido} tiene una jornada "
                     f"doblada (AM+PM) el {_fecha_obj.strftime('%d/%m/%Y')}. El cambio de turno solo "
@@ -279,6 +282,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
         deudas, así que no hay nada más que deshacer.
         """
         from turnos.models import Turno
+
         from ..doblada_aplicacion_service import DobladaAplicacionService
         snap = getattr(solicitud, 'snapshot_turnos_previos', None)
         if snap:
@@ -305,9 +309,9 @@ class CambioTurnoStrategy(SolicitudStrategy):
         El efecto de un CT es un intercambio de jornadas base en `fecha_cambio_turno`, así que
         se puede reconstruir sin snapshot (el estado previo era virtual). Devuelve nº de días.
         """
+        from core.utils.jornada_utils import obtener_jornada_base
         from turnos.models import Turno
         from turnos.services.doblada_turno_service import DobladaTurnoService
-        from core.utils.jornada_utils import obtener_jornada_base
 
         fecha = solicitud.fecha_cambio_turno
         if not fecha or fecha not in set(fechas):
@@ -350,6 +354,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
         """
         from django.db import transaction
         from django.utils import timezone
+
         from turnos.models import Turno
         
         try:

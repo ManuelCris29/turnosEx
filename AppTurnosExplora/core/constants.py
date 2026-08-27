@@ -4,7 +4,7 @@ Vocabularios de dominio: fuente única de los literales que se persisten.
 Vive en `core` porque lo consumen `solicitudes`, `turnos` y `permisos`, y este
 módulo no importa ninguno de ellos: no hay import circular en ninguna dirección.
 
-⚠ Lo importante de este archivo son las TRES clases separadas. En el proyecto
+⚠ Lo importante de este archivo son las clases SEPARADAS. En el proyecto
 conviven tres campos llamados `tipo_cambio` que NO comparten vocabulario:
 
     SolicitudCambio.tipo_cambio  FK  → TipoSolicitudCambio   (usa TipoSolicitud)
@@ -15,6 +15,10 @@ Mezclarlos no da error: da un filtro que no casa con ninguna fila y una
 validación que deja de aplicarse en silencio. Ya pasó — ver el fix del filtro
 `tipo_cambio__nombre='CT'` en `solicitudes/views/doblada_api.py`, donde se
 comparaba un `codigo_estrategia` contra un `nombre`.
+
+⚠ Y hay un CUARTO vocabulario, que no es un campo de ninguna tabla:
+`JornadaDisplay`, la jornada EFECTIVA que calcula `TurnoService.estado_dia()`.
+Comparte el texto 'DOBLADA' con los otros tres sin ser ninguno de ellos.
 """
 
 
@@ -121,6 +125,43 @@ MAPA_SOLICITUD_A_TURNO = {
     TipoSolicitud.DOBLADA: TipoCambioTurno.DOBLADA,
     TipoSolicitud.D_FDS: TipoCambioTurno.D_FDS,
 }
+
+
+class JornadaDisplay:
+    """
+    Jornada EFECTIVA de un explorador en un día, tal y como la devuelve
+    `TurnoService.estado_dia(...)['jornada']` y su atajo
+    `TurnoService.obtener_jornada_display(...)`.
+
+    ⚠ NO es un campo de base de datos, y ahí está la trampa: no se puede filtrar
+    con él. `Jornada.nombre` (la tabla) solo admite 'AM' y 'PM'
+    (`empleados/models.py`, `NOMBRE_CHOICES`); 'DOBLADA' NO existe como fila.
+    Una doblada son DOS turnos, AM y PM, y este vocabulario es el resultado de
+    CALCULARLO — por eso vive aquí y no en el modelo.
+
+    ⚠ 'DOBLADA' coincide letra por letra con `TipoSolicitud.DOBLADA` y con
+    `TipoCambioTurno.DOBLADA`, y no significa lo mismo:
+
+        JornadaDisplay.DOBLADA   → "hoy trabaja las dos jornadas", venga de donde venga
+        TipoCambioTurno.DOBLADA  → "este turno lo escribió una solicitud de doblada"
+
+    Un día puede ser `JornadaDisplay.DOBLADA` SIN que ningún turno tenga
+    `tipo_cambio='DOBLADA'` (p. ej. una doblada de temporada, o dos turnos
+    normales). Comparar el vocabulario equivocado no da error: da una condición
+    que nunca se cumple.
+
+    AUSENCIA DE VALOR: cuando el explorador descansa, `estado_dia` devuelve
+    `None` en 'jornada'. No hay constante para eso a propósito — `None` no es un
+    valor del vocabulario, es la ausencia de jornada. Se comprueba con
+    `if jornada is None`, no contra una constante.
+    """
+
+    AM = 'AM'
+    PM = 'PM'
+    DOBLADA = 'DOBLADA'
+
+    #: Los tres valores que `estado_dia` puede devolver además de `None`.
+    TODOS = (AM, PM, DOBLADA)
 
 
 class EstadoCancelacion:

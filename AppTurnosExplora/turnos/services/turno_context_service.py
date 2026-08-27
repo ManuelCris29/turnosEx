@@ -2,14 +2,17 @@
 Servicio para preparar el contexto de las vistas de turnos.
 Responsabilidad única: Construir estructuras de datos para las vistas de turnos.
 """
+import logging
 from datetime import timedelta
-from django.utils import timezone
+
 from django.db.models import Q
-from turnos.models import Turno, AsignarJornadaExplorador
+from django.utils import timezone
+
+from core.constants import JornadaDisplay
+from core.utils.date_utils import DateUtils
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
-from core.utils.date_utils import DateUtils
-import logging
+from turnos.models import AsignarJornadaExplorador, Turno
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +120,7 @@ class TurnoContextService:
                 from core.utils.jornada_utils import JornadaUtils
                 jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
                 if 'AM' in jornadas_turnos and 'PM' in jornadas_turnos:
-                    jornada_display = 'DOBLADA'
+                    jornada_display = JornadaDisplay.DOBLADA
                 elif 'AM' in jornadas_turnos:
                     jornada_display = 'AM'
                 elif 'PM' in jornadas_turnos:
@@ -128,7 +131,7 @@ class TurnoContextService:
                 jornada_predeterminada = JornadaUtils.calcular_jornada_dia(jornada_base, fecha)
                 
                 # Detectar si es doblada
-                es_doblada = jornada_display == 'DOBLADA'
+                es_doblada = jornada_display == JornadaDisplay.DOBLADA
                 
                 # Determinar tipo de cambio (si todos los turnos tienen el mismo tipo_cambio)
                 tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
@@ -152,7 +155,7 @@ class TurnoContextService:
                 turnos_mes_dict[fecha] = {
                     'turno': turno_principal,  # Primer turno (compatibilidad)
                     'turnos': turnos_dia,  # Lista completa de turnos (nuevo)
-                    'jornada': jornada_display,  # Usar jornada_display (puede ser 'DOBLADA')
+                    'jornada': jornada_display,  # Usar jornada_display (puede ser JornadaDisplay.DOBLADA)
                     'sala': sala_display,
                     'tipo': 'asignado',
                     'es_cambio': es_cambio,

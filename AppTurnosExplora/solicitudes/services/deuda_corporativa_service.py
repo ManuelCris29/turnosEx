@@ -4,16 +4,20 @@ Servicio para gestión de deudas corporativas.
 Responsabilidad única: Crear, consultar y gestionar deudas corporativas
 acumuladas por exploradores al realizar dobladas.
 """
-from typing import Optional
-from django.db.models import F, Sum, QuerySet
-from solicitudes.models import ConfiguracionSanciones, DeudaCorporativa, SolicitudCambio
-from empleados.models import Empleado
-from datetime import date, timedelta
 import logging
+from datetime import date, timedelta
+from typing import Optional
+
+from django.db.models import F, QuerySet, Sum
 from django.utils import timezone
 
+from core.constants import JornadaDisplay
+from empleados.models import Empleado
+from solicitudes.models import ConfiguracionSanciones, DeudaCorporativa, SolicitudCambio
 from solicitudes.services.sancion_deuda_calculo import (
     DURACION_BASE_DIAS as _DURACION_BASE_DIAS,
+)
+from solicitudes.services.sancion_deuda_calculo import (
     Antecedente,
     Periodo,
     cadena_sanciones,
@@ -879,7 +883,7 @@ class DeudaCorporativaService:
         """
         from turnos.services.turno_service import TurnoService
 
-        if TurnoService.obtener_jornada_display(explorador, fecha) == 'DOBLADA':
+        if TurnoService.obtener_jornada_display(explorador, fecha) == JornadaDisplay.DOBLADA:
             return 0
 
         activas = list(DeudaCorporativa.objects.filter(

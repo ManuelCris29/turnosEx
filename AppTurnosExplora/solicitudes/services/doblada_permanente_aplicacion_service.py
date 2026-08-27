@@ -15,16 +15,17 @@ es la misma operación que una doblada suelta repetida N veces, así que deja el
 antes solo se guardaba la deuda corporativa y la pantalla salía vacía aunque el compañero te
 hubiera cubierto doce días. Ver `docs/05-referencia/solicitudes/COBERTURA_MIS_FAVORES.md`.
 """
-from datetime import date, timedelta
 import logging
+from datetime import date, timedelta
 
 from django.db import transaction
 
+from core.constants import JornadaDisplay, TipoCambioTurno
 from turnos.models import Turno
+
+from .d_fds_aplicacion_service import DFDSAplicacionService
 from .deuda_corporativa_service import DeudaCorporativaService
 from .deuda_service import DeudaService
-from .d_fds_aplicacion_service import DFDSAplicacionService
-from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +200,7 @@ class DobladaPermanenteAplicacionService:
         # ocurrencia que no acabara en AM+PM (el explorador ya descansaba ese día por otra
         # solicitud, o `_crear_doblada_dia` no pudo doblarlo) cobraba 30 min igualmente.
         from turnos.services.turno_service import TurnoService
-        if TurnoService.obtener_jornada_display(explorador, fecha) != 'DOBLADA':
+        if TurnoService.obtener_jornada_display(explorador, fecha) != JornadaDisplay.DOBLADA:
             logger.info(
                 "Doblada permanente: sin deuda corporativa para %s en %s (%s): el día no quedó "
                 "DOBLADA.", explorador.nombre, fecha, etiqueta,
@@ -417,6 +418,7 @@ class DobladaPermanenteAplicacionService:
           por la solicitud.
         """
         from solicitudes.models import DeudaExplorador
+
         from .doblada_aplicacion_service import DobladaAplicacionService
 
         detalle = solicitud.doblada_permanente

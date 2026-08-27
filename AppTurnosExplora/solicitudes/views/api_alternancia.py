@@ -1,12 +1,15 @@
-from django.views import View
-from django.contrib.auth.mixins import LoginRequiredMixin
-from ..models import SolicitudCambio
-from django.utils import timezone
 import logging
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.utils import timezone
+from django.views import View
+
+from ..models import SolicitudCambio
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
+from core.constants import JornadaDisplay
 from core.utils.json_responses import json_ok
 
 # Create your views here.
@@ -30,8 +33,10 @@ class AlternanciaMesView(LoginRequiredMixin, View):
        seleccionable:bool, motivo_no_seleccionable:str|null}
     """
     def get(self, request):
-        from datetime import date as _date, timedelta as _td
         from calendar import monthrange
+        from datetime import date as _date
+        from datetime import timedelta as _td
+
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
         from turnos.services.turno_service import TurnoService
 
@@ -163,7 +168,7 @@ class AlternanciaMesView(LoginRequiredMixin, View):
                     trabaja_d = bool(est['trabaja'])
                     # En finde, un día trabajado completo es 'DOBLADA' (AM+PM). 'AM'/'PM' sueltos
                     # son media jornada por un cambio previo: no hay día completo que ceder.
-                    completo = trabaja_d and est.get('jornada') == 'DOBLADA'
+                    completo = trabaja_d and est.get('jornada') == JornadaDisplay.DOBLADA
                     cedible = bool(completo and fecha > hoy and del_mes_d and not cerrado_d)
                     if cedible:
                         motivo = None
@@ -228,8 +233,8 @@ class AlternanciaMesView(LoginRequiredMixin, View):
                         'trabaja_ambos': r_sab and r_dom,
                         # Día completo (DOBLADA) vs media jornada: solo se puede cubrir/recibir un
                         # día completo, así que el formulario necesita distinguirlo.
-                        'sabado_completo': r_sab and est_r_sab.get('jornada') == 'DOBLADA',
-                        'domingo_completo': r_dom and est_r_dom.get('jornada') == 'DOBLADA',
+                        'sabado_completo': r_sab and est_r_sab.get('jornada') == JornadaDisplay.DOBLADA,
+                        'domingo_completo': r_dom and est_r_dom.get('jornada') == JornadaDisplay.DOBLADA,
                         # `propio` = lo trabaja porque es SU día, no cubriendo a un tercero. Solo
                         # un día propio sirve como fecha de pago.
                         'sabado_propio': r_sab and sab not in cobertura_receptor,

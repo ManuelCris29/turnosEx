@@ -9,10 +9,11 @@ el módulo pretende evitar.
 from django.test import TestCase
 
 from core.constants import (
-    EstadoSolicitud,
-    TipoSolicitud,
-    TipoCambioTurno,
     MAPA_SOLICITUD_A_TURNO,
+    EstadoSolicitud,
+    JornadaDisplay,
+    TipoCambioTurno,
+    TipoSolicitud,
 )
 
 
@@ -47,6 +48,78 @@ class MapaVocabulariosTest(TestCase):
             sin_solicitud,
             {TipoCambioTurno.PAGO_REPROGRAMADO, TipoCambioTurno.PERMISO},
         )
+
+
+class JornadaDisplayTest(TestCase):
+    """
+    `JornadaDisplay` es el vocabulario CALCULADO, el único de los cuatro que no
+    respalda ninguna columna. Estos tests fijan justo eso, porque es lo que hace
+    que confundirlo con los otros no dé error sino una condición muerta.
+    """
+
+    def test_am_y_pm_son_los_de_la_tabla_jornada(self):
+        """Los dos que SÍ existen como fila deben coincidir con el modelo."""
+        from empleados.models import Jornada
+        self.assertEqual({JornadaDisplay.AM, JornadaDisplay.PM},
+                         set(Jornada.NOMBRES_PROTEGIDOS))
+
+    def test_doblada_no_es_una_jornada_de_la_tabla(self):
+        """
+        La propiedad que justifica el módulo: 'DOBLADA' se puede COMPARAR contra
+        `estado_dia()['jornada']`, pero NO se puede filtrar por
+        `jornada__nombre='DOBLADA'` — no hay ninguna fila así. Si algún día
+        alguien la crea, este test avisa antes de que el filtro mudo se extienda.
+        """
+        from empleados.models import Jornada
+        nombres_validos = [valor for valor, _ in Jornada.NOMBRE_CHOICES]
+        self.assertNotIn(JornadaDisplay.DOBLADA, nombres_validos)
+        self.assertFalse(Jornada.objects.filter(nombre=JornadaDisplay.DOBLADA).exists())
+
+    def test_no_se_confunde_con_los_vocabularios_de_tipo_cambio(self):
+        """
+        Mismo texto, tres significados. Se comprueba la coincidencia LITERAL a
+        propósito: si alguien "unifica" los vocabularios importando uno desde
+        otro, el módulo deja de proteger de nada y esto lo delata.
+        """
+        self.assertEqual(JornadaDisplay.DOBLADA, TipoCambioTurno.DOBLADA)
+        self.assertEqual(JornadaDisplay.DOBLADA, TipoSolicitud.DOBLADA)
+        # …y aun así son vocabularios distintos: ninguno de los otros dos
+        # contiene 'AM'/'PM', que es lo que separa a este de aquellos.
+        self.assertNotIn(JornadaDisplay.AM, TipoCambioTurno.TODOS)
+        self.assertNotIn(JornadaDisplay.PM, TipoCambioTurno.TODOS)
+
+    def test_estado_dia_solo_produce_valores_del_vocabulario(self):
+        """
+        Ata la constante a la función que la genera. `estado_dia` devuelve
+        `None` cuando se descansa, y ese caso NO tiene constante (§docstring).
+        """
+        import datetime
+
+        from django.contrib.auth.models import User
+
+        from empleados.models import Empleado, Jornada, Sala
+        from turnos.models import Turno
+        from turnos.services.turno_service import TurnoService
+
+        user = User.objects.create_user(username='jd_test', password='x')  # noqa: S106
+        emp = Empleado.objects.create(user=user, nombre='JD', apellido='Test')
+        am = Jornada.objects.create(nombre='AM', hora_inicio='08:00', hora_fin='12:00')
+        pm = Jornada.objects.create(nombre='PM', hora_inicio='13:00', hora_fin='17:00')
+        sala = Sala.objects.create(nombre='S1')
+        fecha = datetime.date(2026, 3, 10)
+
+        # Descansa: sin turnos.
+        self.assertIsNone(TurnoService.estado_dia(emp, fecha).get('jornada'))
+
+        # Una jornada.
+        Turno.objects.create(explorador=emp, fecha=fecha, jornada=am, sala=sala)
+        self.assertEqual(TurnoService.estado_dia(emp, fecha).get('jornada'),
+                         JornadaDisplay.AM)
+
+        # Las dos: el valor calculado que no existe como fila.
+        Turno.objects.create(explorador=emp, fecha=fecha, jornada=pm, sala=sala)
+        self.assertEqual(TurnoService.estado_dia(emp, fecha).get('jornada'),
+                         JornadaDisplay.DOBLADA)
 
 
 class CoherenciaConLosModelosTest(TestCase):
