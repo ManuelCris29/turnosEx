@@ -114,7 +114,15 @@ jobs:
 
       - name: Publicar coverage.xml
         if: always()
-        uses: actions/upload-artifact@v4
+        # v7 por el mismo motivo que setup-node: v4 corre sobre Node 20, deprecado.
+        # v5 y v6 son solo el paso a node24; v7 anade un parametro `archive`
+        # OPCIONAL cuyo valor por defecto conserva el comportamiento de siempre
+        # (subir comprimido). Los tres inputs que se usan aqui siguen vigentes.
+        #
+        # El riesgo tipico de este salto —que `download-artifact` tenga que ir a la
+        # par— NO aplica: ningun workflow descarga el artefacto, se baja a mano
+        # desde la interfaz de GitHub.
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-xml
           path: AppTurnosExplora/coverage.xml
