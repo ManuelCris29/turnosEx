@@ -233,3 +233,25 @@ table.pg-table tbody tr:last-child td { border-bottom: none; }
     /* Card body con menos padding */
     .pg-card-body { padding: 1rem .75rem; }
 }
+
+/* ── Pestañas de filtro por estado (?estado=...) ───────────────────────── */
+.pg-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.pg-tab {
+    display: inline-flex; align-items: center; gap: .45rem;
+    padding: .5rem .9rem; border-radius: 999px;
+    background: rgba(255, 255, 255, .16); color: #fff;
+    font-size: .88rem; font-weight: 600; text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, .3);
+    transition: background .15s ease, transform .08s ease;
+}
+.pg-tab:hover { background: rgba(255, 255, 255, .28); color: #fff; text-decoration: none; transform: translateY(-1px); }
+.pg-tab .n {
+    min-width: 22px; padding: 0 6px; border-radius: 999px;
+    background: rgba(255, 255, 255, .25); font-size: .76rem; text-align: center;
+}
+.pg-tab.is-active { background: #fff; color: #4338ca; border-color: #fff; }
+.pg-tab.is-active .n { background: #eef2ff; color: #4338ca; }
+
+/* Fuera del degradado (tarjeta blanca) las pestañas se invierten */
+.pg-card-body .pg-tabs .pg-tab { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+.pg-card-body .pg-tabs .pg-tab.is-active { background: #4f46e5; color: #fff; border-color: #4f46e5; }

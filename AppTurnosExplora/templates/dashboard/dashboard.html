@@ -33,10 +33,11 @@
     {% endif %}
     <small class="d-block mt-1">
       Mientras no corra, nadie queda sancionado hasta que entra a la app por su cuenta.
-      Avisa a soporte técnico: hay que revisar la tarea <code>revisar_sanciones_por_deuda</code>.
+      Avisa a soporte técnico: hay que revisar la tarea
+      <code style="background:rgba(255,255,255,.9); color:#842029; padding:1px 5px; border-radius:4px;">revisar_sanciones_por_deuda</code>.
     </small>
   </div>
-  <a href="{% url 'sanciones_morosos' %}" class="btn btn-light btn-sm" style="text-decoration:none; white-space:nowrap;">Revisar a mano</a>
+  <a href="{% url 'sanciones_morosos' %}" class="btn btn-sm" style="background:#fff; color:#842029; border:1px solid #fff; font-weight:600; text-decoration:none; white-space:nowrap;">Revisar a mano</a>
 </div>
 {% endif %}
 {% if morosos_pendientes %}

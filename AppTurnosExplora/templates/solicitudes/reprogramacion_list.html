@@ -1,74 +1,163 @@
 {% extends 'base.html' %}
+{% load static static_version %}
+
 {% block title %}Reprogramaciones de doblada{% endblock %}
 {% block page_title %}{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid" style="max-width: 1040px; margin: 1.5rem auto;">
-  <h4 style="font-weight:700;"><i class="fas fa-calendar-alt mr-2"></i>Reprogramaciones de día de doblada</h4>
-  <p class="text-muted">Días de doblada no cumplidos (inasistencia) y su pago reprogramado.</p>
+<div class="pg-container">
+  <div class="pg-content">
 
-  <div style="display:flex; gap:.5rem; margin-bottom:.8rem; flex-wrap:wrap;">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-calendar-alt"></i> Reprogramaciones de doblada</h1>
+      <p class="pg-subtitle">Días de doblada no cumplidos (inasistencia) y su pago reprogramado</p>
+    </div>
+
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert {% if 'error' in m.tags %}alert-danger{% elif 'warning' in m.tags %}alert-warning{% else %}alert-success{% endif %} shadow-sm">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="pg-stats">
+      <div class="pg-stat">
+        <div class="num" style="color:#d97706;">{{ conteos.pendiente }}</div>
+        <div class="lbl">Pendientes de pago</div>
+      </div>
+      <div class="pg-stat">
+        <div class="num" style="color:#16a34a;">{{ conteos.pagada }}</div>
+        <div class="lbl">Pagadas</div>
+      </div>
+      <div class="pg-stat">
+        <div class="num" style="color:#6b7280;">{{ conteos.cancelada }}</div>
+        <div class="lbl">Canceladas</div>
+      </div>
+      <div class="pg-stat">
+        <div class="num" style="color:#4f46e5;">{{ conteos.todos }}</div>
+        <div class="lbl">Total registradas</div>
+      </div>
+    </div>
+
     {% with e=estado_sel %}
-    <a class="btn btn-sm {% if e == 'pendiente' %}btn-warning{% else %}btn-outline-warning{% endif %}" href="?estado=pendiente">Pendientes <span class="badge badge-light">{{ conteos.pendiente }}</span></a>
-    <a class="btn btn-sm {% if e == 'pagada' %}btn-success{% else %}btn-outline-success{% endif %}" href="?estado=pagada">Pagadas <span class="badge badge-light">{{ conteos.pagada }}</span></a>
-    <a class="btn btn-sm {% if e == 'cancelada' %}btn-secondary{% else %}btn-outline-secondary{% endif %}" href="?estado=cancelada">Canceladas <span class="badge badge-light">{{ conteos.cancelada }}</span></a>
-    <a class="btn btn-sm {% if e == 'todos' %}btn-dark{% else %}btn-outline-dark{% endif %}" href="?estado=todos">Todas <span class="badge badge-light">{{ conteos.todos }}</span></a>
+    <nav class="pg-tabs" aria-label="Filtrar por estado">
+      <a class="pg-tab {% if e == 'pendiente' %}is-active{% endif %}" href="?estado=pendiente">
+        <i class="fas fa-hourglass-half"></i> Pendientes <span class="n">{{ conteos.pendiente }}</span></a>
+      <a class="pg-tab {% if e == 'pagada' %}is-active{% endif %}" href="?estado=pagada">
+        <i class="fas fa-check-circle"></i> Pagadas <span class="n">{{ conteos.pagada }}</span></a>
+      <a class="pg-tab {% if e == 'cancelada' %}is-active{% endif %}" href="?estado=cancelada">
+        <i class="fas fa-ban"></i> Canceladas <span class="n">{{ conteos.cancelada }}</span></a>
+      <a class="pg-tab {% if e == 'todos' %}is-active{% endif %}" href="?estado=todos">
+        <i class="fas fa-layer-group"></i> Todas <span class="n">{{ conteos.todos }}</span></a>
+    </nav>
     {% endwith %}
-  </div>
 
-  <div style="overflow-x:auto;">
-    <table class="table table-hover" style="min-width:820px;">
-      <thead><tr>
-        <th>Explorador</th><th>Doblada</th><th>Día no cumplido</th><th>Día de pago</th><th>Estado</th><th>Registró</th><th></th>
-      </tr></thead>
-      <tbody>
-        {% for r in reprogs %}
-        <tr>
-          <td><strong>{{ r.explorador.nombre }} {{ r.explorador.apellido }}</strong></td>
-          <td>#{{ r.doblada_origen_id }}</td>
-          <td>{{ r.fecha_original|date:'d/m/Y' }}{% if r.motivo %}<br><small class="text-muted">{{ r.motivo }}</small>{% endif %}</td>
-          <td>{{ r.fecha_reprogramada|date:'d/m/Y'|default:'— sin programar' }}</td>
-          <td>
-            {% if r.estado == 'pendiente' %}<span class="badge badge-warning">Pendiente</span>
-            {% elif r.estado == 'pagada' %}<span class="badge badge-success">Pagada</span>
-            {% else %}<span class="badge badge-secondary">Cancelada</span>{% endif %}
-          </td>
-          <td><small>{{ r.registrado_por.nombre|default:'—' }}</small></td>
-          <td style="white-space:nowrap;">
-            {% if r.estado == 'pendiente' %}
-              <a class="btn btn-sm btn-success" href="{% url 'solicitudes:reprog_programar' r.id %}"><i class="fas fa-calendar-check"></i> Programar</a>
-            {% endif %}
-            {% if r.estado == 'pagada' %}
-              {# Deshacer el pago NO cierra la deuda: vuelve a 'Pendiente' para poder reprogramarla. #}
-              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('Se anulará el día de pago y esa fecha volverá a su jornada normal. La reprogramación vuelve a PENDIENTE: la persona sigue debiendo el día. ¿Continuar?');">{% csrf_token %}
-                <input type="hidden" name="accion" value="deshacer_pago">
-                <button class="btn btn-sm btn-outline-danger" type="submit" title="Deshacer el día de pago (vuelve a pendiente)"><i class="fas fa-undo"></i> Deshacer pago</button>
-              </form>
-            {% elif r.estado == 'pendiente' %}
-              <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('ATENCIÓN: se PERDONA la deuda. El día no cumplido queda ANULADO y esta persona no lo repondrá. ¿Continuar?');">{% csrf_token %}
-                <input type="hidden" name="accion" value="cerrar_sin_pago">
-                <button class="btn btn-sm btn-outline-danger" type="submit" title="Cerrar sin pago (perdona la deuda)"><i class="fas fa-ban"></i></button>
-              </form>
-            {% endif %}
-          </td>
-        </tr>
-        {% empty %}
-        <tr><td colspan="7" class="text-center text-muted" style="padding:1.5rem;">No hay reprogramaciones {{ estado_sel }}.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
+    <div class="pg-card">
+      <div class="pg-card-head amber">
+        <h3><i class="fas fa-list-ul"></i>
+          {% if estado_sel == 'pendiente' %}Reprogramaciones pendientes
+          {% elif estado_sel == 'pagada' %}Reprogramaciones pagadas
+          {% elif estado_sel == 'cancelada' %}Reprogramaciones canceladas
+          {% else %}Todas las reprogramaciones{% endif %}
+        </h3>
+        <div class="pg-actions">
+          <span class="pg-btn pg-btn-light" style="cursor:default;">
+            {{ pagina.paginator.count }} registro{{ pagina.paginator.count|pluralize:"s" }}
+          </span>
+        </div>
+      </div>
 
-  {% if pagina.has_other_pages %}
-  <nav style="display:flex; gap:.5rem; align-items:center; justify-content:center; margin-top:.8rem;">
-    {% if pagina.has_previous %}
-      <a class="btn btn-sm btn-outline-secondary" href="?estado={{ estado_sel }}&page={{ pagina.previous_page_number }}">« Anteriores</a>
+      <div class="pg-table-wrap">
+        <table class="pg-table">
+          <thead>
+            <tr>
+              <th>Explorador</th>
+              <th>Doblada</th>
+              <th>Día no cumplido</th>
+              <th>Día de pago</th>
+              <th>Estado</th>
+              <th>Registró</th>
+              <th style="text-align:right;">Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in reprogs %}
+            <tr>
+              <td><strong>{{ r.explorador.nombre }} {{ r.explorador.apellido }}</strong></td>
+              <td><span class="pg-chip pg-chip-info">#{{ r.doblada_origen_id }}</span></td>
+              <td>
+                <i class="far fa-calendar-times text-muted mr-1"></i>{{ r.fecha_original|date:'d/m/Y' }}
+                {% if r.motivo %}<br><small class="text-muted">{{ r.motivo }}</small>{% endif %}
+              </td>
+              <td>
+                {% if r.fecha_reprogramada %}
+                  <i class="far fa-calendar-check text-success mr-1"></i>{{ r.fecha_reprogramada|date:'d/m/Y' }}
+                {% else %}
+                  <span class="text-muted font-italic">Sin programar</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if r.estado == 'pendiente' %}<span class="pg-chip pg-chip-pend">Pendiente</span>
+                {% elif r.estado == 'pagada' %}<span class="pg-chip pg-chip-ok">Pagada</span>
+                {% else %}<span class="pg-chip pg-chip-gray">Cancelada</span>{% endif %}
+              </td>
+              <td><small class="text-muted">{{ r.registrado_por.nombre|default:'—' }}</small></td>
+              <td style="white-space:nowrap; text-align:right;">
+                {% if r.estado == 'pendiente' %}
+                  <a class="pg-btn pg-btn-success pg-btn-sm" href="{% url 'solicitudes:reprog_programar' r.id %}">
+                    <i class="fas fa-calendar-check"></i> Programar</a>
+                  <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('ATENCIÓN: se PERDONA la deuda. El día no cumplido queda ANULADO y esta persona no lo repondrá. ¿Continuar?');">{% csrf_token %}
+                    <input type="hidden" name="accion" value="cerrar_sin_pago">
+                    <button class="pg-btn pg-btn-danger pg-btn-sm" type="submit" title="Cerrar sin pago (perdona la deuda)">
+                      <i class="fas fa-ban"></i></button>
+                  </form>
+                {% elif r.estado == 'pagada' %}
+                  {# Deshacer el pago NO cierra la deuda: vuelve a 'Pendiente' para poder reprogramarla. #}
+                  <form method="post" action="{% url 'solicitudes:reprog_cancelar' r.id %}" style="display:inline;" onsubmit="return confirm('Se anulará el día de pago y esa fecha volverá a su jornada normal. La reprogramación vuelve a PENDIENTE: la persona sigue debiendo el día. ¿Continuar?');">{% csrf_token %}
+                    <input type="hidden" name="accion" value="deshacer_pago">
+                    <button class="pg-btn pg-btn-secondary pg-btn-sm" type="submit" title="Deshacer el día de pago (vuelve a pendiente)">
+                      <i class="fas fa-undo"></i> Deshacer pago</button>
+                  </form>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+            {% empty %}
+            <tr>
+              <td colspan="7">
+                <div class="pg-empty">
+                  <i class="far fa-calendar-alt fa-2x d-block mb-2" style="opacity:.5;"></i>
+                  No hay reprogramaciones {{ estado_sel }}.
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    {% if pagina.has_other_pages %}
+    <nav class="pg-pagination" aria-label="Paginación">
+      {% if pagina.has_previous %}
+        <a href="?estado={{ estado_sel }}&page={{ pagina.previous_page_number }}">&laquo; Anteriores</a>
+      {% else %}
+        <span class="disabled">&laquo; Anteriores</span>
+      {% endif %}
+      <span class="current">{{ pagina.number }}</span>
+      <span class="disabled">de {{ pagina.paginator.num_pages }}</span>
+      {% if pagina.has_next %}
+        <a href="?estado={{ estado_sel }}&page={{ pagina.next_page_number }}">Siguientes &raquo;</a>
+      {% else %}
+        <span class="disabled">Siguientes &raquo;</span>
+      {% endif %}
+    </nav>
     {% endif %}
-    <small class="text-muted">Página {{ pagina.number }} de {{ pagina.paginator.num_pages }}</small>
-    {% if pagina.has_next %}
-      <a class="btn btn-sm btn-outline-secondary" href="?estado={{ estado_sel }}&page={{ pagina.next_page_number }}">Siguientes »</a>
-    {% endif %}
-  </nav>
-  {% endif %}
+
+  </div>
 </div>
 {% endblock %}
