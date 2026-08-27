@@ -1,21 +1,39 @@
 # Inventario documental — AppTurnos / SWALP
 
 Auditoría de qué está documentado, qué está a medias y qué falta. Generado el
-2026-07-25 con el skill `project-documentation-master` (Fase 0) y **actualizado el 2026-08-09**
+2026-07-25 con el skill `project-documentation-master` (Fase 0), actualizado el 2026-08-09
 tras la reconstrucción completa de los dos manuales
 ([manual_usuario.md](./manual_usuario.md), 1.579 líneas;
-[manual_tecnico.md](./manual_tecnico.md), 1.496 líneas).
+[manual_tecnico.md](./manual_tecnico.md), 1.496 líneas), y **revisado el 2026-08-26**
+contrastando afirmación por afirmación contra el código.
 
 El criterio no es la fecha del archivo: un área se marca **desactualizada** solo si se
 contrastó una afirmación concreta contra el código y no coincide. Cuando no se hizo esa
 comprobación, el estado es **sin verificar**.
+
+> ⚠ **La fecha de git no sirve como señal de frescura en este repo.** Unos 80
+> documentos comparten fecha 2026-07-25 por un commit de reorganización masiva
+> que los movió a todos sin tocar su contenido. Un archivo "reciente" puede
+> llevar un año desfasado, y uno "viejo" estar perfecto. Sin contrastar contra
+> el código, no se sabe.
+
+## Corregido el 2026-08-26
+
+| Se afirmaba | Realidad comprobada |
+|---|---|
+| Auditoría de calidad: «52 %» | El propio documento dice **55 %** (revisado al alza tras retirar dos falsos positivos). Y ese 55 % es la línea base del 19-ago: desde entonces las Fases 0, 1 y 2 se cerraron, así que **su tabla de veredicto se quedó por detrás de su propia hoja de ruta** (conserva `OCP 3` cuando la Fase 2, que arregló el OCP, está marcada HECHA más abajo en el mismo archivo) |
+| «ADR 001 a 010» | Hay **11**: falta enlazar [011-sancion-independiente-del-pago](./03-arquitectura/adr/011-sancion-independiente-del-pago.md) |
+| Arquitectura técnica: «completo» | **Parcial.** `ARQUITECTURA.md` y `ESTRUCTURA_OBJETIVO.md` son de enero-2025 y su inventario de archivos es falso; ya llevan cabecera de estado. Los ADRs y el manual técnico sí están al día |
+| — | `pendientes-arquitectura.md` daba por disponible un `EmpleadoRepository` **que se borró** el 22-ago. Reescrito y re-medido |
+| — | `plan-refactor-tipo-cambio.md` se declaraba «no ejecutada» estando ejecutado en Fases 1-3. Cabecera corregida |
+| — | Los **PDF de `pdf/` van por detrás de su fuente**: generados el 20-ago, `manual_tecnico.md` cambió el 22-ago. Hay que regenerarlos |
 
 ## Resumen
 
 | Área | Estado | Dónde está | Qué falta |
 |---|---|---|---|
 | Arquitectura técnica | completo | [03-arquitectura/ARQUITECTURA.md](./03-arquitectura/ARQUITECTURA.md), [adr/](./03-arquitectura/adr/) | Nada crítico; ahora se enlaza desde el manual técnico |
-| Decisiones técnicas (ADR) | completo | [adr/001](./03-arquitectura/adr/001-service-layer-y-orchestrator.md) a [010](./03-arquitectura/adr/010-dia-de-descanso-libre-tras-el-intercambio.md) | — |
+| Decisiones técnicas (ADR) | completo | [adr/001](./03-arquitectura/adr/001-service-layer-y-orchestrator.md) a [011](./03-arquitectura/adr/011-sancion-independiente-del-pago.md) | — |
 | **Auditoría de calidad (SOLID / arquitectura / código limpio)** | **completo** | [03-arquitectura/AUDITORIA_CALIDAD_2026-08.md](./03-arquitectura/AUDITORIA_CALIDAD_2026-08.md) | Línea base del 2026-08-19: 52 % de adherencia, 5 fases de refactor priorizadas. Contrastado con doc oficial de Django 5.2, django-axes y Gunicorn vía Context7. Incluye §9: comparativa EC2 vs Fargate y su interacción con los hallazgos. Pendiente: verificar nonces de django-csp (no indexado) |
 | Reglas de negocio de solicitudes | parcial | [05-referencia/solicitudes/](./05-referencia/solicitudes/) | Cubre CT sencillo y dobladas a fondo; cambio de descanso, D FDS y CT permanente estaban dispersos |
 | Dobladas | completo | [solicitudes/dobladas/](./05-referencia/solicitudes/dobladas/) (14 archivos) | Muy detallado, pero orientado a incidencias concretas, no a lectura de principio a fin |

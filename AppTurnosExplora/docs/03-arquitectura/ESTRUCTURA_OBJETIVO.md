@@ -1,6 +1,27 @@
 # Estructura Objetivo - Proyecto AppTurnos
 
-## Fecha: 2025-01-XX
+## Fecha: enero 2025 · **revisado el 26 ago 2026**
+
+> ## ⚠ Estado: DOCUMENTO HISTÓRICO — su "objetivo" ya se alcanzó en su mayor parte
+>
+> Es el plan de enero de 2025, no una descripción del proyecto de hoy. Se conserva
+> por trazabilidad: explica **por qué** la estructura actual es como es.
+>
+> **No lo uses como lista de tareas.** Casi todo lo que pide ya existe, y su
+> sección «ESTRUCTURA ACTUAL» describe un proyecto que dejó de existir hace más
+> de un año. Comprobado el 26 ago 2026:
+>
+> | Este documento dice | Realidad |
+> |---|---|
+> | `empleados/tests.py (vacío)`, `permisos/tests.py (vacío)` | Ambos tienen carpeta `tests/` poblada. **1 439 tests** en el proyecto, todos en verde |
+> | `solicitud_service.py ⚠️ Múltiples responsabilidades` | Ya descompuesto: `orchestrator`, `factory`, `strategies/`, `validators/`, servicios de aplicación |
+> | «ARCHIVOS A CREAR»: interfaces, repositorios, casos de uso | Creados: `core/interfaces/`, `solicitudes/repositories/`, `solicitudes/use_cases/`, `solicitudes/domain/` |
+> | Estructura por capas como meta futura | Es la estructura actual |
+>
+> Lo que SÍ sigue abierto de este plan —adoptar los repositorios que ya existen,
+> partir las funciones gigantes— está medido y priorizado en
+> [pendientes-arquitectura.md](./pendientes-arquitectura.md), que es el documento
+> vivo. Este no lo es.
 
 ## RESUMEN EJECUTIVO
 

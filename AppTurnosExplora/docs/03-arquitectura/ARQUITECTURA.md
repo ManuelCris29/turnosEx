@@ -1,6 +1,29 @@
 # Arquitectura del Proyecto AppTurnos
 
-## Fecha: 2025-01-XX
+## Fecha: enero 2025 · **revisado el 26 ago 2026**
+
+> ## ⚠ Estado: PARCIALMENTE DESACTUALIZADO — leer esto antes que nada
+>
+> Escrito en enero de 2025. Los **principios y patrones** (SOLID, Service Layer,
+> Factory, Strategy, capas) siguen describiendo bien el proyecto. El **inventario
+> de archivos concreto NO**: se ha quedado atrás en 19 meses.
+>
+> Comprobado el 26 ago 2026:
+>
+> | Este documento dice | Realidad |
+> |---|---|
+> | 9 servicios en `solicitudes/services/` | **32 módulos** |
+> | `empleados/views.py`, `solicitudes/views.py` como ARCHIVOS | Son **paquetes** (`views/`) en `solicitudes`, `turnos` y `empleados` |
+> | `SolicitudValidator` como servicio de 1 clase | Repartido en `services/validators/` (4 módulos); el archivo original tiene 20 líneas |
+> | No menciona `email_service.py` | Existe desde ago-2026, extraído de `notificacion_service.py` |
+> | No menciona `core/constants.py` | Existe, y es de lectura obligatoria: 4 vocabularios que comparten textos |
+> | No menciona `repositories/`, `use_cases/`, `domain/` | Existen los tres |
+>
+> **Fuentes de verdad para lo que este documento no alcanza:**
+> - Estado medido y línea base de calidad → [AUDITORIA_CALIDAD_2026-08.md](./AUDITORIA_CALIDAD_2026-08.md)
+> - Decisiones y su porqué → [adr/](./adr/) (011 ADRs)
+> - Qué falta y qué ya no → [pendientes-arquitectura.md](./pendientes-arquitectura.md)
+> - Entrada para desarrolladores → [../manual_tecnico.md](../manual_tecnico.md)
 
 ## RESUMEN EJECUTIVO
 
@@ -17,10 +40,14 @@ AppTurnosExplora/
 │   ├── urls.py            # URLs principales
 │   └── ...
 ├── core/                   # Componentes transversales y compartidos
+│   ├── constants.py       # ⚠ LOS 4 VOCABULARIOS DE DOMINIO. Leer su cabecera
+│   ├── interfaces/        # Abstracciones para DIP (ITurnoService, …)
 │   ├── mixins.py          # Mixins reutilizables (AdminRequiredMixin)
+│   ├── checks.py          # System checks propios (p. ej. caché multiproceso)
 │   ├── utils/             # Utilidades generales
 │   │   ├── date_utils.py  # Utilidades de fechas
 │   │   ├── jornada_utils.py # Utilidades de jornadas
+│   │   ├── festivos_colombia.py
 │   │   └── json_responses.py # Helpers JSON
 │   ├── services/          # Servicios transversales
 │   │   └── cache_service.py # Servicio de cache centralizado
@@ -29,31 +56,34 @@ AppTurnosExplora/
 ├── empleados/             # Módulo de empleados
 │   ├── models.py
 │   ├── services/
-│   │   └── empleado_service.py
-│   ├── views.py
+│   ├── views/             # PAQUETE, no un views.py
 │   └── tests/
 ├── permisos/               # Módulo de permisos
 │   ├── models.py
+│   ├── services.py
 │   ├── views.py
 │   └── tests/
 ├── solicitudes/            # Módulo de solicitudes (dominio principal)
 │   ├── models.py
-│   ├── services/
-│   │   ├── empleado_disponibilidad_service.py
+│   ├── domain/            # Reglas puras, SIN ORM (vigilado por test)
+│   │   └── estado_machine.py
+│   ├── use_cases/         # crear / aprobar / cancelar solicitud
+│   ├── repositories/      # Queries centralizadas (creado; POCO adoptado)
+│   ├── services/          # 32 módulos — `ls` manda sobre esta lista
+│   │   ├── solicitud_orchestrator.py   # Punto de entrada
+│   │   ├── solicitud_factory.py        # Factory de estrategias
 │   │   ├── notificacion_service.py
-│   │   ├── solicitud_aprobacion_service.py
-│   │   ├── solicitud_consulta_service.py
-│   │   ├── solicitud_context_service.py
-│   │   ├── solicitud_factory.py
-│   │   ├── solicitud_service.py
-│   │   ├── solicitud_validator.py
-│   │   └── strategies/     # Estrategias por tipo de solicitud
+│   │   ├── email_service.py            # Extraído de notificacion_service
+│   │   ├── validators/                 # Sustituye a solicitud_validator.py
+│   │   └── strategies/                 # Una por tipo de solicitud
 │   │       ├── base_strategy.py
 │   │       ├── cambio_turno_strategy.py
+│   │       ├── cambio_descanso_strategy.py
 │   │       ├── ct_permanente_strategy.py
 │   │       ├── doblada_strategy.py
+│   │       ├── doblada_permanente_strategy.py
 │   │       └── d_fds_strategy.py
-│   ├── views.py
+│   ├── views/             # PAQUETE, no un views.py
 │   └── tests/
 ├── turnos/                 # Módulo de turnos
 │   ├── models.py
