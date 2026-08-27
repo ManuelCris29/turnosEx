@@ -1732,6 +1732,65 @@ no encaja" y "el código está roto".
 la fase de reparación. En creación, aprobación o re-validación, un `ValidationError` capturado y
 registrado es exactamente el bug que el patrón #39 viene a evitar.
 
+### 41. **Un nombre privado consumido desde fuera es un contrato FALSO** (Backend / Arquitectura)
+
+**Qué es:** Un `_nombre` declara «detalle interno, puedo cambiarlo sin avisar». Si otro módulo
+lo importa, esa promesa deja de ser cierta: el autor tiene consumidores que no ve. O el símbolo
+es público y hay que quitarle el guión bajo, o el consumidor no debería estar llamándolo.
+
+**Por qué:** El daño no aparece al importar, sino meses después: alguien refactoriza su
+«privada» confiando en el contrato y rompe código de otra app. Es una trampa de mantenimiento
+que no da error hoy y no la detecta ninguna prueba funcional.
+
+**Dónde:** Toda frontera de módulo, y muy especialmente entre apps.
+
+**Implementación:** No es una técnica de código, es un invariante VIGILADO. La revisión
+humana no sirve: la fuga se cuela una línea a la vez.
+
+```python
+# core/tests/test_arquitectura_api_privada.py
+# Recorre el AST de TODO el código de producción y falla si encuentra una fuga.
+for nodo in ast.walk(arbol):
+    if isinstance(nodo, ast.ImportFrom):
+        for alias in nodo.names:
+            # `import publico as _alias` NO es fuga: lo importado es público.
+            es_privado = alias.name.startswith('_') and not alias.name.startswith('__')
+            if es_privado and alias.asname is None:
+                fugas.append(f"{ruta}:{nodo.lineno} from {nodo.module} import {alias.name}")
+```
+
+**Estado:** ✅ **APLICADO** (27 ago 2026)
+- `core/tests/test_arquitectura_api_privada.py` - el guardia. Se verificó que **sabe ponerse en
+  rojo** inyectando una fuga a propósito antes de darlo por bueno
+- `solicitudes/services/cambios_permanentes_helper.py` - origen de 8 de las 10 fugas; 11 símbolos
+  promovidos a públicos (`es_festivo`, `estado_ct`, `jornada_doblada_perm`…)
+- `empleados/views/__init__.py` - 2 re-exportaciones privadas que no consumía nadie, retiradas
+
+⚠️ **Mídelo con AST, no con `grep`.** La primera pasada de esta auditoría usó `grep` y contó
+**4** fugas; el AST encontró **10**. `grep` no ve los imports repartidos en
+varias líneas dentro de paréntesis, que es justo como se escriben los bloques largos.
+Es el mismo error que ya costó el falso positivo del commit `329d2c3`: **medir con la herramienta
+que entiende el lenguaje**, no con la que lee líneas.
+
+⚠️ **La lista de excepciones NO es la tercera salida.** Si el test se pone en rojo, hay dos
+respuestas legítimas: promover el símbolo, o arreglar al consumidor. Añadirlo a una allowlist
+convierte el guardia en decoración.
+
+⚠️ **Promover un privado NO es siempre la respuesta.** Antes de quitar el guión bajo, pregunta
+si el consumidor debería estar llamándolo. Dos de las diez fugas eran re-exportaciones que nadie
+usaba: lo correcto fue REDUCIR la superficie pública, no ampliarla.
+
+⚠️ **Cuidado con el arreglo que parece obvio: partir el módulo.** Si el privado se filtra
+porque varios consumidores necesitan un núcleo común, sacar ese núcleo a otro archivo suele
+CREAR fugas nuevas en vez de cerrarlas. Se comprobó en
+`cambios_permanentes_helper.py`: extraer la doblada permanente habría obligado a importar cuatro
+piezas del núcleo —dos privadas— cruzando una frontera nueva. **Mide el grafo de dependencias
+antes de mover nada.**
+
+**Nota:** no aparece en la «Matriz de Patrones por Flujo» a propósito, igual que los patrones
+#31-#40. Esa matriz es por flujo de solicitud; este invariante es global al código y no depende
+de ningún flujo.
+
 ---
 
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
@@ -1781,6 +1840,10 @@ Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
       migración de estado)?** → **Reparación best-effort** (#40) - captura solo `ValidationError`,
       registra a ERROR, sigue con las demás y deja un auditor que encuentre lo omitido. En fase de
       validación, lo contrario: fallar cerrado
+- [ ] **¿Vas a importar algo de otro módulo, o a marcar una función como privada?** →
+      **Contrato de API privada** (#41) - un `_nombre` importado desde fuera es un contrato
+      falso. El guardia de AST lo vigila; si se pone en rojo, promueve el símbolo o arregla
+      al consumidor, nunca lo metas en una allowlist
 - [ ] **¿Puede haber errores?** → **Error Handling** (#19) - try/except + logging
 
 ---
@@ -1939,6 +2002,10 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | El criterio "la otra mitad del sábado ya está cubierta" se unifica en `_mitad_contraria_cubierta_por_otra_doblada` y deja de filtrar por deudor | #39 | Estaba duplicado en dos consultas que exigían el MISMO deudor. Eso causaba un bug **preexistente** de doble cobertura (el reparto recreaba al acreedor la mitad que otro deudor ya cubría) y bloqueaba re-aplicaciones legítimas. Dos deudores distintos pueden pagar cada mitad: el dominio ya lo modelaba en `DescansoPorSolicitudService` (`{'AM','PM'} <= parciales`) |
 | | La re-validación al aprobar reencuadra el mensaje en vez de reescribir los ~13 literales | #39 (regla 5) | Los mensajes de validación están escritos para quien ENVÍA ("elige otra fecha de pago"), pero al aprobar los lee el APROBADOR, que no puede ejecutar esa instrucción. Se corrige en la costura (`solicitud_aprobacion_service.py`), no en cada mensaje: son literales documentados y hay lógica que inspecciona su texto |
 | | La UI de DOBLADA deja de ofrecer el pago en sábado cuando el compañero descansa, y avisa del rechazo en la vista previa | #37 | El panel afirmaba "tu compañero trabaja la otra" mitad aunque el compañero descansara, y el resumen se pintaba en azul mientras el rechazo ya estaba calculado: solo aparecía al pulsar Enviar |
+| **2026-08-27** | Agregado patrón #41 (un nombre privado consumido desde fuera es un contrato falso) tras auditar las fugas de API privada entre módulos | #41 (nuevo) | 10 imports de nombres privados cruzando módulos, ocho desde `cambios_permanentes_helper.py` y dos cruzando frontera de app (`empleados/services/indicadores_service.py` importaba `_es_festivo`). Nada lo vigilaba: el guardia de AST `core/tests/test_arquitectura_api_privada.py` es el patrón. Se verificó que sabe ponerse en rojo |
+| | 11 símbolos promovidos a públicos y 2 re-exportaciones retiradas de `empleados/views/__init__.py` | #41 | Eran API pública de facto marcada como privada. Las dos re-exportaciones no las consumía nadie: ahí lo correcto fue REDUCIR superficie pública, no ampliarla |
+| | `ct_permanente_helper.py` renombrado a `cambios_permanentes_helper.py` | #41 | El nombre decía CT pero el módulo sirve a los dos formularios permanentes. Ese desajuste llevó a proponer por error partir el módulo; el grafo de dependencias mostró que hacerlo habría RECREADO las fugas recién cerradas |
+| | Sacados del repositorio los 50 `.pyc` versionados | — | Bytecode compilado en control de versiones, 7 de ellos fósiles de módulos que ya no existen. `.gitignore` ya tenía las reglas pero no desrastrea lo ya rastreado. Producción no se veía afectada: `.dockerignore` ya los excluía de la imagen |
 
 ---
 
@@ -1950,7 +2017,7 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 
 ---
 
-**Última actualización:** 2026-08-09  
+**Última actualización:** 2026-08-27  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 
