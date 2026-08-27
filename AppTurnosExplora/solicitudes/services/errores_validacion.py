@@ -66,3 +66,21 @@ class RequiereCambioTurnoPrevio(str):
             'fecha_pago': self.fecha_pago,
             'jornada_comun': self.jornada_comun,
         }
+
+
+class ErrorDelCompanero(str):
+    """
+    Rechazo que habla del COMPAÑERO, no de quien envía la solicitud.
+
+    El alta multi-compañero de la doblada permanente valida una vez por compañero y antepone su
+    nombre al mensaje, porque con varios en el mismo formulario no se sabría cuál falló. El
+    problema es que lo anteponía a TODOS los rechazos: "Ya tienes una solicitud pendiente" —que
+    habla del solicitante— salía como "Isabel Parra: Ya tienes una solicitud pendiente", y el
+    usuario cancelaba la solicitud de Isabel buscando un choque que era suyo.
+
+    Con este marcador el nombre solo se antepone a lo que de verdad es del compañero. La decisión
+    la toma quien valida, que es el único que sabe de quién habla cada frase; no se adivina
+    leyendo el texto —el mismo error de bulto que documenta `RequiereCambioTurnoPrevio`—.
+
+    Hereda de `str` por lo mismo: viaja por logs y respuestas que lo tratan como texto.
+    """

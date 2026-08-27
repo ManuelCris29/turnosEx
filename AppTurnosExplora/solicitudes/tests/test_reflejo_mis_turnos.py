@@ -182,8 +182,9 @@ class ReflejoMisTurnosTest(TestCase):
         while fi.day == calendar.monthrange(fi.year, fi.month)[1]:
             fi += timedelta(days=7)
         martes = self._dia_semana(1, desde=fi)  # martes (devolución)
-        # La doblada permanente exige que el rango esté dentro del mismo mes: acotar ff al
-        # último día del mes de fi (sigue incluyendo el lunes y el martes de esa semana).
+        # El rango de la doblada permanente ya puede cruzar meses, pero esta prueba lo acota al
+        # mes de fi a propósito: así el lunes y el martes que comprueba caen en un mes cerrado y
+        # sus aserciones no dependen de qué día se ejecute la suite.
         ultimo_dia_mes = date(fi.year, fi.month, calendar.monthrange(fi.year, fi.month)[1])
         ff = min(fi + timedelta(days=13), ultimo_dia_mes)
         _sol = self._crear_y_aplicar(self.tipos['DOBLADA PERMANENTE'], {

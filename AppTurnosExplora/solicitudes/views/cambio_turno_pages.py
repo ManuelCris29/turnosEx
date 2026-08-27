@@ -114,9 +114,14 @@ class SolicitarCambioTurnoView(LoginRequiredMixin, View):
 
     def _render_doblada_permanente(self, request, tipo_solicitud):
         """Renderizar formulario específico para DOBLADA PERMANENTE"""
+        # El rango ya no se limita a un mes: se admite uno largo (enero-junio) con el mismo tope
+        # que CT permanente. El número viaja al template para que el calendario no deje elegir un
+        # rango que el validador va a rechazar; la regla sigue viviendo en Python, no en el JS.
+        from ..services.validators.ct_permanente_validator import MAX_DIAS_RANGO_PERMANENTE
         context = {
             'tipo_solicitud': tipo_solicitud,
             'fecha_minima': timezone.localdate(),
+            'max_dias_rango': MAX_DIAS_RANGO_PERMANENTE,
             'empleados_disponibles': [],
             'empleado_seleccionado': None,
         }

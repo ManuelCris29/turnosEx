@@ -18,7 +18,7 @@ from core.utils.json_responses import json_error, json_ok
 from empleados.models import Empleado
 
 from ..models import TipoSolicitudCambio
-from .errores_validacion import RequiereCambioTurnoPrevio
+from .errores_validacion import ErrorDelCompanero, RequiereCambioTurnoPrevio
 from .solicitud_factory import SolicitudFactory
 from .solicitud_request_parser import SolicitudRequestParser
 
@@ -554,20 +554,21 @@ class SolicitudOrchestrator:
             }
             es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)
             if not es_valida:
-                # Al mensaje se le antepone de quién es el problema, porque aquí se
-                # valida a varios compañeros y sin el nombre no se sabe cuál falló.
-                # A `RequiereCambioTurnoPrevio` NO se le antepone: se envía tal cual
+                # El nombre del compañero se antepone SOLO a lo que habla de él.
+                #
+                # Antes se le ponía a todos los rechazos, y eso mentía: "Ya tienes una
+                # solicitud pendiente" —que habla de quien envía— llegaba como
+                # "Isabel Parra: Ya tienes una solicitud pendiente", así que el usuario
+                # iba a cancelar la solicitud de Isabel a buscar un choque que era suyo.
+                # Quien valida marca con `ErrorDelCompanero` las frases que son del
+                # compañero; no se adivina leyendo el texto.
+                #
+                # A `RequiereCambioTurnoPrevio` tampoco se le antepone: se envía tal cual
                 # para que conserve sus datos y el formulario pueda pintar su recuadro
                 # (concatenar produciría un `str` normal y perdería los atributos).
-                #
-                # Antes esto se decidía mirando si el texto contenía una llave `{`,
-                # porque el dato viajaba como JSON dentro del mensaje. Cualquier frase
-                # con una llave habría entrado por esa rama sin querer.
-                es_estructurado = isinstance(mensaje, RequiereCambioTurnoPrevio)
-                return cls._respuesta_error_validacion(
-                    mensaje if es_estructurado
-                    else f"{receptor.nombre} {receptor.apellido}: {mensaje}"
-                )
+                if isinstance(mensaje, ErrorDelCompanero):
+                    mensaje = f"{receptor.nombre} {receptor.apellido}: {mensaje}"
+                return cls._respuesta_error_validacion(mensaje)
             pendientes.append((receptor, datos))
 
         # Crear todas, TODO O NADA. El acuerdo con varios compañeros solo tiene sentido completo:

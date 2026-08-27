@@ -36,6 +36,54 @@ class DobladaPermanenteAplicacionService:
     def _parse_dias(dias_str):
         return {int(x) for x in (dias_str or '').split(',') if x.strip().isdigit()}
 
+    #: Razón con la que se excluye del rango un día cubierto por una sanción.
+    RAZON_SANCION = 'Sancionado en esa fecha'
+
+    @staticmethod
+    def _dias_sancionados(exploradores, fecha_inicio, fecha_fin):
+        """
+        Fechas del rango en que ALGUNO de los exploradores está sancionado.
+
+        La sanción dejó de invalidar la solicitud entera para pasar a excluir días sueltos: con
+        rangos largos (enero-junio) una sanción de 15 días tumbaba los seis meses, cuando lo que
+        castiga es su propia ventana. Ojo con la confusión típica: el mes VENCIDO y los días
+        BLOQUEADOS no coinciden — quien cierra enero debiendo cumple la sanción DESPUÉS del
+        vencimiento, ya en febrero, así que lo que se salta son esos días de febrero, no los de
+        enero (enero ya se aplicó y generó la deuda que venció).
+
+        Se pregunta a `SancionEmpleado.esta_vigente(fecha)`, que es quien define "¿bloquea este
+        día?" para todo el sistema: así una sanción levantada a mano deja de excluir desde el día
+        del levantamiento, sin reimplementar aquí esa regla.
+
+        Vive en este servicio y no en `cambios_permanentes_helper`: ese helper lo comparte CT
+        permanente, que tiene sus propias reglas y no debe cambiar de comportamiento.
+        """
+        from django.db.models import Q
+
+        from empleados.models import SancionEmpleado
+
+        emps = [e for e in exploradores if e]
+        if not emps or fecha_fin < fecha_inicio:
+            return set()
+
+        # Una sola consulta: las sanciones que rozan el rango, de cualquiera de los dos.
+        sanciones = list(
+            SancionEmpleado.objects
+            .filter(explorador__in=emps, fecha_inicio__lte=fecha_fin)
+            .filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=fecha_inicio))
+            .only('fecha_inicio', 'fecha_fin', 'levantada_en')
+        )
+        if not sanciones:
+            return set()
+
+        dias = set()
+        d = fecha_inicio
+        while d <= fecha_fin:
+            if any(s.esta_vigente(d) for s in sanciones):
+                dias.add(d)
+            d += timedelta(days=1)
+        return dias
+
     @staticmethod
     def _ocurrencias(fecha_inicio, fecha_fin, dias_set, solicitante=None, receptor=None, excluir_id=None):
         """
@@ -49,9 +97,11 @@ class DobladaPermanenteAplicacionService:
         exploradores, además exige que ese día tengan jornada CONTRARIA (uno AM y el otro PM).
         """
         from .cambios_permanentes_helper import jornada_doblada_perm
+        sancionados = DobladaPermanenteAplicacionService._dias_sancionados(
+            (solicitante, receptor), fecha_inicio, fecha_fin)
         d = fecha_inicio
         while d <= fecha_fin:
-            if d.weekday() in dias_set and d.weekday() < 5:
+            if d.weekday() in dias_set and d.weekday() < 5 and d not in sancionados:
                 # `excluir_id` ignora ESTA solicitud (al re-validar/aplicar ya aprobada) para no
                 # auto-excluirse por su propio descanso.
                 js = jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
@@ -76,6 +126,8 @@ class DobladaPermanenteAplicacionService:
         descansos y días sin turno. Devuelve ordenadas.
         """
         from .cambios_permanentes_helper import jornada_doblada_perm
+        sancionados = DobladaPermanenteAplicacionService._dias_sancionados(
+            (solicitante, receptor), fecha_inicio, fecha_fin)
         out = []
         for s in (fechas_csv or '').split(','):
             s = s.strip()
@@ -86,6 +138,8 @@ class DobladaPermanenteAplicacionService:
             except ValueError:
                 continue
             if not (fecha_inicio <= d <= fecha_fin and d.weekday() < 5):
+                continue
+            if d in sancionados:
                 continue
             js = jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
             jr = jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
@@ -109,12 +163,23 @@ class DobladaPermanenteAplicacionService:
             {'cesion': {'aplicables': [date], 'excluidas': [{'fecha': date, 'razon': str}]},
              'devolucion': {'aplicables': [date], 'excluidas': [{'fecha': date, 'razon': str}]}}
         """
-        from .cambios_permanentes_helper import jornada_doblada_perm, motivo_no_doblada_perm
+        from .cambios_permanentes_helper import (
+            jornada_doblada_perm,
+            motivo_no_doblada_perm,
+            precargar_ct_permanente,
+        )
 
         fi = detalle.fecha_inicio
         ff = detalle.fecha_fin or date(fi.year, 12, 31)
 
+        sancionados = DobladaPermanenteAplicacionService._dias_sancionados(
+            (solicitante, receptor), fi, ff)
+
         def _elegible(d):
+            # La sanción se mira ANTES que la jornada: es la razón más concreta que se le puede
+            # dar al usuario para ese día, y no depende de cómo quedara el turno.
+            if d in sancionados:
+                return False, DobladaPermanenteAplicacionService.RAZON_SANCION
             js = jornada_doblada_perm(solicitante, d)
             jr = jornada_doblada_perm(receptor, d)
             if js is not None and jr is not None and js != jr:
@@ -162,14 +227,19 @@ class DobladaPermanenteAplicacionService:
 
         fces = getattr(detalle, 'fechas_cesion', '') or ''
         fdev = getattr(detalle, 'fechas_devolucion', '') or ''
-        if fces or fdev:
-            ces_ap, ces_ex = _explorar_fechas_especificas(fces)
-            dev_ap, dev_ex = _explorar_fechas_especificas(fdev)
-        else:
-            dias_cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
-            dias_devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
-            ces_ap, ces_ex = _explorar_dias_semana(dias_cesion)
-            dev_ap, dev_ex = _explorar_dias_semana(dias_devolucion)
+        # Precarga en lote del estado de los dos exploradores en todo el rango: los barridos de
+        # abajo resuelven `estado_dia` día a día y, desde que el rango puede ser de un año en vez
+        # de un mes, eso era una consulta por celda de la matriz explorador x día. Se reutiliza el
+        # mismo contextmanager que ya usan las vistas de preview.
+        with precargar_ct_permanente([solicitante, receptor], fi, ff):
+            if fces or fdev:
+                ces_ap, ces_ex = _explorar_fechas_especificas(fces)
+                dev_ap, dev_ex = _explorar_fechas_especificas(fdev)
+            else:
+                dias_cesion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_cesion)
+                dias_devolucion = DobladaPermanenteAplicacionService._parse_dias(detalle.dias_devolucion)
+                ces_ap, ces_ex = _explorar_dias_semana(dias_cesion)
+                dev_ap, dev_ex = _explorar_dias_semana(dias_devolucion)
 
         # Balance: igual que aplicar(), solo se aplican PARES completos (recorte al mínimo común).
         n = min(len(ces_ap), len(dev_ap))

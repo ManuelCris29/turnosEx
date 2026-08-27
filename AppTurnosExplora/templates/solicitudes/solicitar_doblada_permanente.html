@@ -47,8 +47,12 @@
                     </div>
                     <div class="form-group col-md-6">
                         <label for="fecha_fin"><i class="fas fa-calendar mr-1"></i>Hasta <span class="text-danger">*</span></label>
+                        {% comment %}
+                        Tope del rango (días, extremos incluidos). Lo fija el backend
+                        (MAX_DIAS_RANGO_PERMANENTE); el JS solo lo lee para topar el calendario.
+                        {% endcomment %}
                         <input type="text" class="form-control" id="fecha_fin" name="fecha_fin" required readonly autocomplete="off"
-                               placeholder="Fin del rango">
+                               data-max-dias="{{ max_dias_rango }}" placeholder="Fin del rango">
                     </div>
                 </div>
 

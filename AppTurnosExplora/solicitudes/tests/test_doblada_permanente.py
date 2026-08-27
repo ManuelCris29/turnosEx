@@ -1,7 +1,8 @@
 """
 Tests de DOBLADA PERMANENTE.
 
-Acuerdo recurrente dentro de un rango del mismo mes: el compañero cubre los días de cesión
+Acuerdo recurrente dentro de un rango, que puede abarcar VARIOS MESES (hasta un año, el mismo
+tope que CT permanente): el compañero cubre los días de cesión
 (él dobla AM+PM, el solicitante descansa) y el solicitante devuelve el favor en los días de
 devolución (él dobla, el compañero descansa). Cada doblada efectiva son 30 min de deuda
 corporativa para quien dobla.
@@ -42,9 +43,9 @@ def _lunes_con_holgura():
     """
     Lunes futuro en los primeros 14 días de su mes.
 
-    El rango de una doblada permanente debe caber en UN mes, y varias pruebas necesitan lunes,
-    martes, miércoles, jueves y el martes de la semana siguiente. Con día ≤ 14 todo eso cae en el
-    mismo mes sin depender de qué día se ejecute la suite.
+    El rango ya NO tiene que caber en un mes, pero varias pruebas siguen queriendo lunes, martes,
+    miércoles, jueves y el martes de la semana siguiente dentro del mismo mes natural, para que sus
+    aserciones no dependan de qué día se ejecute la suite. Con día ≤ 14 eso está garantizado.
     """
     d = timezone.localdate() + timedelta(days=45)
     while d.weekday() != 0 or d.day > 14:
@@ -114,6 +115,15 @@ class DobladaPermanenteBaseTest(TestCase):
         return sorted(t.jornada.nombre.upper() for t in
                       Turno.objects.filter(explorador=emp, fecha=fecha).select_related('jornada'))
 
+    def _pendiente_de(self, empleado, fecha, como_receptor=False):
+        tipo_ct = TipoSolicitudCambio.objects.create(nombre=f'CT {empleado.id}{fecha}')
+        otro = self._empleado(f'otro{empleado.id}{fecha.day}', f'9{empleado.id}{fecha.day}', self.am)
+        return SolicitudCambio.objects.create(
+            explorador_solicitante=otro if como_receptor else empleado,
+            explorador_receptor=empleado if como_receptor else otro,
+            tipo_cambio=tipo_ct, comentario='pendiente', fecha_cambio_turno=fecha,
+            estado='pendiente')
+
 
 class DobladaPermanenteValidacionTest(DobladaPermanenteBaseTest):
 
@@ -154,14 +164,50 @@ class DobladaPermanenteValidacionTest(DobladaPermanenteBaseTest):
         self.assertFalse(ok)
         self.assertIn('misma cantidad', msg)
 
-    def test_rango_de_meses_distintos_rechazado(self):
+    def test_rango_de_meses_distintos_aceptado(self):
+        """
+        Lo contrario de lo que se exigía antes: el rango puede cruzar meses.
+
+        La deuda de 30 min nace por FECHA, así que un acuerdo de enero a junio reparte solo su
+        deuda por mes; no hay ninguna razón para obligar a partirlo en seis solicitudes.
+        """
         fin_otro_mes = self.ff
         while fin_otro_mes.month == self.fi.month:
             fin_otro_mes += timedelta(days=1)
+        # El martes de devolución del mes siguiente equilibra el lunes de cesión extra.
+        lunes_2 = _dia_semana_futuro(0, desde=self.ff + timedelta(days=1))
+        martes_2 = lunes_2 + timedelta(days=1)
+        fin = max(fin_otro_mes, martes_2)
         ok, msg = self.strat.validar_solicitud(self._datos(
-            fecha_fin=fin_otro_mes.strftime('%Y-%m-%d')))
+            fecha_fin=fin.strftime('%Y-%m-%d'),
+            fechas_cesion=[self.lunes.strftime('%Y-%m-%d'), lunes_2.strftime('%Y-%m-%d')],
+            fechas_devolucion=[self.martes.strftime('%Y-%m-%d'), martes_2.strftime('%Y-%m-%d')]))
+        self.assertTrue(ok, msg)
+        self.assertNotEqual(self.fi.month, fin.month)
+
+    def test_rango_mayor_de_un_anio_rechazado(self):
+        from solicitudes.services.validators.ct_permanente_validator import (
+            MAX_DIAS_RANGO_PERMANENTE,
+        )
+        fin = self.fi + timedelta(days=MAX_DIAS_RANGO_PERMANENTE)  # extremos incluidos -> 367 días
+        ok, msg = self.strat.validar_solicitud(self._datos(fecha_fin=fin.strftime('%Y-%m-%d')))
         self.assertFalse(ok)
-        self.assertIn('mismo mes', msg)
+        self.assertIn(str(MAX_DIAS_RANGO_PERMANENTE), msg)
+
+    def test_tope_de_rango_no_se_mide_al_revalidar(self):
+        """
+        Al aprobar, el rango es un hecho consumado.
+
+        Volver a medirlo solo podría tumbar una aprobación legítima de una solicitud que en su
+        día pasó la validación (mismo criterio que CT permanente con `es_revalidacion`).
+        """
+        from solicitudes.services.validators.ct_permanente_validator import (
+            MAX_DIAS_RANGO_PERMANENTE,
+        )
+        fin = self.fi + timedelta(days=MAX_DIAS_RANGO_PERMANENTE)
+        ok, msg = self.strat.validar_solicitud(self._datos(
+            fecha_fin=fin.strftime('%Y-%m-%d'), es_revalidacion=True))
+        self.assertNotIn(str(MAX_DIAS_RANGO_PERMANENTE), msg)
 
     def test_rango_en_el_pasado_rechazado(self):
         ayer = timezone.localdate() - timedelta(days=1)
@@ -184,15 +230,6 @@ class DobladaPermanentePendientesTest(DobladaPermanenteBaseTest):
     otro día del rango —o cualquiera del compañero— pasaba desapercibida y podía aprobarse en
     paralelo sobre el mismo día.
     """
-
-    def _pendiente_de(self, empleado, fecha, como_receptor=False):
-        tipo_ct = TipoSolicitudCambio.objects.create(nombre=f'CT {empleado.id}{fecha}')
-        otro = self._empleado(f'otro{empleado.id}{fecha.day}', f'9{empleado.id}{fecha.day}', self.am)
-        return SolicitudCambio.objects.create(
-            explorador_solicitante=otro if como_receptor else empleado,
-            explorador_receptor=empleado if como_receptor else otro,
-            tipo_cambio=tipo_ct, comentario='pendiente', fecha_cambio_turno=fecha,
-            estado='pendiente')
 
     def test_pendiente_del_solicitante_en_dia_de_devolucion_bloquea(self):
         # El día de DEVOLUCIÓN no es el inicio del rango: con la regla vieja no se miraba.
@@ -219,6 +256,37 @@ class DobladaPermanentePendientesTest(DobladaPermanenteBaseTest):
         self._pendiente_de(self.solicitante, self.martes)
         ok, msg = self.strat.revalidar_para_aprobar(sol)
         self.assertTrue(ok, msg)
+
+
+class DobladaPermanenteCulpableTest(DobladaPermanenteBaseTest):
+    """
+    De quién dice el mensaje que es el problema.
+
+    El alta multi-compañero valida una vez por compañero y antepone su nombre al rechazo. Cuando
+    se lo ponía a TODOS, un choque del propio solicitante salía firmado por el compañero: el
+    usuario leía "Isabel Parra: Ya tienes una solicitud pendiente" y cancelaba la solicitud de
+    Isabel buscando un choque que era suyo. Solo se marca lo que de verdad habla del compañero.
+    """
+
+    def test_pendiente_del_solicitante_no_se_le_atribuye_al_companero(self):
+        from solicitudes.services.errores_validacion import ErrorDelCompanero
+
+        self._pendiente_de(self.solicitante, self.lunes)
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+        self.assertIn('Ya tienes', msg)
+        # Sin la marca, el orquestador no le pone delante el nombre del compañero.
+        self.assertNotIsInstance(msg, ErrorDelCompanero)
+
+    def test_pendiente_del_companero_si_se_marca_como_suya(self):
+        from solicitudes.services.errores_validacion import ErrorDelCompanero
+
+        self._pendiente_de(self.receptor, self.lunes)
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+        self.assertIn('El compañero', msg)
+        # "El compañero..." no dice cuál: aquí el nombre SÍ hace falta.
+        self.assertIsInstance(msg, ErrorDelCompanero)
 
 
 class DobladaPermanenteOtroAcuerdoTest(DobladaPermanenteBaseTest):
@@ -331,6 +399,190 @@ class DobladaPermanenteAplicacionTest(DobladaPermanenteBaseTest):
         self.strat.aplicar_cambios(sol)
         sol.doblada_permanente.refresh_from_db()
         self.assertEqual(sol.doblada_permanente.snapshot_turnos_previos, snap1)
+
+
+class DobladaPermanenteMultiMesTest(DobladaPermanenteBaseTest):
+    """
+    Rango que abarca VARIOS MESES (el caso "de enero a junio").
+
+    Lo que se blinda aquí es que la contabilidad siga siendo MENSUAL aunque la solicitud sea una
+    sola: la deuda de 30 min nace por FECHA, se agrupa por mes en PDH, y una sanción cierra
+    únicamente el mes que la originó. Un acuerdo largo no puede difuminar esa frontera.
+    """
+
+    def _rango_dos_meses(self):
+        """(lunes_1, martes_1, lunes_2, martes_2) con los dos pares en meses distintos."""
+        lunes_1, martes_1 = self.lunes, self.martes
+        lunes_2 = _dia_semana_futuro(0, desde=martes_1 + timedelta(days=1))
+        while lunes_2.month == lunes_1.month or (lunes_2 + timedelta(days=1)).month != lunes_2.month:
+            lunes_2 = _dia_semana_futuro(0, desde=lunes_2 + timedelta(days=1))
+        return lunes_1, martes_1, lunes_2, lunes_2 + timedelta(days=1)
+
+    def _datos_dos_meses(self, **over):
+        l1, m1, l2, m2 = self._rango_dos_meses()
+        d = self._datos(
+            fecha_inicio=l1.strftime('%Y-%m-%d'),
+            fecha_fin=m2.strftime('%Y-%m-%d'),
+            fechas_cesion=[l1.strftime('%Y-%m-%d'), l2.strftime('%Y-%m-%d')],
+            fechas_devolucion=[m1.strftime('%Y-%m-%d'), m2.strftime('%Y-%m-%d')],
+        )
+        d.update(over)
+        return d
+
+    def test_deuda_se_reparte_en_el_mes_de_cada_doblada(self):
+        l1, m1, l2, m2 = self._rango_dos_meses()
+        sol = self._aprobar_y_aplicar(self._datos_dos_meses())
+
+        deudas = DeudaCorporativa.objects.filter(solicitud_origen=sol)
+        self.assertEqual(deudas.count(), 4)  # 2 pares x 2 dobladas
+        # Cada deuda vive en el mes de SU doblada, no en el del inicio del rango.
+        meses = {(d.fecha_doblada.year, d.fecha_doblada.month) for d in deudas}
+        self.assertEqual(meses, {(l1.year, l1.month), (l2.year, l2.month)})
+
+    def test_pdh_agrupa_la_deuda_del_rango_largo_por_mes(self):
+        from permisos.pago_horas_service import PagoHorasService
+
+        l1, m1, l2, m2 = self._rango_dos_meses()
+        self._aprobar_y_aplicar(self._datos_dos_meses())
+
+        # El solicitante dobla en las fechas de DEVOLUCIÓN (una por mes).
+        grupos = PagoHorasService.deudas_pendientes(self.solicitante)
+        meses = {(g['anio'], g['mes']) for g in grupos}
+        self.assertIn((m1.year, m1.month), meses)
+        self.assertIn((m2.year, m2.month), meses)
+        # Dos grupos distintos: el mes no se funde en uno solo por venir de la misma solicitud.
+        self.assertNotEqual((m1.year, m1.month), (m2.year, m2.month))
+
+    def test_sancion_cumplida_solo_cierra_su_mes(self):
+        """
+        El caso que motivó todo: si no se paga el primer mes se sanciona por ESE mes.
+
+        Al cumplir la sanción, la deuda de ese mes queda saldada y la del mes siguiente sigue
+        viva — es otro mes, no el que ya pasó y fue castigado.
+        """
+        from empleados.models import SancionEmpleado
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+
+        l1, m1, l2, m2 = self._rango_dos_meses()
+        self._aprobar_y_aplicar(self._datos_dos_meses())
+
+        hoy = timezone.localdate()
+        # Sanción YA CUMPLIDA por el mes de la primera devolución.
+        SancionEmpleado.objects.create(
+            explorador=self.solicitante, supervisor=self.receptor,
+            fecha_inicio=hoy - timedelta(days=20), fecha_fin=hoy - timedelta(days=5),
+            periodo_anio=m1.year, periodo_mes=m1.month,
+            motivo=DeudaCorporativaService.AUTO_SANCION_PREFIJO + ' prueba',
+        )
+        DeudaCorporativaService._consumir_deudas_de_sanciones_cumplidas(self.solicitante)
+
+        def _estado(fecha):
+            return DeudaCorporativa.objects.get(
+                explorador=self.solicitante, fecha_doblada=fecha).estado
+
+        self.assertEqual(_estado(m1), 'consumida_por_sancion')  # el mes sancionado, en cero
+        self.assertEqual(_estado(m2), 'activa')                 # el siguiente, sigue contando
+
+
+    def test_el_balance_cruza_meses(self):
+        """
+        Un mes puede quedar descompensado y compensarse en el siguiente.
+
+        Es el caso real: cedes 3 lunes de un mes pero ese mes solo te quedan 2 martes libres para
+        devolver, así que el tercero lo devuelves ya en el mes siguiente. El balance se mide sobre
+        TODO el rango —no mes a mes—, porque el par cubrir/devolver es entre personas, mientras que
+        la deuda de 30 min se contabiliza por su propia fecha y cae en el mes que le toque.
+        """
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
+        l1, m1, l2, m2 = self._rango_dos_meses()
+        # 2 cesiones en el PRIMER mes; solo 1 devolución ahí, la otra ya en el segundo.
+        lunes_extra = l1 + timedelta(days=7)
+        self.assertEqual(lunes_extra.month, l1.month)
+
+        sol = self._crear(self._datos_dos_meses(
+            fechas_cesion=[l1.strftime('%Y-%m-%d'), lunes_extra.strftime('%Y-%m-%d')],
+            fechas_devolucion=[m1.strftime('%Y-%m-%d'), m2.strftime('%Y-%m-%d')]))
+        ces, dev = DPAS._calcular_ocurrencias(
+            sol.doblada_permanente, self.solicitante, self.receptor)
+
+        # Nadie se queda sin par: los dos lados cuadran aunque el segundo par cruce el mes.
+        self.assertEqual(len(ces), 2)
+        self.assertEqual(len(dev), 2)
+        self.assertEqual({d.month for d in ces}, {l1.month})
+        self.assertEqual({d.month for d in dev}, {m1.month, m2.month})
+
+
+class DobladaPermanenteSancionTest(DobladaPermanenteBaseTest):
+    """
+    La sanción excluye SUS días, no el rango.
+
+    Ojo con la confusión de fondo: el mes que se cierra debiendo y los días bloqueados no son los
+    mismos. Quien cierra enero sin pagar cumple la sanción DESPUÉS del vencimiento, ya en febrero;
+    lo que se salta del acuerdo son esos días de febrero.
+    """
+
+    def _sancion(self, empleado, desde, hasta):
+        from empleados.models import SancionEmpleado
+        return SancionEmpleado.objects.create(
+            explorador=empleado,
+            supervisor=self.receptor if empleado != self.receptor else self.solicitante,
+            fecha_inicio=desde, fecha_fin=hasta, motivo='Sancion de prueba')
+
+    def test_sancion_parcial_no_tumba_el_rango(self):
+        """Se excluyen los días sancionados y el resto del acuerdo sigue en pie."""
+        lunes_2 = _dia_semana_futuro(0, desde=self.martes + timedelta(days=1))
+        martes_2 = lunes_2 + timedelta(days=1)
+        # La sanción cubre SOLO el segundo par.
+        self._sancion(self.solicitante, lunes_2, martes_2)
+
+        datos = self._datos(
+            fecha_fin=martes_2.strftime('%Y-%m-%d'),
+            fechas_cesion=[self.lunes.strftime('%Y-%m-%d')],
+            fechas_devolucion=[self.martes.strftime('%Y-%m-%d')])
+        ok, msg = self.strat.validar_solicitud(datos)
+        self.assertTrue(ok, msg)
+
+        sol = self._aprobar_y_aplicar(datos)
+        # Lo de fuera de la sanción SÍ se aplicó.
+        self.assertEqual(self._jornadas(self.receptor, self.lunes), ['AM', 'PM'])
+        self.assertEqual(self._jornadas(self.solicitante, self.martes), ['AM', 'PM'])
+        # Y nada se aplicó dentro de la ventana sancionada.
+        self.assertFalse(
+            DeudaCorporativa.objects.filter(solicitud_origen=sol,
+                                            fecha_doblada__in=[lunes_2, martes_2]).exists())
+
+    def test_dias_sancionados_se_excluyen_con_su_razon(self):
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
+        self._sancion(self.receptor, self.martes, self.martes)
+        sol = self._crear()
+        res = DPAS.calcular_fechas_aplicables_y_excluidas(
+            sol.doblada_permanente, self.solicitante, self.receptor)
+        razones = {e['fecha']: e['razon'] for e in res['devolucion']['excluidas']}
+        self.assertEqual(razones.get(self.martes), DPAS.RAZON_SANCION)
+        self.assertNotIn(self.martes, res['devolucion']['aplicables'])
+
+    def test_sancion_levantada_deja_de_excluir(self):
+        """Levantar perdona el castigo: desde ese día el día vuelve a ser elegible."""
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
+        sancion = self._sancion(self.solicitante, self.lunes, self.martes)
+        self.assertIn(self.martes, DPAS._dias_sancionados(
+            [self.solicitante], self.lunes, self.martes))
+        sancion.levantar('fin del castigo', supervisor=self.receptor, fecha=self.lunes)
+        self.assertEqual(
+            DPAS._dias_sancionados([self.solicitante], self.lunes, self.martes), set())
+
+    def test_sancion_que_cubre_todo_el_rango_si_rechaza(self):
+        """Sin ningún día que salvar, la solicitud no tiene sentido y se rechaza."""
+        self._sancion(self.solicitante, self.lunes, self.martes)
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+        self.assertIn('ya no son válidas', msg)
 
 
 class DobladaPermanenteFavoresTest(DobladaPermanenteBaseTest):

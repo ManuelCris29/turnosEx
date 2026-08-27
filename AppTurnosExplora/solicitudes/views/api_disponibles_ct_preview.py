@@ -389,6 +389,9 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
             motivo_no_doblada_perm,
             precargar_ct_permanente,
         )
+        from ..services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as _DPAS,
+        )
 
         fi_s = request.GET.get('fecha_inicio')
         ff_s = request.GET.get('fecha_fin')
@@ -422,12 +425,17 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
         if dias and ff >= fi:
             # Precarga en lote del estado del solicitante en todo el rango: el barrido de abajo
             # lo resolvía día a día (~13 consultas por día).
+            # Días en que el solicitante está sancionado: se OMITEN uno a uno (la sanción ya no
+            # tumba el rango entero, ver `DobladaPermanenteAplicacionService._dias_sancionados`).
+            # El preview tiene que enseñarlos como excluidos o prometería días que no se aplicarán.
+            sancionados = _DPAS._dias_sancionados([solicitante], fi, ff)
             with precargar_ct_permanente([solicitante], fi, ff):
                 d = fi
                 while d <= ff:
                     wd = d.weekday()
                     if wd in dias:
-                        razon = motivo_no_doblada_perm(solicitante, d)
+                        razon = (_DPAS.RAZON_SANCION if d in sancionados
+                                 else motivo_no_doblada_perm(solicitante, d))
                         if razon:
                             excluidas.append({'fecha': d.strftime('%Y-%m-%d'), 'razon': razon})
                         else:
@@ -461,6 +469,9 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
             jornada_doblada_perm,
             motivo_no_cubre_companero,
             precargar_ct_permanente,
+        )
+        from ..services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as _DPAS,
         )
 
         fi_s = request.GET.get('fecha_inicio')
@@ -507,10 +518,14 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
             if 0 <= wd < 5 and cid:
                 pares_norm[(wd, str(cid))] = _emp(str(cid))
 
+        # Días sancionados del solicitante: no son fechas disponibles, igual que en la aplicación.
+        sancionados_sol = _DPAS._dias_sancionados([solicitante], fi, ff)
+
         def _sol_jornada(d):
             """Jornada real (AM/PM) del solicitante ese día según Mis Turnos; None si no puede doblar
-            (doblada, descanso, festivo, etc.). Fin de semana no aplica a la doblada permanente."""
-            if d.weekday() >= 5:
+            (doblada, descanso, festivo, sanción, etc.). Fin de semana no aplica a la doblada
+            permanente."""
+            if d.weekday() >= 5 or d in sancionados_sol:
                 return None
             return jornada_doblada_perm(solicitante, d)
 
@@ -525,6 +540,13 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         # partir de la jornada del solicitante y siempre concluía "necesitas un compañero de la
         # jornada contraria" — falso cuando el compañero sí es contrario pero ya está doblado o
         # descansa por otro acuerdo, que es el caso que hacía ilegible la advertencia.
+        # Un compañero sancionado tampoco puede cubrir ese día. Se precalcula por compañero para
+        # no consultar sanciones dentro de la matriz empleado x día.
+        sancionados_comp = {
+            cid: _DPAS._dias_sancionados([comp], fi, ff)
+            for (_wd, cid), comp in pares_norm.items() if comp
+        }
+
         por_dia = {w: [] for w in range(5)}
         por_par = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
         no_cubre = {f"{wd}|{cid}": [] for (wd, cid) in pares_norm}
@@ -544,12 +566,18 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
                         for (wd, cid), comp in pares_norm.items():
                             if wd != w:
                                 continue
-                            jr = jornada_doblada_perm(comp, d) if comp else None
+                            jr = (jornada_doblada_perm(comp, d)
+                                  if comp and d not in sancionados_comp.get(cid, ()) else None)
                             if jr and jr != js:
                                 por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': jr})
                             else:
                                 # Solo aquí se paga el costo de reconstruir el estado del compañero.
-                                motivo = motivo_no_cubre_companero(comp, d, js)
+                                # Si está sancionado ese día, esa es la razón concreta y no hay
+                                # que reconstruir nada.
+                                if comp and d in sancionados_comp.get(cid, ()):
+                                    motivo = {'tipo': 'sancion', 'razon': _DPAS.RAZON_SANCION}
+                                else:
+                                    motivo = motivo_no_cubre_companero(comp, d, js)
                                 no_cubre[f"{wd}|{cid}"].append(
                                     {'f': ds, 'ys': js, 'tipo': motivo['tipo'], 'razon': motivo['razon']}
                                 )

@@ -120,8 +120,15 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             if not dias_devolucion:
                 return False, "Selecciona al menos un día de la semana en que devolverás la doblada"
 
+            from ..errores_validacion import ErrorDelCompanero
+
             SolicitudValidator.validar_empleado_activo(solicitante)
-            SolicitudValidator.validar_empleado_activo(receptor)
+            try:
+                SolicitudValidator.validar_empleado_activo(receptor)
+            except ValidationError as e:
+                # Se marca como del COMPAÑERO: 'El empleado no está activo' no dice cuál, y en el
+                # alta multi-compañero el nombre es lo único que lo identifica.
+                return False, ErrorDelCompanero(str(e))
             SolicitudValidator.validar_no_mismo_empleado(solicitante, receptor)
             SolicitudValidator.validar_comentario_obligatorio(comentario, 'la solicitud de doblada permanente')
 
@@ -137,27 +144,48 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             if fi < hoy:
                 return False, "El rango no puede iniciar en el pasado"
 
-            # Rango dentro del MISMO mes
-            if (fi.year, fi.month) != (ff.year, ff.month):
-                return False, ("El rango debe estar dentro del mismo mes: la fecha de inicio y la de fin "
-                               "deben caer en el mismo mes.")
+            # Tope del rango: el MISMO que CT PERMANENTE (un año).
+            #
+            # La doblada permanente ya no está limitada a un solo mes: un acuerdo de enero a junio
+            # es legítimo y el resto del flujo (aplicación, deuda de 30 min por fecha, agrupación
+            # mensual en PDH y sanción por mes vencido) ya trabaja por fecha, no por mes. Pero
+            # acotado: un acuerdo recurrente de más de un año no tiene sentido operativo, y el
+            # preview evalúa el rango día a día para DOS exploradores.
+            #
+            # Se REUTILIZA la constante del validador de CT permanente en vez de duplicar el número:
+            # es la misma regla de negocio y debe tener un solo sitio donde cambiarla.
+            #
+            # Solo al CREAR. Al re-validar para aprobar, el rango es un hecho consumado y volver a
+            # medirlo solo podría tumbar una aprobación legítima —mismo criterio que
+            # `CTPermanenteValidator.validar_fechas_cambio_permanente(es_revalidacion=True)`—.
+            if not datos.get('solicitud_actual_id') and not datos.get('es_revalidacion'):
+                from ..validators.ct_permanente_validator import MAX_DIAS_RANGO_PERMANENTE
+                dias_rango = (ff - fi).days + 1
+                if dias_rango > MAX_DIAS_RANGO_PERMANENTE:
+                    return False, (
+                        f"El rango no puede superar {MAX_DIAS_RANGO_PERMANENTE} días (un año). "
+                        f"Has seleccionado {dias_rango}. Ajusta la fecha de fin."
+                    )
 
-            # Sanción (BLOQUEA): ni el solicitante ni el compañero pueden tener una sanción que solape el rango.
-            # NOTA: la restricción médica NO bloquea; se avisa como advertencia en el procesamiento (ver vista).
+            # Sanción: NO bloquea la solicitud, se OMITEN sus días.
+            #
+            # Antes bastaba una sanción que rozara el rango para rechazarlo entero. Con rangos de
+            # un mes se notaba poco; con enero-junio es inaceptable: quien cierra enero debiendo
+            # cumple 15 días de sanción —que empiezan DESPUÉS del vencimiento, ya en febrero— y eso
+            # tumbaba los seis meses. La sanción castiga su ventana, no el acuerdo completo.
+            #
+            # Ahora es un motivo de exclusión POR FECHA, como el festivo o el descanso: se saltan
+            # los días de la ventana punitiva (`SancionEmpleado.fecha_inicio..fecha_fin_efectiva`) y
+            # el resto del rango se aplica. La política vive en `_dias_sancionados`, dentro del
+            # servicio de aplicación, que es la fuente ÚNICA que usan validación, preview,
+            # disponibilidad y aplicación. Si al final no queda ningún día válido en alguno de los
+            # dos lados, se rechaza más abajo por falta de días —igual que CT permanente—.
+            #
+            # Esto NO toca el bloqueo transversal de formularios: mientras la sanción esté vigente,
+            # el explorador sigue sin poder abrir solicitudes ni permisos hasta su fecha de fin.
+            # NOTA: la restricción médica tampoco bloquea; se avisa como advertencia en el
+            # procesamiento (ver vista).
             from django.db.models import Q as _Q
-
-            from empleados.models import SancionEmpleado
-
-            def _solapa_rango(model, campo_emp, emp):
-                return model.objects.filter(**{campo_emp: emp}, fecha_inicio__lte=ff).filter(
-                    _Q(fecha_fin__isnull=True) | _Q(fecha_fin__gte=fi)
-                ).exists()
-
-            if _solapa_rango(SancionEmpleado, 'explorador', solicitante):
-                return False, "Estás sancionado en ese rango de fechas; no puedes crear la solicitud."
-            if _solapa_rango(SancionEmpleado, 'explorador', receptor):
-                return False, (f"{receptor.nombre} {receptor.apellido} está sancionado en ese rango. "
-                               f"Elige otro compañero o ajusta las fechas.")
 
             # Solo lunes a viernes: la doblada permanente es RECURRENTE y los fines de semana se
             # rigen por alternancia (un sábado de media jornada es una excepción puntual, no
@@ -338,9 +366,16 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             # El solape con OTRA doblada permanente se comprueba aparte, más arriba: sus fechas
             # viven en `dias_*`/`fechas_*` y no en un campo que esta consulta pueda cruzar.
             if not datos.get('es_revalidacion') and fechas_afectadas:
+                # La del SOLICITANTE se deja subir tal cual: habla de él ("Ya tienes una solicitud
+                # pendiente..."), así que el alta multi-compañero no debe ponerle delante el nombre
+                # de ningún compañero. La del COMPAÑERO sí se marca: dice "El compañero..." y sin
+                # el nombre no se sabe cuál de todos es.
                 SolicitudValidator.validar_sin_pendiente_en_fechas(solicitante, fechas_afectadas)
-                SolicitudValidator.validar_sin_pendiente_en_fechas(
-                    receptor, fechas_afectadas, es_receptor=True)
+                try:
+                    SolicitudValidator.validar_sin_pendiente_en_fechas(
+                        receptor, fechas_afectadas, es_receptor=True)
+                except ValidationError as e:
+                    return False, ErrorDelCompanero(str(e))
 
             return True, "Solicitud de doblada permanente válida"
 

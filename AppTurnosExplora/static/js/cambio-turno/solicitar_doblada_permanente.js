@@ -52,6 +52,30 @@
     // mantenimiento y TEMPORADA (igual que CT Permanente). En doblada permanente se parte de
     // UNA jornada y se dobla; en temporada/festivo el día no está en jornada predeterminada,
     // así que no se permite seleccionarlos.
+    // Tope del rango: lo decide el backend (MAX_DIAS_RANGO_PERMANENTE) y viaja en el data-attr,
+    // para no tener el mismo número escrito en dos sitios. El rango dejó de estar limitado a un
+    // mes, pero sigue acotado a un año; se topa el calendario "Hasta" al elegir el "Desde" para
+    // que el usuario no arme un rango que el validador va a rechazar al enviar.
+    var MAX_DIAS_RANGO = parseInt(inputFin.dataset.maxDias, 10) || 366;
+
+    function topeHasta(desdeStr) {
+        if (!desdeStr) return null;
+        var partes = String(desdeStr).split('-');
+        if (partes.length !== 3) return null;
+        // Se construye con componentes locales: `new Date('YYYY-MM-DD')` se interpreta como UTC
+        // y en zonas negativas devuelve el día anterior.
+        var d = new Date(+partes[0], +partes[1] - 1, +partes[2]);
+        d.setDate(d.getDate() + (MAX_DIAS_RANGO - 1));  // extremos incluidos
+        return d;
+    }
+
+    function aplicarRangoHasta(str) {
+        if (!fpFin) return;
+        fpFin.set('minDate', str || 'today');
+        var tope = topeHasta(str);
+        if (tope) fpFin.set('maxDate', tope);
+    }
+
     if (window.DatepickerFestivos && window.DatepickerFestivos.inicializar) {
         window.DatepickerFestivos.inicializar({
             input: inputFin, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: false, permitirTemporada: false,
@@ -60,7 +84,7 @@
         window.DatepickerFestivos.inicializar({
             input: inputInicio, minDate: 'today', bloquearDiasEspeciales: true, permitirFestivos: false, permitirTemporada: false,
             onDateChange: function (str) {
-                if (fpFin) fpFin.set('minDate', str || 'today');
+                aplicarRangoHasta(str);
                 cargarCompaneros(str);
                 cargarDisponibilidadDias();
                 actualizarPreview();
@@ -71,7 +95,7 @@
             onChange: function () { cargarDisponibilidadDias(); actualizarPreview(); } });
         fpInicio = flatpickr(inputInicio, {
             locale: 'es', dateFormat: 'Y-m-d', minDate: 'today',
-            onChange: function (sel, str) { if (fpFin) fpFin.set('minDate', str || 'today'); cargarCompaneros(str); cargarDisponibilidadDias(); actualizarPreview(); },
+            onChange: function (sel, str) { aplicarRangoHasta(str); cargarCompaneros(str); cargarDisponibilidadDias(); actualizarPreview(); },
         });
     }
 
