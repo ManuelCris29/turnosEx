@@ -47,6 +47,18 @@ python .claude/skills/project-documentation-master/scripts/md_to_pdf.py \
 | **[turnos](./05-referencia/turnos/)** | Fuente de verdad de turnos, decisiones sobre jornada/pago sábado. |
 | **[pruebas](./05-referencia/pruebas/)** | Inventario de tests, matriz de casos, guía de pruebas. |
 
+## READMEs que viven junto al código
+
+Estos no están en `docs/` a propósito: se leen desde la carpeta que documentan.
+
+| README | Qué cubre |
+|---|---|
+| [`solicitudes/services/README.md`](../solicitudes/services/README.md) | Mapa de la capa de servicios de solicitudes: strategies, validadores, aplicación de turnos, deudas, correo. |
+| [`static/js/README.md`](../static/js/README.md) | Módulos de JavaScript, `static_v` y qué se usa de verdad. |
+| [`tests_js/README.md`](../tests_js/README.md) | Red de pruebas de JS (`node --test`, sin dependencias). |
+| [`scripts/README.md`](../scripts/README.md) | Scripts de un solo uso y por qué casi siempre quieres un comando de gestión. |
+| [`static/img/auth/README.md`](../static/img/auth/README.md) | El banner del login. |
+
 ---
 
 > **Nota:** las dependencias del proyecto están en `AppTurnosExplora/requirements.txt`

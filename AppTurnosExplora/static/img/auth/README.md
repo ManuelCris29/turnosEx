@@ -1,15 +1,20 @@
 # Imágenes de autenticación (login / registro)
 
-Coloca aquí las imágenes usadas por las pantallas de acceso.
+Imágenes usadas por las pantallas de acceso.
 
 ## bannerAuth.jpg
 
-Imagen de banner que se muestra en el panel lateral del login
-(`core/login/template/login.html` → `static/css/auth.css`).
+Banner del panel lateral izquierdo del login (layout *split-screen*).
 
-- **Nombre exacto:** `bannerAuth.jpg`
-- **Ubicación:** `static/img/auth/bannerAuth.jpg`
-- **Recomendado:** orientación horizontal/cuadrada, mínimo 1200 px de ancho.
+- **Nombre exacto:** `bannerAuth.jpg` *(presente en el repo)*
+- **Ruta:** `static/img/auth/bannerAuth.jpg`
+- **Referenciado desde:** `static/css/auth.css` → `.auth-visual__img`
+- **Plantilla:** `core/login/template/login.html`
+- **Recomendado:** orientación horizontal, mínimo 1200 px de ancho. Encima lleva un
+  degradado semitransparente (`.auth-visual__overlay`), así que una imagen con mucho
+  detalle fino se pierde.
 
-Si el archivo no existe, el login muestra un degradado de respaldo
-(morado → índigo) para no romperse visualmente.
+Si el archivo faltara, `.auth-visual` deja ver su degradado de respaldo
+(azul `#667eea` → morado `#764ba2`) y el login no se rompe visualmente.
+
+> Tras reemplazar la imagen, recuerda `collectstatic` en producción.
