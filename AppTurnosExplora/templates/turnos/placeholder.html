@@ -1,6 +1,24 @@
 {% extends 'base.html' %}
-{% block title %}En Construcción{% endblock %}
-{% block page_title %}Página en Construcción{% endblock %}
+{% load static static_version %}
+
+{% block title %}En Construcción - AppTurnos{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
 {% block content %}
-<div class="card"><div class="card-body">Esta sección se implementará próximamente.</div></div>
-{% endblock %} 
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-tools"></i> Página en construcción</h1>
+      <p class="pg-subtitle">Esta sección todavía no está disponible</p>
+    </div>
+    <div class="pg-card">
+      <div class="pg-card-body">
+        <div class="pg-empty">Esta sección se implementará próximamente.</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
