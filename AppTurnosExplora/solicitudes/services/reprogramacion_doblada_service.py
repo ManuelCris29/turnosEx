@@ -195,7 +195,7 @@ class ReprogramacionDobladaService:
         cancelar), o None en D FDS —donde la unidad es el día completo y no hay jornada previa—.
         Lanza ValueError con el motivo si el día no sirve.
         """
-        from solicitudes.services.ct_permanente_helper import jornada_doblada_perm
+        from solicitudes.services.cambios_permanentes_helper import jornada_doblada_perm
 
         hoy = hoy or timezone.localdate()
         if fecha_nueva == reprog.fecha_original:

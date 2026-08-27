@@ -319,7 +319,7 @@ Concentración por archivo:
 
 | Archivo | Líneas |
 |---|---|
-| `ct_permanente_helper.py` | 69, 182, 511 |
+| `cambios_permanentes_helper.py` | 69, 182, 511 |
 | `empleados/forms.py` | 36, 101, 197 |
 | `ct_permanente_strategy.py` | 246, 338 |
 | `asignacion_especial_service.py` | 84, 205 |

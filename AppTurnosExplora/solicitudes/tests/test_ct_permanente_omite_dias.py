@@ -23,10 +23,10 @@ from solicitudes.models import (
     SolicitudCambio,
     TipoSolicitudCambio,
 )
-from solicitudes.services.ct_permanente_helper import (
+from solicitudes.services.cambios_permanentes_helper import (
     calcular_fechas_aplicables_ct_permanente as calc,
 )
-from solicitudes.services.ct_permanente_helper import (
+from solicitudes.services.cambios_permanentes_helper import (
     calcular_fechas_aplicables_y_excluidas_ct_permanente as calc_full,
 )
 from turnos.models import (
@@ -145,7 +145,7 @@ class CTPermanenteOmiteDiasTest(TestCase):
         media jornada estaba condicionada a que hubiera receptor—. Se ofrecía cambiar el turno
         de un día en el que el solicitante ya cubre AM y PM.
         """
-        from solicitudes.services.ct_permanente_helper import (
+        from solicitudes.services.cambios_permanentes_helper import (
             evaluar_fechas_ct_permanente,
             razones_exclusion_ct_permanente,
         )

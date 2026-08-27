@@ -427,7 +427,7 @@ class SolicitudStrategy(ABC):
     # la que aplica solo a un tipo SIN strategy propia. No es la politica real de
     # ningun formulario existente: CT sencillo y DOBLADA si permiten temporada, y
     # CT PERMANENTE / DOBLADA PERMANENTE la rechazan con su propia lista de motivos
-    # (ver ct_permanente_helper.py), no con esta. Detalle completo de que formulario
+    # (ver cambios_permanentes_helper.py), no con esta. Detalle completo de que formulario
     # permite temporada en tests/test_politica_temporada.py.
     MOTIVOS_UNIVERSALES = ('Mantenimiento', 'Temporada')
 

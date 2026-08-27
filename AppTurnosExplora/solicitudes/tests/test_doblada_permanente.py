@@ -724,7 +724,7 @@ class DobladaPermanenteRendimientoTest(DobladaPermanenteBaseTest):
 
     def test_candidatos_en_lote_coinciden_con_el_camino_individual(self):
         """La versión batch es SOLO una optimización: mismo veredicto que la individual."""
-        from solicitudes.services.ct_permanente_helper import (
+        from solicitudes.services.cambios_permanentes_helper import (
             _jornada_unica_real,
             jornadas_unicas_reales,
         )
@@ -737,7 +737,7 @@ class DobladaPermanenteRendimientoTest(DobladaPermanenteBaseTest):
                                  f'divergencia para {e.id} el {f}')
 
     def test_candidatos_en_lote_usan_consultas_constantes(self):
-        from solicitudes.services.ct_permanente_helper import jornadas_unicas_reales
+        from solicitudes.services.cambios_permanentes_helper import jornadas_unicas_reales
         emps = list(Empleado.objects.filter(activo=True))
         with self.assertNumQueries(2):
             jornadas_unicas_reales(emps, self.lunes)

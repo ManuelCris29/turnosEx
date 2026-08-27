@@ -76,7 +76,7 @@ class IndicadoresService:
     @staticmethod
     def _ocurrencias_doblada_perm(solicitud, anio, hasta):
         """Fechas reales de doblada de una doblada permanente dentro del año (cesión + devolución)."""
-        from solicitudes.services.ct_permanente_helper import es_festivo
+        from solicitudes.services.cambios_permanentes_helper import es_festivo
         from turnos.models import DiaEspecial
         det = getattr(solicitud, 'doblada_permanente', None)
         if not det:
@@ -100,7 +100,7 @@ class IndicadoresService:
     @staticmethod
     def _ocurrencias_ct_perm(solicitud, anio, hasta):
         """Fechas reales de cambio de un CT permanente dentro del año (lun-vie, sin festivos)."""
-        from solicitudes.services.ct_permanente_helper import es_festivo
+        from solicitudes.services.cambios_permanentes_helper import es_festivo
         det = getattr(solicitud, 'cambio_permanente', None)
         if not det:
             return []

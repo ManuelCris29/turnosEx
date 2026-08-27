@@ -288,7 +288,7 @@ El **backend** acepta receptor sin jornada en cesión cuando el emisor cede AM/P
 | Capa | Archivo |
 |---|---|
 | Strategy (backend) | `solicitudes/services/strategies/ct_permanente_strategy.py` |
-| **Evaluación de fechas (fuente única)** | `solicitudes/services/ct_permanente_helper.py` → `evaluar_fechas_ct_permanente` |
+| **Evaluación de fechas (fuente única)** | `solicitudes/services/cambios_permanentes_helper.py` → `evaluar_fechas_ct_permanente` |
 | Validadores | `solicitudes/services/validators/ct_permanente_validator.py` |
 | Previsualización | `solicitudes/views/api_disponibles_ct_preview.py` → `PrevisualizarCTPermanenteView` |
 | Frontend | `static/js/cambio-turno/solicitar_ct_permanente.js` |
@@ -493,7 +493,7 @@ cubrir↔devolver completos.
 |---|---|
 | Strategy | `solicitudes/services/strategies/doblada_permanente_strategy.py` |
 | Aplicación / reversión | `solicitudes/services/doblada_permanente_aplicacion_service.py` |
-| Elegibilidad por día | `solicitudes/services/ct_permanente_helper.py` → `_jornada_doblada_perm` |
+| Elegibilidad por día | `solicitudes/services/cambios_permanentes_helper.py` → `_jornada_doblada_perm` |
 | Flujo multi-compañero | `solicitudes/services/solicitud_orchestrator.py` → `_procesar_doblada_permanente_multi` |
 | Detalle (modelo) | `solicitudes/models.py` → `DobladaPermanenteDetalle` |
 | Form | `templates/solicitudes/solicitar_doblada_permanente.html`; `static/js/cambio-turno/solicitar_doblada_permanente.js` |

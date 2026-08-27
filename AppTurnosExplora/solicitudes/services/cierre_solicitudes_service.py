@@ -34,7 +34,7 @@ class CierreSolicitudesService:
     @staticmethod
     def _es_no_habil(f: date) -> bool:
         """Festivo o mantenimiento efectivo (temporada NO cuenta: es día hábil)."""
-        from solicitudes.services.ct_permanente_helper import es_festivo
+        from solicitudes.services.cambios_permanentes_helper import es_festivo
         from turnos.models import DiaEspecial
         return bool(es_festivo(f) or DiaEspecial.es_mantenimiento_efectivo(f))
 

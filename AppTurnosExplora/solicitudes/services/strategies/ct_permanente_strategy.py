@@ -35,7 +35,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
     def _datos_desde_solicitud(self, solicitud):
         """Reconstruye los datos para re-validar al aprobar (ver base). Rearma
         dias_seleccionados desde los CambioPermanenteDia del detalle."""
-        from ..ct_permanente_helper import rango_detalle
+        from ..cambios_permanentes_helper import rango_detalle
 
         det = getattr(solicitud, 'cambio_permanente', None)
         if not det:
@@ -105,7 +105,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # No DUPLICADOS pendientes (regla de CREACIÓN; se OMITE al re-validar para aprobar).
             # Se miran TODOS los días que el cambio tocaría, no solo `fecha_inicio`.
             if not es_revalidacion:
-                from ..ct_permanente_helper import generar_fechas_candidatas_ct_permanente
+                from ..cambios_permanentes_helper import generar_fechas_candidatas_ct_permanente
                 SolicitudValidator.validar_solicitante_sin_solicitud_pendiente_en_fechas(
                     explorador_solicitante,
                     generar_fechas_candidatas_ct_permanente(
@@ -417,7 +417,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             from turnos.models import Turno
             from turnos.services.doblada_turno_service import DobladaTurnoService
 
-            from ..ct_permanente_helper import (
+            from ..cambios_permanentes_helper import (
                 dias_seleccionados_desde_detalle,
                 evaluar_fechas_ct_permanente,
                 jornadas_intercambiables_ct,
@@ -631,7 +631,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # 3. Evaluar día a día con la MISMA definición de "día aplicable" que usan la
             # previsualización y la aplicación (`razones_exclusion_ct_permanente`), para que el
             # porcentaje signifique de verdad "días que se van a aplicar con este compañero".
-            from ..ct_permanente_helper import (
+            from ..cambios_permanentes_helper import (
                 estado_ct,
                 precargar_ct_permanente,
                 razones_exclusion_ct_permanente,
@@ -721,7 +721,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
         descansos, días ya cambiados y días sin jornada contraria) usar
         `evaluar_fechas_ct_permanente`.
         """
-        from ..ct_permanente_helper import generar_fechas_candidatas_ct_permanente
+        from ..cambios_permanentes_helper import generar_fechas_candidatas_ct_permanente
         return generar_fechas_candidatas_ct_permanente(fecha_inicio, fecha_fin, dias_seleccionados)
 
     def detalle(self, solicitud, datos):
@@ -752,7 +752,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los días hábiles'
                 
                 # Calcular fechas aplicables y excluidas
-                from solicitudes.services.ct_permanente_helper import (
+                from solicitudes.services.cambios_permanentes_helper import (
                     calcular_fechas_aplicables_y_excluidas_ct_permanente,
                 )
                 fechas_aplicables, fechas_excluidas = calcular_fechas_aplicables_y_excluidas_ct_permanente(

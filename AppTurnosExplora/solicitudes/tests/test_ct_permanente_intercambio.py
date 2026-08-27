@@ -29,7 +29,7 @@ from solicitudes.models import (
     SolicitudCambio,
     TipoSolicitudCambio,
 )
-from solicitudes.services.ct_permanente_helper import (
+from solicitudes.services.cambios_permanentes_helper import (
     evaluar_fechas_ct_permanente,
     jornadas_intercambiables_ct,
 )

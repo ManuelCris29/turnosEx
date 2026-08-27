@@ -91,7 +91,7 @@ class CambioTurnoDescansoSemanaTest(TestCase):
 
     def test_ct_permanente_es_dia_descanso_detecta_descanso_semana(self):
         """El helper de CT permanente ahora detecta el descanso de semana manual."""
-        from solicitudes.services.ct_permanente_helper import _es_dia_descanso
+        from solicitudes.services.cambios_permanentes_helper import _es_dia_descanso
         from turnos.models import DescansoSemanaManual
         f = self._martes_futuro()
         self.assertFalse(_es_dia_descanso(self.receptor, f))

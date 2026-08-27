@@ -445,7 +445,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
             fecha_obj = self._parse(fecha)
             if not fecha_obj:
                 return []
-            from ..ct_permanente_helper import jornadas_unicas_reales
+            from ..cambios_permanentes_helper import jornadas_unicas_reales
             empleados = list(
                 Empleado.objects.filter(activo=True)
                 .exclude(id=usuario_actual.id)

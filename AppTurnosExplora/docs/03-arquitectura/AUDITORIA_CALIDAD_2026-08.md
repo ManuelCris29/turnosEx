@@ -163,7 +163,7 @@ ocultan ciclos de importación reales, el acoplamiento sigue ahí pero el linter
 | **216** | `turnos/api/views/reportes.py:253` `izquierda` (closure) |
 
 Hay 25 métodos por encima de 80 líneas. Complejidad ciclomática aparente por archivo: `doblada_strategy.py`
-**116 ramas**, `ct_permanente_helper.py` **102**, `cambio_descanso_strategy.py` **93**.
+**116 ramas**, `cambios_permanentes_helper.py` **102**, `cambio_descanso_strategy.py` **93**.
 
 **God Objects:** 14 de los 25 archivos más grandes lo son claramente, 6 más están en el límite.
 

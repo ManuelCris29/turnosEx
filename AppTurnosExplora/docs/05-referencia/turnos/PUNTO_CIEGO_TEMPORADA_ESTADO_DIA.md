@@ -278,7 +278,7 @@ for e in Empleado.objects.filter(activo=True):
 - [`AUDITORIA_FUENTE_VERDAD_TURNOS.md`](AUDITORIA_FUENTE_VERDAD_TURNOS.md) — las 6 capas y su orden.
 - `turnos/services/turno_service.py` — `estado_dia` (L4, ~línea 481) y `estado_rango_multiple`
   (la versión batch, que replica el MISMO orden de capas y por tanto el mismo punto ciego).
-- `solicitudes/services/ct_permanente_helper.py` — `_dia_calendario_no_apto()`: la comprobación
+- `solicitudes/services/cambios_permanentes_helper.py` — `_dia_calendario_no_apto()`: la comprobación
   por regla que hoy protege a doblada permanente; el modelo a seguir para la Opción A.
 - `solicitudes/tests/test_doblada_permanente.py` — clase `DobladaPermanenteDiasCalendarioTest`:
   tests que fijan que un día de temporada no se ofrece como doblable.

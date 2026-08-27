@@ -67,7 +67,7 @@ correspondiente → deudas → `NotificacionService` + `EmailOutboxService`.
 | `doblada_snapshot_service.py` | Captura/restaura el estado de turnos antes y después de una doblada, y reconcilia las vigentes tras una cancelación. |
 | `reprogramacion_doblada_service.py` | Una de las partes no puede cumplir **su** día de una doblada ya aprobada: anula ese día y ajusta su deuda, sin afectar a la otra parte. |
 | `descanso_solicitud_service.py` | Fuente **única** de "qué día descansa este empleado por una solicitud aprobada, y con quién". Antes estaba reimplementado en 3-4 sitios que divergían. |
-| `ct_permanente_helper.py` | Cálculo de fechas aplicables/excluidas de los cambios permanentes, reutilizable fuera de la strategy. |
+| `cambios_permanentes_helper.py` | Cálculo de fechas aplicables/excluidas de los cambios permanentes, reutilizable fuera de la strategy. |
 | `cierre_solicitudes_service.py` | Cierre semanal: a partir del día/hora de cierre no se admiten solicitudes nuevas cuyo objetivo caiga en la ventana cerrada. |
 
 ### Deudas
@@ -123,7 +123,7 @@ previsto para descomponer el orquestador en pasos. No añadas nada ahí sin cabl
 ## Convenciones
 
 - Los servicios exponen `@staticmethod` (o funciones de módulo en los helpers: `bloqueo_partes`,
-  `fechas_helper`, `ct_permanente_helper`, `tokens_aprobacion`).
+  `fechas_helper`, `cambios_permanentes_helper`, `tokens_aprobacion`).
 - Devuelven `(objeto, mensaje)` o `(bool, mensaje)`; los mensajes son los que ve el usuario.
 - Ningún servicio construye `HttpResponse` salvo `SolicitudOrchestrator`, que devuelve
   `JsonResponse` por ser el borde del flujo de creación.

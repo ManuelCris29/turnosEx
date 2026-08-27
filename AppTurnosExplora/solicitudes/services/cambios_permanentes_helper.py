@@ -1,10 +1,13 @@
 """
 Núcleo de evaluación de DÍAS para los cambios PERMANENTES.
 
-⚠ El nombre del archivo dice `ct_permanente`, pero el módulo sirve a los DOS
-formularios permanentes: CT PERMANENTE y DOBLADA PERMANENTE. El nombre es un
-resto histórico (nació sirviendo solo a CT); el contenido nunca fue solo de CT
-—este docstring ya decía «cambios permanentes», en genérico, desde el principio.
+Sirve a los DOS formularios permanentes: CT PERMANENTE y DOBLADA PERMANENTE.
+
+Hasta el 27 ago 2026 este archivo se llamaba `ct_permanente_helper.py`, nombre
+heredado de cuando nació sirviendo solo a CT. El contenido nunca fue solo de CT
+—este docstring ya decía «cambios permanentes», en genérico, desde el principio—
+y ese desajuste llevó a proponer por error que se partiera el módulo. Se renombró
+para que el archivo diga lo que es.
 
 Por qué la doblada permanente vive AQUÍ y no en su propio archivo
 -----------------------------------------------------------------

@@ -1426,7 +1426,7 @@ async function actualizarVistaPrevia() {
 // Función helper para obtener icono según razón de exclusión
 function obtenerIconoRazon(razon) {
     const iconos = {
-        // Las claves deben coincidir con _PRIORIDAD_RAZONES_CT_PERMANENTE (ct_permanente_helper.py).
+        // Las claves deben coincidir con _PRIORIDAD_RAZONES_CT_PERMANENTE (cambios_permanentes_helper.py).
         'Fines de semana': '<i class="fas fa-calendar-times text-muted mr-2"></i>',
         'Fecha pasada': '<i class="fas fa-history text-muted mr-2"></i>',
         'Festivo': '<i class="fas fa-calendar-check text-danger mr-2"></i>',
@@ -1448,7 +1448,7 @@ function obtenerIconoRazon(razon) {
 // Función helper para obtener color según razón de exclusión
 function obtenerColorRazon(razon) {
     const colores = {
-        // Las claves deben coincidir con _PRIORIDAD_RAZONES_CT_PERMANENTE (ct_permanente_helper.py).
+        // Las claves deben coincidir con _PRIORIDAD_RAZONES_CT_PERMANENTE (cambios_permanentes_helper.py).
         'Fines de semana': 'muted',
         'Fecha pasada': 'muted',
         'Festivo': 'danger',

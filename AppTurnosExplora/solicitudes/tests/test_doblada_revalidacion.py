@@ -409,7 +409,7 @@ class DobladaPermJornadaRealTest(TestCase):
         Turno.objects.create(explorador=emp, fecha=fecha, jornada=self.pm, sala=self.sala, tipo_cambio='CT PERMANENTE')
 
     def test_ct_flip_hace_el_dia_valido_por_jornada_real(self):
-        from solicitudes.services.ct_permanente_helper import _jornada_unica_real
+        from solicitudes.services.cambios_permanentes_helper import _jornada_unica_real
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
@@ -472,7 +472,7 @@ class DobladaPermJornadaRealTest(TestCase):
         es DOBLADA → no elegible → el día se OMITE (no queda en el limbo)."""
         from django.core.cache import cache
 
-        from solicitudes.services.ct_permanente_helper import _jornada_unica_real, jornada_doblada_perm
+        from solicitudes.services.cambios_permanentes_helper import _jornada_unica_real, jornada_doblada_perm
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
@@ -494,7 +494,7 @@ class DobladaPermJornadaRealTest(TestCase):
         descanso NI `jornada_doblada_perm` lo omite. Antes divergían (config decía descanso)."""
         from django.core.cache import cache
 
-        from solicitudes.services.ct_permanente_helper import _es_dia_descanso, jornada_doblada_perm
+        from solicitudes.services.cambios_permanentes_helper import _es_dia_descanso, jornada_doblada_perm
         from turnos.models import DescansoSemanaManual, Turno
         m = self._martes()[0]
         # config: AM descansa. `motivo='otro'` porque un descanso FIJADO de temporada está vetado

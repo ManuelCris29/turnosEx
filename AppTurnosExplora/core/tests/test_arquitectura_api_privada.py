@@ -10,7 +10,7 @@ silencio — el autor del módulo cree que puede refactorizar libremente, y en
 realidad tiene consumidores que no ve.
 
 La auditoría de agosto de 2026 encontró **10 fugas de este tipo**, casi todas
-saliendo de `solicitudes/services/ct_permanente_helper.py` y cruzando incluso
+saliendo de `solicitudes/services/cambios_permanentes_helper.py` y cruzando incluso
 fronteras de app (`empleados/services/indicadores_service.py` importaba
 `_es_festivo`). Nueve símbolos eran API pública de facto y se promovieron a
 nombres públicos; dos re-exportaciones en `empleados/views/__init__.py` no las

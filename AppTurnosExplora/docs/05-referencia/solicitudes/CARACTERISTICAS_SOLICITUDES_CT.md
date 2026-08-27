@@ -333,7 +333,7 @@ CambioPermanenteDia:
 - `AppTurnosExplora/solicitudes/services/solicitud_validator.py`
 
 ### **Helpers**
-- `AppTurnosExplora/solicitudes/services/ct_permanente_helper.py`
+- `AppTurnosExplora/solicitudes/services/cambios_permanentes_helper.py`
 
 ### **Modelos**
 - `AppTurnosExplora/solicitudes/models.py` (SolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia)

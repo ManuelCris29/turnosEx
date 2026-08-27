@@ -223,7 +223,7 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
 
         from empleados.models import Empleado
 
-        from ..services.ct_permanente_helper import (
+        from ..services.cambios_permanentes_helper import (
             evaluar_fechas_ct_permanente,
             precargar_ct_permanente,
         )
@@ -385,7 +385,7 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
         import json
         from datetime import timedelta
 
-        from ..services.ct_permanente_helper import (
+        from ..services.cambios_permanentes_helper import (
             motivo_no_doblada_perm,
             precargar_ct_permanente,
         )
@@ -456,7 +456,7 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
 
         from empleados.models import Empleado
 
-        from ..services.ct_permanente_helper import (
+        from ..services.cambios_permanentes_helper import (
             bloque_calendario_no_apto,
             jornada_doblada_perm,
             motivo_no_cubre_companero,

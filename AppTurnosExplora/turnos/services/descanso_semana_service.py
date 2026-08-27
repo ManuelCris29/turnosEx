@@ -57,7 +57,7 @@ class DescansoSemanaService:
         comprobación cubre el par.
 
         ⚠️ NO confundir con `DiaEspecial.es_temporada_en(fecha)` (usado por
-        `ct_permanente_helper._dia_calendario_no_apto`): ese marca la SEMANA de temporada; este
+        `cambios_permanentes_helper._dia_calendario_no_apto`): ese marca la SEMANA de temporada; este
         marca los DOS DÍAS de descanso que el supervisor fijó dentro de ella. Son conjuntos
         distintos — comprobado el 07/08/2026: `_dia_calendario_no_apto(2026-09-15)` devuelve
         None sobre un día que sí es descanso fijado de temporada.

@@ -44,7 +44,7 @@ class DeudaCorporativaService:
         if fecha.weekday() >= 5:  # 5=sábado, 6=domingo
             return False
         try:
-            from solicitudes.services.ct_permanente_helper import es_festivo
+            from solicitudes.services.cambios_permanentes_helper import es_festivo
             if es_festivo(fecha):
                 return False
         except Exception:

@@ -84,7 +84,7 @@ class CTPermanenteValidator:
         Raises:
             ValidationError: Si no hay ningún día en el rango donde las jornadas sean contrarias
         """
-        from solicitudes.services.ct_permanente_helper import (
+        from solicitudes.services.cambios_permanentes_helper import (
             generar_fechas_candidatas_ct_permanente,
             jornadas_intercambiables_ct,
             precargar_ct_permanente,
@@ -196,7 +196,7 @@ class CTPermanenteValidator:
         Raises:
             ValidationError: Si no hay ningún día aplicable en el rango
         """
-        from solicitudes.services.ct_permanente_helper import evaluar_fechas_ct_permanente
+        from solicitudes.services.cambios_permanentes_helper import evaluar_fechas_ct_permanente
 
         if isinstance(fecha_inicio, str):
             fecha_inicio = DateUtils.parse_date(fecha_inicio)

@@ -643,7 +643,7 @@ En producción no hay backfills previstos: la base arranca limpia (§ 1.3).
 | Candidatos de cobertura: jornada base de todos los empleados activos | `solicitudes/views/api_fin_semana.py:226-230` | Se cargan en **una** consulta a `AsignarJornadaExplorador` y se indexan en el dict `bases`; sin eso serían N consultas |
 | "Mis Turnos" por mes | `turnos/api/views/turnos_mes.py` | Cacheado como `turnos_mes_<emp>_<año>_<mes>` durante una hora e invalidado con `CacheService.invalidar_cache_turnos_empleado` (`config/settings.py:288-296`) |
 | Barrido del outbox | `solicitudes/services/email_outbox_service.py` | Índice `outbox_estado_disp_idx` sobre `(estado, disponible_en)` (`solicitudes/models.py:106`) |
-| Matriz empleado × día de CT permanente | `solicitudes/services/ct_permanente_helper.py` | Precarga en lote, introducida en el commit `00558d8` |
+| Matriz empleado × día de CT permanente | `solicitudes/services/cambios_permanentes_helper.py` | Precarga en lote, introducida en el commit `00558d8` |
 
 ⚠ La caché es **compartida obligatoriamente** en producción: con varios workers de Gunicorn,
 `LocMemCache` invalidaría solo el proceso que atendió la petición y el resto seguiría
@@ -844,7 +844,7 @@ fuente de verdad del calendario está en [05-referencia/turnos/](./05-referencia
 | `reprogramacion_doblada_service.py` | Anula el día no cumplido y programa el nuevo | vistas de reprogramación |
 | `doblada_filtro_service.py` | Alimenta el desplegable de compañeros de DOBLADA. `filtrar_empleados_sin_doblada_activa` (`:27`) une dos fuentes de «ya trabaja AM+PM ese día»: las `SolicitudCambio` de tipo `DOBLADA` aprobadas en la fecha, consultadas por **`explorador_receptor_id`** (`:60-66`), y las dobladas ya materializadas en `Turno` (AM y PM el mismo día, `:94-98`). Además resuelve la jornada a ceder (`obtener_jornada_a_ceder`, `:125`) y lista a quien descansa (`obtener_empleados_en_descanso`, `:190`) | vistas API de doblada |
 | `empleado_disponibilidad_service.py`, `solicitud_consulta_service.py`, `solicitud_context_service.py` | Alimentan desplegables y pantallas | vistas API |
-| `ct_permanente_helper.py` | Expansión y filtrado de días de CT PERMANENTE | `CtPermanenteStrategy` |
+| `cambios_permanentes_helper.py` | Expansión y filtrado de días de CT PERMANENTE | `CtPermanenteStrategy` |
 | `permiso_service.py` | Permisos especiales | app `permisos` |
 | `permisos/views.py` (funciones de módulo) | `_supervisor_del_permiso` (`:561`): fuente **única** de quién responde por un permiso (`permiso.supervisor or permiso.empleado.supervisor`); la usan la autorización (`:588`) y el aviso (`:611`), así que decide y notifica la misma persona. `_puede_responder_cancelacion` (`:569`): las tres reglas de quién puede responder una cancelación. `_notificar_peticion_cancelacion_permiso` (`:607`) y `_notificar_respuesta_cancelacion_permiso` (`:630`): equivalentes de las dos anteriores para el permiso de media jornada, pero **viven en la vista, no en `NotificacionService`**. Duplicación consciente de la costura; anotada como deuda en § 16.3 | `PermisoMediaJornadaCancelView`, `PermisoMediaJornadaCancelResponderView` |
 | `descanso_solicitud_service.py`, `fechas_helper.py`, `solicitud_service.py`, `solicitud_validator.py` | Apoyo transversal | varios |

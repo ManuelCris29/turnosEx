@@ -79,7 +79,7 @@ Concentración de `'DOBLADA'` (top 8):
 | `solicitudes/services/strategies/doblada_strategy.py` | 7 |
 | `solicitudes/services/doblada_pago_service.py` | 7 |
 | `solicitudes/services/doblada_aplicacion_service.py` | 7 |
-| `solicitudes/services/ct_permanente_helper.py` | 7 |
+| `solicitudes/services/cambios_permanentes_helper.py` | 7 |
 
 ---
 
@@ -173,7 +173,7 @@ para el mismo concepto**, según el campo que se consulte.
 
 `'DOBLADA PERM'` (11 apariciones):
 
-- [ct_permanente_helper.py:373,374,563](../../solicitudes/services/ct_permanente_helper.py#L373)
+- [cambios_permanentes_helper.py:373,374,563](../../solicitudes/services/cambios_permanentes_helper.py#L373)
 - [doblada_aplicacion_service.py:413](../../solicitudes/services/doblada_aplicacion_service.py#L413)
 - [doblada_permanente_aplicacion_service.py:289,300,393,397,435](../../solicitudes/services/doblada_permanente_aplicacion_service.py#L289)
 - [reprogramacion_doblada_service.py:62,65](../../solicitudes/services/reprogramacion_doblada_service.py#L62)

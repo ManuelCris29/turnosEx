@@ -89,7 +89,7 @@ class SolicitudOrchestrator:
         finde se bloqueaba, aunque el cambio nunca se aplique en sábado ni domingo.
         """
         if tipo_nombre == 'CT PERMANENTE':
-            from .ct_permanente_helper import generar_fechas_candidatas_ct_permanente
+            from .cambios_permanentes_helper import generar_fechas_candidatas_ct_permanente
             try:
                 d0 = DateUtils.parse_date(post.get('fecha_inicio'))
                 d1 = DateUtils.parse_date(post.get('fecha_fin'))

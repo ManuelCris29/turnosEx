@@ -535,7 +535,7 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             dias_semana_es = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
             
             from empleados.models import Empleado as _EmpRango
-            from solicitudes.services.ct_permanente_helper import (
+            from solicitudes.services.cambios_permanentes_helper import (
                 dia_libre_por_solicitud,
                 es_festivo,
                 es_mantenimiento,

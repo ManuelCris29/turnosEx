@@ -1412,7 +1412,7 @@ def _dia_libre_por_solicitud(empleado, fecha, excluir_id=None):
 ```
 
 **Estado:** ✅ **APLICADO** (2026-08-06)
-- `ct_permanente_helper.py` - `_ContextoCTPermanente`, `precargar_ct_permanente()`,
+- `cambios_permanentes_helper.py` - `_ContextoCTPermanente`, `precargar_ct_permanente()`,
   `_CTX_CT_PERMANENTE`; accesores `_estado_ct`, `_dia_libre_por_solicitud`, `_tipo_cambio_previo`,
   `_es_festivo`, `_es_mantenimiento`, `_es_temporada`
 - `turno_service.py` - `estado_rango_multiple()` (batch real, ~8 consultas fijas);

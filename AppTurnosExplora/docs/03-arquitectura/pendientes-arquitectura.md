@@ -119,7 +119,7 @@ sobre `I`: ver el comentario de [`pyproject.toml`](../../pyproject.toml).
 
 Medido con AST sobre código de producción (tests, `scripts/` y migraciones fuera):
 **10 imports de nombres privados entre módulos**, ocho de ellos saliendo de
-`solicitudes/services/ct_permanente_helper.py` y dos cruzando frontera de app
+`solicitudes/services/cambios_permanentes_helper.py` y dos cruzando frontera de app
 (`empleados/services/indicadores_service.py` importaba `_es_festivo`).
 
 Un `_nombre` es un contrato: «detalle interno, puedo cambiarlo sin avisar». Con
@@ -149,7 +149,7 @@ darlo por bueno.
 > commit `329d2c3`: **medir con la herramienta que entiende el lenguaje**, no con
 > la que lee líneas.
 
-### ¿Y partir `ct_permanente_helper.py`? — auditado, y la respuesta es NO
+### ¿Y partir `cambios_permanentes_helper.py`? — auditado, y la respuesta es NO
 
 Esta sección dejó escrito que el módulo «sigue alojando lógica de doblada
 permanente» y que partirlo quedaba pendiente. **Se auditó el 27 ago 2026 y esa
@@ -179,12 +179,16 @@ permanentes en general (su docstring original ya decía «cambios permanentes»)
 El razonamiento completo quedó en el docstring del propio módulo, que es donde
 lo va a leer quien se plantee lo mismo.
 
-**Lo único pendiente aquí es renombrar el archivo** (p. ej.
-`cambios_permanentes_helper.py`). Coste medido: 14 módulos de producción, 7 de
-test y 10 documentos. Es mecánico y de bajo riesgo, pero merece **commit propio
-sobre árbol limpio** —la misma regla que `pyproject.toml` aplica a la familia
-`I` de ruff—: un diff grande y mecánico esconde los cambios de lógica justo
-cuando revisarlos importa.
+**El renombrado del archivo — lo único que quedaba — está HECHO** (27 ago 2026):
+`ct_permanente_helper.py` → `cambios_permanentes_helper.py`, en su propio commit
+sobre árbol limpio, separado del cambio de contrato de arriba. Es la misma regla
+que `pyproject.toml` aplica a la familia `I` de ruff: un diff grande y mecánico
+esconde los cambios de lógica justo cuando revisarlos importa. Alcance real: 32
+archivos (producción, tests, documentación y un comentario en
+`static/js/cambio-turno/solicitar_ct_permanente.js`).
+
+Con eso, el §3-bis queda cerrado entero: contrato saneado, invariante vigilado
+por test y nombre honesto.
 
 ---
 

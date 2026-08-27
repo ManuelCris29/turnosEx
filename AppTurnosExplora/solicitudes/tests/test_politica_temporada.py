@@ -130,7 +130,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         )
 
     def test_doblada_permanente_rechaza_temporada_por_regla(self):
-        from solicitudes.services.ct_permanente_helper import (
+        from solicitudes.services.cambios_permanentes_helper import (
             _dia_calendario_no_apto,
             jornada_doblada_perm,
         )
@@ -141,7 +141,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         )
 
     def test_ct_permanente_rechaza_temporada_por_regla(self):
-        from solicitudes.services.ct_permanente_helper import (
+        from solicitudes.services.cambios_permanentes_helper import (
             razones_exclusion_ct_permanente,
         )
         razones = razones_exclusion_ct_permanente(self.dia_temporada, self.solicitante)
@@ -171,7 +171,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         REGLA DE NEGOCIO: esos dos días son del formulario 6. Se comprueba en los tres caminos
         que antes llegaban a ellos (DOBLADA, CT PERMANENTE y DOBLADA PERMANENTE).
         """
-        from solicitudes.services.ct_permanente_helper import (
+        from solicitudes.services.cambios_permanentes_helper import (
             _dia_calendario_no_apto,
             razones_exclusion_ct_permanente,
         )
