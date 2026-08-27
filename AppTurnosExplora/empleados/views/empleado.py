@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.forms import SetPasswordForm
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.auth.models import User
+from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
@@ -109,10 +110,62 @@ class EmpleadoListView(LoginRequiredMixin, ListView):
         return Empleado.objects.none()
 
 class EmpleadoDetailView(LoginRequiredMixin, DetailView):
+    """Ficha de un explorador: datos, jornada vigente, salas y roles.
+
+    La jornada no vive en ``Empleado`` sino en la última asignación de
+    ``AsignarJornadaExplorador``, así que la resuelve la vista: la plantilla
+    no puede ordenar por ``-fecha_inicio``.
+    """
     model = Empleado
     template_name = 'empleados/detail.html'
 
+    def get_queryset(self):
+        return (
+            Empleado.objects
+            .select_related('user', 'supervisor')
+            .prefetch_related('empleadorole_set__role', 'competenciaempleado_set__sala')
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        asignacion = (
+            AsignarJornadaExplorador.objects
+            .select_related('jornada')
+            .filter(explorador=self.object)
+            .order_by('-fecha_inicio')
+            .first()
+        )
+        context['jornada_actual'] = asignacion.jornada if asignacion else None
+        context['supervisados'] = self.object.empleados_supervisados.filter(activo=True)
+        return context
+
 class EmpleadoEditForm(forms.ModelForm):
+    """
+    Edita la ficha del empleado y, con ella, el `username` de su cuenta.
+
+    El `username` no es un campo de `Empleado`: vive en el `User` con el que
+    tiene un OneToOne. Por eso se declara aquí a mano y se guarda aparte en
+    `save()`; sin esto el administrador podía crear un explorador con el usuario
+    mal escrito y no tenia forma de corregirlo desde la aplicacion.
+
+    Cambiarlo cambia la credencial con la que esa persona entra: no hay alias ni
+    redireccion del antiguo. Es deliberado — el `username` es el identificador de
+    login, no un apodo — y por eso el campo lo dice en su `help_text`.
+    """
+    username = forms.CharField(
+        label='Usuario',
+        max_length=150,
+        required=True,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+        help_text='Con este nombre inicia sesion el empleado. Si lo cambias, deberá entrar con el nuevo.'
+    )
+    email = forms.EmailField(
+        label='Email',
+        max_length=254,
+        required=False,
+        widget=forms.EmailInput(attrs={'class': 'form-control'}),
+        help_text='Recibe aqui los avisos de solicitudes y el restablecimiento de contrasena.'
+    )
     jornada = forms.ModelChoiceField(queryset=Jornada.objects.all(), required=True, label="Jornada (AM/PM)", widget=forms.Select(attrs={'class': 'form-control'}))
     supervisor = forms.ModelChoiceField(
         queryset=Empleado.objects.filter(activo=True, empleadorole__role__nombre__icontains='supervisor').distinct(),
@@ -124,7 +177,11 @@ class EmpleadoEditForm(forms.ModelForm):
 
     class Meta:
         model = Empleado
-        fields = ['nombre', 'apellido', 'cedula', 'email', 'activo', 'supervisor']
+        fields = ['nombre', 'apellido', 'cedula', 'activo', 'supervisor']
+
+    # Los campos declarados se anaden al final; sin esto 'Usuario' quedaria
+    # suelto tras 'Jornada', lejos de los datos de identidad a los que pertenece.
+    field_order = ['nombre', 'apellido', 'cedula', 'username', 'email', 'activo', 'supervisor', 'jornada']
 
     def __init__(self, *args, **kwargs):
         empleado = kwargs.get('instance')
@@ -133,6 +190,55 @@ class EmpleadoEditForm(forms.ModelForm):
             from turnos.models import AsignarJornadaExplorador
             asignacion = AsignarJornadaExplorador.objects.filter(explorador=empleado).order_by('-fecha_inicio').first()
             self.fields['jornada'].initial = asignacion.jornada.id if asignacion else None
+            if empleado.user_id:
+                self.fields['username'].initial = empleado.user.username
+                self.fields['email'].initial = empleado.user.email
+
+    def clean_username(self):
+        """
+        La unicidad se comprueba aqui y no solo en la base: la restriccion UNIQUE
+        de `auth_user` existe, pero llegar hasta ella devuelve un 500 en vez de
+        marcar el campo en rojo. Se excluye el propio usuario para que guardar sin
+        tocar el campo no se acuse a si mismo de duplicado.
+        """
+        username = (self.cleaned_data.get('username') or '').strip()
+        otros = User.objects.filter(username=username)
+        if self.instance and self.instance.user_id:
+            otros = otros.exclude(pk=self.instance.user_id)
+        if otros.exists():
+            raise forms.ValidationError('Ese usuario ya existe. Elige otro.')
+        return username
+
+    def save(self, commit=True):
+        """
+        `username` y `email` no son campos de `Empleado`: los dos viven en el
+        `User` con el que tiene un OneToOne (el email desde la migracion 0010,
+        que elimino la copia duplicada; ver `Empleado.email`). Por eso se
+        declaran a mano arriba y se persisten aqui.
+
+        Solo se escribe lo que cambio: un save() del User en cada edicion
+        generaria ruido en auditoria y tocaria la fila sin motivo.
+        """
+        empleado = super().save(commit=commit)
+        if not (commit and empleado.user_id):
+            return empleado
+
+        user = empleado.user
+        cambios = []
+
+        username = self.cleaned_data.get('username')
+        if username and user.username != username:
+            user.username = username
+            cambios.append('username')
+
+        email = self.cleaned_data.get('email') or ''
+        if user.email != email:
+            user.email = email
+            cambios.append('email')
+
+        if cambios:
+            user.save(update_fields=cambios)
+        return empleado
 
 class EmpleadoEditView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     """
@@ -157,19 +263,20 @@ class EmpleadoEditView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     success_url = '/empleados/'
 
     def form_valid(self, form):
-        # Guardar el empleado
-        empleado = form.save()
+        # Ficha, cuenta y jornada se guardan como una sola unidad: si falla la
+        # jornada no puede quedar el username ya cambiado.
+        with transaction.atomic():
+            empleado = form.save()
 
-        # Actualizar la jornada
-        jornada = form.cleaned_data['jornada']
-        # Eliminar asignaciones anteriores
-        AsignarJornadaExplorador.objects.filter(explorador=empleado).delete()
-        # Crear nueva asignación
-        AsignarJornadaExplorador.objects.create(
-            explorador=empleado,
-            jornada=jornada,
-            fecha_inicio=timezone.localdate()
-        )
+            jornada = form.cleaned_data['jornada']
+            # Eliminar asignaciones anteriores
+            AsignarJornadaExplorador.objects.filter(explorador=empleado).delete()
+            # Crear nueva asignación
+            AsignarJornadaExplorador.objects.create(
+                explorador=empleado,
+                jornada=jornada,
+                fecha_inicio=timezone.localdate()
+            )
 
         # Invalidar caché de MisTurnosPorMesView para este empleado
         try:
@@ -204,13 +311,20 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         form = self.form_class(request.POST)
         if form.is_valid():
             usuario_existente = form.cleaned_data.get('usuario_existente')
+            email = form.cleaned_data.get('email') or ''
             if usuario_existente:
                 user = usuario_existente
+                # Reutilizar una cuenta no debe dejarla con el correo de su vida
+                # anterior: el que se indica al dar de alta es el que vale, y
+                # desde la migracion 0010 es el unico que existe.
+                if email and user.email != email:
+                    user.email = email
+                    user.save(update_fields=['email'])
             else:
                 user = User.objects.create_user(
                     username=form.cleaned_data['username'],
                     password=form.cleaned_data['password'],
-                    email=form.cleaned_data['email']
+                    email=email
                 )
             es_supervisor = form.es_supervisor()
             empleado = Empleado.objects.create(
@@ -218,7 +332,8 @@ class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
                 nombre=form.cleaned_data['nombre'],
                 apellido=form.cleaned_data['apellido'],
                 cedula=form.cleaned_data['cedula'],
-                email=form.cleaned_data['email'],
+                # El email NO se pasa aqui: ya quedo guardado en `user`, que es
+                # donde vive (`Empleado.email` solo lo lee de ahi).
                 activo=form.cleaned_data['activo'],
                 # Un supervisor no tiene supervisor asignado.
                 supervisor=None if es_supervisor else form.cleaned_data.get('supervisor')

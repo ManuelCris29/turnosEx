@@ -1,14 +1,44 @@
 {% extends 'base.html' %}
-{% block title %}Editar Empleado{% endblock %}
-{% block page_title %}Editar Empleado{% endblock %}
+{% load static static_version %}
+
+{% block title %}Editar Empleado - AppTurnos{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
 {% block content %}
-<div class="card">
-    <div class="card-body">
-        <form method="post">
-            {% csrf_token %}
-            {{ form.as_p }}
-            <button type="submit" class="btn btn-primary">Guardar Cambios</button>
-        </form>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-user-edit"></i> Editar empleado</h1>
+      <p class="pg-subtitle">{{ object.nombre }} {{ object.apellido }} — {{ object.cedula }}</p>
     </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#2563eb,#3b82f6);">
+        <h3><i class="fas fa-user"></i> Datos del empleado</h3>
+        <div class="pg-actions">
+          <a href="{% url 'empleado_detail' object.id %}" class="pg-btn pg-btn-light"><i class="fas fa-eye"></i> Ver ficha</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <form method="post" class="pg-form" data-guardado-atomico="No has cambiado ningún dato: no hay nada que guardar.">
+          {% csrf_token %}
+          {% include 'includes/_pg_form_fields.html' with form=form %}
+          <div class="pg-actions mt-4">
+            <button type="submit" data-guardar class="pg-btn pg-btn-primary"><i class="fas fa-save"></i> Guardar cambios</button>
+            <a href="{% url 'empleado_detail' object.id %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static_v 'js/utils/guardado_atomico.js' %}"></script>
+{% endblock %}

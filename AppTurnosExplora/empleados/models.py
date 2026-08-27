@@ -44,7 +44,6 @@ class Empleado(models.Model):
     nombre = models.CharField(max_length=50)
     apellido = models.CharField(max_length=50)
     cedula = models.CharField(max_length=10, unique=True)
-    email = models.EmailField(max_length=254)
     activo = models.BooleanField(default=True) #type:ignore
     supervisor = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='empleados_supervisados')
     historial = HistoricalRecords()
@@ -60,6 +59,48 @@ class Empleado(models.Model):
     
     def __str__(self):
         return f"{self.nombre} {self.apellido} ({self.user.username})"
+
+    @property
+    def email(self):
+        """
+        El correo del empleado ES el de su cuenta. No hay copia.
+
+        Hasta la migración 0010 el correo estaba en dos sitios —
+        `Empleado.email` y `User.email`— y nada garantizaba que coincidieran.
+        Se desincronizaban por dos puertas: editar la ficha solo escribía la
+        copia del `Empleado`, y crear un empleado sobre una cuenta ya existente
+        dejaba en el `User` el correo de su vida anterior. El resultado era que
+        los avisos de solicitudes salían a un buzón y el restablecimiento de
+        contraseña de Django —que lee del `User`— a otro, sin que nadie viera
+        la discrepancia.
+
+        Arreglar cada punto de escritura solo habría tapado los conocidos: la
+        duplicación seguiría ahí, esperando al tercero. Aquí no hay nada que
+        sincronizar porque solo existe un dato.
+
+        Se mantiene el nombre `empleado.email` a propósito: es como lo leen los
+        servicios de correo y las plantillas, y esa lectura no tenía por qué
+        cambiar. El coste es que tocarlo sin `select_related('user')` dispara
+        una consulta por empleado; los listados que lo muestran ya lo traen.
+        """
+        return self.user.email if self.user_id else ''
+
+    @email.setter
+    def email(self, valor):
+        # Escribir aquí NO guarda: deja el valor en el `User` en memoria, igual
+        # que asignar cualquier atributo de un modelo. Quien asigna es quien
+        # llama a `user.save()` — y es intencionado que se vea, porque el dato
+        # que se toca vive en otra fila.
+        try:
+            cuenta = self.user
+        except User.DoesNotExist:
+            # Sin cuenta no hay donde escribir. Fallar aqui es mejor que aceptar
+            # el valor y perderlo en silencio al guardar.
+            raise ValueError(
+                'No se puede asignar el email: el empleado aun no tiene cuenta. '
+                'Asigna primero `user`.'
+            )
+        cuenta.email = valor or ''
     
     def notificaciones_no_leidas_count(self):
         """Retorna el número de notificaciones no leídas"""

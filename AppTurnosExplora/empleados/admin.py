@@ -14,9 +14,17 @@ from .models import (
 
 @admin.register(Empleado)
 class EmpleadoAdmin(admin.ModelAdmin):
-    list_display = ['nombre', 'apellido', 'email', 'supervisor', 'activo']
+    # `email` ya no es una columna de Empleado: vive en la cuenta (ver
+    # `Empleado.email`). Como list_display admite propiedades pero no sabe
+    # ordenar por ellas, se expone via metodo con su ruta ORM real; la busqueda
+    # necesita esa misma ruta o el admin revienta al escribir en el buscador.
+    list_display = ['nombre', 'apellido', 'email_cuenta', 'supervisor', 'activo']
     list_filter = ['activo', 'supervisor']
-    search_fields = ['nombre', 'apellido', 'email', 'cedula']
+    search_fields = ['nombre', 'apellido', 'user__email', 'cedula']
+
+    @admin.display(description='Email', ordering='user__email')
+    def email_cuenta(self, obj):
+        return obj.email
     autocomplete_fields = ['supervisor']
     
     def get_queryset(self, request):

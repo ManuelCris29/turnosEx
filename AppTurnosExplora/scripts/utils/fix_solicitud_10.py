@@ -38,7 +38,7 @@ def fix_solicitud_10():
             print(f"✅ Solicitud ID 10 eliminada correctamente")
         
         # 4. Verificar solicitudes restantes de Luisa
-        luisa = Empleado.objects.get(email='luisafernanda2330@hotmail.com')
+        luisa = Empleado.objects.get(user__email='luisafernanda2330@hotmail.com')
         solicitudes_luisa = SolicitudCambio.objects.filter(explorador_solicitante=luisa)
         print(f"\n📋 Solicitudes restantes de Luisa: {solicitudes_luisa.count()}")
         

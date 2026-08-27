@@ -19,7 +19,7 @@ def create_luisa_request():
     
     try:
         # 1. Buscar a Luisa Perez
-        luisa = Empleado.objects.get(email='luisafernanda2330@hotmail.com')
+        luisa = Empleado.objects.get(user__email='luisafernanda2330@hotmail.com')
         print(f"✅ Luisa Perez encontrada: {luisa.nombre} {luisa.apellido}")
         
         # 2. Buscar un receptor (que no sea Luisa)
