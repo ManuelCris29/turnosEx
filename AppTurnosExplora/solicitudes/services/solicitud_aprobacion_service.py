@@ -3,12 +3,15 @@ Servicio para aprobación y rechazo de solicitudes.
 
 Responsabilidad única: Procesar aprobaciones y rechazos de solicitudes.
 """
-from django.utils import timezone
-from solicitudes.models import SolicitudCambio
-from .solicitud_factory import SolicitudFactory
-from .notificacion_service import NotificacionService
-from solicitudes.domain.estado_machine import transicionar
 import logging
+
+from django.utils import timezone
+
+from solicitudes.domain.estado_machine import transicionar
+from solicitudes.models import SolicitudCambio
+
+from .notificacion_service import NotificacionService
+from .solicitud_factory import SolicitudFactory
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +108,7 @@ class SolicitudAprobacionService:
             Tupla (success: bool, message: str)
         """
         from django.db import transaction
+
         from solicitudes.services.bloqueo_partes import bloquear_partes
 
         # Lock de los EXPLORADORES implicados, antes de re-validar. El `select_for_update()` de

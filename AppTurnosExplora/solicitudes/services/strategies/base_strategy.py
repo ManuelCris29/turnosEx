@@ -7,10 +7,11 @@ its own strategy that inherits from this base class.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Tuple, Optional
-from solicitudes.models import SolicitudCambio
-from empleados.models import Empleado
+from typing import Any, Dict, Optional, Tuple
+
 from core.services import get_empleado_disponibilidad_service, get_turno_service
+from empleados.models import Empleado
+from solicitudes.models import SolicitudCambio
 
 
 class SolicitudStrategy(ABC):
@@ -142,6 +143,7 @@ class SolicitudStrategy(ABC):
         Por defecto se aplica la regla del INTERCAMBIO, que es la histórica.
         """
         from datetime import timedelta
+
         from turnos.services.turno_service import TurnoService
 
         otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5

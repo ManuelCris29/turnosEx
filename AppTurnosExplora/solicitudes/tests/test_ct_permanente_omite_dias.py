@@ -16,16 +16,26 @@ from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, CompetenciaEmpleado
-from turnos.models import (
-    Jornada, Sala, Turno, DiaEspecial, DescansoSemanaManual, AsignarJornadaExplorador,
-)
+from empleados.models import CompetenciaEmpleado, Empleado
 from solicitudes.models import (
-    SolicitudCambio, TipoSolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia,
+    CambioPermanenteDetalle,
+    CambioPermanenteDia,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
 from solicitudes.services.ct_permanente_helper import (
     calcular_fechas_aplicables_ct_permanente as calc,
+)
+from solicitudes.services.ct_permanente_helper import (
     calcular_fechas_aplicables_y_excluidas_ct_permanente as calc_full,
+)
+from turnos.models import (
+    AsignarJornadaExplorador,
+    DescansoSemanaManual,
+    DiaEspecial,
+    Jornada,
+    Sala,
+    Turno,
 )
 
 
@@ -136,7 +146,8 @@ class CTPermanenteOmiteDiasTest(TestCase):
         de un día en el que el solicitante ya cubre AM y PM.
         """
         from solicitudes.services.ct_permanente_helper import (
-            evaluar_fechas_ct_permanente, _razones_exclusion_ct_permanente,
+            _razones_exclusion_ct_permanente,
+            evaluar_fechas_ct_permanente,
         )
         from turnos.services.turno_service import TurnoService
 

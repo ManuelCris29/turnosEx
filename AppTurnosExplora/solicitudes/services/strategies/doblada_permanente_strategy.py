@@ -7,18 +7,20 @@ devuelve el favor doblándose en los días de devolución. Misma regla de negoci
 que la doblada (jornadas contrarias, sin domingos ni festivos), pero recurrente.
 """
 import logging
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
-from solicitudes.models import SolicitudCambio, DobladaPermanenteDetalle
-from empleados.models import Empleado
-from .base_strategy import SolicitudStrategy
-from core.utils.date_utils import DateUtils
 from django.utils import timezone
+
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+from solicitudes.models import DobladaPermanenteDetalle, SolicitudCambio
+
+from .base_strategy import SolicitudStrategy
 
 
 def _csv(dias):
@@ -142,8 +144,9 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
 
             # Sanción (BLOQUEA): ni el solicitante ni el compañero pueden tener una sanción que solape el rango.
             # NOTA: la restricción médica NO bloquea; se avisa como advertencia en el procesamiento (ver vista).
-            from empleados.models import SancionEmpleado
             from django.db.models import Q as _Q
+
+            from empleados.models import SancionEmpleado
 
             def _solapa_rango(model, campo_emp, emp):
                 return model.objects.filter(**{campo_emp: emp}, fecha_inicio__lte=ff).filter(
@@ -395,8 +398,9 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
     # ----------------------------------------------------------------- aplicar
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         try:
-            from ..doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
             from core.services.cache_service import CacheService
+
+            from ..doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
 
             with transaction.atomic():
                 detalle = solicitud.doblada_permanente
@@ -484,7 +488,9 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                     '(si un lado tiene más fechas elegibles que el otro, el sobrante queda excluido por balance).'
                 )
 
-                from solicitudes.services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService
+                from solicitudes.services.doblada_permanente_aplicacion_service import (
+                    DobladaPermanenteAplicacionService,
+                )
                 resultado = DobladaPermanenteAplicacionService.calcular_fechas_aplicables_y_excluidas(
                     detalle, solicitud.explorador_solicitante, solicitud.explorador_receptor
                 )

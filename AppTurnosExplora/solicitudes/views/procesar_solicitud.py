@@ -1,11 +1,12 @@
 import logging
 
-from django.views import View
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+
+from core.utils.json_responses import json_error
 
 from ..models import TipoSolicitudCambio
 from ..use_cases.crear_solicitud import CrearSolicitudUseCase
-from core.utils.json_responses import json_error
 
 logger = logging.getLogger(__name__)
 

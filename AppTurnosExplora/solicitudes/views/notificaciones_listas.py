@@ -1,14 +1,16 @@
-from django.views.generic import ListView
-from django.views import View
-from django.contrib.auth.mixins import LoginRequiredMixin
-from ..models import TipoSolicitudCambio, Notificacion, SolicitudCambio
-from ..services.notificacion_service import NotificacionService
 import logging
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+from django.views.generic import ListView
+
+from ..models import Notificacion, SolicitudCambio, TipoSolicitudCambio
+from ..services.notificacion_service import NotificacionService
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error
+from core.utils.json_responses import json_error, json_ok
 
 # Create your views here.
 
@@ -173,7 +175,7 @@ class SolicitudesPendientesListView(LoginRequiredMixin, ListView):
 
         from django.utils import timezone
 
-        from core.constants import EstadoCancelacion, VENTANA_RESPONDER_CANCELACION_HORAS
+        from core.constants import VENTANA_RESPONDER_CANCELACION_HORAS, EstadoCancelacion
 
         if not hasattr(self.request.user, 'empleado'):
             return SolicitudCambio.objects.none()

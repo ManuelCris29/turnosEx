@@ -2,8 +2,9 @@ import logging
 import math
 
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import View
 from django.http import JsonResponse
+from django.views.generic import View
+
 from core.mixins import SupervisorApiRequiredMixin
 from core.utils.date_utils import DateUtils
 
@@ -204,10 +205,10 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
 
     def _generar_excel(self, fecha, data):
         import io
+
         from django.http import HttpResponse
         from openpyxl import Workbook
-        from openpyxl.styles import (PatternFill, Font, Alignment,
-                                     Border, Side)
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
         MESES = ['', 'enero','febrero','marzo','abril','mayo','junio',
                  'julio','agosto','septiembre','octubre','noviembre','diciembre']

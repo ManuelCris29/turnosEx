@@ -31,7 +31,6 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Optional
 
-
 FECHA_REFERENCIA_SABADO = date(2026, 1, 10)  # Sábado donde trabaja PM (según regla de negocio)
 JORNADA_REFERENCIA_SABADO = "PM"  # En la fecha de referencia, el sábado es del grupo PM
 

@@ -1,6 +1,7 @@
 from django.core.exceptions import ValidationError  # type: ignore
-from empleados.models import Empleado
+
 from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
 
 
 class CTValidator:

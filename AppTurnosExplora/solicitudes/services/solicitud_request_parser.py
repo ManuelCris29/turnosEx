@@ -5,6 +5,7 @@ Responsabilidad única: extraer y normalizar datos de request.POST
 según el tipo de solicitud. No contiene lógica de negocio.
 """
 import logging
+
 from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)

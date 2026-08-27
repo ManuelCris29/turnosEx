@@ -8,14 +8,14 @@ así que un mismo empleado mostraba números distintos según quién mirara.
 """
 from datetime import date
 
-from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
-
-from empleados.models import Empleado
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from empleados.services.indicadores_service import IndicadoresService
-from core.dashboard.views import DashboardView
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
+
+from core.dashboard.views import DashboardView
+from empleados.models import Empleado
+from empleados.services.indicadores_service import IndicadoresService
+from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 
 
 class IndicadoresConsistenciaTest(TestCase):

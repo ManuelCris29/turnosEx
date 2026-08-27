@@ -93,6 +93,7 @@ class TestEstadosHttp:
         """Fija el resultado de la corrección sobre las cuatro vistas."""
         import re
         from pathlib import Path
+
         from django.conf import settings
 
         fuente = (Path(settings.BASE_DIR) / 'solicitudes' / 'views' /
@@ -105,6 +106,7 @@ class TestEstadosHttp:
 
     def test_no_queda_ninguna_interpolacion_de_excepcion(self):
         from pathlib import Path
+
         from django.conf import settings
 
         fuente = (Path(settings.BASE_DIR) / 'solicitudes' / 'views' /

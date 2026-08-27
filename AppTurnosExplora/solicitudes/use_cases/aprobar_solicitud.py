@@ -40,8 +40,8 @@ class AprobarAmbosRolesUseCase:
     """Aprueba como receptor Y supervisor en una sola acción (cuando el usuario ocupa ambos roles)."""
 
     def execute(self, solicitud_id: int, empleado: "Empleado", comentario: str) -> Tuple[bool, str]:
-        from solicitudes.services.solicitud_aprobacion_service import SolicitudAprobacionService
         from solicitudes.repositories.solicitud_repository import SolicitudRepository
+        from solicitudes.services.solicitud_aprobacion_service import SolicitudAprobacionService
 
         solicitud = SolicitudRepository.get_by_id(solicitud_id)
         if solicitud is None:

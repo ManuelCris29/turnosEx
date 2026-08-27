@@ -10,8 +10,8 @@ funcionando sin cambios. La migración a imports directos de los módulos nuevos
 es un paso posterior.
 """
 from .validators.base_validator import BaseValidator
-from .validators.ct_validator import CTValidator
 from .validators.ct_permanente_validator import CTPermanenteValidator
+from .validators.ct_validator import CTValidator
 from .validators.doblada_validator import DobladaValidator
 
 

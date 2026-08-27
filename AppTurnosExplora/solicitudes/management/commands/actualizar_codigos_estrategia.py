@@ -2,6 +2,7 @@
 Comando para actualizar codigo_estrategia en tipos existentes
 """
 from django.core.management.base import BaseCommand
+
 from solicitudes.models import TipoSolicitudCambio
 
 

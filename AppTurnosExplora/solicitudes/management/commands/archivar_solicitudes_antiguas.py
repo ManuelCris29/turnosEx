@@ -2,9 +2,11 @@
 FASE 3.8: Comando de gestión para archivar solicitudes antiguas
 Archiva solicitudes aprobadas de más de 1 año a una tabla de archivo
 """
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta
+
 from solicitudes.models import SolicitudCambio
 
 

@@ -11,16 +11,16 @@ Las fechas se calculan dinámicamente desde la alternancia real (nunca hardcodea
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
-from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService as A
-from solicitudes.services.strategies.cambio_descanso_strategy import CambioDescansoStrategy
 from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
+from solicitudes.services.strategies.cambio_descanso_strategy import CambioDescansoStrategy
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
+from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService as A
 
 
 def _fechas_cd(grupo_sol, grupo_rec):

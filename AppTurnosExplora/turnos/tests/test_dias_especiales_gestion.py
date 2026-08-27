@@ -23,7 +23,6 @@ from turnos.models import DiaEspecial
 from turnos.services.dia_especial_service import DiaEspecialService
 from turnos.services.temporada_service import TemporadaService
 
-
 ANIO = 2033
 
 

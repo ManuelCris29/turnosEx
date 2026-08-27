@@ -34,8 +34,8 @@ class CierreSolicitudesService:
     @staticmethod
     def _es_no_habil(f: date) -> bool:
         """Festivo o mantenimiento efectivo (temporada NO cuenta: es día hábil)."""
-        from turnos.models import DiaEspecial
         from solicitudes.services.ct_permanente_helper import _es_festivo
+        from turnos.models import DiaEspecial
         return bool(_es_festivo(f) or DiaEspecial.es_mantenimiento_efectivo(f))
 
     @classmethod
@@ -57,7 +57,7 @@ class CierreSolicitudesService:
         semanas) evitar una consulta por semana. `override=None` significa "ya miré y no hay";
         omitirlo significa "búscalo tú".
         """
-        from solicitudes.models import CierreSolicitudesConfig, CierreSemanaOverride
+        from solicitudes.models import CierreSemanaOverride, CierreSolicitudesConfig
         ov = (CierreSemanaOverride.objects.filter(semana_lunes=lunes).first()
               if override is _SIN_PRECARGA else override)
         if ov is not None:

@@ -1,15 +1,18 @@
-import logging
-from django.shortcuts import redirect
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views import View
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
-from django.http import JsonResponse
-from django.contrib import messages
-from django.urls import reverse
-from core.mixins import AdminRequiredMixin
-from ..models import DiaEspecial, DescansoSemanaManual
-from django.utils import timezone
 import json
+import logging
+
+from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
+from django.shortcuts import redirect
+from django.urls import reverse
+from django.utils import timezone
+from django.views import View
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
+
+from core.mixins import AdminRequiredMixin
+
+from ..models import DescansoSemanaManual, DiaEspecial
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,7 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
 
     def get_context_data(self, **kwargs):
         import calendar as _cal
+
         from turnos.services.descanso_semana_service import DescansoSemanaService
         context = super().get_context_data(**kwargs)
         anio = self._anio()
@@ -164,7 +168,8 @@ class DescansoSemanaAnualView(LoginRequiredMixin, AdminRequiredMixin, TemplateVi
 
     def post(self, request, *args, **kwargs):
         from turnos.services.descanso_semana_service import (
-            DescansoSemanaService, DescansoSemanaConflicto,
+            DescansoSemanaConflicto,
+            DescansoSemanaService,
         )
         try:
             anio = int(request.POST.get('anio'))
@@ -209,6 +214,7 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
 
     def get_context_data(self, **kwargs):
         import calendar as _cal
+
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
         context = super().get_context_data(**kwargs)
         anio = self._anio()
@@ -248,7 +254,8 @@ class AsignacionEspecialAnualView(LoginRequiredMixin, AdminRequiredMixin, Templa
 
     def post(self, request, *args, **kwargs):
         from turnos.services.asignacion_especial_service import (
-            AsignacionEspecialService, AsignacionEspecialConflicto,
+            AsignacionEspecialConflicto,
+            AsignacionEspecialService,
         )
         try:
             anio = int(request.POST.get('anio'))

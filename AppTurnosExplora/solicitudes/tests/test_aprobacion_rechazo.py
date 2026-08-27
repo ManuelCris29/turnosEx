@@ -11,11 +11,11 @@ Cubren:
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.solicitud_aprobacion_service import SolicitudAprobacionService
 

@@ -21,9 +21,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Tuple
 
 from core.constants import (
-    EstadoCancelacion,
     VENTANA_PEDIR_CANCELACION_HORAS,
     VENTANA_RESPONDER_CANCELACION_HORAS,
+    EstadoCancelacion,
 )
 
 if TYPE_CHECKING:
@@ -49,8 +49,8 @@ class CancelarSolicitudUseCase:
         from django.db import transaction
         from django.utils import timezone
 
-        from solicitudes.models import SolicitudCambio
         from solicitudes.domain.estado_machine import transicionar
+        from solicitudes.models import SolicitudCambio
 
         try:
             with transaction.atomic():
@@ -125,8 +125,8 @@ class CancelarSolicitudUseCase:
         from django.db import transaction
         from django.utils import timezone
 
-        from solicitudes.models import SolicitudCambio
         from solicitudes.domain.estado_machine import transicionar
+        from solicitudes.models import SolicitudCambio
         from solicitudes.services.bloqueo_partes import bloquear_partes
 
         try:
@@ -295,8 +295,8 @@ class CancelarSolicitudUseCase:
         from django.db import transaction
         from django.utils import timezone
 
-        from solicitudes.models import SolicitudCambio
         from solicitudes.domain.estado_machine import transicionar
+        from solicitudes.models import SolicitudCambio
         from solicitudes.services.bloqueo_partes import bloquear_partes
 
         try:
@@ -428,8 +428,10 @@ class CancelarSolicitudUseCase:
         revertir esta pisaría aquella. Se deshace en orden inverso. Vale para quien cancela:
         el explorador dentro de su ventana y el supervisor desde gestión.
         """
-        from django.db.models import Q
         from datetime import date as _date
+
+        from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
 
         if not solicitud.fecha_resolucion:
@@ -477,6 +479,7 @@ class CancelarSolicitudUseCase:
         """
         import logging
         from datetime import date as _date
+
         from turnos.models import Turno
 
         resultante = (

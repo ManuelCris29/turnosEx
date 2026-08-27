@@ -19,15 +19,15 @@ Intercambio DIRECTO de descansos (sin devolución posterior):
 - Solicitante: descansa fecha_pago en lugar de trabajar
 - Receptor: trabaja fecha_pago en lugar de descansar
 """
-from datetime import date, timedelta
 import logging
+from datetime import date, timedelta
 
 from django.db import transaction
 
+from core.constants import TipoCambioTurno
+from core.utils.date_utils import DateUtils
 from turnos.models import Turno
 from turnos.services.doblada_turno_service import DobladaTurnoService
-from core.utils.date_utils import DateUtils
-from core.constants import TipoCambioTurno
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,7 @@ class CambioDescansoAplicacionService:
         misma línea por línea — esta función ES la implementación y la individual la envuelve.
         """
         from django.db.models import F, Q
+
         from solicitudes.models import SolicitudCambio
 
         fecha_inicio = _as_date(fecha_inicio)
@@ -283,6 +284,7 @@ class CambioDescansoAplicacionService:
             return
 
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
 
         otro = _otro_dia(fecha)
@@ -443,8 +445,8 @@ class CambioDescansoAplicacionService:
         mantenimiento o jornada base.
         """
         from turnos.models import AsignarJornadaExplorador, DiaEspecial
-        from turnos.services.descanso_semana_service import DescansoSemanaService
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        from turnos.services.descanso_semana_service import DescansoSemanaService
         asg = (AsignarJornadaExplorador.objects.filter(explorador=explorador, fecha_inicio__lte=fecha)
                .select_related('jornada').order_by('-fecha_inicio').first())
         base = asg.jornada.nombre.upper() if asg else None

@@ -3,7 +3,7 @@ Interfaz para servicios de turnos.
 Aplicación del principio Dependency Inversion (DIP).
 """
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 
 class ITurnoService(ABC):

@@ -2,8 +2,10 @@
 Tests para API de turnos
 """
 from datetime import date, datetime
-from django.test import TestCase, Client
+
 from django.contrib.auth.models import User
+from django.test import Client, TestCase
+
 from empleados.models import Empleado
 
 

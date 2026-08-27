@@ -1,7 +1,8 @@
 from django import forms
 
-from .models import PermisoEspecial
 from empleados.models import Empleado
+
+from .models import PermisoEspecial
 
 DIAS_SEMANA = [
     (0, 'Lunes'), (1, 'Martes'), (2, 'Miércoles'), (3, 'Jueves'),

@@ -1,13 +1,15 @@
-from django.views import View
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
+from django.views import View
+
 from core.utils.date_utils import DateUtils
-import logging
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error
+from core.utils.json_responses import json_error, json_ok
 
 # Create your views here.
 
@@ -24,9 +26,11 @@ class DFDSCompanerosView(LoginRequiredMixin, View):
     ?tipo_solicitud_id=  → estrategia a usar (por defecto D FDS). Sirve para ambos formularios.
     """
     def get(self, request):
-        from datetime import datetime as _dt, timedelta as _td
-        from solicitudes.services.solicitud_factory import SolicitudFactory
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+
         from solicitudes.models import TipoSolicitudCambio
+        from solicitudes.services.solicitud_factory import SolicitudFactory
 
         emp = getattr(request.user, 'empleado', None)
         if not emp:
@@ -78,7 +82,8 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
     """
     def get(self, request):
         from datetime import date as _date
-        from turnos.models import AsignarJornadaExplorador, DiaEspecial, DescansoSemanaManual
+
+        from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, DiaEspecial
         try:
             anio = int(request.GET.get('anio'))
         except (TypeError, ValueError):
@@ -122,6 +127,7 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
         cambios_temporada = {}
         if es_propio:
             from django.db.models import Q as _Q
+
             from ..models import SolicitudCambio
             aprobadas = (SolicitudCambio.objects
                          .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada',
@@ -176,9 +182,9 @@ class CoberturaCandidatosView(LoginRequiredMixin, View):
     """
     def get(self, request):
         from empleados.models import Empleado
+        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
         from turnos.models import AsignarJornadaExplorador
         from turnos.services.turno_service import TurnoService
-        from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
 
         emp = getattr(request.user, 'empleado', None)
         if not emp:
@@ -282,8 +288,10 @@ class CambioDescansoFindesView(LoginRequiredMixin, View):
       - seleccionable: True si trabaja exactamente un día y el sábado no es pasado.
     """
     def get(self, request):
-        from datetime import date as _date, timedelta as _td
         from calendar import monthrange
+        from datetime import date as _date
+        from datetime import timedelta as _td
+
         from turnos.models import AsignarJornadaExplorador
         from turnos.services.turno_service import TurnoService
 

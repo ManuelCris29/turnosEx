@@ -57,6 +57,7 @@ def bloquear_partes(solicitud) -> None:
     (doblada, doblada permanente), que puede diferir del receptor de la cabecera.
     """
     from django.db import transaction
+
     from empleados.models import Empleado
 
     ids = {

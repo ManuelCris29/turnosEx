@@ -5,61 +5,61 @@ __init__ re-exporta todas las vistas para que `from .views import X` (en
 empleados/urls.py) siga funcionando sin cambios.
 """
 from .empleado import (
-    EmpleadoListView,
-    EmpleadoDetailView,
-    EmpleadoEditForm,
-    EmpleadoEditView,
-    EmpleadoDeleteView,
-    EmpleadoUsuarioCreateView,
     AsignarRolesSalasForm,
     AsignarRolesSalasView,
     ChangePasswordView,
-)
-from .roles import (
-    RoleListView,
-    RoleCreateView,
-    RoleUpdateView,
-    RoleDeleteView,
-)
-from .salas import (
-    SalaListView,
-    SalaCreateView,
-    SalaUpdateView,
-    SalaDeleteView,
-)
-from .jornadas import (
-    JornadaListView,
-    JornadaCreateView,
-    JornadaUpdateView,
-    JornadaDeleteView,
-)
-from .restricciones import (
-    RestriccionListView,
-    RestriccionCreateView,
-    RestriccionUpdateView,
-    RestriccionDeleteView,
-    RestriccionVisualizarListView,
-    _invalidar_turnos_cache_restriccion,
-)
-from .sanciones import (
-    SancionListView,
-    SancionCreateView,
-    SancionUpdateView,
-    SancionLevantarView,
-    SancionVisualizarListView,
-    MorososDeudaView,
-    _invalidar_turnos_cache_sancion,
+    EmpleadoDeleteView,
+    EmpleadoDetailView,
+    EmpleadoEditForm,
+    EmpleadoEditView,
+    EmpleadoListView,
+    EmpleadoUsuarioCreateView,
 )
 from .indicadores import (
     IndicadoresView,
     MisIndicadoresView,
 )
+from .jornadas import (
+    JornadaCreateView,
+    JornadaDeleteView,
+    JornadaListView,
+    JornadaUpdateView,
+)
 from .pdh import (
-    PDHListView,
     DeudasPendientesExploradorView,
     PDHCreateView,
-    PDHUpdateView,
     PDHDeleteView,
+    PDHListView,
+    PDHUpdateView,
+)
+from .restricciones import (
+    RestriccionCreateView,
+    RestriccionDeleteView,
+    RestriccionListView,
+    RestriccionUpdateView,
+    RestriccionVisualizarListView,
+    _invalidar_turnos_cache_restriccion,
+)
+from .roles import (
+    RoleCreateView,
+    RoleDeleteView,
+    RoleListView,
+    RoleUpdateView,
+)
+from .salas import (
+    SalaCreateView,
+    SalaDeleteView,
+    SalaListView,
+    SalaUpdateView,
+)
+from .sanciones import (
+    MorososDeudaView,
+    SancionCreateView,
+    SancionLevantarView,
+    SancionListView,
+    SancionUpdateView,
+    SancionVisualizarListView,
+    _invalidar_turnos_cache_sancion,
 )
 
 __all__ = [

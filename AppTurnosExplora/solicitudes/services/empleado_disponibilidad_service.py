@@ -3,11 +3,12 @@ Servicio para gestión de disponibilidad de empleados.
 
 Responsabilidad única: Buscar y filtrar empleados según criterios de disponibilidad.
 """
-from empleados.models import Empleado
-from turnos.models import Turno, AsignarJornadaExplorador
 import logging
+
 from core.interfaces import IEmpleadoDisponibilidadService
 from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+from turnos.models import AsignarJornadaExplorador, Turno
 
 logger = logging.getLogger(__name__)
 

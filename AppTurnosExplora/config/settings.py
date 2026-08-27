@@ -7,6 +7,7 @@ ENVIRONMENT=production  → seguridad completa, sin debug.
 """
 import os
 from pathlib import Path
+
 import environ
 
 # ---------------------------------------------------------------------------
@@ -387,6 +388,7 @@ AXES_RESET_ON_SUCCESS = True
 AXES_VERBOSE = False
 
 import sys as _sys
+
 # Deshabilita axes durante los tests: con `manage.py test` ('test' en argv) y
 # también bajo pytest (que NO pasa 'test' en argv). axes exige un `request` en
 # authenticate(), que client.login() no provee en los tests.

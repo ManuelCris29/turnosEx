@@ -1,22 +1,24 @@
-from django.views import View
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+
 from ..repositories.solicitud_repository import SolicitudRepository
 from ..use_cases.aprobar_solicitud import (
+    AprobarAmbosRolesUseCase,
     AprobarComoReceptorUseCase,
     AprobarComoSupervisorUseCase,
     RechazarComoReceptorUseCase,
     RechazarComoSupervisorUseCase,
-    AprobarAmbosRolesUseCase,
 )
 from ..use_cases.cancelar_solicitud import CancelarSolicitudUseCase
-import logging
 
 logger = logging.getLogger(__name__)
 
-from core.utils.json_responses import json_ok, json_error
 # Regla transversal: el comentario es obligatorio en toda acción que resuelve algo.
 # Los textos y el contrato viven en core para que permisos y solicitudes digan lo mismo.
 from core.utils.comentarios import MSG_COMENTARIO, MSG_MOTIVO, exigir_texto_json
+from core.utils.json_responses import json_error, json_ok
 
 # Create your views here.
 

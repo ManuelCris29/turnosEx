@@ -4,14 +4,16 @@ Servicio para filtrar empleados según reglas específicas de dobladas.
 Responsabilidad única: Aplicar filtros de negocio para determinar qué empleados
 están disponibles para recibir solicitudes de doblada.
 """
-from typing import List, Dict, Any, Optional
+import logging
+from datetime import date
+from typing import Any, Dict, List, Optional
+
 from django.db.models import QuerySet
+
+from core.utils.date_utils import DateUtils
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
-from datetime import date
-import logging
-from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 

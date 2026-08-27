@@ -1,9 +1,10 @@
 from django.core.exceptions import ValidationError  # type: ignore
+from django.utils import timezone
+
+from core.utils.date_utils import DateUtils
 from empleados.models import Empleado
 
 from .base_validator import BaseValidator
-from core.utils.date_utils import DateUtils
-from django.utils import timezone
 
 
 class DobladaValidator:
@@ -88,8 +89,8 @@ class DobladaValidator:
         Raises:
             ValidationError: Si las jornadas no son contrarias
         """
-        from turnos.services.jornada_service import JornadaService
         from turnos.models import Turno
+        from turnos.services.jornada_service import JornadaService
 
         fecha_obj = DateUtils.parse_date(fecha)
         fecha_str = fecha_obj.strftime('%Y-%m-%d')
@@ -357,8 +358,9 @@ class DobladaValidator:
                 - requiere_cambio_turno: bool
         """
         import logging
-        from turnos.services.jornada_service import JornadaService
+
         from turnos.models import Turno
+        from turnos.services.jornada_service import JornadaService
 
         logger = logging.getLogger(__name__)
 

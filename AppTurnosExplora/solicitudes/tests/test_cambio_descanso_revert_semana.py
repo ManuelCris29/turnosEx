@@ -33,9 +33,9 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from solicitudes.models import SolicitudCambio, DeudaCorporativa
+from solicitudes.models import DeudaCorporativa, SolicitudCambio
 from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
-from turnos.models import Turno, DescansoSemanaManual
+from turnos.models import DescansoSemanaManual, Turno
 
 from .test_cambio_descanso import CDBaseTest
 

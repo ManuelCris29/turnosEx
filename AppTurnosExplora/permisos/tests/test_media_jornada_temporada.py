@@ -8,7 +8,7 @@ cubren justo eso; el resto del flujo (día completo de temporada, compensación)
 from datetime import time, timedelta
 
 from django.contrib.auth.models import User
-from django.test import TestCase, Client
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
@@ -61,6 +61,7 @@ class MediaJornadaTemporadaGatesTest(TestCase):
         corra la suite el día que corra.
         """
         from unittest import mock
+
         from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService as CS
 
         cfg = CierreSolicitudesConfig.obtener()

@@ -1,10 +1,11 @@
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import View
-from django.http import JsonResponse
-from core.utils.json_responses import json_error_inesperado
 from datetime import date
 
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.http import JsonResponse
+from django.views.generic import View
+
 from core.mixins import SupervisorApiRequiredMixin
+from core.utils.json_responses import json_error_inesperado
 from turnos.models import DiaEspecial
 
 

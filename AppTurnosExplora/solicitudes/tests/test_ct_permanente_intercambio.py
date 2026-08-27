@@ -22,16 +22,20 @@ from django.core.exceptions import ValidationError
 from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, CompetenciaEmpleado
-from turnos.models import Jornada, Sala, Turno, AsignarJornadaExplorador
+from empleados.models import CompetenciaEmpleado, Empleado
 from solicitudes.models import (
-    SolicitudCambio, TipoSolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia,
+    CambioPermanenteDetalle,
+    CambioPermanenteDia,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
 from solicitudes.services.ct_permanente_helper import (
-    evaluar_fechas_ct_permanente, jornadas_intercambiables_ct,
+    evaluar_fechas_ct_permanente,
+    jornadas_intercambiables_ct,
 )
-from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
 from solicitudes.services.solicitud_validator import SolicitudValidator
+from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
+from turnos.models import AsignarJornadaExplorador, Jornada, Sala, Turno
 
 
 class CTPermanenteIntercambioTest(TestCase):

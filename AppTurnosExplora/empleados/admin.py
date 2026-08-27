@@ -1,5 +1,16 @@
 from django.contrib import admin
-from .models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada, RestriccionEmpleado, SancionEmpleado
+
+from .models import (
+    CompetenciaEmpleado,
+    Empleado,
+    EmpleadoRole,
+    Jornada,
+    RestriccionEmpleado,
+    Role,
+    Sala,
+    SancionEmpleado,
+)
+
 
 @admin.register(Empleado)
 class EmpleadoAdmin(admin.ModelAdmin):

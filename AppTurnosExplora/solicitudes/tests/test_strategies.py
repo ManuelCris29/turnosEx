@@ -2,11 +2,13 @@
 Tests para estrategias de solicitudes
 """
 from datetime import date, timedelta
-from django.test import TestCase
+
 from django.contrib.auth.models import User
+from django.test import TestCase
+from django.utils import timezone
+
 from solicitudes.models import TipoSolicitudCambio
 from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
-from django.utils import timezone
 
 
 class CambioTurnoStrategyTest(TestCase):
@@ -89,8 +91,8 @@ class CambioTurnoDescansoSemanaTest(TestCase):
 
     def test_ct_permanente_es_dia_descanso_detecta_descanso_semana(self):
         """El helper de CT permanente ahora detecta el descanso de semana manual."""
-        from turnos.models import DescansoSemanaManual
         from solicitudes.services.ct_permanente_helper import _es_dia_descanso
+        from turnos.models import DescansoSemanaManual
         f = self._martes_futuro()
         self.assertFalse(_es_dia_descanso(self.receptor, f))
         DescansoSemanaManual.objects.create(fecha=f, jornada=self.am, motivo='otro', descripcion='t', activo=True)

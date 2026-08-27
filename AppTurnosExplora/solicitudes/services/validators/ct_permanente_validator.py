@@ -2,9 +2,10 @@ import logging
 
 from django.core.exceptions import ValidationError  # type: ignore
 from django.db import models
-from empleados.models import Empleado
-from core.utils.date_utils import DateUtils
 from django.utils import timezone
+
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,8 @@ class CTPermanenteValidator:
             ValidationError: Si no hay ningún día en el rango donde las jornadas sean contrarias
         """
         from solicitudes.services.ct_permanente_helper import (
-            generar_fechas_candidatas_ct_permanente, jornadas_intercambiables_ct,
+            generar_fechas_candidatas_ct_permanente,
+            jornadas_intercambiables_ct,
             precargar_ct_permanente,
         )
 

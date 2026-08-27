@@ -6,11 +6,13 @@ con temporada/festivo el supervisor define manualmente el día de descanso por j
 (modelo DescansoSemanaManual). Este servicio resuelve esa consulta de forma centralizada.
 """
 import logging
-from datetime import date
 from collections import defaultdict
+from datetime import date
+
 from django.db import transaction
-from turnos.models import DescansoSemanaManual
+
 from core.utils.date_utils import DateUtils
+from turnos.models import DescansoSemanaManual
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,7 @@ class DescansoSemanaService:
         huérfana: el turno aplicado sobrevive pero su fundamento desaparece.
         """
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
         ini, fin = date(anio, 1, 1), date(anio, 12, 31)
         qs = (SolicitudCambio.objects.filter(estado='aprobada')

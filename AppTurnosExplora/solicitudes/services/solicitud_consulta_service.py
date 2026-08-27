@@ -3,10 +3,12 @@ Servicio para consultas de solicitudes.
 
 Responsabilidad única: Consultar y filtrar solicitudes según diferentes criterios.
 """
-from django.db.models import Q
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from core.utils.date_utils import DateUtils
 import logging
+
+from django.db.models import Q
+
+from core.utils.date_utils import DateUtils
+from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 
 logger = logging.getLogger(__name__)
 

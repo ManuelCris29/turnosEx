@@ -9,8 +9,8 @@ Se separa por rol del explorador en la solicitud que originó cada deuda:
 
 Pendiente (futuro): Permisos Especiales y Pago de Horas (descuentos) también afectan el total.
 """
-from solicitudes.models import DeudaCorporativa
 from empleados.models import Empleado
+from solicitudes.models import DeudaCorporativa
 
 _MESES_ES = [
     '', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',

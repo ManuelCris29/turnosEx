@@ -9,16 +9,18 @@ from datetime import datetime, time, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.shortcuts import render, redirect
+from django.shortcuts import redirect, render
 from django.views import View
 
 logger = logging.getLogger(__name__)
 
-from core.mixins import AdminRequiredMixin
-from ..models import CierreSolicitudesConfig, CierreSemanaOverride, DIA_CIERRE_CHOICES
-from ..services.cierre_solicitudes_service import CierreSolicitudesService as CS
-from core.utils.date_utils import DateUtils
 from django.utils import timezone
+
+from core.mixins import AdminRequiredMixin
+from core.utils.date_utils import DateUtils
+
+from ..models import DIA_CIERRE_CHOICES, CierreSemanaOverride, CierreSolicitudesConfig
+from ..services.cierre_solicitudes_service import CierreSolicitudesService as CS
 
 N_SEMANAS = 8
 

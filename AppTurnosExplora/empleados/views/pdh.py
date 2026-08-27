@@ -1,20 +1,20 @@
 import logging
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
+from django.http import JsonResponse
+from django.shortcuts import redirect, render
+from django.utils.dateparse import parse_date
+from django.views import View
 from django.views.generic import ListView, UpdateView
 from django.views.generic.edit import DeleteView
-from django.views import View
-from django.shortcuts import render, redirect
-from django.contrib import messages
-from django.http import JsonResponse
-from django.utils.dateparse import parse_date
 
-from permisos.models import PDH
 from core.mixins import AdminRequiredMixin
+from permisos.models import PDH
 
-from ..models import Empleado
 from ..forms import PDHForm
+from ..models import Empleado
 
 logger = logging.getLogger(__name__)
 

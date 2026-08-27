@@ -296,6 +296,7 @@ class SancionLevantarTest(SancionesBaseTest):
 
     def test_admin_no_permite_borrar(self):
         from django.contrib.admin.sites import site
+
         from empleados.models import SancionEmpleado as _S
         admin_sancion = site._registry[_S]
         self.assertFalse(admin_sancion.has_delete_permission(None))

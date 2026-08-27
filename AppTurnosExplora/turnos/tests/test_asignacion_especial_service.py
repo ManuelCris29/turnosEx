@@ -11,13 +11,14 @@ Cubren los hallazgos de la auditoría de `/turnos/asignacion-especial/anual/`:
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 
 from empleados.models import Empleado, Jornada
 from turnos.models import AsignacionEspecialManual, DiaEspecial
 from turnos.services.asignacion_especial_service import (
-    AsignacionEspecialService, AsignacionEspecialConflicto,
+    AsignacionEspecialConflicto,
+    AsignacionEspecialService,
 )
 
 
@@ -253,9 +254,9 @@ class AsignacionEspecialAnualTest(TestCase):
         COMPLETO sin dejar turno, el explorador no puede aparecer trabajando.
         """
         from solicitudes.models import DobladaDetalle
+        from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
         from turnos.models import AsignarJornadaExplorador
         from turnos.services.turno_service import TurnoService
-        from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
 
         grupo = AsignacionEspecialService.grupo_trabaja(self.festivo)
         s = self._solicitud(self.festivo, sufijo='f')

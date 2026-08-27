@@ -12,10 +12,10 @@ from datetime import date, timedelta
 from django.utils import timezone
 
 from empleados.models import CompetenciaEmpleado
-from solicitudes.models import SolicitudCambio, DeudaCorporativa, ReprogramacionDiaDoblada
+from solicitudes.models import DeudaCorporativa, ReprogramacionDiaDoblada, SolicitudCambio
 from solicitudes.services.reprogramacion_doblada_service import ReprogramacionDobladaService as RS
-from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO
 from solicitudes.tests.test_d_fds import DFDSBaseTest, _findes_de_mes
+from solicitudes.tests.test_matriz_dobladas import FECHA_CESION, FECHA_PAGO, MatrizDobladasTestCase
 from turnos.models import Turno
 from turnos.services.turno_service import TurnoService as TS
 
@@ -118,10 +118,14 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
         """En doblada permanente, si la persona no cumple UNA fecha específica de doblada, se
         reprograma esa fecha (anula solo ese día + su 30 min) y paga doblando otro."""
         import calendar
+
         from django.core.cache import cache
+
         from solicitudes.models import TipoSolicitudCambio
+        from solicitudes.services.doblada_permanente_aplicacion_service import (
+            DobladaPermanenteAplicacionService as DPAS,
+        )
         from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
-        from solicitudes.services.doblada_permanente_aplicacion_service import DobladaPermanenteAplicacionService as DPAS
 
         cache.clear()
         tipo = TipoSolicitudCambio.objects.create(nombre='DOBLADA PERMANENTE')
@@ -175,9 +179,9 @@ class ReprogramacionDobladaTest(MatrizDobladasTestCase):
 
     def test_flujo_ui_supervisor(self):
         """Superficie real: el supervisor registra la inasistencia y programa el pago vía las vistas."""
+        from django.core.cache import cache
         from django.test import Client
         from django.urls import reverse
-        from django.core.cache import cache
         sol = self._crear_aplicar_doblada()
         # Supervisor (staff) autenticado.
         self.emisor.user.is_staff = True

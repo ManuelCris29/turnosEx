@@ -6,7 +6,7 @@ from datetime import date, datetime, time, timedelta
 from django.test import TestCase
 from django.utils import timezone
 
-from solicitudes.models import CierreSolicitudesConfig, CierreSemanaOverride
+from solicitudes.models import CierreSemanaOverride, CierreSolicitudesConfig
 from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService as CS
 from turnos.models import DiaEspecial
 
@@ -206,9 +206,10 @@ class CierreIntegracionTest(TestCase):
         self.assertTrue(all(f.weekday() < 5 for f in fechas), fechas)
 
     def test_pagina_config_supervisor(self):
+        from django.contrib.auth.models import User
         from django.test import Client
         from django.urls import reverse
-        from django.contrib.auth.models import User
+
         from empleados.models import Empleado
         u = User.objects.create_user('sup.cierre', password='x', is_staff=True)
         Empleado.objects.create(user=u, nombre='Sup', apellido='C', cedula='9001', activo=True)
@@ -239,9 +240,10 @@ class CierreIntegracionTest(TestCase):
         """Un `dia_cierre` fuera de las choices reventaría `_ventana_semana` (KeyError) y con él la
         propia página desde la que se corrige, además de desactivar el cierre en silencio por el
         fail-open del orquestador. El POST se rechaza sin guardar nada."""
+        from django.contrib.auth.models import User
         from django.test import Client
         from django.urls import reverse
-        from django.contrib.auth.models import User
+
         from empleados.models import Empleado
         u = User.objects.create_user('sup.cierre2', password='x', is_staff=True)
         Empleado.objects.create(user=u, nombre='Sup', apellido='D', cedula='9002', activo=True)
@@ -277,6 +279,7 @@ class CierreIntegracionTest(TestCase):
 
     def test_fechas_del_post_recoge_valores_repetidos(self):
         from django.http import QueryDict
+
         from solicitudes.services.solicitud_request_parser import SolicitudRequestParser
         qd = QueryDict(mutable=True)
         qd.setlist('fecha_solicitud', ['2026-08-08', '2026-08-09'])

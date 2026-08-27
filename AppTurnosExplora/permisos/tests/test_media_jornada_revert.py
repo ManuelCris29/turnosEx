@@ -18,7 +18,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, Sala, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada, Sala
 from permisos.models import PermisoEspecial
 from permisos.services import PermisoMediaJornadaService
 from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, Turno

@@ -8,13 +8,14 @@ Cubren los tres fallos detectados en la auditoría:
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 
 from empleados.models import Empleado, Jornada
 from turnos.models import DescansoSemanaManual, DiaEspecial
 from turnos.services.descanso_semana_service import (
-    DescansoSemanaService, DescansoSemanaConflicto,
+    DescansoSemanaConflicto,
+    DescansoSemanaService,
 )
 
 

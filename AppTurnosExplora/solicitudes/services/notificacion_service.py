@@ -1,8 +1,10 @@
-from solicitudes.models import Notificacion
-from django.utils import timezone
 import logging
-from solicitudes.services.email_service import EmailService
+
+from django.utils import timezone
+
 from core.utils.date_utils import DateUtils
+from solicitudes.models import Notificacion
+from solicitudes.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 

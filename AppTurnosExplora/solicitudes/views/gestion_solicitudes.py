@@ -15,14 +15,15 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.paginator import Paginator
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 
 from core.mixins import AdminRequiredMixin
-from ..models import SolicitudCambio
-from django.utils import timezone
 from solicitudes.views.reprogramacion_views import TIPOS_REPROGRAMABLES
+
+from ..models import SolicitudCambio
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,7 @@ class GestionCancelarSolicitudView(_AccionGestionBase):
     """
     def post(self, request, solicitud_id):
         from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+
         from ..services.notificacion_service import NotificacionService
 
         empleado = self._empleado(request)
@@ -236,7 +238,9 @@ class GestionEliminarSolicitudView(_AccionGestionBase):
     """
     def post(self, request, solicitud_id):
         from django.db import transaction
+
         from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+
         from ..services.notificacion_service import NotificacionService
 
         empleado = self._empleado(request)

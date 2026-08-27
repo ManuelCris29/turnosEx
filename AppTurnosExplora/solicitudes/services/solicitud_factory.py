@@ -12,9 +12,10 @@ The factory uses a multi-level lookup strategy:
 4. Fallback to default strategy
 """
 
-from typing import Optional, Dict, Any, TYPE_CHECKING
-import re
 import logging
+import re
+from typing import TYPE_CHECKING, Any, Dict, Optional
+
 from solicitudes.models import TipoSolicitudCambio
 
 if TYPE_CHECKING:
@@ -525,8 +526,12 @@ def _auto_register_strategies():
     try:
         # Step 1: Manual registration (backward compatibility)
         from .strategies import (
-            CambioTurnoStrategy, DobladaStrategy, CTPermanenteStrategy, DFDSStrategy,
-            DobladaPermanenteStrategy, CambioDescansoStrategy,
+            CambioDescansoStrategy,
+            CambioTurnoStrategy,
+            CTPermanenteStrategy,
+            DFDSStrategy,
+            DobladaPermanenteStrategy,
+            DobladaStrategy,
         )
 
         SolicitudFactory.register_strategy("CT", CambioTurnoStrategy)
@@ -593,9 +598,12 @@ def _find_strategy_by_code(codigo: str):
     """
     try:
         from .strategies import (
-            CambioTurnoStrategy, DobladaStrategy,
-            CTPermanenteStrategy, DFDSStrategy, DobladaPermanenteStrategy,
             CambioDescansoStrategy,
+            CambioTurnoStrategy,
+            CTPermanenteStrategy,
+            DFDSStrategy,
+            DobladaPermanenteStrategy,
+            DobladaStrategy,
         )
 
         # Mapping of codes to strategy classes

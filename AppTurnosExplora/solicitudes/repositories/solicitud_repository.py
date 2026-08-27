@@ -8,6 +8,7 @@ Beneficio principal: cuando hay que añadir un índice, select_related o caché,
 hay un único lugar donde hacerlo.
 """
 from django.db.models import Q, QuerySet
+
 from solicitudes.models import SolicitudCambio
 
 

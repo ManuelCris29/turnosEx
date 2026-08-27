@@ -1,18 +1,18 @@
 import logging
 
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView, TemplateView, UpdateView
-from django.views.generic.edit import CreateView, FormView
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.views.generic import ListView, TemplateView, UpdateView
+from django.views.generic.edit import CreateView, FormView
 
 from core.mixins import AdminRequiredMixin, es_supervisor
 
-from ..models import Empleado, SancionEmpleado
 from ..forms import SancionEmpleadoForm, SancionLevantarForm
+from ..models import Empleado, SancionEmpleado
 
 logger = logging.getLogger(__name__)
 
@@ -136,6 +136,7 @@ def _invalidar_turnos_cache_sancion(sancion):
     """Refresca Mis Turnos del explorador para que la sanción se vea al instante."""
     try:
         from datetime import timedelta
+
         from core.services.cache_service import CacheService
         hoy = timezone.localdate()
         # Para indefinidas, cubrir hasta el mes actual (no solo +365 días desde inicio)
@@ -375,9 +376,8 @@ class MorososDeudaView(LoginRequiredMixin, AdminRequiredMixin, TemplateView):
         return parse_date(self.request.GET.get('corte') or '')
 
     def get_context_data(self, **kwargs):
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-
         from solicitudes.models import ConfiguracionSanciones
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
 
         corte = self._corte()
         if corte:

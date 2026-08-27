@@ -7,20 +7,21 @@ Cubren:
 - Estados terminales no tienen salida
 - puede_transicionar() y transiciones_posibles()
 """
-from django.test import TestCase
+from datetime import date
+
 from django.contrib.auth.models import User
+from django.test import TestCase
 
 from empleados.models import Empleado, Jornada
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from solicitudes.domain.estado_machine import (
-    transicionar,
-    puede_transicionar,
-    transiciones_posibles,
-    es_terminal,
     EstadoTransicionError,
+    es_terminal,
+    puede_transicionar,
+    transicionar,
+    transiciones_posibles,
 )
+from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador
-from datetime import date
 
 
 def _empleado(username, ced, jornada):

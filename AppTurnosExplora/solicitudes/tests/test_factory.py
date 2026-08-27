@@ -2,12 +2,10 @@
 Tests para SolicitudFactory
 """
 from django.test import TestCase
+
 from solicitudes.models import TipoSolicitudCambio
 from solicitudes.services.solicitud_factory import SolicitudFactory
-from solicitudes.services.strategies import (
-    CambioTurnoStrategy,
-    CTPermanenteStrategy
-)
+from solicitudes.services.strategies import CambioTurnoStrategy, CTPermanenteStrategy
 
 
 class SolicitudFactoryTest(TestCase):

@@ -1,17 +1,17 @@
 import logging
 
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import ListView, UpdateView
-from django.views.generic.edit import CreateView, DeleteView
-from django.db.models import Count
 from django.contrib import messages
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Count
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.views.generic import ListView, UpdateView
+from django.views.generic.edit import CreateView, DeleteView
 
 from core.mixins import AdminRequiredMixin, es_supervisor
 
-from ..models import Empleado, RestriccionEmpleado
 from ..forms import RestriccionEmpleadoForm
+from ..models import Empleado, RestriccionEmpleado
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +113,7 @@ def _invalidar_turnos_cache_restriccion(restriccion):
     """Refresca Mis Turnos del empleado para que la restricción se vea al instante."""
     try:
         from datetime import timedelta
+
         from core.services.cache_service import CacheService
         hoy = timezone.localdate()
         # Para indefinidas, cubrir hasta el mes actual (no solo +365 días desde inicio)

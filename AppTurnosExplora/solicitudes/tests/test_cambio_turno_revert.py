@@ -6,14 +6,14 @@ restaurar los turnos previos desde el snapshot capturado al aplicar.
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from solicitudes.services.strategies.cambio_turno_strategy import CambioTurnoStrategy
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 class CTRevertTest(TestCase):
@@ -167,6 +167,7 @@ class CTRevertTest(TestCase):
         de revert no lo veía porque no llama al save() posterior del use case.
         """
         from django.utils import timezone
+
         from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
         Turno.objects.create(explorador=self.sol, fecha=self.fecha, jornada=self.am, sala=self.sala)

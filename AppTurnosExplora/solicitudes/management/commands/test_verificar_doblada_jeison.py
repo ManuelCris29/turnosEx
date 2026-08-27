@@ -5,11 +5,13 @@ Uso:
     python manage.py test_verificar_doblada_jeison
 """
 
-from django.core.management.base import BaseCommand
+from datetime import date
+
 from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
+
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
-from datetime import date
 
 User = get_user_model()
 

@@ -30,9 +30,9 @@ class CrearSolicitudUseCase:
         tipo_solicitud: "TipoSolicitudCambio",
         solicitante: "Empleado",
     ) -> HttpResponse:
-        from solicitudes.services.solicitud_request_parser import SolicitudRequestParser
-        from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator
         from core.utils.json_responses import json_error
+        from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator
+        from solicitudes.services.solicitud_request_parser import SolicitudRequestParser
 
         ok, error_msg = SolicitudRequestParser.validate_required(tipo_solicitud.nombre, post_data)
         if not ok:

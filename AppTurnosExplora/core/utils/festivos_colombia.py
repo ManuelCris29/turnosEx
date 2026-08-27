@@ -1,5 +1,7 @@
 from datetime import date, timedelta
+
 from dateutil.easter import easter
+
 
 class CalculadoraFestivos:
     """

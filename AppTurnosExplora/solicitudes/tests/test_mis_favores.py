@@ -16,7 +16,10 @@ from django.utils import timezone
 
 from empleados.models import Empleado
 from solicitudes.models import (
-    DeudaExplorador, DobladaDetalle, SolicitudCambio, TipoSolicitudCambio,
+    DeudaExplorador,
+    DobladaDetalle,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
 from solicitudes.views.favores import LIMITE_POR_TARJETA
 

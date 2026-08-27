@@ -1,23 +1,23 @@
 import logging
 
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.contrib.auth.models import User
-from django.contrib.auth.forms import SetPasswordForm
-from django.views import View
-from django.views.generic import ListView, DetailView, UpdateView
-from django.views.generic.edit import DeleteView
 from django import forms
 from django.contrib import messages
+from django.contrib.auth.forms import SetPasswordForm
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
+from django.views import View
+from django.views.generic import DetailView, ListView, UpdateView
+from django.views.generic.edit import DeleteView
 
-from turnos.models import AsignarJornadaExplorador
 from core.mixins import AdminRequiredMixin, es_supervisor
+from turnos.models import AsignarJornadaExplorador
 
-from ..services.empleado_service import EmpleadoService
-from ..models import Empleado, Role, Sala, EmpleadoRole, CompetenciaEmpleado, Jornada
 from ..forms import EmpleadoUsuarioForm
+from ..models import CompetenciaEmpleado, Empleado, EmpleadoRole, Jornada, Role, Sala
+from ..services.empleado_service import EmpleadoService
 
 logger = logging.getLogger(__name__)
 
