@@ -24,8 +24,11 @@ from django.utils import timezone
 
 from empleados.models import CompetenciaEmpleado, Empleado
 from solicitudes.models import (
-    CambioPermanenteDetalle, DeudaCorporativa, DobladaDetalle,
-    SolicitudCambio, TipoSolicitudCambio,
+    CambioPermanenteDetalle,
+    DeudaCorporativa,
+    DobladaDetalle,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
 from turnos.models import AsignarJornadaExplorador, Jornada, Sala, Turno
 
@@ -364,6 +367,7 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
     def test_el_servicio_de_reprogramacion_no_usa_la_variante_cruda(self):
         """Guard de regresión sobre el propio código: que nadie la reintroduzca."""
         import inspect
+
         from solicitudes.services import reprogramacion_doblada_service as mod
 
         fuente = inspect.getsource(mod)
@@ -378,6 +382,7 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         30 min cada una y el guard deja de verlo.
         """
         import inspect
+
         from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
 
         fuente = inspect.getsource(DeudaCorporativaService.crear_deuda_corporativa_idempotente)
@@ -391,9 +396,12 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         Cada servicio que quita jornadas debe llamar a `sincronizar_deuda_corporativa`.
         """
         import inspect
+
         from solicitudes.services import (
-            doblada_deuda_service, d_fds_aplicacion_service,
-            cambio_descanso_aplicacion_service, doblada_permanente_aplicacion_service,
+            cambio_descanso_aplicacion_service,
+            d_fds_aplicacion_service,
+            doblada_deuda_service,
+            doblada_permanente_aplicacion_service,
         )
 
         for mod in (doblada_deuda_service, d_fds_aplicacion_service,
@@ -411,9 +419,12 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         Usa `DeudaCorporativaService.cancelar_deudas_de_solicitud()`.
         """
         import inspect
+
         from solicitudes.services import (
-            doblada_aplicacion_service, d_fds_aplicacion_service,
-            cambio_descanso_aplicacion_service, doblada_permanente_aplicacion_service,
+            cambio_descanso_aplicacion_service,
+            d_fds_aplicacion_service,
+            doblada_aplicacion_service,
+            doblada_permanente_aplicacion_service,
         )
 
         for mod in (doblada_aplicacion_service, d_fds_aplicacion_service,
@@ -426,6 +437,7 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
     def test_la_permanente_confirma_el_estado_real_antes_de_cobrar(self):
         """Crear sobre ocurrencias calculadas cobraba días que no acababan en AM+PM."""
         import inspect
+
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService,
         )

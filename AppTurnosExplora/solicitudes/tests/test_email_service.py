@@ -1,8 +1,8 @@
 """Tests del EmailService: remitente fijo + Reply-To y envío síncrono en tests."""
 from unittest import mock
 
-from django.test import TestCase, override_settings
 from django.core import mail
+from django.test import TestCase, override_settings
 
 from solicitudes.services.email_service import EmailService
 

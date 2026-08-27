@@ -1,15 +1,15 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import TemplateView
 from django.utils import timezone
+from django.views.generic import TemplateView
 
 
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = 'dashboard/dashboard.html'
 
     def get_context_data(self, **kwargs):
-        from permisos.models import PermisoEspecial
         from empleados.models import Empleado
         from empleados.services.indicadores_service import IndicadoresService
+        from permisos.models import PermisoEspecial
 
         context = super().get_context_data(**kwargs)
         context['page_title'] = 'Dashboard'

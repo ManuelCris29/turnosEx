@@ -47,7 +47,7 @@ def check_recent_requests():
         
         # 3. Buscar solicitudes donde Manuel Moreno sea receptor
         print(f"\n🔍 Buscando solicitudes donde Manuel Moreno sea receptor:")
-        manuel = Empleado.objects.get(email='manuel.moreno@parqueexplora.org')
+        manuel = Empleado.objects.get(user__email='manuel.moreno@parqueexplora.org')
         solicitudes_manuel = SolicitudCambio.objects.filter(explorador_receptor=manuel)
         print(f"  - Encontradas: {solicitudes_manuel.count()}")
         

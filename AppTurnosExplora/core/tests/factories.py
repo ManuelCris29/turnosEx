@@ -87,11 +87,13 @@ def crear_empleado(nombre='Emp', apellido='Uno', jornada=None, sala=None,
         'nombre': nombre,
         'apellido': apellido,
         'cedula': f'9{n:07d}',
-        'email': f'emp{n}@test.local',
         'activo': True,
         **extra,
     }
-    usuario = User.objects.create_user(username=f'emp{n}', password='clave-de-test')
+    # El correo va en la cuenta: `Empleado.email` es una propiedad que lo lee de
+    # ahi, no una columna propia (ver `Empleado.email`).
+    usuario = User.objects.create_user(
+        username=f'emp{n}', password='clave-de-test', email=f'emp{n}@test.local')
     empleado = Empleado.objects.create(user=usuario, **campos)
 
     if jornada is not None:

@@ -1,8 +1,11 @@
-from django.views.generic import TemplateView, ListView, CreateView, UpdateView, DeleteView
-from django.contrib.auth.mixins import LoginRequiredMixin
-from core.mixins import AdminRequiredMixin
-from ..models import TipoSolicitudCambio
 import logging
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
+
+from core.mixins import AdminRequiredMixin
+
+from ..models import TipoSolicitudCambio
 
 logger = logging.getLogger(__name__)
 

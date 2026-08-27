@@ -7,15 +7,15 @@ Las fechas se calculan dinámicamente (siempre futuras) para no caducar.
 """
 from datetime import date, timedelta
 
-from django.test import TestCase, Client
 from django.contrib.auth.models import User
 from django.core.cache import cache
+from django.test import Client, TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from turnos.models import Sala, AsignarJornadaExplorador
-from solicitudes.models import TipoSolicitudCambio, SolicitudCambio
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
+from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.solicitud_factory import SolicitudFactory
+from turnos.models import AsignarJornadaExplorador, Sala
 from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 
 

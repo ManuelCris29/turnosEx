@@ -1,11 +1,20 @@
 from django.contrib import admin
+
 from .models import (
-    Notificacion, TipoSolicitudCambio, SolicitudCambio,
-    CambioPermanenteDetalle, CambioPermanenteDia,
-    DobladaDetalle, DeudaExplorador, DeudaCorporativa,
+    CambioPermanenteDetalle,
+    CambioPermanenteDia,
+    CierreSemanaOverride,
+    CierreSolicitudesConfig,
+    ConfiguracionSanciones,
+    DeudaCorporativa,
+    DeudaExplorador,
+    DobladaDetalle,
+    EmailOutbox,
+    Notificacion,
     ReprogramacionDiaDoblada,
-    CierreSolicitudesConfig, CierreSemanaOverride, ConfiguracionSanciones,
-    EmailOutbox, RevisionSancionesDeuda,
+    RevisionSancionesDeuda,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
 
 

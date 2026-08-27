@@ -6,15 +6,15 @@ válidas por la reconstrucción de datos ni por auto-referencia en chequeos de c
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from turnos.models import AsignarJornadaExplorador, Sala
-from solicitudes.tests.test_matriz_dobladas import MatrizDobladasTestCase, FECHA_PAGO
 from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
+from solicitudes.tests.test_matriz_dobladas import FECHA_PAGO, MatrizDobladasTestCase
+from turnos.models import AsignarJornadaExplorador, Sala
 
 
 class DobladaPagoJornadaRealTest(MatrizDobladasTestCase):
@@ -23,8 +23,9 @@ class DobladaPagoJornadaRealTest(MatrizDobladasTestCase):
     puede cubrir una jornada de la doblada del compañero; pero si TRABAJA esa jornada de verdad, no."""
 
     def test_pago_en_temporada_deudor_descansa_cubre_valido(self):
-        from turnos.models import DescansoSemanaManual
         from django.core.cache import cache
+
+        from turnos.models import DescansoSemanaManual
         # Solicitante AM, receptor PM (contrarios).
         self._asignar_jornada_base(self.emisor, self.jornada_am)
         self._asignar_jornada_base(self.receptor, self.jornada_pm)
@@ -163,6 +164,7 @@ class DobladaPermRevalidacionTest(TestCase):
         semana. Si una fecha elegida deja de ser válida, se rechaza NOMBRÁNDOLA (no un mensaje genérico
         sobre todo el rango)."""
         from datetime import timedelta
+
         from turnos.models import Turno
         # Dos martes (cesión) y dos jueves (devolución) del rango.
         martes, jueves = [], []
@@ -202,10 +204,11 @@ class DobladaPermRevalidacionTest(TestCase):
         # Si un lado tiene menos días válidos, la aplicación recorta al mínimo común:
         # se aplican IGUAL número de cesiones y devoluciones (no se paga sin recibir).
         from datetime import timedelta
-        from turnos.models import Turno
+
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
+        from turnos.models import Turno
         strat = DobladaPermanenteStrategy()
         sol, msg = strat.crear_solicitud({
             'explorador_solicitante': self.sol, 'explorador_receptor': self.rec,
@@ -299,8 +302,8 @@ class DobladaPermRevalidacionTest(TestCase):
     def test_reconciliacion_rematerializa_la_doblada_permanente(self):
         """Si el snapshot de OTRA solicitud cancelada pisa un día `DOBLADA PERM`, la
         reconciliación debe reconstruirlo: si no, la deuda de 30 min quedaría viva sin doblada."""
-        from turnos.models import Turno
         from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+        from turnos.models import Turno
         sol, n_ces, _ = self._crear_y_aplicar()
         detalle = sol.doblada_permanente
         fecha = min(f for (_e, f) in
@@ -340,10 +343,11 @@ class DobladaPermRevalidacionTest(TestCase):
     def test_ocurrencias_omite_comprometido_y_sabado(self):
         # Núcleo del comportamiento "omitir": un día comprometido se salta; los demás siguen.
         from datetime import timedelta
-        from turnos.models import Turno
+
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
+        from turnos.models import Turno
         d = self.fi
         while d.weekday() != 1:  # primer martes
             d += timedelta(days=1)
@@ -405,10 +409,10 @@ class DobladaPermJornadaRealTest(TestCase):
         Turno.objects.create(explorador=emp, fecha=fecha, jornada=self.pm, sala=self.sala, tipo_cambio='CT PERMANENTE')
 
     def test_ct_flip_hace_el_dia_valido_por_jornada_real(self):
+        from solicitudes.services.ct_permanente_helper import _jornada_unica_real
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
-        from solicitudes.services.ct_permanente_helper import _jornada_unica_real
         martes = self._martes()
         # Sin CT: sol y rec ambos AM (misma base) → NINGÚN martes es válido (no son contrarios).
         self.assertEqual(list(DPAS._ocurrencias(self.fi, self.ff, {1}, self.sol, self.rec)), [])
@@ -467,11 +471,12 @@ class DobladaPermJornadaRealTest(TestCase):
         y el solicitante DOBLA (virtual). La base diría AM, pero la fuente real (estado_dia/Mis Turnos)
         es DOBLADA → no elegible → el día se OMITE (no queda en el limbo)."""
         from django.core.cache import cache
-        from turnos.models import DescansoSemanaManual
+
         from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm, _jornada_unica_real
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
+        from turnos.models import DescansoSemanaManual
         m = self._martes()[0]
         # El grupo contrario (PM) descansa por temporada → el solicitante (AM) cubre el día completo.
         DescansoSemanaManual.objects.create(fecha=m, jornada=self.pm, activo=True)
@@ -488,8 +493,9 @@ class DobladaPermJornadaRealTest(TestCase):
         coinciden: el explorador trabaja AM de verdad, así que NI `_es_dia_descanso` lo ve como
         descanso NI `_jornada_doblada_perm` lo omite. Antes divergían (config decía descanso)."""
         from django.core.cache import cache
+
+        from solicitudes.services.ct_permanente_helper import _es_dia_descanso, _jornada_doblada_perm
         from turnos.models import DescansoSemanaManual, Turno
-        from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm, _es_dia_descanso
         m = self._martes()[0]
         # config: AM descansa. `motivo='otro'` porque un descanso FIJADO de temporada está vetado
         # para la doblada permanente por regla de calendario, y taparía lo que se comprueba aquí:
@@ -548,10 +554,10 @@ class DobladaPermRevertRestauraEstadoPrevioTest(TestCase):
         return SolicitudCambio.objects.select_related('doblada_permanente').get(id=sol.id)
 
     def test_revert_sin_turno_previo_no_materializa_base(self):
-        from turnos.models import Turno
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
+        from turnos.models import Turno
         self.assertFalse(Turno.objects.filter(explorador=self.sol, fecha=self.martes).exists())
         sol = self._crear_y_aprobar()
         DPAS.aplicar(sol, sol.doblada_permanente)
@@ -566,10 +572,10 @@ class DobladaPermRevertRestauraEstadoPrevioTest(TestCase):
         )
 
     def test_revert_con_turno_no_base_restaura_esa_fila_exacta(self):
-        from turnos.models import Turno
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
+        from turnos.models import Turno
         Turno.objects.create(
             explorador=self.sol, fecha=self.martes, jornada=self.pm, sala=self.sala,
             tipo_cambio='CAMBIO DESCANSO',
@@ -649,6 +655,7 @@ class DobladaPermAtribucionCompaneroTest(TestCase):
 
     def test_descanso_apunta_al_companero_de_esa_fecha(self):
         from django.core.cache import cache
+
         from turnos.services.turno_service import TurnoService as TS
         # comp1 cubre el martes[0]; comp2 cubre el martes[1] (mismo weekday, fechas distintas).
         self._crear_aprobar_aplicar(self.comp1, self.martes[0], self.jueves[0])

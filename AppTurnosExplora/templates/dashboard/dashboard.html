@@ -105,6 +105,13 @@
   <a href="{% url 'indicadores' %}" class="dash-quick-item"><i class="fas fa-chart-bar"></i> Indicadores</a>
   <a href="{% url 'empleados' %}" class="dash-quick-item"><i class="fas fa-users"></i> Empleados</a>
   <a href="{% url 'turnos_list' %}" class="dash-quick-item"><i class="fas fa-calendar-day"></i> Calendario de Turnos</a>
+  {% comment %}
+    Vive aqui y no en el menu lateral: es la misma pantalla a la que lleva
+    "Deudas de horas" desde Sanciones, y tenerla en los dos sitios solo alarga
+    el menu. Como acceso rapido si gana algo, porque es lo que el supervisor
+    mira a diario.
+  {% endcomment %}
+  <a href="{% url 'sanciones_morosos' %}" class="dash-quick-item"><i class="fas fa-user-clock"></i> Qui&eacute;n debe</a>
   {% endif %}
 </div>
 {% endblock %}

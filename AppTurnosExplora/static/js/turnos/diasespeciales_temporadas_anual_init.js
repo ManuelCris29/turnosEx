@@ -9,6 +9,13 @@
     }
     actualizarDiasSeleccionados();
 
+    // Guardar reescribe el año entero (borra y vuelve a crear las temporadas), así que
+    // sin ningún día tocado el botón queda apagado: ver `utils/guardado_atomico.js`.
+    window.guardiaGuardadoAnual = window.guardadoAtomico({
+        boton: document.getElementById('btn-guardar'),
+        instantanea: obtenerDiasSeleccionados,
+    });
+
     function navegarAnio(anio) {
         window.location.href = url + '?anio=' + anio;
     }
@@ -48,6 +55,10 @@
         // con el usuario: aquí solo se deja pasar sin exigir días seleccionados.
         const esLimpieza = campoLimpiar && campoLimpiar.value === '1';
 
+        if (!esLimpieza && !window.guardiaGuardadoAnual.sucio()) {
+            e.preventDefault();
+            return;
+        }
         if (totalDias === 0 && !esLimpieza) {
             e.preventDefault();
             alert('Por favor, seleccione al menos un día de temporada.');

@@ -18,7 +18,7 @@ def debug_manuel_notifications():
     
     try:
         # 1. Buscar a Manuel Moreno
-        manuel = Empleado.objects.get(email='manuel.moreno@parqueexplora.org')
+        manuel = Empleado.objects.get(user__email='manuel.moreno@parqueexplora.org')
         print(f"✅ Manuel Moreno encontrado: {manuel.nombre} {manuel.apellido}")
         print(f"  - ID: {manuel.id}")
         print(f"  - Email: {manuel.email}")

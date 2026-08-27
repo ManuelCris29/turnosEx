@@ -17,15 +17,15 @@ from django.test import TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from turnos.models import Sala, AsignarJornadaExplorador, Turno, DescansoSemanaManual
-from turnos.services.turno_service import TurnoService
-from solicitudes.models import TipoSolicitudCambio, SolicitudCambio, DobladaDetalle
-from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService as DS
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
+from solicitudes.models import DobladaDetalle, SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.cambio_descanso_aplicacion_service import (
     CambioDescansoAplicacionService as CDA,
 )
+from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService as DS
 from solicitudes.views.api_disponibles_ct_preview import ObtenerEmpleadosDisponiblesView
+from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, Sala, Turno
+from turnos.services.turno_service import TurnoService
 
 
 class _BaseAuditoria(TestCase):

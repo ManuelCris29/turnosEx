@@ -1,14 +1,17 @@
-from django.views import View
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.views import View
+
+from core.utils.date_utils import DateUtils
+
 from ..models import TipoSolicitudCambio
 from ..services.solicitud_factory import SolicitudFactory
-import logging
-from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error
+from core.utils.json_responses import json_error, json_ok
 
 # Create your views here.
 
@@ -213,12 +216,16 @@ class PrevisualizarCTPermanenteView(LoginRequiredMixin, View):
     """
 
     def get(self, request):
-        from datetime import timedelta
         import json
+        from datetime import timedelta
+
         from django.core.exceptions import ValidationError
+
         from empleados.models import Empleado
+
         from ..services.ct_permanente_helper import (
-            evaluar_fechas_ct_permanente, precargar_ct_permanente,
+            evaluar_fechas_ct_permanente,
+            precargar_ct_permanente,
         )
         from ..services.solicitud_validator import SolicitudValidator  # type: ignore
 
@@ -377,8 +384,10 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
     def get(self, request):
         import json
         from datetime import timedelta
+
         from ..services.ct_permanente_helper import (
-            _motivo_no_doblada_perm, precargar_ct_permanente,
+            _motivo_no_doblada_perm,
+            precargar_ct_permanente,
         )
 
         fi_s = request.GET.get('fecha_inicio')
@@ -444,10 +453,14 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
     def get(self, request):
         import json
         from datetime import timedelta
+
         from empleados.models import Empleado
+
         from ..services.ct_permanente_helper import (
-            _jornada_doblada_perm, _motivo_no_cubre_companero,
-            bloque_calendario_no_apto, precargar_ct_permanente,
+            _jornada_doblada_perm,
+            _motivo_no_cubre_companero,
+            bloque_calendario_no_apto,
+            precargar_ct_permanente,
         )
 
         fi_s = request.GET.get('fecha_inicio')

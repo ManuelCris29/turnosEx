@@ -9,6 +9,7 @@
   const otrosMotivos = leer('dsa-otros-motivos') || {};        // descansos individuales (solo lectura)
   const form = document.getElementById('dsaForm');
   const hidden = document.getElementById('seleccion');
+  const btnGuardar = document.getElementById('dsaGuardar');
 
   // Días que no admiten descanso manual: en festivo se trabaja y el de mantenimiento ya es
   // el descanso normal de la semana. Los de temporada SÍ son editables: esta pantalla existe
@@ -80,8 +81,15 @@
       const siguiente = ESTADOS[(idx + 1) % ESTADOS.length];
       if(siguiente.length) estado[f] = siguiente.slice(); else delete estado[f];
       pintar(span);
+      guardia.revisar();
     });
   });
 
-  form.addEventListener('submit', () => { hidden.value = JSON.stringify(estado); });
+  // Sin ningún día modificado no se reescribe el año: ver `guardado_atomico.js`.
+  const guardia = window.guardadoAtomico({ boton: btnGuardar, instantanea: () => estado });
+
+  form.addEventListener('submit', (e) => {
+    if(!guardia.sucio()){ e.preventDefault(); return; }
+    hidden.value = JSON.stringify(estado);
+  });
 })();

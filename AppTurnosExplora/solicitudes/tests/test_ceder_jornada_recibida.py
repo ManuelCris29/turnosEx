@@ -18,10 +18,12 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, CompetenciaEmpleado
-from solicitudes.models import SolicitudCambio, DobladaDetalle, DeudaCorporativa
+from empleados.models import CompetenciaEmpleado, Empleado
+from solicitudes.models import DeudaCorporativa, DobladaDetalle, SolicitudCambio
 from solicitudes.tests.test_matriz_dobladas import (
-    MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO,
+    FECHA_CESION,
+    FECHA_PAGO,
+    MatrizDobladasTestCase,
 )
 from turnos.services.turno_service import TurnoService
 
@@ -265,6 +267,7 @@ class CalendarioNoOfreceHoyTest(TestCase):
 
     def test_doblada_y_d_fds_parten_de_manana(self):
         import inspect
+
         from solicitudes.views.cambio_turno_pages import SolicitarCambioTurnoView as _V
 
         for metodo in ('_render_doblada', '_render_d_fds'):
@@ -286,6 +289,7 @@ class CalendarioNoOfreceHoyTest(TestCase):
         la hora ACTUAL, y por eso el patrón buscado incluye `new Date()`.
         """
         from pathlib import Path
+
         from django.conf import settings
 
         js = Path(settings.BASE_DIR) / 'static' / 'js'

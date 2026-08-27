@@ -16,10 +16,11 @@ año le falta la publicación, en vez de mostrar un turno que cambiará cuando s
 """
 import logging
 from datetime import date, timedelta
+
 from django.db import transaction
 
-from turnos.models import AsignacionEspecialManual
 from core.utils.date_utils import DateUtils
+from turnos.models import AsignacionEspecialManual
 
 logger = logging.getLogger(__name__)
 
@@ -209,9 +210,13 @@ class AsignacionEspecialService:
         el supervisor podría invertir la alternancia bajo una solicitud ya aprobada.
         """
         from django.db.models import Q
+
         from solicitudes.models import (
-            SolicitudCambio, CambioPermanenteDia, DobladaPermanenteDetalle,
-            ReprogramacionDiaDoblada, DeudaExplorador,
+            CambioPermanenteDia,
+            DeudaExplorador,
+            DobladaPermanenteDetalle,
+            ReprogramacionDiaDoblada,
+            SolicitudCambio,
         )
         from turnos.models import DiaEspecial
 

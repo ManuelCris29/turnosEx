@@ -12,19 +12,22 @@ Las fechas se calculan dinámicamente (nunca hardcodeadas en el pasado).
 from datetime import date, timedelta
 from unittest import mock
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import (
-    SolicitudCambio, TipoSolicitudCambio, DobladaDetalle,
-    DeudaExplorador, DeudaCorporativa,
+    DeudaCorporativa,
+    DeudaExplorador,
+    DobladaDetalle,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
-from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 from solicitudes.services.strategies import d_fds_strategy as _d_fds_mod
 from solicitudes.services.strategies.d_fds_strategy import DFDSStrategy
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
+from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
 
 
 def _findes_de_mes(anio, mes):

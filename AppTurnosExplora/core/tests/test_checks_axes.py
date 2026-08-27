@@ -192,9 +192,8 @@ class TestIpwareRealmenteInstalado:
         La comprobación de VERDAD: no que los ajustes estén, sino que la resolución
         funcione. Es la que destapó que AXES_IPWARE_PROXY_COUNT era inerte.
         """
-        from django.test import RequestFactory
-
         from axes.helpers import get_client_ip_address
+        from django.test import RequestFactory
 
         peticion = RequestFactory().post('/login/')
         peticion.META['REMOTE_ADDR'] = '10.0.1.20'

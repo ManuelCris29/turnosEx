@@ -9,16 +9,18 @@ JsonResponse. Toda la lógica de negocio la delega en Factory/strategies.
 """
 import json
 import logging
+
 from django.http import JsonResponse
 from django.utils import timezone
 
+from core.utils.date_utils import DateUtils
+from core.utils.json_responses import json_error, json_ok
 from empleados.models import Empleado
+
 from ..models import TipoSolicitudCambio
 from .errores_validacion import RequiereCambioTurnoPrevio
 from .solicitud_factory import SolicitudFactory
 from .solicitud_request_parser import SolicitudRequestParser
-from core.utils.json_responses import json_ok, json_error
-from core.utils.date_utils import DateUtils
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,7 @@ class SolicitudOrchestrator:
         ya es una acción deliberada del usuario, no un doble-clic.
         """
         import hashlib
+
         from core.services.cache_service import CacheService
 
         datos_relevantes = {k: v for k, v in post.items() if k not in ('csrfmiddlewaretoken',)}
@@ -291,8 +294,9 @@ class SolicitudOrchestrator:
         if confirmar or not fechas:
             return None
 
-        from empleados.models import RestriccionEmpleado
         from django.db.models import Q
+
+        from empleados.models import RestriccionEmpleado
 
         fmin, fmax = min(fechas), max(fechas)
         vistos = {solicitante.id}

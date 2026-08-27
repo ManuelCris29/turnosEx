@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import TemplateView
+
 from core.mixins import AdminRequiredMixin
 
 # Create your views here.
@@ -38,8 +39,9 @@ class ConsolidadoHorasView(LoginRequiredMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        from ..services.consolidado_horas_service import ConsolidadoHorasService
         from empleados.models import Empleado
+
+        from ..services.consolidado_horas_service import ConsolidadoHorasService
 
         user = self.request.user
         es_supervisor = ConsolidadoHorasService.es_supervisor(user)

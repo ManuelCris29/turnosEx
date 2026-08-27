@@ -77,9 +77,8 @@ class ReporteDiaParidadDobladaPermanenteTest(ReporteDiaParidadMixin, TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from turnos.models import Jornada, AsignarJornadaExplorador
-        from solicitudes.models import (SolicitudCambio, TipoSolicitudCambio,
-                                        DobladaPermanenteDetalle)
+        from solicitudes.models import DobladaPermanenteDetalle, SolicitudCambio, TipoSolicitudCambio
+        from turnos.models import AsignarJornadaExplorador, Jornada
 
         cls.am = Jornada.objects.get_or_create(
             nombre='AM', defaults={'hora_inicio': '06:00:00', 'hora_fin': '14:00:00'})[0]
@@ -145,7 +144,8 @@ class ReporteDiaCosteConstanteTest(TestCase):
     @classmethod
     def setUpTestData(cls):
         from django.contrib.auth.models import User
-        from turnos.models import Jornada, AsignarJornadaExplorador
+
+        from turnos.models import AsignarJornadaExplorador, Jornada
 
         cls.am = Jornada.objects.get_or_create(
             nombre='AM', defaults={'hora_inicio': '06:00:00', 'hora_fin': '14:00:00'})[0]
@@ -164,8 +164,8 @@ class ReporteDiaCosteConstanteTest(TestCase):
             cls.empleados.append(e)
 
     def _consultas_con(self, activos):
-        from django.test.utils import CaptureQueriesContext
         from django.db import connection
+        from django.test.utils import CaptureQueriesContext
 
         Empleado.objects.update(activo=False)
         ids = [e.id for e in self.empleados[:activos]]
@@ -195,9 +195,8 @@ class ReporteDiaParidadTurnoRealTest(ReporteDiaParidadMixin, TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        from turnos.models import Jornada, AsignarJornadaExplorador, Turno, Sala
-        from solicitudes.models import (SolicitudCambio, TipoSolicitudCambio,
-                                        DobladaPermanenteDetalle)
+        from solicitudes.models import DobladaPermanenteDetalle, SolicitudCambio, TipoSolicitudCambio
+        from turnos.models import AsignarJornadaExplorador, Jornada, Sala, Turno
 
         cls.sala = Sala.objects.create(nombre='Sala paridad')
 

@@ -161,6 +161,8 @@ function actualizarDiasSeleccionados() {
     if (campoHidden) {
         campoHidden.value = JSON.stringify(dias);
     }
+    // Guardado atómico: si el estado volvió a ser el publicado, el botón se apaga.
+    if (window.guardiaGuardadoAnual) window.guardiaGuardadoAnual.revisar();
 }
 
 /**
@@ -209,6 +211,8 @@ function cargarTemporadasExistentes(anio) {
                 }
                 
                 actualizarDiasSeleccionados();
+                // Lo cargado del servidor es lo publicado, no un cambio del usuario.
+                if (window.guardiaGuardadoAnual) window.guardiaGuardadoAnual.reiniciar();
             }
         })
         .catch(error => {

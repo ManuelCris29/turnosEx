@@ -53,7 +53,6 @@ from turnos.services.turno_service import TurnoService
 
 from .test_doblada_permanente import DobladaPermanenteBaseTest
 
-
 JS_DIR = Path(settings.BASE_DIR) / 'static' / 'js' / 'cambio-turno'
 
 # Formularios cuyo datepicker DEBE dejar elegir días de temporada, y el archivo que lo declara.
@@ -132,7 +131,8 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
 
     def test_doblada_permanente_rechaza_temporada_por_regla(self):
         from solicitudes.services.ct_permanente_helper import (
-            _dia_calendario_no_apto, _jornada_doblada_perm,
+            _dia_calendario_no_apto,
+            _jornada_doblada_perm,
         )
         self.assertEqual(_dia_calendario_no_apto(self.dia_temporada), 'temporada')
         self.assertIsNone(
@@ -152,7 +152,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         Los dos ejes son conjuntos DISTINTOS: hay días de descanso fijados en fechas sin el
         marcador `DiaEspecial.es_temporada`. Por eso la regla no puede apoyarse en `_es_temporada`.
         """
-        from turnos.models import Jornada, DescansoSemanaManual
+        from turnos.models import DescansoSemanaManual, Jornada
         from turnos.services.descanso_semana_service import DescansoSemanaService
 
         suelto = self.lunes + timedelta(days=2)
@@ -171,10 +171,11 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         REGLA DE NEGOCIO: esos dos días son del formulario 6. Se comprueba en los tres caminos
         que antes llegaban a ellos (DOBLADA, CT PERMANENTE y DOBLADA PERMANENTE).
         """
-        from turnos.models import Jornada, DescansoSemanaManual
         from solicitudes.services.ct_permanente_helper import (
-            _dia_calendario_no_apto, _razones_exclusion_ct_permanente,
+            _dia_calendario_no_apto,
+            _razones_exclusion_ct_permanente,
         )
+        from turnos.models import DescansoSemanaManual, Jornada
 
         dia = self.lunes + timedelta(days=2)
         DescansoSemanaManual.objects.create(

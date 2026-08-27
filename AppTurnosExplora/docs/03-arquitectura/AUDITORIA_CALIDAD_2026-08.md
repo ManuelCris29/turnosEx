@@ -24,20 +24,33 @@ correcciones produjo y qué no pudo comprobarse:
 
 ---
 
-## Veredicto: **55 % de adherencia a buenas prácticas**
+## Veredicto: 55 % (19 ago) → **62 % re-medido el 26 ago 2026**
 
-| Dimensión | Peso | Nota | Comentario |
-|---|---|---|---|
-| Arquitectura por capas | 20 % | **6,0** | Las capas existen y están bien nombradas; se saltan sistemáticamente |
-| Principios SOLID | 20 % | **3,6** | SRP 3 · OCP 3 · LSP 5 · ISP 4 · DIP 3 |
-| Código limpio | 15 % | **4,0** | Naming y docstrings excelentes; tamaños de función catastróficos |
-| Tests | 15 % | **6,5** | 959 tests reales, 65 % cobertura, sin factories ni `conftest.py` |
-| Seguridad y configuración | 10 % | **8,0** | Lo mejor del proyecto junto con la documentación |
-| Tooling / CI | 10 % | **6,0** | *Corregido:* el CI existía (falso positivo de la 1ª pasada). Faltaba linter y pre-commit |
-| Frontend | 5 % | **3,0** | 47 scripts globales, duplicación masiva |
-| Documentación | 5 % | **9,0** | Manuales, ADRs, docstrings que explican el *porqué*. Ejemplar |
+> ⚠ **Esta tabla es la LÍNEA BASE del 19 de agosto y estaba en contradicción con su
+> propia hoja de ruta.** Conservaba `OCP 3` cuando la Fase 2 —que arregló justamente
+> el OCP— aparece marcada **HECHA** más abajo en este mismo archivo (§Fase 2, puntos
+> 11 y 12). Las Fases 0, 1 y 2 se cerraron entre el 19 y el 22 de agosto y nadie
+> subió el resultado a la portada.
+>
+> Se conservan las dos columnas: la línea base para no perder la trazabilidad, y la
+> re-medición para saber dónde estamos.
 
-**Total ponderado: 5,50 / 10 → 55 %** *(revisado al alza tras retirar dos falsos positivos; ver §5.1 y §4)*
+| Dimensión | Peso | 19 ago | **26 ago** | Comentario de la re-medición |
+|---|---|---|---|---|
+| Arquitectura por capas | 20 % | 6,0 | **6,5** | Las capas existen; los repositorios siguen sin adoptarse (19 llamadas frente a 467 accesos ORM crudos) |
+| Principios SOLID | 20 % | 3,6 | **4,2** | SRP 3 · **OCP 8** · LSP 6 · ISP 3 · DIP 3. El salto es la Fase 2: despacho por strategy, con test-trinquete |
+| Código limpio | 15 % | 4,0 | **4,5** | 62 funciones > 100 líneas (eran más); type hints en 34 % de 1 250 funciones; 0 `TextChoices` |
+| Tests | 15 % | 6,5 | **7,5** | **1 439 tests** (eran 959), factories ya existen, `tests_js/` con 85 tests bloqueantes. Sigue sin `conftest.py` |
+| Seguridad y configuración | 10 % | 8,0 | **8,5** | CSP estricta, IDOR cerrado, `AXES_IPWARE_*` corregido |
+| Tooling / CI | 10 % | 6,0 | **7,5** | `ruff check .` **en cero** y bloqueante; pre-commit; gate de cobertura al 68 %; bandit + pip-audit |
+| Frontend | 5 % | 3,0 | **4,0** | 40 scripts, ~16 000 líneas. La red de pruebas JS ya existe; la duplicación se midió y era de nombres, no de código |
+| Documentación | 5 % | 9,0 | **9,5** | 11 ADRs y bitácora por sesiones. *(Descontando los 12 documentos caducados corregidos el 26 ago)* |
+
+**Total ponderado: 5,50 → 6,22 / 10 → 62 %**
+
+Techo realista y sano para un Django de este tamaño: **~78-80 %**. Pasar de ahí es
+ceremonia, no calidad — y perseguir el número es exactamente lo que produjo un
+`EmpleadoRepository` que nadie usó y acabó borrado.
 
 Lectura honesta: **no es un proyecto mal hecho, es un proyecto bien pensado y mal contenido.** Alguien diseñó
 las capas correctas (`domain/`, `repositories/`, `use_cases/`, `strategies/`, interfaces en `core/interfaces`)

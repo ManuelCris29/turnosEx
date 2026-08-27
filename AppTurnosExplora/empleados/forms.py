@@ -1,6 +1,8 @@
 from django import forms
 from django.contrib.auth.models import User
-from .models import SancionEmpleado, Empleado, Role, RestriccionEmpleado, Jornada, Sala
+
+from .models import Empleado, Jornada, RestriccionEmpleado, Role, Sala, SancionEmpleado
+
 
 class SancionEmpleadoForm(forms.ModelForm):
     """
@@ -35,6 +37,7 @@ class SancionEmpleadoForm(forms.ModelForm):
 
     def clean(self):
         from datetime import timedelta
+
         from django.db.models import Q
 
         cleaned = super().clean()

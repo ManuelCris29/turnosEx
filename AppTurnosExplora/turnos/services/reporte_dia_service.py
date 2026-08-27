@@ -18,9 +18,10 @@ La capa L2 (descanso por solicitud aprobada) NO se reimplementa aquí: se delega
 empleado y día por día: si alguien vuelve a tocar una capa aquí sin tocarla allá, falla.
 """
 from datetime import date as _date
+
 from empleados.models import Empleado
-from turnos.models import Turno, AsignarJornadaExplorador, DiaEspecial, DescansoSemanaManual
 from solicitudes.models import SolicitudCambio
+from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, DiaEspecial, Turno
 
 
 def _nombre(emp):
@@ -168,6 +169,7 @@ class ReporteDiaService:
 
         # ── Restricciones activas en la fecha (batch) ────────────────────────
         from django.db.models import Q as _Q
+
         from empleados.models import RestriccionEmpleado, SancionEmpleado
         restricciones_por_emp = {}
         for r in (RestriccionEmpleado.objects

@@ -1,8 +1,12 @@
 # Pruebas de JavaScript
 
-Red de pruebas de JS del proyecto, estrenada el 2026-08-22 con **76 tests**. Hasta esa fecha el CI solo
+Red de pruebas de JS del proyecto, estrenada el 2026-08-22 con 76 tests. **85 tests el
+2026-08-26**, tras añadir `guardado-atomico.test.cjs`. Hasta que se estrenó, el CI solo
 ejecutaba `pytest`, que no corre una sola línea de JavaScript: las **9 790 líneas**
 de `static/js/cambio-turno/` no las miraba nadie.
+
+> El número de tests de esta línea se queda viejo solo. La cifra que manda es la que
+> imprime `node --test tests_js/*.test.cjs`.
 
 ## Cómo se ejecutan
 

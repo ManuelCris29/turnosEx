@@ -5,8 +5,8 @@ Cada clase agrupa las validaciones de un tipo de solicitud. `SolicitudValidator`
 compatibilidad para los callers existentes.
 """
 from .base_validator import BaseValidator
-from .ct_validator import CTValidator
 from .ct_permanente_validator import CTPermanenteValidator
+from .ct_validator import CTValidator
 from .doblada_validator import DobladaValidator
 
 __all__ = [

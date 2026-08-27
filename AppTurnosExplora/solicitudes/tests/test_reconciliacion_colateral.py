@@ -19,18 +19,18 @@ D FDS entra en la reconciliación y se re-aplica después (orden de `fecha_resol
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio, DobladaDetalle
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
+from solicitudes.models import DobladaDetalle, SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.cambio_descanso_aplicacion_service import (
     CambioDescansoAplicacionService as CDS,
 )
 from solicitudes.services.d_fds_aplicacion_service import DFDSAplicacionService
 from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 def _segundo_sabado_futuro():

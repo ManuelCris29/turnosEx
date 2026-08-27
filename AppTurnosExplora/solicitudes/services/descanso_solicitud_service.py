@@ -32,6 +32,7 @@ que se aplica realmente.
 `estado_dia`/`estado_mes` (TurnoService) y el endpoint `mis-turnos-por-mes` delegan aquí.
 """
 from datetime import date, timedelta
+
 from core.utils.date_utils import DateUtils
 
 
@@ -61,9 +62,10 @@ class DescansoPorSolicitudService:
         Mismas reglas, mismo orden de prioridad y misma guarda L1-sobre-L2 que la individual.
         """
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
-        from turnos.models import DiaEspecial
         from solicitudes.services.cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
+        from turnos.models import DiaEspecial
 
         if isinstance(ini, str):
             ini = date.fromisoformat(ini)

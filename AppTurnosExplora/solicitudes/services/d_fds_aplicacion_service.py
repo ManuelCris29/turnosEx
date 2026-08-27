@@ -25,18 +25,19 @@ Deudas:
   al receptor (acreedor); nace saldada porque la fecha de pago queda pactada en
   la misma solicitud.
 """
-from datetime import date
 import logging
+from datetime import date
 
 from django.db import transaction
 
-from solicitudes.models import SolicitudCambio, DobladaDetalle
-from turnos.models import Turno
-from turnos.services.jornada_service import JornadaService
-from turnos.services.doblada_turno_service import DobladaTurnoService
-from .deuda_service import DeudaService
-from .deuda_corporativa_service import DeudaCorporativaService
 from core.constants import TipoCambioTurno
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+from turnos.models import Turno
+from turnos.services.doblada_turno_service import DobladaTurnoService
+from turnos.services.jornada_service import JornadaService
+
+from .deuda_corporativa_service import DeudaCorporativaService
+from .deuda_service import DeudaService
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,7 @@ class DFDSAplicacionService:
         Sin esto, al cancelar quedaban las dobladas aplicadas y las deudas vigentes.
         """
         from solicitudes.models import DeudaExplorador
+
         from .doblada_aplicacion_service import DobladaAplicacionService
 
         detalle = solicitud.doblada

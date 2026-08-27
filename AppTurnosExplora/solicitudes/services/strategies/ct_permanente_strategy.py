@@ -5,16 +5,18 @@ This strategy implements the specific logic for "CT PERMANENTE" solicitudes,
 which are requests for permanent shift changes.
 """
 
+import json
 import logging
-from typing import Dict, Any, Tuple, Optional, List
 from datetime import date, timedelta
-from solicitudes.models import SolicitudCambio, CambioPermanenteDetalle, CambioPermanenteDia
-from empleados.models import Empleado
-from .base_strategy import SolicitudStrategy
+from typing import Any, Dict, List, Optional, Tuple
+
+from core.constants import TipoCambioTurno
 from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
-from core.constants import TipoCambioTurno
-import json
+from empleados.models import Empleado
+from solicitudes.models import CambioPermanenteDetalle, CambioPermanenteDia, SolicitudCambio
+
+from .base_strategy import SolicitudStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -255,9 +257,11 @@ class CTPermanenteStrategy(SolicitudStrategy):
         turnos sobre un cambio posterior que ya pisó el día.
         """
         from datetime import date as _date
-        from turnos.models import Turno, Jornada as JornadaModel
-        from turnos.services.doblada_turno_service import DobladaTurnoService
+
         from empleados.models import Empleado as EmpleadoModel
+        from turnos.models import Jornada as JornadaModel
+        from turnos.models import Turno
+        from turnos.services.doblada_turno_service import DobladaTurnoService
         snap = getattr(solicitud, 'snapshot_turnos_previos', None) or {}
         meses_afectados = set()
         for key, filas in snap.items():
@@ -347,6 +351,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
         del estado en vivo (el día recién pisado ya no parecería elegible). Devuelve nº de días.
         """
         from datetime import date as _date
+
         from turnos.models import Turno
         from turnos.services.doblada_turno_service import DobladaTurnoService
 
@@ -408,14 +413,15 @@ class CTPermanenteStrategy(SolicitudStrategy):
         estados, dentro de la misma transacción.
         """
         try:
+            from core.utils.jornada_utils import obtener_jornadas_am_pm
             from turnos.models import Turno
             from turnos.services.doblada_turno_service import DobladaTurnoService
-            from core.utils.jornada_utils import obtener_jornadas_am_pm
+
             from ..ct_permanente_helper import (
-                evaluar_fechas_ct_permanente,
-                dias_seleccionados_desde_detalle,
-                jornadas_intercambiables_ct,
                 _rango_detalle,
+                dias_seleccionados_desde_detalle,
+                evaluar_fechas_ct_permanente,
+                jornadas_intercambiables_ct,
             )
 
             detalle = solicitud.cambio_permanente
@@ -626,7 +632,9 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # previsualización y la aplicación (`_razones_exclusion_ct_permanente`), para que el
             # porcentaje signifique de verdad "días que se van a aplicar con este compañero".
             from ..ct_permanente_helper import (
-                _razones_exclusion_ct_permanente, _estado_ct, precargar_ct_permanente,
+                _estado_ct,
+                _razones_exclusion_ct_permanente,
+                precargar_ct_permanente,
             )
 
             # PRECARGA EN LOTE de la matriz empleado×día. Esto es lo que hace viable el cálculo:
@@ -744,7 +752,9 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     datos['informacion_adicional']['dias_semana_seleccionados'] = 'Todos los días hábiles'
                 
                 # Calcular fechas aplicables y excluidas
-                from solicitudes.services.ct_permanente_helper import calcular_fechas_aplicables_y_excluidas_ct_permanente
+                from solicitudes.services.ct_permanente_helper import (
+                    calcular_fechas_aplicables_y_excluidas_ct_permanente,
+                )
                 fechas_aplicables, fechas_excluidas = calcular_fechas_aplicables_y_excluidas_ct_permanente(
                     detalle,
                     solicitud.explorador_solicitante,

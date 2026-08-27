@@ -6,12 +6,12 @@ None) según los datos, y un smoke test de la exportación a Excel.
 import io
 from datetime import date, timedelta
 
-from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
+from django.test import RequestFactory, TestCase
 
-from empleados.models import (Empleado, Jornada, RestriccionEmpleado, SancionEmpleado)
+from empleados.models import Empleado, Jornada, RestriccionEmpleado, SancionEmpleado
+from solicitudes.models import ReprogramacionDiaDoblada, SolicitudCambio, TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador, Sala
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio, ReprogramacionDiaDoblada
 from turnos.services.reporte_dia_service import ReporteDiaService
 
 FECHA = date(2026, 3, 4)  # miércoles, no festivo
@@ -127,6 +127,7 @@ class ReporteDiaEnriquecidoTest(TestCase):
     # ── 7. Smoke test del Excel ──────────────────────────────────────────────
     def test_excel_se_genera_con_hojas_y_headers(self):
         import openpyxl
+
         from turnos.api.views.reportes import ReporteDiaExcelView
         req = RequestFactory().get(f'/x?fecha={FECHA.isoformat()}')
         req.user = self.sup.user
@@ -205,8 +206,9 @@ class ReporteDiaOverrideFindeTest(TestCase):
         return trabajando
 
     def _publicar(self, grupo):
-        from turnos.models import AsignacionEspecialManual
         from django.core.cache import cache
+
+        from turnos.models import AsignacionEspecialManual
         AsignacionEspecialManual.objects.update_or_create(
             fecha=self.sabado,
             defaults={'jornada_trabaja': self.am if grupo == 'AM' else self.pm,

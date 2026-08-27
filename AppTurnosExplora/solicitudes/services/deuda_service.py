@@ -4,12 +4,14 @@ Servicio para gestión de deudas entre exploradores.
 Responsabilidad única: Crear, consultar y gestionar deudas entre exploradores
 generadas por solicitudes de doblada.
 """
-from typing import Optional
-from django.db.models import Q, QuerySet
-from solicitudes.models import DeudaExplorador, SolicitudCambio
-from empleados.models import Empleado
-from datetime import date
 import logging
+from datetime import date
+from typing import Optional
+
+from django.db.models import Q, QuerySet
+
+from empleados.models import Empleado
+from solicitudes.models import DeudaExplorador, SolicitudCambio
 
 logger = logging.getLogger(__name__)
 

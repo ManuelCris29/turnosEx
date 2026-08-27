@@ -7,18 +7,18 @@ el compañero correcto, para que las 3 capas nunca vuelvan a divergir.
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from turnos.models import Sala, AsignarJornadaExplorador
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio
-from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
+from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService as DS
 from solicitudes.services.doblada_permanente_aplicacion_service import (
     DobladaPermanenteAplicacionService as DPAS,
 )
-from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService as DS
+from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
+from turnos.models import AsignarJornadaExplorador, Sala
 
 
 class DescansoPorSolicitudServiceTest(TestCase):

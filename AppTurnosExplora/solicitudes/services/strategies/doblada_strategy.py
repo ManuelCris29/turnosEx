@@ -8,19 +8,23 @@ creating a debt that must be paid back later.
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from solicitudes.models import SolicitudCambio, DobladaDetalle
-from empleados.models import Empleado
-from .base_strategy import SolicitudStrategy
-from ..errores_validacion import RequiereCambioTurnoPrevio
-from ..solicitud_validator import SolicitudValidator
-from turnos.services.jornada_service import JornadaService
-from turnos.services.descanso_semana_service import DescansoSemanaService
+from django.utils import timezone
+
+from core.constants import JornadaDisplay
 from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
-from django.utils import timezone
+from empleados.models import Empleado
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+from turnos.services.descanso_semana_service import DescansoSemanaService
+from turnos.services.jornada_service import JornadaService
+
+from ..errores_validacion import RequiereCambioTurnoPrevio
+from ..solicitud_validator import SolicitudValidator
+from .base_strategy import SolicitudStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +421,7 @@ class DobladaStrategy(SolicitudStrategy):
                     # cubrir, el pago es limpio → omitir la verificación clásica de coincidencia.
                     from turnos.services.turno_service import TurnoService as _TS_coinc
                     rec_dobla = _TS_coinc.estado_dia(
-                        entrada.receptor, entrada.fecha_pago_obj).get('jornada') == 'DOBLADA'
+                        entrada.receptor, entrada.fecha_pago_obj).get('jornada') == JornadaDisplay.DOBLADA
                     sol_jorn = _TS_coinc.estado_dia(
                         entrada.solicitante, entrada.fecha_pago_obj).get('jornada')
                     if rec_dobla and sol_jorn in ('AM', 'PM') and sol_jorn != jcp_coinc:
@@ -748,7 +752,7 @@ class DobladaStrategy(SolicitudStrategy):
             # abajo, que ya usa obtener_jornada_display).
             from turnos.services.turno_service import TurnoService as _TS_rec
             receptor_doblada_pago = (
-                _TS_rec.estado_dia(entrada.receptor, entrada.fecha_pago_obj).get('jornada') == 'DOBLADA'
+                _TS_rec.estado_dia(entrada.receptor, entrada.fecha_pago_obj).get('jornada') == JornadaDisplay.DOBLADA
             )
             if entrada.jornada_cubre_en_pago and not receptor_doblada_pago:
                 return (
@@ -811,10 +815,10 @@ class DobladaStrategy(SolicitudStrategy):
         # este método porque el `return` del intercambio se saltaba el flujo normal, y cada una
         # se añadió después de que se colara una solicitud inválida. Al subirlas, este método
         # queda con lo ÚNICO específico del swap: que ambos tengan doblada y estén libres.
-        if _TSint.estado_dia(explorador_solicitante, fecha_cesion_obj).get('jornada') != 'DOBLADA':
+        if _TSint.estado_dia(explorador_solicitante, fecha_cesion_obj).get('jornada') != JornadaDisplay.DOBLADA:
             return False, (f"Para intercambiar, debes tener una DOBLADA (AM+PM) el "
                            f"{fecha_cesion_obj.strftime('%d/%m/%Y')}.")
-        if _TSint.estado_dia(explorador_receptor, fp_obj).get('jornada') != 'DOBLADA':
+        if _TSint.estado_dia(explorador_receptor, fp_obj).get('jornada') != JornadaDisplay.DOBLADA:
             return False, (f"El compañero debe tener una DOBLADA (AM+PM) el "
                            f"{fp_obj.strftime('%d/%m/%Y')} para intercambiar.")
         # El que ASUME la doblada del otro debe estar LIBRE ese día: una doblada es AM+PM
@@ -1231,8 +1235,9 @@ class DobladaStrategy(SolicitudStrategy):
             List of available empleados
         """
         try:
-            from ..doblada_filtro_service import DobladaFiltroService
             from turnos.services.jornada_service import JornadaService
+
+            from ..doblada_filtro_service import DobladaFiltroService
             
             fecha_obj = DateUtils.parse_date(fecha)
             es_sabado = fecha_obj.weekday() == 5
@@ -1315,8 +1320,8 @@ class DobladaStrategy(SolicitudStrategy):
                 jornada_solicitante = None
                 if es_festivo_semana:
                     try:
-                        from turnos.services.asignacion_especial_service import AsignacionEspecialService
                         from turnos.models import AsignarJornadaExplorador
+                        from turnos.services.asignacion_especial_service import AsignacionEspecialService
                         grupo_que_dobla = AsignacionEspecialService.grupo_trabaja(fecha_obj)
                         # Usar jornada BASE del solicitante (AsignarJornadaExplorador), NO la jornada
                         # del día (que en festivos puede devolver 'DOBLADA' y romper la comparación).

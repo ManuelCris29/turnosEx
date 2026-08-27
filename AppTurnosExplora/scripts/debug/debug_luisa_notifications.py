@@ -20,7 +20,7 @@ def debug_luisa_notifications():
     
     # 1. Buscar específicamente a Luisa Perez
     try:
-        luisa = Empleado.objects.get(email='luisafernanda2330@hotmail.com')
+        luisa = Empleado.objects.get(user__email='luisafernanda2330@hotmail.com')
         print(f"✅ Luisa Perez encontrada:")
         print(f"  - ID: {luisa.id}")
         print(f"  - Nombre: {luisa.nombre} {luisa.apellido}")

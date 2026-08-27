@@ -1,4 +1,8 @@
 from django.db import models
+from simple_history.models import HistoricalRecords
+
+from core.constants import TipoCambioTurno
+
 # Los tres últimos NO se usan en este archivo: se RE-EXPORTAN. Hay código y tests
 # que hacen `from turnos.models import CompetenciaEmpleado`, así que quitarlos de
 # aquí los rompe aunque nada falle en este módulo. El `noqa` evita que un
@@ -6,12 +10,13 @@ from django.db import models
 # Deuda: re-exportar modelos entre apps confunde sobre dónde vive cada cosa; lo
 # correcto sería que cada consumidor importe de `empleados.models` directamente.
 from empleados.models import (  # noqa: F401
-    Empleado, Jornada, Sala,
-    CompetenciaEmpleado, RestriccionEmpleado, SancionEmpleado,
+    CompetenciaEmpleado,
+    Empleado,
+    Jornada,
+    RestriccionEmpleado,
+    Sala,
+    SancionEmpleado,
 )
-from simple_history.models import HistoricalRecords
-
-from core.constants import TipoCambioTurno
 
 
 class AsignarJornadaExplorador(models.Model):
@@ -391,8 +396,8 @@ class AperturaAnioConfig(models.Model):
         return obj
 
     def _fecha(self, dia, mes, anio):
-        from datetime import date
         import calendar
+        from datetime import date
         # Se recorta al último día del mes: evita que un 31 configurado reviente en meses cortos.
         return date(anio, mes, min(dia, calendar.monthrange(anio, mes)[1]))
 

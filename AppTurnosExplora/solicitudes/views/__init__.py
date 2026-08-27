@@ -1,22 +1,22 @@
 """Vistas de la app solicitudes (divididas por ámbito)."""
 
-from .dashboard_admin import *  # noqa: F401,F403
-from .cambio_turno_pages import *  # noqa: F401,F403
-from .api_disponibles_ct_preview import *  # noqa: F401,F403
-from .api_turno_jornada import *  # noqa: F401,F403
 from .api_alternancia import *  # noqa: F401,F403
-from .api_fin_semana import *  # noqa: F401,F403
+from .api_disponibles_ct_preview import *  # noqa: F401,F403
 from .api_dobladas_consulta import *  # noqa: F401,F403
-from .procesar_solicitud import *  # noqa: F401,F403
-from .notificaciones_listas import *  # noqa: F401,F403
-from .aprobacion_views import *  # noqa: F401,F403
+from .api_fin_semana import *  # noqa: F401,F403
+from .api_turno_jornada import *  # noqa: F401,F403
 from .aprobacion_email import *  # noqa: F401,F403
-from .doblada_api import *  # noqa: F401,F403
-from .detalle import *  # noqa: F401,F403
-from .gestion_solicitudes import *  # noqa: F401,F403
-from .reprogramacion_views import *  # noqa: F401,F403
+from .aprobacion_views import *  # noqa: F401,F403
+from .cambio_turno_pages import *  # noqa: F401,F403
 from .cierre_config_views import *  # noqa: F401,F403
+from .dashboard_admin import *  # noqa: F401,F403
+from .detalle import *  # noqa: F401,F403
+from .doblada_api import *  # noqa: F401,F403
 from .favores import *  # noqa: F401,F403
+from .gestion_solicitudes import *  # noqa: F401,F403
+from .notificaciones_listas import *  # noqa: F401,F403
+from .procesar_solicitud import *  # noqa: F401,F403
+from .reprogramacion_views import *  # noqa: F401,F403
 
 __all__ = [
     "MisFavoresView",

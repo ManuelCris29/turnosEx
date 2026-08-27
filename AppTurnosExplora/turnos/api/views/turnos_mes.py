@@ -1,12 +1,15 @@
-from django.contrib.auth.mixins import LoginRequiredMixin
-from django.views.generic import View
-from django.http import JsonResponse
-from core.utils.json_responses import json_error_inesperado
-from django.db.models import Q
-from turnos.models import Turno, AsignarJornadaExplorador
-from turnos.services.turno_service import TurnoService
-from core.utils.date_utils import DateUtils
 from datetime import timedelta
+
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.db.models import Q
+from django.http import JsonResponse
+from django.views.generic import View
+
+from core.constants import JornadaDisplay
+from core.utils.date_utils import DateUtils
+from core.utils.json_responses import json_error_inesperado
+from turnos.models import AsignarJornadaExplorador, Turno
+from turnos.services.turno_service import TurnoService
 
 
 class TurnosPorDiaView(LoginRequiredMixin, View):
@@ -223,7 +226,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     # OPTIMIZACIÓN: Calcular jornada_display desde turnos_dia sin consultas extra
                     jornadas_turnos = [t.jornada.nombre.upper() for t in turnos_dia if t.jornada]
                     if 'AM' in jornadas_turnos and 'PM' in jornadas_turnos:
-                        jornada_display = 'DOBLADA'
+                        jornada_display = JornadaDisplay.DOBLADA
                     elif 'AM' in jornadas_turnos:
                         jornada_display = 'AM'
                     elif 'PM' in jornadas_turnos:
@@ -234,7 +237,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     jornada_predeterminada = calcular_predeterminado(fecha)
 
                     # Detectar si es doblada
-                    es_doblada = jornada_display == 'DOBLADA'
+                    es_doblada = jornada_display == JornadaDisplay.DOBLADA
 
                     # Determinar tipo de cambio (si todos los turnos tienen el mismo tipo_cambio)
                     tipos_cambio = [t.tipo_cambio for t in turnos_dia if t.tipo_cambio]
@@ -256,7 +259,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                     turno_principal = turnos_dia[0]
 
                     turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
-                        'jornada': jornada_display,  # Usar jornada_display (puede ser 'DOBLADA')
+                        'jornada': jornada_display,  # Usar jornada_display (puede ser JornadaDisplay.DOBLADA)
                         'sala': sala_display,
                         # 'asignado' solo cuando fue creado por CT/DOBLADA (tipo_cambio != null).
                         # 'predeterminado' cuando el turno existe en BD pero sin tipo_cambio (horario importado).
@@ -308,7 +311,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                         # aquí; ahora solo se mapea su resultado al formato de la respuesta.
                         est = estados_mes.get(fecha) or {}
 
-                        if est.get('trabaja') and est.get('jornada') == 'DOBLADA':
+                        if est.get('trabaja') and est.get('jornada') == JornadaDisplay.DOBLADA:
                             # Fin de semana que le corresponde trabajar → jornada predeterminada DOBLADA
                             turnos_mes_dict[fecha.strftime('%Y-%m-%d')] = {
                                 'jornada': 'DOBLADA',

@@ -1,12 +1,24 @@
-from django.urls import path, include
+from django.urls import include, path
+
 from .views import (
-    MisTurnosView, CambiosTurnoView, ConsolidadoHorasView, DiasEspecialesView,
-    TurnosCalendarioView,
-    DiaEspecialListView, DiaEspecialUpdateView,
-    DiaEspecialVisualizarListView, DiaEspecialTemporadasAnualView, DiaEspecialFestivosMantenimientoAnualView,
-    DescansoSemanaListView, DescansoSemanaCreateView, DescansoSemanaUpdateView, DescansoSemanaDeleteView,
-    DescansoSemanaAnualView, AsignacionEspecialAnualView, AsignacionEspecialSiembraView,
     AperturaAnioView,
+    AsignacionEspecialAnualView,
+    AsignacionEspecialSiembraView,
+    CambiosTurnoView,
+    ConsolidadoHorasView,
+    DescansoSemanaAnualView,
+    DescansoSemanaCreateView,
+    DescansoSemanaDeleteView,
+    DescansoSemanaListView,
+    DescansoSemanaUpdateView,
+    DiaEspecialFestivosMantenimientoAnualView,
+    DiaEspecialListView,
+    DiaEspecialTemporadasAnualView,
+    DiaEspecialUpdateView,
+    DiaEspecialVisualizarListView,
+    DiasEspecialesView,
+    MisTurnosView,
+    TurnosCalendarioView,
 )
 
 urlpatterns = [

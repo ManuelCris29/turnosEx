@@ -2,11 +2,13 @@
 FASE 3.7: Comando de gestión para archivar turnos antiguos
 Archiva turnos de más de 1 año a la tabla TurnoArchivo
 """
-from django.core.management.base import BaseCommand
-from django.utils import timezone
 from datetime import timedelta
-from turnos.models import Turno, TurnoArchivo
+
+from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
+
+from turnos.models import Turno, TurnoArchivo
 
 
 class Command(BaseCommand):

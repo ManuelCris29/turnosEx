@@ -23,9 +23,8 @@ class Command(BaseCommand):
     help = 'Comprueba qué IP de cliente resuelve django-axes con la configuración actual.'
 
     def handle(self, *args, **options):
-        from django.conf import settings
-
         from axes.helpers import get_client_ip_address
+        from django.conf import settings
 
         proxies = getattr(settings, 'AXES_IPWARE_PROXY_COUNT', None)
         self.stdout.write(f'AXES_IPWARE_PROXY_COUNT = {proxies}')

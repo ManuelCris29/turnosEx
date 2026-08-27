@@ -1,5 +1,7 @@
 from django.db.models import Q
-from empleados.models import Empleado, CompetenciaEmpleado
+
+from empleados.models import CompetenciaEmpleado, Empleado
+
 
 class EmpleadoService:
     @staticmethod

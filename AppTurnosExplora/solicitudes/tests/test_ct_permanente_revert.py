@@ -7,14 +7,14 @@ hubiera modificado uno de esos días después (turno que ya no es 'CT PERMANENTE
 """
 from datetime import date, timedelta
 
-from django.test import TestCase
 from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 class CTPermRevertTest(TestCase):

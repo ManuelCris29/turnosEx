@@ -1,9 +1,49 @@
 # Plan quirúrgico: constantes para `Turno.tipo_cambio`
 
-> **Estado: PROPUESTA EN REVISIÓN. No ejecutada, no aprobada.**
-> Documento para estudio previo. Se replanteará con datos adicionales.
-> Fecha: 5 ago 2026.
+> **Estado: EJECUTADO (Fases 1-3). Verificado el 26 ago 2026.**
+> Redactado el 5 ago 2026 como propuesta; se ejecutó después sin actualizar esta
+> cabecera, que hasta el 26 de agosto seguía diciendo «no ejecutada».
 > Antecedente: [inventario-literales-hardcodeados.md](inventario-literales-hardcodeados.md)
+>
+> ### Qué se hizo, y en qué se apartó del plan
+>
+> | Fase | Estado | Desviación respecto a lo planeado |
+> |---|---|---|
+> | **1** — andamiaje + test | ✅ HECHA | **Vive en `core/constants.py`, no en `turnos/constants.py`**, y usa CLASES (`TipoCambioTurno`) en vez de constantes de módulo (`TIPO_DOBLADA`). Motivo: el mismo módulo acabó albergando los otros vocabularios (`EstadoSolicitud`, `TipoSolicitud`, `EstadoCancelacion`), y agruparlos por clase es lo que hace visible que NO son intercambiables. El test de caracterización es `core/tests/test_constants.py` |
+> | **2** — piloto `PAGO REPROGRAMADO` | ✅ HECHA | Sin desviación. Los 3 sitios usan `TipoCambioTurno.PAGO_REPROGRAMADO` |
+> | **3** — un literal por commit | ✅ HECHA | 57 usos de `TipoCambioTurno.*`. Los únicos literales crudos que quedan sobre ese campo son `exclude(tipo_cambio='')` (cadena vacía: ausencia de valor, no vocabulario) y menciones en docstrings |
+> | **5a** — `choices` + constraint | ✅ **HECHA** (el plan la dejaba «FUERA, fase separada») | `Turno.tipo_cambio` tiene `choices=TipoCambioTurno.CHOICES` **y** un `CheckConstraint` en BD, `turno_tipo_cambio_valido`, que solo admite `NULL` o un valor de `TipoCambioTurno.TODOS` |
+> | **5b** — normalizar los textos | ⬜ NO hecha | Sigue pendiente y sigue siendo opcional. `'DOBLADA PERM'` y `'CT'` conservan su texto abreviado |
+>
+> ### ⚠ El riesgo que justificaba este plan ya NO existe
+>
+> El §1 dice que alguien puede escribir `Doblada` en vez de `DOBLADA` y dejar un
+> turno huérfano sin aviso. **Eso ya no puede pasar:** el `CheckConstraint`
+> lo rechaza en la propia base de datos.
+>
+> Y las dos superficies de escritura que citaba el §1 se redujeron a una:
+> `turnos/views/turno_crud.py` **ya no existe** (no hay `TurnoCreateView` ni
+> `TurnoUpdateView` en el proyecto). Queda solo el admin de Django, y ahí el campo
+> se pinta como desplegable cerrado, no como texto libre.
+>
+> ### Hallazgos del §10, revisados el 26 ago 2026
+>
+> | # | Hallazgo | Estado hoy |
+> |---|---|---|
+> | 1 | `'PERMISO'` fuera de la lista blanca | Ya estaba descartado: correcto por diseño |
+> | 2 | `solicitudes/domain/solicitud.py` roto y muerto | ✅ **RESUELTO** — el archivo se borró |
+> | 3 | `_get_default_strategy()` falla ABIERTO | ✅ **MITIGADO** — existe `get_strategy_registrada()`, que devuelve `None` en vez de caer al fallback, y la usan los 5 flujos que escriben |
+> | 4 | Código muerto en `turno_repository.py` | ✅ **RESUELTO el 26 ago 2026** — `comprometidos_por_tipo_cambio` y `tiene_tipo_cambio` borrados, junto con el test que sostenía al segundo |
+> | 5 | `nombre`/`codigo_estrategia` editables desde el admin | ⬜ **ABIERTO** — sigue siendo posible romper el despacho de estrategias sin tocar código |
+>
+> ### Lo que el plan no vio: un CUARTO vocabulario
+>
+> El §1 enumera tres campos `tipo_cambio`. Hay un cuarto vocabulario que no es
+> un campo de ninguna tabla: la jornada EFECTIVA que devuelve
+> `TurnoService.estado_dia()['jornada']` → `'AM' | 'PM' | 'DOBLADA' | None`.
+> Comparte el texto `'DOBLADA'` con los otros tres sin significar lo mismo, y
+> estaba escrito a mano en **39 sitios de 17 archivos**. Centralizado el
+> 26 ago 2026 como `JornadaDisplay` en `core/constants.py`.
 
 ---
 
@@ -25,11 +65,18 @@ fuente de verdad.
 | Si se **bloquea una cancelación** (huella de integridad) | `cancelar_solicitud.py:337,350,359` |
 | Cómo se renderiza en el frontend | `static/js/mis_turnos.js:721` |
 
-Y el campo es **texto libre editable desde el admin y el CRUD de turnos**
-([turnos/views/turno_crud.py:99,105](../../turnos/views/turno_crud.py#L99),
+~~Y el campo es **texto libre editable desde el admin y el CRUD de turnos**
+(`turnos/views/turno_crud.py:99,105`,
 [turnos/admin.py:21-22](../../turnos/admin.py#L21)). Alguien puede escribir `Doblada` en vez
 de `DOBLADA` y los siete filtros de borrado dejan de verlo: **el turno queda huérfano sin
-ningún aviso**.
+ningún aviso**.~~
+
+> **OBSOLETO (verificado el 26 ago 2026).** Dos cambios lo desactivaron:
+> `turnos/views/turno_crud.py` **fue eliminado** (el enlace de arriba llevaba
+> meses roto), y `Turno.tipo_cambio` tiene ahora `choices` más un
+> `CheckConstraint` en base de datos (`turno_tipo_cambio_valido`) que rechaza
+> cualquier valor fuera de `TipoCambioTurno.TODOS`. Escribir `Doblada` ya no
+> es posible ni desde el admin ni por ORM.
 
 **Objetivo del refactor**: una sola fuente de verdad, sin cambiar ni un byte de comportamiento.
 
@@ -377,9 +424,12 @@ Cambiarlos alteraría comportamiento y contaminaría la verificación del refact
    solicitud desconocido se procesa **silenciosamente como cambio de turno**, con solo un
    `logger.warning`. No hay excepción ni bloqueo.
 
-4. **Código muerto**: `turno_repository.py:39-48` (`comprometidos_por_tipo_cambio`) y
+4. ~~**Código muerto**: `turno_repository.py:39-48` (`comprometidos_por_tipo_cambio`) y
    `:59-62` (`tiene_tipo_cambio`) no tienen llamadores en producción, solo en tests. El
-   docstring dice "Usado por CambioDescansoFindesView", pero esa vista ya no lo usa.
+   docstring dice "Usado por CambioDescansoFindesView", pero esa vista ya no lo usa.~~
+   **RESUELTO el 26 ago 2026.** Ambos métodos borrados. `tiene_tipo_cambio` tenía un test
+   (`test_repositories.py`) y se borró con él: un test que solo prueba código que nadie
+   llama mantiene vivo el código muerto y da una sensación falsa de cobertura.
 
 5. **`TipoSolicitudCambio.nombre` y `codigo_estrategia` son editables desde el admin**
    (`admin.py:70,72`, `dashboard_admin.py:54,60`): un usuario administrador puede **romper

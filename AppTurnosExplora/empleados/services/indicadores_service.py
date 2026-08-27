@@ -13,6 +13,7 @@ Categorías (alineadas con el tablero del área):
 """
 import calendar
 from datetime import date, timedelta
+
 from django.utils import timezone
 
 CATEGORIAS = ['cambios_turno', 'dobladas', 'cambio_descanso', 'doblada_finde', 'permisos']
@@ -53,8 +54,8 @@ class IndicadoresService:
 
     @staticmethod
     def anios_disponibles():
-        from solicitudes.models import SolicitudCambio
         from permisos.models import PermisoEspecial
+        from solicitudes.models import SolicitudCambio
         anios = set()
         for y in SolicitudCambio.objects.filter(fecha_cambio_turno__isnull=False) \
                 .dates('fecha_cambio_turno', 'year'):
@@ -124,8 +125,8 @@ class IndicadoresService:
 
     @staticmethod
     def get(explorador_id=None, jornada=None, anio=None, incluir_receptor=False):
-        from solicitudes.models import SolicitudCambio
         from permisos.models import PermisoEspecial
+        from solicitudes.models import SolicitudCambio
 
         anio = anio or timezone.localdate().year
         jbase = IndicadoresService._jornadas_base()

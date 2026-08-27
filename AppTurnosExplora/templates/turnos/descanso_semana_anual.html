@@ -83,7 +83,7 @@
 
       <div class="dsa-actions">
         <a href="{% url 'descanso_semana_list' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-list"></i> Ver lista / ajustes individuales</a>
-        <button type="submit" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar programación del año</button>
+        <button type="submit" id="dsaGuardar" class="pg-btn pg-btn-success"><i class="fas fa-save"></i> Guardar programación del año</button>
       </div>
     </form>
   </div>
@@ -92,6 +92,7 @@
 {{ marcadores_json|json_script:"dsa-marcadores" }}
 {{ bloqueadas_json|json_script:"dsa-bloqueadas" }}
 {{ otros_motivos_json|json_script:"dsa-otros-motivos" }}
+<script src="{% static_v 'js/utils/guardado_atomico.js' %}"></script>
 <script src="{% static_v 'js/turnos/descanso_semana_anual.js' %}"></script>
 {% endblock %}
 

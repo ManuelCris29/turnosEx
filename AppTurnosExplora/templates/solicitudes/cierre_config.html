@@ -1,98 +1,184 @@
 {% extends 'base.html' %}
-{% block title %}Cierre de solicitudes{% endblock %}
+{% load static static_version %}
+
+{% block title %}Cierre de solicitudes - AppTurnos{% endblock %}
 {% block page_title %}{% endblock %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+<link rel="stylesheet" href="{% static_v 'css/cierre_config.css' %}">
+{% endblock %}
+
 {% block content %}
-<div class="container-fluid" style="max-width: 1000px; margin: 1.5rem auto;">
-  <h4 style="font-weight:700;"><i class="fas fa-lock mr-2"></i>Cierre semanal de solicitudes</h4>
-  <p class="text-muted">
-    Cuando está habilitado, a partir del día y hora elegidos se cierra la programación del fin de semana:
-    no se pueden enviar nuevas solicitudes de cambio de turno ni permisos para el rango
-    <strong>[día de cierre … primer día hábil de la semana siguiente]</strong>. Si está deshabilitado, no hay restricción.
-  </p>
+<div class="pg-container">
+  <div class="pg-content">
 
-  <!-- Configuración por defecto -->
-  <div class="card" style="border-radius:10px; margin-bottom:1.2rem;">
-    <div class="card-header" style="font-weight:600;">Configuración por defecto (todas las semanas)</div>
-    <div class="card-body">
-      <form method="post" class="form-inline" style="gap:1rem; flex-wrap:wrap;">
-        {% csrf_token %}
-        <input type="hidden" name="accion" value="default">
-        <label style="gap:.4rem;">
-          <input type="checkbox" name="habilitado" {% if cfg.habilitado %}checked{% endif %}> Habilitado
-        </label>
-        <label style="gap:.4rem;">Día de cierre:
-          <select name="dia_cierre" class="form-control form-control-sm">
-            {% for val, txt in dias_choices %}
-              <option value="{{ val }}" {% if cfg.dia_cierre == val %}selected{% endif %}>{{ txt }}</option>
-            {% endfor %}
-          </select>
-        </label>
-        <label style="gap:.4rem;">Hora:
-          <input type="time" name="hora_cierre" value="{{ cfg.hora_cierre|time:'H:i' }}" class="form-control form-control-sm">
-        </label>
-        <button type="submit" class="btn btn-primary btn-sm"><i class="fas fa-save mr-1"></i>Guardar</button>
-      </form>
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-lock"></i> Cierre semanal de solicitudes</h1>
+      <p class="pg-subtitle">Define desde cuándo se cierra la programación del fin de semana</p>
     </div>
-  </div>
 
-  <!-- Overrides por semana -->
-  <div class="card" style="border-radius:10px;">
-    <div class="card-header" style="font-weight:600;">Ajuste por semana (próximas {{ semanas|length }})</div>
-    <div class="card-body" style="overflow-x:auto;">
-      <table class="table table-sm" style="min-width:760px;">
-        <thead><tr>
-          <th>Semana</th><th>Cierre (estado, día, hora y ventana)</th><th></th>
-        </tr></thead>
-        <tbody>
-          {% for s in semanas %}
-          <tr>
-            <td><strong>{{ s.lunes|date:'d/m' }}–{{ s.domingo|date:'d/m/Y' }}</strong>
-              {% if s.override %}<br><span class="badge badge-info">override</span>{% endif %}
-              {% if s.vencida %}<br><span class="badge badge-secondary">ventana vencida</span>
-              {% elif s.activa_ahora %}<br><span class="badge badge-danger">bloqueando ahora</span>
-              {% elif s.habilitado %}<br><span class="badge badge-light">pendiente</span>{% endif %}</td>
-            <td>
-              <form method="post" class="form-inline" style="gap:.6rem; flex-wrap:wrap;">
-                {% csrf_token %}
-                <input type="hidden" name="accion" value="override">
-                <input type="hidden" name="semana_lunes" value="{{ s.lunes|date:'Y-m-d' }}">
-                <label style="gap:.3rem;"><input type="checkbox" name="habilitado" {% if s.habilitado %}checked{% endif %}> On</label>
-                <select name="dia_cierre" class="form-control form-control-sm">
-                  {% for val, txt in dias_choices %}
-                    <option value="{{ val }}" {% if s.dia == val %}selected{% endif %}>{{ txt }}</option>
-                  {% endfor %}
-                </select>
-                <input type="time" name="hora_cierre" value="{{ s.hora|time:'H:i' }}" class="form-control form-control-sm">
-                <span class="text-muted" style="font-size:.85rem;">
-                  {% if s.dia_cierre_fecha %}{{ s.dia_cierre_fecha|date:'d/m' }} → {{ s.primer_habil|date:'d/m' }}
-                    <br><em>bloquea desde {{ s.cutoff_fecha|date:'d/m' }} {{ s.hora|time:'H:i' }}</em>
-                  {% else %}sin cierre{% endif %}
-                </span>
-                <button type="submit" class="btn btn-outline-primary btn-sm" title="Guardar ajuste"><i class="fas fa-save"></i></button>
-              </form>
-            </td>
-            <td>
-              {% if s.override %}
-              <form method="post" onsubmit="return confirm('¿Quitar el ajuste y volver al valor por defecto?');">
-                {% csrf_token %}
-                <input type="hidden" name="accion" value="quitar_override">
-                <input type="hidden" name="semana_lunes" value="{{ s.lunes|date:'Y-m-d' }}">
-                <button type="submit" class="btn btn-outline-secondary btn-sm" title="Volver al default"><i class="fas fa-undo"></i></button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-      <small class="text-muted">"Ventana cerrada" muestra el rango bloqueado (día de cierre → primer día hábil,
-        ambos inclusive y contando los días intermedios) según festivos/mantenimientos, y el momento exacto en que
-        empieza a aplicarse. Con "primer día hábil" la ventana cubre el fin de semana completo desde el jueves,
-        pero el bloqueo solo se activa ese primer día hábil.
-        <br><span class="badge badge-danger">bloqueando ahora</span> = el cierre de esa semana ya está rechazando
-        solicitudes; <span class="badge badge-secondary">ventana vencida</span> = su fin de semana ya pasó.</small>
+    {% if messages %}{% for m in messages %}
+      <div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>
+    {% endfor %}{% endif %}
+
+    <!-- Configuración por defecto -->
+    <div class="pg-card">
+      <div class="pg-card-head">
+        <h3><i class="fas fa-sliders-h"></i> Configuración por defecto</h3>
+        <div class="pg-actions">
+          {% if cfg.habilitado %}
+            <span class="pg-chip pg-chip-ok">Activo: {{ cfg.get_dia_cierre_display }} {{ cfg.hora_cierre|time:'H:i' }}</span>
+          {% else %}
+            <span class="pg-chip pg-chip-gray">Deshabilitado</span>
+          {% endif %}
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <p class="pg-intro">
+          Aplica a todas las semanas que no tengan un ajuste propio. Cuando está habilitado, a partir del día
+          y la hora elegidos no se pueden enviar solicitudes de cambio de turno ni permisos para el rango
+          <strong>[día de cierre … primer día hábil de la semana siguiente]</strong>.
+          Si está deshabilitado, no hay restricción.
+        </p>
+        <form method="post" class="cc-default">
+          {% csrf_token %}
+          <input type="hidden" name="accion" value="default">
+          <label class="cc-switch">
+            <input type="checkbox" name="habilitado" {% if cfg.habilitado %}checked{% endif %}>
+            Habilitado
+          </label>
+          <div class="cc-field">
+            <label for="cc-dia">Día de cierre</label>
+            <select id="cc-dia" name="dia_cierre">
+              {% for val, txt in dias_choices %}
+                <option value="{{ val }}" {% if cfg.dia_cierre == val %}selected{% endif %}>{{ txt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="cc-field">
+            <label for="cc-hora">Hora</label>
+            <input id="cc-hora" type="time" name="hora_cierre" value="{{ cfg.hora_cierre|time:'H:i' }}">
+          </div>
+          <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-save"></i> Guardar</button>
+        </form>
+      </div>
     </div>
+
+    <!-- Ajuste por semana -->
+    <div class="pg-card">
+      <div class="pg-card-head indigo">
+        <h3><i class="far fa-calendar-alt"></i> Ajuste por semana</h3>
+        <div class="pg-actions">
+          <span class="pg-chip pg-chip-info">Próximas {{ semanas|length }} semanas</span>
+        </div>
+      </div>
+      <div class="pg-card-body">
+
+        {# Los formularios viven fuera de la tabla (un <form> no es válido dentro de <tbody>);
+           cada control se asocia con el atributo `form`. #}
+        {% for s in semanas %}
+          <form method="post" id="cc-ov-{{ forloop.counter }}"></form>
+          {% if s.override %}
+          <form method="post" id="cc-rm-{{ forloop.counter }}"
+                onsubmit="return confirm('¿Quitar el ajuste y volver al valor por defecto?');"></form>
+          {% endif %}
+        {% endfor %}
+
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th>Semana</th>
+                <th>Estado</th>
+                <th>Cierre</th>
+                <th>Ventana bloqueada</th>
+                <th class="text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in semanas %}
+              <tr class="{% if s.activa_ahora %}cc-activa{% elif s.vencida %}cc-vencida{% endif %}">
+                <td class="cc-week">
+                  {{ s.lunes|date:'d/m' }} – {{ s.domingo|date:'d/m/Y' }}
+                  <small>semana del {{ s.lunes|date:'d/m/Y' }}</small>
+                </td>
+                <td>
+                  <div class="cc-estados">
+                    {% if s.vencida %}<span class="pg-chip pg-chip-gray">Ventana vencida</span>
+                    {% elif s.activa_ahora %}<span class="pg-chip pg-chip-no">Bloqueando ahora</span>
+                    {% elif s.habilitado %}<span class="pg-chip pg-chip-pend">Pendiente</span>
+                    {% else %}<span class="pg-chip pg-chip-gray">Sin cierre</span>{% endif %}
+                    {% if s.override %}<span class="pg-chip pg-chip-info">Ajuste propio</span>{% endif %}
+                  </div>
+                </td>
+                <td>
+                  <div class="cc-row-controls">
+                    <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}" form="cc-ov-{{ forloop.counter }}">
+                    <input type="hidden" name="accion" value="override" form="cc-ov-{{ forloop.counter }}">
+                    <input type="hidden" name="semana_lunes" value="{{ s.lunes|date:'Y-m-d' }}" form="cc-ov-{{ forloop.counter }}">
+                    <label class="cc-switch" title="Habilitar el cierre en esta semana">
+                      <input type="checkbox" name="habilitado" form="cc-ov-{{ forloop.counter }}"
+                             {% if s.habilitado %}checked{% endif %}>
+                      On
+                    </label>
+                    <select name="dia_cierre" form="cc-ov-{{ forloop.counter }}" aria-label="Día de cierre de la semana">
+                      {% for val, txt in dias_choices %}
+                        <option value="{{ val }}" {% if s.dia == val %}selected{% endif %}>{{ txt }}</option>
+                      {% endfor %}
+                    </select>
+                    <input type="time" name="hora_cierre" value="{{ s.hora|time:'H:i' }}"
+                           form="cc-ov-{{ forloop.counter }}" aria-label="Hora de cierre de la semana">
+                  </div>
+                </td>
+                <td class="cc-ventana">
+                  {% if s.dia_cierre_fecha %}
+                    {{ s.dia_cierre_fecha|date:'d/m' }} <i class="fas fa-arrow-right"></i> {{ s.primer_habil|date:'d/m' }}
+                    <br><span class="cc-cutoff">bloquea desde {{ s.cutoff_fecha|date:'d/m' }} {{ s.hora|time:'H:i' }}</span>
+                  {% else %}
+                    <span class="cc-sin">sin cierre</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <div class="cc-acciones">
+                    <button type="submit" form="cc-ov-{{ forloop.counter }}"
+                            class="pg-btn pg-btn-primary pg-btn-sm" title="Guardar ajuste de esta semana">
+                      <i class="fas fa-save"></i>
+                    </button>
+                    {% if s.override %}
+                      <input type="hidden" name="csrfmiddlewaretoken" value="{{ csrf_token }}" form="cc-rm-{{ forloop.counter }}">
+                      <input type="hidden" name="accion" value="quitar_override" form="cc-rm-{{ forloop.counter }}">
+                      <input type="hidden" name="semana_lunes" value="{{ s.lunes|date:'Y-m-d' }}" form="cc-rm-{{ forloop.counter }}">
+                      <button type="submit" form="cc-rm-{{ forloop.counter }}"
+                              class="pg-btn pg-btn-secondary pg-btn-sm" title="Volver al valor por defecto">
+                        <i class="fas fa-undo"></i>
+                      </button>
+                    {% endif %}
+                  </div>
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="5" class="pg-empty">No hay semanas para configurar.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="cc-leyenda">
+          <strong>Ventana bloqueada:</strong> rango que queda cerrado (día de cierre → primer día hábil, ambos
+          inclusive y contando los días intermedios) según festivos y mantenimientos, con el momento exacto en
+          que empieza a aplicarse. Con "primer día hábil" la ventana cubre el fin de semana completo desde el
+          jueves, pero el bloqueo solo se activa ese primer día hábil.
+          <br>
+          <span class="pg-chip pg-chip-no">Bloqueando ahora</span> el cierre de esa semana ya está rechazando solicitudes ·
+          <span class="pg-chip pg-chip-pend">Pendiente</span> el cierre está configurado pero aún no aplica ·
+          <span class="pg-chip pg-chip-gray">Ventana vencida</span> su fin de semana ya pasó ·
+          <span class="pg-chip pg-chip-info">Ajuste propio</span> la semana ignora la configuración por defecto.
+        </div>
+
+      </div>
+    </div>
+
   </div>
 </div>
 {% endblock %}

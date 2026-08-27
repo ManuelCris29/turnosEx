@@ -5,15 +5,17 @@ complejo: reparto de sabado, cobertura jcp AM/PM/AMBAS, cesion parcial, jornada
 cedida y fallback legacy) y el pago residual en semana. DobladaAplicacionService
 delega en este servicio; dependencia en un solo sentido.
 """
+import logging
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from solicitudes.models import SolicitudCambio, DobladaDetalle
-from turnos.models import Turno
-from turnos.services.jornada_service import JornadaService
-from turnos.services.doblada_turno_service import DobladaTurnoService
-from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
+
 from core.constants import TipoCambioTurno, TipoSolicitud
-import logging
+from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+from turnos.models import Turno
+from turnos.services.doblada_turno_service import DobladaTurnoService
+from turnos.services.jornada_service import JornadaService
 
 logger = logging.getLogger(__name__)
 

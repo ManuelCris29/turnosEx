@@ -2,10 +2,12 @@
 Servicio para preparar el contexto de las vistas de solicitudes.
 Responsabilidad única: Construir y preparar datos para las vistas.
 """
-from django.db.models import Q
-from solicitudes.models import SolicitudCambio
-from empleados.models import Empleado
 import logging
+
+from django.db.models import Q
+
+from empleados.models import Empleado
+from solicitudes.models import SolicitudCambio
 
 logger = logging.getLogger(__name__)
 

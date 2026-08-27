@@ -18,13 +18,16 @@ from django.http import QueryDict
 from django.test import TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import (
-    SolicitudCambio, TipoSolicitudCambio, DobladaPermanenteDetalle, DeudaCorporativa,
+    DeudaCorporativa,
     DeudaExplorador,
+    DobladaPermanenteDetalle,
+    SolicitudCambio,
+    TipoSolicitudCambio,
 )
 from solicitudes.services.strategies.doblada_permanente_strategy import DobladaPermanenteStrategy
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 def _dia_semana_futuro(weekday, desde=None, saltar=0):
@@ -484,6 +487,7 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
     def test_creacion_es_todo_o_nada(self):
         """Si la segunda creación falla, la primera no puede quedarse viva."""
         from unittest.mock import patch
+
         from solicitudes.services.solicitud_factory import SolicitudFactory
 
         real = SolicitudFactory.crear_solicitud
@@ -690,8 +694,8 @@ class DobladaPermanenteRendimientoTest(DobladaPermanenteBaseTest):
         self.client.force_login(self.solicitante.user)
 
     def _consultas_rango(self, fi, ff):
-        from django.test.utils import CaptureQueriesContext
         from django.db import connection
+        from django.test.utils import CaptureQueriesContext
         with CaptureQueriesContext(connection) as cap:
             self.client.get(self.URL, {
                 'fecha_inicio': fi.strftime('%Y-%m-%d'),
@@ -721,7 +725,8 @@ class DobladaPermanenteRendimientoTest(DobladaPermanenteBaseTest):
     def test_candidatos_en_lote_coinciden_con_el_camino_individual(self):
         """La versión batch es SOLO una optimización: mismo veredicto que la individual."""
         from solicitudes.services.ct_permanente_helper import (
-            _jornada_unica_real, jornadas_unicas_reales,
+            _jornada_unica_real,
+            jornadas_unicas_reales,
         )
         emps = list(Empleado.objects.filter(activo=True))
         for n in (0, 1, 2, 30):

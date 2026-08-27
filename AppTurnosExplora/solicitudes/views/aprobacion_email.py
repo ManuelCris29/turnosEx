@@ -1,9 +1,12 @@
-from django.shortcuts import render, get_object_or_404
-from core.utils.error_token import render_error_token, render_error_token_inesperado
+import logging
+
+from django.shortcuts import get_object_or_404, render
 from django.views import View
+
+from core.utils.error_token import render_error_token, render_error_token_inesperado
+
 from ..models import SolicitudCambio
 from ..services import tokens_aprobacion
-import logging
 
 logger = logging.getLogger(__name__)
 

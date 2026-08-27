@@ -2,17 +2,20 @@
 Helper para calcular fechas aplicables de cambios permanentes.
 Reutiliza la lógica de CTPermanenteStrategy para ser usada en otros contextos.
 """
+import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, timedelta
-from typing import List, Dict, Tuple
-from empleados.models import Empleado
-from turnos.models import DiaEspecial, DescansoSemanaManual
-from turnos.services.descanso_semana_service import DescansoSemanaService
-from solicitudes.models import CambioPermanenteDetalle
-from core.utils.date_utils import DateUtils
-import logging
+from typing import Dict, List, Tuple
+
 from django.utils import timezone
+
+from core.constants import JornadaDisplay
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+from solicitudes.models import CambioPermanenteDetalle
+from turnos.models import DescansoSemanaManual, DiaEspecial
+from turnos.services.descanso_semana_service import DescansoSemanaService
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +50,9 @@ class _ContextoCTPermanente:
                  'festivos', 'mantenimiento', 'temporada')
 
     def __init__(self, empleados, ini: date, fin: date):
-        from turnos.services.turno_service import TurnoService
         from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
         from turnos.models import Turno
+        from turnos.services.turno_service import TurnoService
 
         empleados = [e for e in (empleados or []) if e is not None]
         self.emp_ids = {getattr(e, 'id', e) for e in empleados}
@@ -290,7 +293,7 @@ def _razon_estado_no_apto(estado: dict, quien: str):
     jornada = estado.get('jornada')
     if jornada in ('AM', 'PM'):
         return None
-    if jornada == 'DOBLADA':
+    if jornada == JornadaDisplay.DOBLADA:
         return f'Doblada {quien}'
     return f'Descanso {quien}'
 
@@ -577,7 +580,7 @@ def _jornada_unica_real(explorador: Empleado, fecha: date):
     (que sí admite `excluir_id`).
     """
     try:
-        from turnos.models import Turno, AsignarJornadaExplorador
+        from turnos.models import AsignarJornadaExplorador, Turno
         turnos = list(
             Turno.objects.filter(explorador=explorador, fecha=fecha).select_related('jornada')
         )
@@ -734,7 +737,7 @@ def jornadas_unicas_reales(empleados, fecha: date) -> dict:
     plantilla: a ~1,8 consultas por empleado, 400 exploradores eran ~730 consultas y >1 s solo
     para poblar el desplegable de compañeros.
     """
-    from turnos.models import Turno, AsignarJornadaExplorador
+    from turnos.models import AsignarJornadaExplorador, Turno
 
     ids = [getattr(e, 'id', e) for e in (empleados or [])]
     if not ids:
@@ -792,7 +795,7 @@ def _jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
     j = st.get('jornada')
     if j in ('AM', 'PM'):
         return j
-    if j == 'DOBLADA':
+    if j == JornadaDisplay.DOBLADA:
         return None
     # Descanso / sin jornada. Si viene de una solicitud aprobada y —EXCLUYENDO la propia
     # (excluir_id)— el día ya NO estaría libre, ese descanso es de la PROPIA doblada permanente:
@@ -824,7 +827,7 @@ def _motivo_no_doblada_perm(explorador: Empleado, fecha: date):
     j = st.get('jornada')
     if j in ('AM', 'PM'):
         return None
-    if j == 'DOBLADA':
+    if j == JornadaDisplay.DOBLADA:
         return 'Ese día ya tienes doblada (AM+PM)'
     fuente = st.get('fuente')
     motivo = st.get('motivo')
@@ -878,7 +881,7 @@ def _motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicit
     st = _estado_ct(companero, fecha)
     if not st:
         return {'tipo': 'no_disponible', 'razon': f'no se pudo determinar el turno de {nombre}'}
-    if st.get('jornada') == 'DOBLADA':
+    if st.get('jornada') == JornadaDisplay.DOBLADA:
         return {'tipo': 'no_disponible', 'razon': f'{nombre} ya está doblada ese día (AM+PM)'}
     fuente = st.get('fuente')
     motivo = st.get('motivo')

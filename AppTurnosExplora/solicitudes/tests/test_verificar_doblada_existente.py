@@ -3,14 +3,16 @@ Tests para VerificarDobladaExistenteView
 Específicamente para validar que el descanso por DOBLADA aprobada tiene prioridad sobre la regla de sábado
 """
 
-from django.test import TestCase, Client
-from django.contrib.auth.models import User
-from django.urls import reverse
-from empleados.models import Empleado, Jornada
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio, DobladaDetalle
-from turnos.models import Turno, DiaEspecial, AsignarJornadaExplorador, Sala
-from datetime import date
 import json
+from datetime import date
+
+from django.contrib.auth.models import User
+from django.test import Client, TestCase
+from django.urls import reverse
+
+from empleados.models import Empleado, Jornada
+from solicitudes.models import DobladaDetalle, SolicitudCambio, TipoSolicitudCambio
+from turnos.models import AsignarJornadaExplorador, DiaEspecial, Sala, Turno
 
 
 class VerificarDobladaExistenteTest(TestCase):

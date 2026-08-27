@@ -4,15 +4,17 @@ DobladaDeudaService
 Responsabilidad: generar las deudas (entre exploradores y corporativas) cuando
 una doblada es aprobada. No toca turnos.
 """
-from datetime import date
 import logging
+from datetime import date
 
 from django.core.exceptions import ValidationError
 
-from solicitudes.models import SolicitudCambio, DobladaDetalle
+from core.constants import JornadaDisplay
 from empleados.models import Empleado
-from .deuda_service import DeudaService
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+
 from .deuda_corporativa_service import DeudaCorporativaService
+from .deuda_service import DeudaService
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +101,7 @@ class DobladaDeudaService:
                 )
                 return
             jornada_display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
-            if jornada_display == 'DOBLADA':
+            if jornada_display == JornadaDisplay.DOBLADA:
                 creada = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
                     explorador=explorador,
                     minutos=30,

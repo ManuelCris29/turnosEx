@@ -26,9 +26,8 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from solicitudes.services.errores_validacion import RequiereCambioTurnoPrevio
-
 from core.tests.factories import crear_empleado, crear_jornada, crear_sala
+from solicitudes.services.errores_validacion import RequiereCambioTurnoPrevio
 from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 
 # Fechas fijas de 2026, elegidas por su día de la semana.

@@ -1,4 +1,5 @@
 import logging
+
 """
 Cambio de Día de Descanso (fin de semana y entre semana).
 
@@ -17,16 +18,18 @@ MODALIDAD ENTRE SEMANA (Temporada):
 - Ambos días deben estar en la MISMA semana de temporada (misma regla dura que las
   sub-modalidades; ver _validar_semana_comun).
 """
-from typing import Dict, Any, Tuple, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-
-from solicitudes.models import SolicitudCambio, DobladaDetalle
-from empleados.models import Empleado
-from .base_strategy import SolicitudStrategy
-from core.utils.date_utils import DateUtils
 from django.utils import timezone
+
+from core.constants import JornadaDisplay
+from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+
+from .base_strategy import SolicitudStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +82,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         par en ambos sentidos. El validador genérico solo mira fecha_cambio_turno, así que NO
         ve la versión invertida (cesión=A/pago=B vs cesión=B/pago=A)."""
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
         return (SolicitudCambio.objects
                 .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='pendiente')
@@ -105,6 +109,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         """
         from turnos.models import Turno
         from turnos.services.turno_service import TurnoService
+
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
         # 1) Bloqueo (ver docstring). Solo lo dispara otro TIPO de cambio: un CAMBIO DESCANSO
@@ -401,6 +406,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         no una devolución posterior (no hay ida y vuelta como en fin de semana).
         """
         from django.utils import timezone
+
         from turnos.services.descanso_semana_service import DescansoSemanaService
         hoy = timezone.localdate()
 
@@ -508,7 +514,9 @@ class CambioDescansoStrategy(SolicitudStrategy):
         finde y en D FDS; al re-validar solo se exige que no sea pasado.
         """
         from datetime import timedelta
+
         from django.utils import timezone
+
         from turnos.services.descanso_semana_service import DescansoSemanaService
 
         hoy = timezone.localdate()
@@ -536,7 +544,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         """¿El explorador trabaja `fecha` como día completo (AM+PM) según la fuente de verdad?"""
         from turnos.services.turno_service import TurnoService
         e = TurnoService.estado_dia(explorador, fecha)
-        return bool(e['trabaja']) and e['jornada'] == 'DOBLADA'
+        return bool(e['trabaja']) and e['jornada'] == JornadaDisplay.DOBLADA
 
     @staticmethod
     def _comprometido(explorador, fecha):
@@ -694,6 +702,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         Sin deuda (ambos ya doblaban; solo cambia cuál día).
         """
         from turnos.models import Turno
+
         from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
 
         ok, msg = self._validar_semana_comun(fecha_cesion, fecha_pago, datos.get('es_revalidacion'))
@@ -793,8 +802,9 @@ class CambioDescansoStrategy(SolicitudStrategy):
     # ----------------------------------------------------------------- aplicar
     def aplicar_cambios(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         try:
-            from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
             from core.services.cache_service import CacheService
+
+            from ..cambio_descanso_aplicacion_service import CambioDescansoAplicacionService
 
             with transaction.atomic():
                 detalle = solicitud.doblada

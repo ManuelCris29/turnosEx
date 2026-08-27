@@ -21,6 +21,7 @@
     const bloqueadas = new Set(JSON.parse(document.getElementById('ae-bloqueadas').textContent)); // con solicitudes
     const form = document.getElementById('aeForm');
     const hidden = document.getElementById('seleccion');
+    const btnGuardar = document.getElementById('aeGuardar');
     const anio = parseInt(form.querySelector('input[name="anio"]').value, 10);
 
     const estado = {};  // {fecha: 'AM'/'PM'}; una fecha ausente = sin planificar
@@ -92,8 +93,12 @@
             if (siguiente) estado[f] = siguiente; else delete estado[f];
             pintar(span);
             actualizarContador();
+            guardia.revisar();
         });
     });
+
+    // Sin ningún día modificado no se reescribe el año: ver `guardado_atomico.js`.
+    const guardia = window.guardadoAtomico({ boton: btnGuardar, instantanea: () => estado });
 
     // ===========================================================
     //  SEMBRAR: el servidor propone el año entero; aquí solo se pinta.
@@ -118,6 +123,7 @@
             });
             celdas.forEach(pintar);
             actualizarContador();
+            guardia.revisar();   // sembrar sobre un año ya sembrado igual no habilita nada
         } catch (e) {
             alert(e.message);
         } finally {
@@ -128,5 +134,9 @@
     if (btnSembrar) btnSembrar.addEventListener('click', sembrar);
 
     actualizarContador();
-    form.addEventListener('submit', () => { hidden.value = JSON.stringify(estado); });
+    guardia.revisar();
+    form.addEventListener('submit', (e) => {
+        if (!guardia.sucio()) { e.preventDefault(); return; }
+        hidden.value = JSON.stringify(estado);
+    });
 })();

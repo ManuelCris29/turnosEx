@@ -19,16 +19,17 @@ Estados por persona en una fecha:
 """
 
 from datetime import date, timedelta
-from django.test import TestCase
-from django.contrib.auth.models import User
 
+from django.contrib.auth.models import User
+from django.test import TestCase
+from django.utils import timezone
+
+from core.constants import TipoCambioTurno
 from empleados.models import Empleado, Jornada
-from solicitudes.models import TipoSolicitudCambio, SolicitudCambio, DobladaDetalle
+from solicitudes.models import DobladaDetalle, SolicitudCambio, TipoSolicitudCambio
 from solicitudes.services.errores_validacion import RequiereCambioTurnoPrevio
 from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
-from django.utils import timezone
-from core.constants import TipoCambioTurno
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 # ---------------------------------------------------------------------------
@@ -877,8 +878,8 @@ class TestDeudaEmisorDobladaSemanaPagoSabado(MatrizDobladasTestCase):
         return sol, detalle
 
     def test_emisor_no_recibe_30min_por_ceder_doblada_semana_pagada_en_sabado(self):
-        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         from solicitudes.models import DeudaCorporativa
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         cesion, sabado = self._martes_y_sabado_futuros()
         # Receptor dobla (AM+PM) en la cesión → debe recibir sus 30 min.
@@ -1023,9 +1024,9 @@ class TestCubrePagoReceptorDobladaJornadaVirtual(MatrizDobladasTestCase):
     def test_aplicar_pago_el_deudor_queda_doblada(self):
         """Al pagar cubriendo una jornada del receptor (con doblada), el DEUDOR DOBLA
         (su jornada + la que cubre); el receptor conserva la otra."""
-        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-        from solicitudes.models import DobladaDetalle
         from empleados.models import CompetenciaEmpleado
+        from solicitudes.models import DobladaDetalle
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         # El emisor necesita una sala (vía competencia) porque su jornada en el pago es virtual.
         CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
         # Pago: receptor con DOBLADA (AM+PM); emisor sin turno (su PM es virtual).
@@ -1065,6 +1066,7 @@ class TestReceptorDescansaFinDeSemanaEnPago(MatrizDobladasTestCase):
 
     def test_receptor_descansa_sabado_por_alternancia_rechaza(self):
         from django.core.exceptions import ValidationError
+
         from solicitudes.services.solicitud_validator import SolicitudValidator
         from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
         sab = self._sabado_futuro()
@@ -1087,6 +1089,7 @@ class TestReceptorDescansaFinDeSemanaEnPago(MatrizDobladasTestCase):
     def test_solicitante_descansa_sabado_en_cesion_rechaza(self):
         """El SOLICITANTE descansa por alternancia en la fecha de cesión → no tiene jornada que ceder."""
         from django.core.exceptions import ValidationError
+
         from solicitudes.services.solicitud_validator import SolicitudValidator
         from turnos.services.alternancia_fines_semana_service import AlternanciaFinesSemanaService
         sab = self._sabado_futuro()
@@ -1119,6 +1122,7 @@ class TestReconciliacionRevertCesionTotal(MatrizDobladasTestCase):
 
     def _crear_doblada_aprobada_pago(self, fdob):
         from django.utils import timezone
+
         from solicitudes.models import DobladaDetalle
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor,
@@ -1218,8 +1222,8 @@ class TestDeudaEmisorContinuacion(MatrizDobladasTestCase):
 
     def test_emisor_sin_doblada_previa_no_recibe_30min(self):
         """Si el emisor NO tenía doblada de semana (snapshot de 1 jornada), no se le cargan 30 min."""
-        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         from solicitudes.models import DeudaCorporativa
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         cesion, sabado = self._martes_y_sabado_futuros()
         self._crear_doblada_turnos(self.receptor, cesion)
@@ -1268,9 +1272,9 @@ class TestDobladaFestivoSinDeudaCorporativa(MatrizDobladasTestCase):
         )
 
     def test_festivo_no_genera_deuda_corporativa(self):
-        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
         from solicitudes.models import DeudaCorporativa
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         # Marcar como festivo ambas fechas (días de semana del mismo mes).
         self._marcar_festivo(FECHA_CESION)
@@ -1346,8 +1350,9 @@ class TestDescansoDelAcreedorEnElPago(MatrizDobladasTestCase):
             CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
 
     def _aprobar_y_aplicar(self, **detalle_extra):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
         from django.utils import timezone as _tz
+
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
 
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
@@ -1415,7 +1420,7 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
                 for t in Turno.objects.filter(explorador=empleado, fecha=fecha).select_related('jornada')}
 
     def test_intercambio_swap_correcto_y_sin_deudas(self):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle, DeudaCorporativa, DeudaExplorador
+        from solicitudes.models import DeudaCorporativa, DeudaExplorador, DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         dia_a, dia_b = FECHA_CESION, FECHA_PAGO
@@ -1471,10 +1476,11 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
         swap de día completo), y en vez de devolverle a cada uno su DOBLADA los dejaba con una sola
         media jornada — mildrey con una PM el 06/08 y arley con una AM el 12/08.
         """
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
-        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
-        from empleados.models import CompetenciaEmpleado
         from django.utils import timezone
+
+        from empleados.models import CompetenciaEmpleado
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
+        from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         dia_a, dia_b = FECHA_CESION, FECHA_PAGO
         # Sala por competencia: al re-aplicar sobre un día sin turnos no hay sala que heredar.
@@ -1537,7 +1543,7 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
         mostraba trabajando a quien tenía el día libre. Un intercambio es día completo por los dos
         lados, sea cual sea el `tipo_cesion` guardado.
         """
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from turnos.services.turno_service import TurnoService
 
         dia_a, dia_b = FECHA_CESION, FECHA_PAGO
@@ -1604,7 +1610,7 @@ class TestIntercambioDobladas(MatrizDobladasTestCase):
     def test_intercambio_revalidar_al_aprobar_honra_flag(self):
         """Regresión: la re-validación al aprobar debe reconstruir es_intercambio (si se pierde,
         corre la regla de cesión normal y rechaza un intercambio válido)."""
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.solicitud_factory import SolicitudFactory
 
         dia_a, dia_b = FECHA_CESION, FECHA_PAGO
@@ -1721,7 +1727,7 @@ class TestCesionParcialReceptorDobla(MatrizDobladasTestCase):
     (antes la aplicación le borraba su jornada y quedaba en media, perdiendo su turno y sus 30 min)."""
 
     def test_receptor_que_trabaja_conserva_su_jornada_y_se_dobla(self):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         dia = FECHA_CESION
@@ -1758,7 +1764,7 @@ class TestPagoParcialDeudorLibre(MatrizDobladasTestCase):
         CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
 
     def _crear_pago(self, pago):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
             tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
@@ -1795,7 +1801,7 @@ class TestPagoParcialDeudorLibre(MatrizDobladasTestCase):
 
     def _crear_pago_completa(self, pago, jornada_cedida='AM'):
         """Pago de una cesión COMPLETA (rama jornada_cedida conocida, no la parcial)."""
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
             tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
@@ -1865,7 +1871,7 @@ class TestPagoParcialDeudorLibre(MatrizDobladasTestCase):
 
     def _crear_pago_jcp(self, pago, jcp):
         """Pago donde el acreedor tiene DOBLADA y el deudor elige qué jornada (jcp) cubrir."""
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
             tipo_cambio=self.tipo_doblada, estado='aprobada', fecha_cambio_turno=FECHA_CESION,
@@ -1921,7 +1927,7 @@ class TestCesionReceptorLiberadoPorAprobacionPrevia(MatrizDobladasTestCase):
         CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
 
     def test_receptor_liberado_por_pago_previo_cubre_solo_la_cedida(self):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         # PREVIA aprobada: el receptor es ACREEDOR de una doblada cuyo PAGO cae en FECHA_CESION,
@@ -1965,7 +1971,7 @@ class TestAcreedorDescansaEnPagoRechaza(MatrizDobladasTestCase):
     misma fecha, con jornada base que ANTES disparaba el falso 'misma jornada'."""
 
     def test_acreedor_descansa_por_solicitud_previa_rechaza_con_mensaje_claro(self):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
 
         # Deudor trabaja su base PM ese día; acreedor base PM (coincidirían por predeterminada)
         # PERO está LIBRE por una doblada previa aprobada cuyo pago cae en FECHA_PAGO.
@@ -2002,8 +2008,9 @@ class TestDosPagosMismoSabado(MatrizDobladasTestCase):
 
     def setUp(self):
         super().setUp()
-        from empleados.models import CompetenciaEmpleado
         from django.contrib.auth.models import User
+
+        from empleados.models import CompetenciaEmpleado
         # Segundo receptor (Y)
         user_y = User.objects.create_user('yuli_test', password='x', email='y@t.com')
         self.receptor2 = Empleado.objects.create(
@@ -2194,7 +2201,7 @@ class TestCesionReceptorSinBase(MatrizDobladasTestCase):
             CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
 
     def test_receptor_sin_base_cubre_solo_la_cedida(self):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
 
         # Emisor con DOBLADA en la cesión; receptor SIN base ni turno ese día.
@@ -2230,7 +2237,7 @@ class TestCesionParcialUnaSolaJornada(MatrizDobladasTestCase):
             CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
 
     def _aplicar(self, tipo_cesion, jornada_cedida):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
@@ -2316,8 +2323,9 @@ class TestFestivoDobladaReglas(MatrizDobladasTestCase):
     def test_aplicar_cesion_festivo_receptor_queda_con_dia_completo(self):
         """El festivo se cede ENTERO: el receptor debe terminar con AM+PM (la doblada que el
         emisor tenía por rotación), no con una sola jornada."""
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+
         # En festivo la jornada es virtual (sin filas Turno): la sala sale de la competencia.
         from turnos.models import CompetenciaEmpleado
         for e in (self.emisor, self.receptor):
@@ -2346,7 +2354,7 @@ class TestFestivoDobladaReglas(MatrizDobladasTestCase):
     def test_guardia_post_aplicacion_rechaza_festivo_a_medias(self):
         """La red de seguridad debe VER el día escrito de menos. Antes daba ✅ con el receptor en
         una sola jornada, porque solo comprobaba que existiera *algún* turno."""
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor, explorador_receptor=self.receptor,
@@ -2482,7 +2490,7 @@ class TestDeudasIdempotentesYCancelacion(MatrizDobladasTestCase):
             CompetenciaEmpleado.objects.get_or_create(empleado=e, sala=self.sala)
 
     def _solicitud_aplicada(self):
-        from solicitudes.models import SolicitudCambio, DobladaDetalle
+        from solicitudes.models import DobladaDetalle, SolicitudCambio
         sol = SolicitudCambio.objects.create(
             explorador_solicitante=self.emisor,
             explorador_receptor=self.receptor,
@@ -2714,6 +2722,7 @@ class TestPagoSabadoReceptorDescansa(MatrizDobladasTestCase):
 
     def test_receptor_descansando_en_sabado_de_pago_es_rechazado(self):
         from django.core.exceptions import ValidationError
+
         from solicitudes.services.doblada_pago_service import DobladaPagoService
 
         cesion, sabado = self._sabado_donde_receptor_descansa()
@@ -2833,8 +2842,8 @@ class TestPagoSabadoReceptorDescansa(MatrizDobladasTestCase):
         Si algún día la atribución de descanso pasara a marcar el día con media jornada cubierta,
         este test se cae y avisa de que la excepción de la estrategia hay que revisarla.
         """
-        from turnos.services.turno_service import TurnoService
         from solicitudes.services.doblada_pago_service import DobladaPagoService
+        from turnos.services.turno_service import TurnoService
 
         cesion, sabado = self._martes_y_sabado_futuros()
         self._limpiar_turnos(self.receptor, sabado)
@@ -2987,6 +2996,7 @@ class TestGuardPagoEntreSemana(MatrizDobladasTestCase):
 
     def test_jcp_media_con_acreedor_que_descansa_no_le_inventa_turno(self):
         from django.core.exceptions import ValidationError
+
         from solicitudes.services.doblada_pago_service import DobladaPagoService
 
         # El acreedor no trabaja la fecha de pago: sin turnos y con su descanso de semana puesto.
@@ -3035,6 +3045,7 @@ class TestGuardPagoEntreSemana(MatrizDobladasTestCase):
         Queda esta: `jornada_cedida` puesta y `tipo_cesion` sin valor.
         """
         from django.core.exceptions import ValidationError
+
         from solicitudes.services.doblada_pago_service import DobladaPagoService
 
         self._limpiar_turnos(self.receptor, FECHA_PAGO)

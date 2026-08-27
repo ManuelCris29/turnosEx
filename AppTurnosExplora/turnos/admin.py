@@ -1,8 +1,6 @@
 from django.contrib import admin
-from .models import (
-    AsignarJornadaExplorador,
-    Turno, DiaEspecial, TurnoArchivo, AperturaAnioConfig
-)
+
+from .models import AperturaAnioConfig, AsignarJornadaExplorador, DiaEspecial, Turno, TurnoArchivo
 
 
 @admin.register(AsignarJornadaExplorador)

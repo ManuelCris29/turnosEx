@@ -16,11 +16,31 @@ exclude_dirs = [
 # ruff — linter y formateador.
 #
 # Arranque deliberadamente conservador: solo errores REALES (F = pyflakes,
-# E9 = errores de sintaxis/IO). El baseline completo del proyecto ronda los
-# 1.000-1.500 avisos, dominado por E501 (líneas largas, ~637) y F401 (imports
-# sin usar, ~437). Activar todo de golpe produce ruido que nadie lee.
+# E9 = errores de sintaxis/IO). Esa parte YA ESTÁ LIMPIA: el commit 84bd8c8
+# (2026-08-19) llevó el proyecto de 582 avisos a 0 y dejó el lint BLOQUEANTE
+# en el CI y en pre-commit. `ruff check .` debe salir en cero siempre.
 #
-# El plan es endurecerlo por familias, limpiando una y añadiéndola al `select`.
+# El plan sigue siendo endurecerlo por familias, limpiando una y añadiéndola al
+# `select`. Coste medido el 2026-08-26 (`ruff check . --select X --statistics`):
+#
+#   I     403  ← ordenar imports.  100 % autocorregible. Toca 207 archivos.
+#   E501  335  ← líneas largas (el límite ya está en 120).
+#   UP    218  ← sintaxis moderna. 185 autocorregibles.
+#   ARG   129  ← argumentos sin usar.
+#   N     124  ← nombres. Ojo: 36 son N814 por constantes importadas con alias.
+#   C901   78  ← complejidad. Es un MEDIDOR, no deuda mecánica: señala las
+#                funciones gigantes (get de turnos_mes = 36, umbral 10).
+#   SIM    41 · RET 34 · B 20 · PTH 6
+#
+# F401 ya está en 0 (era ~437 antes de 84bd8c8).
+#
+# ⚠ `I` reordena el bloque de imports de 207 archivos de golpe. Ese diff
+# gigante esconde los cambios de lógica justo cuando revisarlos importa — el
+# mismo motivo por el que `ruff-format` sigue fuera de .pre-commit-config.yaml.
+# Actívalo en su PROPIO commit, sobre un árbol de trabajo limpio, y comprueba
+# después `manage.py check` (este proyecto tiene un ciclo turnos↔solicitudes:
+# ver la nota de core/constants.py).
+#
 # Uso: ruff check .            (revisar)
 #      ruff check . --fix      (arreglar lo autocorregible — revisar el diff)
 # ---------------------------------------------------------------------------
@@ -35,7 +55,12 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["F", "E9"]
+# F   pyflakes (errores reales)      — en cero desde 84bd8c8 (2026-08-19)
+# E9  errores de sintaxis/IO
+# I   orden de imports               — en cero desde 2026-08-26 (405 corregidos,
+#     207 archivos, en su propio commit y verificado con `manage.py check` +
+#     la suite completa por el ciclo turnos↔solicitudes)
+select = ["F", "E9", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 # En un __init__.py un import "sin usar" suele ser un re-export deliberado: el

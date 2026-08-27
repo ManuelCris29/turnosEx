@@ -13,10 +13,10 @@ import logging
 
 from django.conf import settings
 
-from solicitudes.models import Notificacion
-from solicitudes.services.email_service import EmailService
-from solicitudes.services import tokens_aprobacion
 from core.constants import TipoCambioTurno
+from solicitudes.models import Notificacion
+from solicitudes.services import tokens_aprobacion
+from solicitudes.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +182,7 @@ class PermisoMediaJornadaService:
     @staticmethod
     def aplicar(permiso) -> None:
         from django.db import transaction
+
         from solicitudes.services.cambio_descanso_aplicacion_service import (
             CambioDescansoAplicacionService as _App,
         )
@@ -211,6 +212,7 @@ class PermisoMediaJornadaService:
     @staticmethod
     def revertir(permiso) -> None:
         from django.db import transaction
+
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
         snap = getattr(permiso, 'snapshot_turnos_previos', None)
         if not snap:

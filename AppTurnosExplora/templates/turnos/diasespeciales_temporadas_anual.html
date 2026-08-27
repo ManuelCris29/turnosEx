@@ -152,6 +152,7 @@
 {% endblock %}
 
 {% block extra_js %}
+<script src="{% static_v 'js/utils/guardado_atomico.js' %}"></script>
 <script src="{% static_v 'js/turnos/calendario_temporadas.js' %}"></script>
 {{ dias_por_mes|json_script:"temporadas-dias-data" }}
 <script>

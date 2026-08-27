@@ -7,12 +7,14 @@ Uso:
     python manage.py verificar_integridad_dobladas --reparar
     python manage.py verificar_integridad_dobladas --email admin@example.com
 """
+import logging
+from datetime import timedelta
+
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from datetime import timedelta
+
 from solicitudes.models import SolicitudCambio
 from turnos.models import Turno
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -243,6 +245,7 @@ class Command(BaseCommand):
         Envía un reporte por email con las inconsistencias detectadas.
         """
         from django.conf import settings
+
         from solicitudes.services.email_service import EmailService
 
         asunto = f'⚠️ Reporte de Integridad de Dobladas - {len(inconsistencias)} problema(s)'

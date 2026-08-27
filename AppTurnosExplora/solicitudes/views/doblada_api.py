@@ -1,17 +1,21 @@
-from django.views import View
+import logging
+
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Q
-from empleados.models import Empleado
-from ..models import TipoSolicitudCambio, SolicitudCambio
-from ..services.solicitud_factory import SolicitudFactory
 from django.utils import timezone
-import logging
+from django.views import View
+
 from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
+
+from ..models import SolicitudCambio, TipoSolicitudCambio
+from ..services.solicitud_factory import SolicitudFactory
 
 logger = logging.getLogger(__name__)
 
 # Importar helpers JSON comunes desde core
-from core.utils.json_responses import json_ok, json_error
+from core.constants import JornadaDisplay
+from core.utils.json_responses import json_error, json_ok
 
 # Create your views here.
 
@@ -45,10 +49,10 @@ class ObtenerExploradoresDobladaView(LoginRequiredMixin, View):
             )
             
             if incluir_descanso:
-                from solicitudes.services.doblada_filtro_service import DobladaFiltroService
-                from turnos.services.turno_service import TurnoService
-                from turnos.models import Turno as TurnoCheck
                 from core.utils.date_utils import DateUtils
+                from solicitudes.services.doblada_filtro_service import DobladaFiltroService
+                from turnos.models import Turno as TurnoCheck
+                from turnos.services.turno_service import TurnoService
 
                 fecha_obj_desc = DateUtils.parse_date(fecha)
 
@@ -247,7 +251,7 @@ class VerificarDobladaExistenteView(LoginRequiredMixin, View):
             if not es_doblada_turnos and fecha_obj.weekday() < 5:
                 from turnos.services.turno_service import TurnoService as _TSt
                 est_t = _TSt.estado_dia(usuario_actual, fecha_obj)
-                if est_t['trabaja'] and est_t['jornada'] == 'DOBLADA' and est_t['fuente'] == 'temporada':
+                if est_t['trabaja'] and est_t['jornada'] == JornadaDisplay.DOBLADA and est_t['fuente'] == 'temporada':
                     return json_ok({
                         'tiene_doblada': False,
                         'esta_descansando': False,

@@ -4,15 +4,15 @@ DobladaSnapshotService
 Responsabilidad: capturar y restaurar el estado de turnos antes/después de aplicar
 una doblada, y reconciliar las dobladas vigentes tras una cancelación.
 """
-from datetime import date
 import logging
+from datetime import date
 
 from django.core.exceptions import ValidationError
 
-from solicitudes.models import SolicitudCambio, DobladaDetalle
-from empleados.models import Empleado
-from turnos.models import Turno
 from core.utils.jornada_utils import obtener_jornadas_am_pm as _obtener_jornadas_cache
+from empleados.models import Empleado
+from solicitudes.models import DobladaDetalle, SolicitudCambio
+from turnos.models import Turno
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +214,7 @@ class DobladaSnapshotService:
         fuera del conjunto y no lo amplían: se dejan para la fase de aplicación.
         """
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
 
         if not fechas or not exploradores:
@@ -392,8 +393,11 @@ class DobladaSnapshotService:
         `doblada_permanente`, y el snapshot en la propia solicitud), no porque deban aplicarse en
         ese orden. Aquí se juntan y se ordenan una sola vez.
         """
-        from datetime import datetime, timezone as dt_timezone
+        from datetime import datetime
+        from datetime import timezone as dt_timezone
+
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
 
         base = (SolicitudCambio.objects
@@ -479,6 +483,7 @@ class DobladaSnapshotService:
         al resto adopta como propio un estado que puede estar roto y ciega la guardia de integridad.
         """
         from django.db.models import Q
+
         from solicitudes.models import SolicitudCambio
 
         if exploradores is None:

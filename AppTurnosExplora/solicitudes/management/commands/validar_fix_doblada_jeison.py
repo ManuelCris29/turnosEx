@@ -7,14 +7,16 @@ Este script valida que:
 3. La prioridad está correcta: DOBLADA aprobada > CT > Regla de sábado
 """
 
-from django.core.management.base import BaseCommand
-from django.contrib.auth import get_user_model
-from solicitudes.models import SolicitudCambio, TipoCambioCambio
-from turnos.models import Turno
-from datetime import date
-from django.test import RequestFactory
-from solicitudes.views import VerificarDobladaExistenteView
 import json
+from datetime import date
+
+from django.contrib.auth import get_user_model
+from django.core.management.base import BaseCommand
+from django.test import RequestFactory
+
+from solicitudes.models import SolicitudCambio, TipoCambioCambio
+from solicitudes.views import VerificarDobladaExistenteView
+from turnos.models import Turno
 
 User = get_user_model()
 

@@ -7,7 +7,7 @@ fechas incoherentes, IDs no numéricos y la fecha de pago desincronizada al edit
 from datetime import date, timedelta
 
 from django.contrib.auth.models import User
-from django.test import TestCase, Client
+from django.test import Client, TestCase
 from django.urls import reverse
 
 from empleados.models import Empleado

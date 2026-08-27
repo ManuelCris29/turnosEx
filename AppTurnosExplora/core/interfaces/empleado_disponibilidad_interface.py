@@ -4,6 +4,7 @@ Aplicación del principio Dependency Inversion (DIP).
 """
 from abc import ABC, abstractmethod
 from typing import Iterable
+
 from empleados.models import Empleado
 
 

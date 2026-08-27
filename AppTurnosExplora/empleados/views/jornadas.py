@@ -9,8 +9,8 @@ from django.views.generic.edit import CreateView, DeleteView
 
 from core.mixins import AdminRequiredMixin
 
-from ..models import Jornada
 from ..forms import JornadaForm
+from ..models import Jornada
 
 
 # CRUD de Jornadas

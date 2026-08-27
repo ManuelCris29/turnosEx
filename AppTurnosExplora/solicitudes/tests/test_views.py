@@ -1,9 +1,10 @@
 """
 Tests para vistas de solicitudes
 """
-from django.test import TestCase, Client
 from django.contrib.auth.models import User
+from django.test import Client, TestCase
 from django.urls import reverse
+
 from empleados.models import Empleado
 
 

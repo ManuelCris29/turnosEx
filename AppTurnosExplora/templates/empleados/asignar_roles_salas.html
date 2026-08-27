@@ -1,16 +1,45 @@
 {% extends 'base.html' %}
+{% load static static_version %}
 
-{% block title %}Asignar Roles y Salas{% endblock %}
-{% block page_title %}Asignar Roles y Salas a {{ empleado.nombre }} {{ empleado.apellido }}{% endblock %}
+{% block title %}Asignar Roles y Salas - AppTurnos{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h2>Asignar Roles y Salas a {{ empleado.nombre }} {{ empleado.apellido }}</h2>
-    <form method="post">
-        {% csrf_token %}
-        {{ form.as_p }}
-        <button type="submit" class="btn btn-primary">Guardar</button>
-        <a href="{% url 'empleados' %}" class="btn btn-secondary">Cancelar</a>
-    </form>
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-user-tag"></i> Asignar roles y salas</h1>
+      <p class="pg-subtitle">{{ empleado.nombre }} {{ empleado.apellido }} — {{ empleado.cedula }}</p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head indigo">
+        <h3><i class="fas fa-user-tag"></i> Roles y salas del explorador</h3>
+        <div class="pg-actions">
+          <a href="{% url 'empleado_detail' empleado.id %}" class="pg-btn pg-btn-light"><i class="fas fa-eye"></i> Ver ficha</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <p class="pg-intro">Mantén pulsado Ctrl (o Cmd) para seleccionar varias opciones. Lo que quede sin marcar se retira del empleado.</p>
+        <form method="post" class="pg-form" data-guardado-atomico="No has cambiado ningún rol ni sala: no hay nada que guardar.">
+          {% csrf_token %}
+          {% include 'includes/_pg_form_fields.html' with form=form %}
+          <div class="pg-actions mt-4">
+            <button type="submit" data-guardar class="pg-btn pg-btn-primary"><i class="fas fa-save"></i> Guardar</button>
+            <a href="{% url 'empleados' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static_v 'js/utils/guardado_atomico.js' %}"></script>
+{% endblock %}

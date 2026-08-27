@@ -7,13 +7,16 @@ Dependencia en un solo sentido: NotificacionService -> EmailService.
 Nota: _configurar_email_backend y _verificar_token se conservan tal cual (sin callers
 actuales) para no cambiar comportamiento; candidatos a limpieza posterior.
 """
+import logging
+
 from django.conf import settings
+from django.core.mail.backends.smtp import EmailBackend
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
-from django.core.mail.backends.smtp import EmailBackend
+
 from solicitudes.models import SolicitudCambio
+
 from . import tokens_aprobacion
-import logging
 
 logger = logging.getLogger(__name__)
 

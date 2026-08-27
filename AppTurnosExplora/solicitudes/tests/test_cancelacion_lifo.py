@@ -7,19 +7,20 @@ bloquearse (revertirlo pisaría al más nuevo). Hay que cancelar primero el más
 import json
 from datetime import date, timedelta
 
-from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import User
+from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
-from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
-from solicitudes.views.aprobacion_views import CancelarSolicitudView, ResponderCancelacionView
-from solicitudes.models import DeudaCorporativa, DobladaDetalle
-from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
+from solicitudes.models import DeudaCorporativa, DobladaDetalle, SolicitudCambio, TipoSolicitudCambio
 from solicitudes.tests.test_matriz_dobladas import (
-    MatrizDobladasTestCase, FECHA_CESION, FECHA_PAGO,
+    FECHA_CESION,
+    FECHA_PAGO,
+    MatrizDobladasTestCase,
 )
+from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
+from solicitudes.views.aprobacion_views import CancelarSolicitudView, ResponderCancelacionView
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 class CancelacionLIFOTest(TestCase):
@@ -407,6 +408,7 @@ class CancelacionDesdeGestionTest(MatrizDobladasTestCase):
         """
         from django.contrib.messages.storage.fallback import FallbackStorage
         from django.test import RequestFactory
+
         from solicitudes.views.gestion_solicitudes import GestionCancelarSolicitudView
 
         sol = self._doblada_aplicada()

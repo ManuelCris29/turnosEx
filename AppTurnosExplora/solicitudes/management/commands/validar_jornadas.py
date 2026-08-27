@@ -2,11 +2,13 @@
 Comando para validar jornadas predeterminadas y turnos creados
 Valida cada cambio por separado en orden cronológico
 """
-from django.core.management.base import BaseCommand
-from django.contrib.auth.models import User
-from turnos.models import Turno, AsignarJornadaExplorador
-from solicitudes.models import SolicitudCambio
 from datetime import date
+
+from django.contrib.auth.models import User
+from django.core.management.base import BaseCommand
+
+from solicitudes.models import SolicitudCambio
+from turnos.models import AsignarJornadaExplorador, Turno
 
 
 class Command(BaseCommand):

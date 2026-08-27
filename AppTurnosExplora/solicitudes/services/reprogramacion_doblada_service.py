@@ -12,18 +12,18 @@ y NUNCA afecta al otro explorador. Todo queda en registro para auditoría:
 Para deshacer TODO el acuerdo se usa la cancelación mutua ya existente, permitida solo mientras
 NADIE haya cumplido su día (ver `puede_cancelar`).
 """
-from datetime import date
 import logging
+from datetime import date
 
 from django.db import transaction
-
-from solicitudes.models import SolicitudCambio, ReprogramacionDiaDoblada
-from .doblada_aplicacion_service import DobladaAplicacionService
-from .d_fds_aplicacion_service import DFDSAplicacionService
-from .deuda_corporativa_service import DeudaCorporativaService
 from django.utils import timezone
 
 from core.constants import TipoCambioTurno, TipoSolicitud
+from solicitudes.models import ReprogramacionDiaDoblada, SolicitudCambio
+
+from .d_fds_aplicacion_service import DFDSAplicacionService
+from .deuda_corporativa_service import DeudaCorporativaService
+from .doblada_aplicacion_service import DobladaAplicacionService
 
 logger = logging.getLogger(__name__)
 
@@ -370,7 +370,7 @@ class ReprogramacionDobladaService:
         jornada_previa = reprog.jornada_pago_previa
         if not jornada_previa:
             return
-        from turnos.models import Turno, Jornada
+        from turnos.models import Jornada, Turno
         from turnos.services.doblada_turno_service import DobladaTurnoService
         try:
             jornada = Jornada.objects.get(nombre=jornada_previa)

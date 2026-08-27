@@ -340,6 +340,8 @@ function actualizarDiasSeleccionados() {
     if (campoHidden) {
         campoHidden.value = JSON.stringify(dias);
     }
+    // Guardado atómico: si el estado volvió a ser el publicado, el botón se apaga.
+    if (window.guardiaGuardadoAnual) window.guardiaGuardadoAnual.revisar();
 }
 
 /**
@@ -385,6 +387,9 @@ function cargarDiasExistentes(tipo, anio) {
                 const dias = diasSeleccionadosPorMes[mes] || [];
                 renderizarCalendarioMes(mes, anio, dias);
             }
+            // Lo recién cargado del servidor ES lo publicado, no un cambio del usuario:
+            // se toma como nueva referencia para el guardado atómico.
+            if (window.guardiaGuardadoAnual) window.guardiaGuardadoAnual.reiniciar();
         })
         .catch(error => {
             console.error('Error al cargar días existentes:', error);
@@ -394,6 +399,7 @@ function cargarDiasExistentes(tipo, anio) {
                 renderizarCalendarioMes(mes, anio, []);
             }
             actualizarDiasSeleccionados();
+            if (window.guardiaGuardadoAnual) window.guardiaGuardadoAnual.reiniciar();
         });
 }
 

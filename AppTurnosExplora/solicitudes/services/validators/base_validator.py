@@ -1,8 +1,9 @@
 import logging
 
 from django.core.exceptions import ValidationError  # type: ignore
-from empleados.models import Empleado
+
 from core.utils.date_utils import DateUtils
+from empleados.models import Empleado
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +262,7 @@ class BaseValidator:
             ValidationError: Si el receptor ya tiene una solicitud pendiente en esa fecha
         """
         from django.db import models as db_models
+
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_cesion, str):
@@ -299,6 +301,7 @@ class BaseValidator:
             ValidationError: Si el solicitante ya tiene una solicitud pendiente en esa fecha
         """
         from django.db import models as db_models
+
         from solicitudes.models import SolicitudCambio
 
         if isinstance(fecha_cesion, str):
@@ -335,6 +338,7 @@ class BaseValidator:
             ValidationError: si alguna pendiente del empleado toca una de esas fechas.
         """
         from django.db import models as db_models
+
         from solicitudes.models import SolicitudCambio
 
         fechas = [DateUtils.parse_date(f) if isinstance(f, str) else f for f in (fechas or []) if f]
@@ -388,6 +392,7 @@ class BaseValidator:
             ValidationError: Si el solicitante ya tiene una solicitud pendiente en alguno de esos días
         """
         from django.db import models as db_models
+
         from solicitudes.models import SolicitudCambio
 
         fechas = [f for f in (fechas or []) if f]
@@ -439,10 +444,10 @@ class BaseValidator:
         Cierra el hueco de que obtener_jornada_display NO reflejaba el descanso de semana entre
         semana, lo que permitía pagar/ceder a alguien que en realidad descansa ese día.
         """
-        from turnos.services.turno_service import TurnoService
-        from turnos.services.jornada_service import JornadaService
-        from turnos.services.descanso_semana_service import DescansoSemanaService
         from turnos.models import DiaEspecial, Turno
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        from turnos.services.jornada_service import JornadaService
+        from turnos.services.turno_service import TurnoService
 
         # 1) Turnos explícitos → trabaja (un cambio/CT puede ponerle turno aunque sea descanso de semana).
         if Turno.objects.filter(explorador=explorador, fecha=fecha_obj).exists():

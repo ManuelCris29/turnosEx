@@ -1,11 +1,17 @@
 from django.urls import path
+
 from .views import (
-    PermisosEspecialesView, BeneficiosView,
-    PermisoEspecialListView, PermisoEspecialCreateView,
-    PermisoEspecialPermanenteCreateView, PermisoEspecialAprobarView,
-    PermisoEspecialResolverEmailView, PermisoEspecialDeleteView,
-    MediaJornadaTemporadaCreateView, PermisoMediaJornadaCancelView,
+    BeneficiosView,
+    MediaJornadaTemporadaCreateView,
+    PermisoEspecialAprobarView,
+    PermisoEspecialCreateView,
+    PermisoEspecialDeleteView,
+    PermisoEspecialListView,
+    PermisoEspecialPermanenteCreateView,
+    PermisoEspecialResolverEmailView,
     PermisoMediaJornadaCancelResponderView,
+    PermisoMediaJornadaCancelView,
+    PermisosEspecialesView,
 )
 
 urlpatterns = [

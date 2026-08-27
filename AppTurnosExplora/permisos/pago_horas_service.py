@@ -17,14 +17,15 @@ largo era directamente impagable porque su total superaba el tope de un solo reg
 Al pagar, las deudas quedan marcadas y vinculadas al PDH; al borrarlo, se reactivan con el
 importe exacto que este cubría.
 """
-from datetime import date
 import logging
+from datetime import date
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from solicitudes.models import DeudaCorporativa
-from .models import DeudaPermisoMes, PagoDeudaPermisoMes, PDH
+
+from .models import PDH, DeudaPermisoMes, PagoDeudaPermisoMes
 
 logger = logging.getLogger(__name__)
 

@@ -1,13 +1,15 @@
 """
 Tests de integración para flujo completo de solicitudes
 """
-from django.test import TestCase
+from datetime import timedelta
+
 from django.contrib.auth.models import User
+from django.test import TestCase
+from django.utils import timezone
+
 from empleados.models import Empleado, Jornada
 from solicitudes.models import TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador
-from datetime import timedelta
-from django.utils import timezone
 
 
 class SolicitudFlowE2ETest(TestCase):

@@ -45,6 +45,7 @@ class PermisosEdicionEmpleadoTestCase(TestCase):
             'nombre': nombre,
             'apellido': 'Tima',
             'cedula': self.victima.cedula,
+            'username': self.victima.user.username,
             'email': self.victima.email or 'v@test.local',
             'activo': 'on',
             'jornada': self.jornada.id,

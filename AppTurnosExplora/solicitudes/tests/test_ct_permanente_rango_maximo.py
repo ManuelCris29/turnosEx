@@ -15,7 +15,8 @@ from django.test import TestCase
 from django.utils import timezone
 
 from solicitudes.services.validators.ct_permanente_validator import (
-    CTPermanenteValidator, MAX_DIAS_RANGO_PERMANENTE,
+    MAX_DIAS_RANGO_PERMANENTE,
+    CTPermanenteValidator,
 )
 
 

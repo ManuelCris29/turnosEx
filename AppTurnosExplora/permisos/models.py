@@ -1,8 +1,9 @@
 from django.db import models
+from simple_history.models import HistoricalRecords
+
+from core.constants import EstadoCancelacion
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
-from simple_history.models import HistoricalRecords
-from core.constants import EstadoCancelacion
 
 
 class PDH(models.Model):

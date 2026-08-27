@@ -1,0 +1,74 @@
+/*
+ * Cierre semanal de solicitudes (panel del supervisor).
+ * Complementa a paginas_gestion.css: aquí solo lo propio de esta pantalla
+ * (formulario por defecto, filas de semana y leyenda).
+ */
+
+/* ── Formulario de configuración por defecto ──────────────────────────── */
+.cc-default {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1.1rem;
+}
+.cc-field { display: flex; flex-direction: column; gap: 4px; min-width: 160px; }
+.cc-field label {
+    font-size: .75rem; font-weight: 700; color: #374151;
+    text-transform: uppercase; letter-spacing: .3px; margin: 0;
+}
+.cc-field input[type="time"],
+.cc-field select {
+    border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb;
+    padding: 7px 10px; font-size: .92rem; color: #1f2937;
+}
+.cc-field input[type="time"]:focus,
+.cc-field select:focus { outline: none; border-color: #4f46e5; background: #fff; }
+
+/* Interruptor habilitado/deshabilitado */
+.cc-switch {
+    display: inline-flex; align-items: center; gap: .55rem;
+    font-weight: 600; color: #1f2937; cursor: pointer; margin: 0;
+    padding: .45rem .8rem; border: 1px solid #d1d5db; border-radius: 10px;
+    background: #f9fafb;
+}
+.cc-switch input { width: 16px; height: 16px; accent-color: #4f46e5; margin: 0; }
+.cc-switch:hover { border-color: #4f46e5; }
+
+/* ── Tabla de semanas ─────────────────────────────────────────────────── */
+.cc-week { font-weight: 700; color: #1f2937; white-space: nowrap; }
+.cc-week small { display: block; font-weight: 400; color: #6b7280; }
+
+.cc-ventana { font-size: .82rem; color: #475569; line-height: 1.35; white-space: nowrap; }
+.cc-ventana .cc-cutoff { color: #92400e; }
+.cc-ventana .cc-sin { color: #94a3b8; font-style: italic; }
+
+.cc-row-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.cc-row-controls select,
+.cc-row-controls input[type="time"] {
+    border: 1px solid #d1d5db; border-radius: 8px; background: #f9fafb;
+    padding: 5px 8px; font-size: .85rem; color: #1f2937;
+}
+.cc-row-controls select:focus,
+.cc-row-controls input[type="time"]:focus { outline: none; border-color: #4f46e5; background: #fff; }
+
+.cc-acciones { display: flex; gap: .35rem; justify-content: flex-end; }
+
+/* Estado de la fila: se ve de un vistazo cuál está bloqueando ahora */
+table.pg-table tbody tr.cc-activa { background: #fef2f2; }
+table.pg-table tbody tr.cc-activa:hover { background: #fee2e2; }
+table.pg-table tbody tr.cc-vencida { opacity: .62; }
+
+.cc-estados { display: flex; flex-wrap: wrap; gap: .3rem; }
+
+/* ── Leyenda ──────────────────────────────────────────────────────────── */
+.cc-leyenda {
+    margin-top: 1.1rem; padding-top: 1rem; border-top: 1px solid #eef2f7;
+    font-size: .84rem; color: #6b7280; line-height: 1.6;
+}
+.cc-leyenda .pg-chip { margin-right: .25rem; }
+
+@media (max-width: 576px) {
+    .cc-default { flex-direction: column; align-items: stretch; }
+    .cc-field { min-width: unset; }
+    .cc-acciones { justify-content: flex-start; }
+}

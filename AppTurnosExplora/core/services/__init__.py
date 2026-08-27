@@ -5,7 +5,7 @@ Este módulo actúa como un punto centralizado para obtener instancias
 de servicios que implementan interfaces definidas en `core.interfaces`.
 """
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from core.interfaces import IEmpleadoDisponibilidadService, ITurnoService
 from core.services.cache_service import CacheService as CacheService  # noqa: F401 - Re-export

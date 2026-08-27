@@ -1,10 +1,11 @@
-from django.db import models
 from django.core.exceptions import ValidationError
-from empleados.models import Empleado
+from django.db import models
 from django.utils import timezone
 from simple_history.models import HistoricalRecords
 
-from core.constants import EstadoSolicitud, EstadoCancelacion
+from core.constants import EstadoCancelacion, EstadoSolicitud
+from empleados.models import Empleado
+
 
 class Notificacion(models.Model):
     """Modelo para representar notificaciones del sistema."""

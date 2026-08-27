@@ -1,22 +1,25 @@
 import logging
 
-from django.shortcuts import render
-from core.utils.error_token import render_error_token
-from django.views.generic import TemplateView, ListView, CreateView, DeleteView
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import render
+from django.views.generic import CreateView, DeleteView, ListView, TemplateView
+
 from core.constants import (
-    EstadoCancelacion,
     VENTANA_PEDIR_CANCELACION_HORAS,
     VENTANA_RESPONDER_CANCELACION_HORAS,
+    EstadoCancelacion,
 )
-from .models import PermisoEspecial
 
-# Importar mixin común desde core
-from core.utils.date_utils import DateUtils
-from core.utils.json_responses import json_error
 # Regla transversal: el comentario es obligatorio en toda acción que resuelve algo.
 # Los textos viven en core para que permisos, solicitudes y las plantillas digan lo mismo.
 from core.utils.comentarios import MSG_COMENTARIO, MSG_MOTIVO, leer_texto
+
+# Importar mixin común desde core
+from core.utils.date_utils import DateUtils
+from core.utils.error_token import render_error_token
+from core.utils.json_responses import json_error
+
+from .models import PermisoEspecial
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +60,11 @@ class BeneficiosView(LoginRequiredMixin, TemplateView):
 # Permisos Especiales: el explorador solicita, el supervisor aprueba.
 from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
-from django.views import View
 from django.urls import reverse_lazy
+from django.views import View
+
+from core.constants import JornadaDisplay
+
 from .forms import PermisoEspecialForm, PermisoEspecialPermanenteForm
 
 
@@ -105,6 +111,7 @@ def _invalidar_turnos_cache(permiso):
     """Invalida la caché de Mis Turnos del explorador para que el permiso se vea al instante."""
     try:
         from datetime import timedelta
+
         from core.services.cache_service import CacheService
         meses = set()
         d = permiso.fecha_inicio
@@ -153,7 +160,8 @@ class PermisoEspecialListView(LoginRequiredMixin, ListView):
         # Filtro por mes (formato 'YYYY-MM') — permisos cuyo rango toca ese mes
         mes = self.request.GET.get('mes')
         if mes:
-            from datetime import date as _date, timedelta
+            from datetime import date as _date
+            from datetime import timedelta
             try:
                 y, m = (int(x) for x in mes.split('-')[:2])
                 primero = _date(y, m, 1)
@@ -181,7 +189,7 @@ class PermisoEspecialListView(LoginRequiredMixin, ListView):
             # Si el explorador está sancionado, avisamos y bloqueamos los botones (popup).
             # `refrescar_y_sancion` y no `sancion_activa`: la sanción por deuda vencida puede
             # no existir todavía, y esta pantalla es la que decide si los botones se ofrecen.
-            from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
+            from empleados.sancion_utils import mensaje_sancion, refrescar_y_sancion
             emp = getattr(self.request.user, 'empleado', None)
             s = refrescar_y_sancion(emp)
             if s:
@@ -198,7 +206,7 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
         # Bloqueo por sanción antes de mostrar/procesar el formulario (un solo aviso)
         empleado = getattr(request.user, 'empleado', None)
         if empleado:
-            from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
+            from empleados.sancion_utils import mensaje_sancion, refrescar_y_sancion
             sancion = refrescar_y_sancion(empleado)
             if sancion:
                 messages.warning(request, mensaje_sancion(sancion))
@@ -238,6 +246,7 @@ class _PermisoCreateBase(LoginRequiredMixin, CreateView):
 
         # Cierre semanal: no se pueden pedir permisos para fechas del fin de semana ya cerrado.
         from datetime import timedelta as _td
+
         from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService
         if self.es_permanente:
             _dias_wd = {int(x) for x in form.cleaned_data.get('dias', [])}
@@ -718,8 +727,10 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
     jornada en el día de descanso de la MISMA semana.
     """
     def post(self, request):
-        from datetime import datetime as _dt, timedelta as _td
-        from core.utils.json_responses import json_ok, json_error
+        from datetime import datetime as _dt
+        from datetime import timedelta as _td
+
+        from core.utils.json_responses import json_error, json_ok
         from turnos.services.turno_service import TurnoService
 
         emp = getattr(request.user, 'empleado', None)
@@ -728,7 +739,7 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
 
         # Bloqueo por sanción de deuda: igual que los permisos normales, un empleado
         # sancionado NO puede realizar solicitudes ni permisos mientras dure la sanción.
-        from empleados.sancion_utils import refrescar_y_sancion, mensaje_sancion
+        from empleados.sancion_utils import mensaje_sancion, refrescar_y_sancion
         _sancion = refrescar_y_sancion(emp)
         if _sancion:
             return json_error(mensaje_sancion(_sancion), status=403, code='sancionado')
@@ -774,7 +785,7 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
         # Fuente de verdad: fecha_trabajo debe ser mi día completo de temporada;
         # fecha_compensacion debe ser mi día libre.
         e_trab = TurnoService.estado_dia(emp, f_trabajo)
-        if not (e_trab['trabaja'] and e_trab['jornada'] == 'DOBLADA'):
+        if not (e_trab['trabaja'] and e_trab['jornada'] == JornadaDisplay.DOBLADA):
             return json_error('Ese día no es tu día completo de temporada (o ya fue modificado).',
                               status=400, code='invalid')
         e_comp = TurnoService.estado_dia(emp, f_comp)

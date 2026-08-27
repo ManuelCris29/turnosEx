@@ -9,10 +9,11 @@ Para evitar esos huérfanos, al borrar una solicitud cancelamos (no borramos) su
 corporativas: se conserva la traza histórica pero dejan de contar.
 """
 import logging
+
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
 
-from .models import SolicitudCambio, DeudaCorporativa, DeudaExplorador
+from .models import DeudaCorporativa, DeudaExplorador, SolicitudCambio
 
 logger = logging.getLogger(__name__)
 

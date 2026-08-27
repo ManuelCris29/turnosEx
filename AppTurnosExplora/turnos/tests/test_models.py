@@ -1,12 +1,14 @@
 """
 Tests para modelos de turnos
 """
-from django.test import TestCase
-from django.contrib.auth.models import User
-from empleados.models import Empleado, Jornada
-from turnos.models import Turno, AsignarJornadaExplorador, Sala
 from datetime import timedelta
+
+from django.contrib.auth.models import User
+from django.test import TestCase
 from django.utils import timezone
+
+from empleados.models import Empleado, Jornada
+from turnos.models import AsignarJornadaExplorador, Sala, Turno
 
 
 class TurnoModelTest(TestCase):

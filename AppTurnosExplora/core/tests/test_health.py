@@ -30,8 +30,8 @@ class TestHealth:
         las tareas a la vez y convertiría un incidente recuperable en una caída
         total. `django_assert_num_queries` deja constancia de esa exigencia.
         """
-        from django.test.utils import CaptureQueriesContext
         from django.db import connection
+        from django.test.utils import CaptureQueriesContext
 
         with CaptureQueriesContext(connection) as consultas:
             respuesta = client.get(reverse('health'))

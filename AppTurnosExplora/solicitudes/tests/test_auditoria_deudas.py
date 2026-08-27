@@ -17,14 +17,17 @@ from datetime import date, timedelta
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from django.test import TestCase
-
-from empleados.models import Empleado, CompetenciaEmpleado
-from solicitudes.models import (
-    SolicitudCambio, TipoSolicitudCambio, DobladaDetalle,
-    DeudaCorporativa, DeudaExplorador,
-)
-from turnos.models import Jornada, Sala, Turno, AsignarJornadaExplorador
 from django.utils import timezone
+
+from empleados.models import CompetenciaEmpleado, Empleado
+from solicitudes.models import (
+    DeudaCorporativa,
+    DeudaExplorador,
+    DobladaDetalle,
+    SolicitudCambio,
+    TipoSolicitudCambio,
+)
+from turnos.models import AsignarJornadaExplorador, Jornada, Sala, Turno
 
 
 def _martes_futuro(desde_dias=14):
@@ -204,6 +207,7 @@ class TestGuardiaLIFOProtegeLaPermanente(AuditoriaDeudasTestCase):
 
     def test_no_deja_cancelar_si_una_permanente_posterior_toca_el_mismo_dia(self):
         from django.utils import timezone
+
         from solicitudes.models import DobladaPermanenteDetalle
         from solicitudes.tests.helpers_cancelacion import cancelar_con_acuerdo
 
@@ -437,8 +441,8 @@ class TestCicloAprobarCancelarDejaTodoComoEstaba(AuditoriaDeudasTestCase):
                 for t in Turno.objects.filter(explorador=empleado, fecha=fecha).select_related('jornada')}
 
     def test_doblada_aprobar_y_cancelar_restaura_horas_y_turnos(self):
-        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
         from solicitudes.services.doblada_aplicacion_service import DobladaAplicacionService
+        from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
 
         cesion = _martes_futuro()
         pago = cesion + timedelta(days=7)

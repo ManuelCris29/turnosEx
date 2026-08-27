@@ -20,7 +20,7 @@ from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, Sala, Turno
 
 

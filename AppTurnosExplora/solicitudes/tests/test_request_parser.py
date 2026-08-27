@@ -7,6 +7,7 @@ Cubren:
 - get_fechas_del_post() extrae las fechas correctamente
 """
 from django.test import TestCase
+
 from solicitudes.services.solicitud_request_parser import SolicitudRequestParser
 
 

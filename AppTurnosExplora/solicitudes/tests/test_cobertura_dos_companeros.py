@@ -15,11 +15,11 @@ Escenario de temporada usado:
 from datetime import date, timedelta
 
 from django.contrib.auth.models import User
-from django.test import TestCase, Client
+from django.test import Client, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from empleados.models import Empleado, Jornada, CompetenciaEmpleado
+from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, Sala
 

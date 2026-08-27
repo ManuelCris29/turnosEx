@@ -11,11 +11,14 @@ Lo que se protege aquí:
 from datetime import date, timedelta
 
 from django.contrib.auth.models import User
-from django.test import TestCase, Client, override_settings
+from django.test import Client, TestCase, override_settings
 
 from empleados.models import Empleado, Jornada
 from turnos.models import (
-    AperturaAnioConfig, AsignacionEspecialManual, DescansoSemanaManual, DiaEspecial,
+    AperturaAnioConfig,
+    AsignacionEspecialManual,
+    DescansoSemanaManual,
+    DiaEspecial,
 )
 from turnos.services.apertura_anio_service import AperturaAnioService
 from turnos.services.asignacion_especial_service import AsignacionEspecialService

@@ -421,7 +421,9 @@ class ErroresQueYaNoSeDisfrazanTestCase(BaseApiTurno):
         from solicitudes.services import solicitud_factory as factory_mod
         from solicitudes.services.strategies import base_strategy as base_mod
         from solicitudes.services.strategies import (
-            cambio_turno_strategy, d_fds_strategy, doblada_permanente_strategy,
+            cambio_turno_strategy,
+            d_fds_strategy,
+            doblada_permanente_strategy,
             doblada_strategy,
         )
 
