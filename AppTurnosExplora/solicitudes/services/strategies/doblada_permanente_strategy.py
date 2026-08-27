@@ -75,7 +75,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
         return fecha
 
     # NOTA: aquí vivía `_grupo_base` (grupo AM/PM por asignación). La elegibilidad de este
-    # formulario se decide día a día con la jornada REAL (`_jornada_doblada_perm` sobre
+    # formulario se decide día a día con la jornada REAL (`jornada_doblada_perm` sobre
     # `estado_dia`), que además exige que sean contrarias, así que dejó de usarse.
 
     def _datos_desde_solicitud(self, solicitud):

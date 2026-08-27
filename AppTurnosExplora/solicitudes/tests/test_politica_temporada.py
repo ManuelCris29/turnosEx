@@ -27,7 +27,7 @@ Son DOS ejes distintos, y conviene no mezclarlos:
    pudiendo operar en el resto de días de una semana de temporada.
 
    El predicado único es `DescansoSemanaService.es_dia_descanso_temporada(fecha)`. NO sirve
-   `DiaEspecial.es_temporada_en` / `_es_temporada`: ese marca la SEMANA, y hay días de descanso
+   `DiaEspecial.es_temporada_en` / `es_temporada`: ese marca la SEMANA, y hay días de descanso
    fijados en fechas sin ese marcador (07/08/2026: `_dia_calendario_no_apto(2026-09-15)`
    devolvía None sobre un día que sí era descanso fijado).
 
@@ -132,25 +132,25 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
     def test_doblada_permanente_rechaza_temporada_por_regla(self):
         from solicitudes.services.ct_permanente_helper import (
             _dia_calendario_no_apto,
-            _jornada_doblada_perm,
+            jornada_doblada_perm,
         )
         self.assertEqual(_dia_calendario_no_apto(self.dia_temporada), 'temporada')
         self.assertIsNone(
-            _jornada_doblada_perm(self.solicitante, self.dia_temporada),
+            jornada_doblada_perm(self.solicitante, self.dia_temporada),
             'un día de temporada no puede ofrecerse como doblable',
         )
 
     def test_ct_permanente_rechaza_temporada_por_regla(self):
         from solicitudes.services.ct_permanente_helper import (
-            _razones_exclusion_ct_permanente,
+            razones_exclusion_ct_permanente,
         )
-        razones = _razones_exclusion_ct_permanente(self.dia_temporada, self.solicitante)
+        razones = razones_exclusion_ct_permanente(self.dia_temporada, self.solicitante)
         self.assertIn('Temporada', razones)
 
     def test_dia_de_descanso_fijado_no_necesita_el_marcador_de_semana(self):
         """
         Los dos ejes son conjuntos DISTINTOS: hay días de descanso fijados en fechas sin el
-        marcador `DiaEspecial.es_temporada`. Por eso la regla no puede apoyarse en `_es_temporada`.
+        marcador `DiaEspecial.es_temporada`. Por eso la regla no puede apoyarse en `es_temporada`.
         """
         from turnos.models import DescansoSemanaManual, Jornada
         from turnos.services.descanso_semana_service import DescansoSemanaService
@@ -173,7 +173,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         """
         from solicitudes.services.ct_permanente_helper import (
             _dia_calendario_no_apto,
-            _razones_exclusion_ct_permanente,
+            razones_exclusion_ct_permanente,
         )
         from turnos.models import DescansoSemanaManual, Jornada
 
@@ -185,7 +185,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
 
         # DOBLADA PERMANENTE y CT PERMANENTE comparten la regla de calendario.
         self.assertEqual(_dia_calendario_no_apto(dia), 'temporada')
-        self.assertIn('Temporada', _razones_exclusion_ct_permanente(dia, self.solicitante))
+        self.assertIn('Temporada', razones_exclusion_ct_permanente(dia, self.solicitante))
 
         # DOBLADA: rechaza tanto si el día es la cesión como si es el pago.
         from solicitudes.services.strategies.doblada_strategy import DobladaStrategy

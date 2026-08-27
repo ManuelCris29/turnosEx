@@ -48,14 +48,14 @@ class DobladaPermanenteAplicacionService:
         o por un cambio de descanso SÍ se incluyen con su jornada real. Cuando se pasan AMBOS
         exploradores, además exige que ese día tengan jornada CONTRARIA (uno AM y el otro PM).
         """
-        from .ct_permanente_helper import _jornada_doblada_perm
+        from .ct_permanente_helper import jornada_doblada_perm
         d = fecha_inicio
         while d <= fecha_fin:
             if d.weekday() in dias_set and d.weekday() < 5:
                 # `excluir_id` ignora ESTA solicitud (al re-validar/aplicar ya aprobada) para no
                 # auto-excluirse por su propio descanso.
-                js = _jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
-                jr = _jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
+                js = jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
+                jr = jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
                 _ok = True
                 if solicitante and js is None:
                     _ok = False
@@ -75,7 +75,7 @@ class DobladaPermanenteAplicacionService:
         ambos con jornada única AM/PM y CONTRARIA ese día; se omiten dobladas (incl. virtuales),
         descansos y días sin turno. Devuelve ordenadas.
         """
-        from .ct_permanente_helper import _jornada_doblada_perm
+        from .ct_permanente_helper import jornada_doblada_perm
         out = []
         for s in (fechas_csv or '').split(','):
             s = s.strip()
@@ -87,8 +87,8 @@ class DobladaPermanenteAplicacionService:
                 continue
             if not (fecha_inicio <= d <= fecha_fin and d.weekday() < 5):
                 continue
-            js = _jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
-            jr = _jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
+            js = jornada_doblada_perm(solicitante, d, excluir_id) if solicitante else None
+            jr = jornada_doblada_perm(receptor, d, excluir_id) if receptor else None
             if solicitante and js is None:
                 continue
             if receptor and jr is None:
@@ -109,19 +109,19 @@ class DobladaPermanenteAplicacionService:
             {'cesion': {'aplicables': [date], 'excluidas': [{'fecha': date, 'razon': str}]},
              'devolucion': {'aplicables': [date], 'excluidas': [{'fecha': date, 'razon': str}]}}
         """
-        from .ct_permanente_helper import _jornada_doblada_perm, _motivo_no_doblada_perm
+        from .ct_permanente_helper import jornada_doblada_perm, motivo_no_doblada_perm
 
         fi = detalle.fecha_inicio
         ff = detalle.fecha_fin or date(fi.year, 12, 31)
 
         def _elegible(d):
-            js = _jornada_doblada_perm(solicitante, d)
-            jr = _jornada_doblada_perm(receptor, d)
+            js = jornada_doblada_perm(solicitante, d)
+            jr = jornada_doblada_perm(receptor, d)
             if js is not None and jr is not None and js != jr:
                 return True, None
             razon = (
-                _motivo_no_doblada_perm(solicitante, d)
-                or _motivo_no_doblada_perm(receptor, d)
+                motivo_no_doblada_perm(solicitante, d)
+                or motivo_no_doblada_perm(receptor, d)
                 or 'Sin jornada única disponible'
             )
             return False, razon
@@ -281,9 +281,9 @@ class DobladaPermanenteAplicacionService:
 
         # La jornada que el solicitante CEDE cada día hay que leerla ANTES de mutar nada: los
         # bucles de abajo le borran el turno, y después el día ya no dice qué jornada tenía.
-        from .ct_permanente_helper import _jornada_doblada_perm
+        from .ct_permanente_helper import jornada_doblada_perm
         jornadas_cedidas = {
-            fecha: _jornada_doblada_perm(solicitante, fecha, _ex) for fecha in ocur_ces
+            fecha: jornada_doblada_perm(solicitante, fecha, _ex) for fecha in ocur_ces
         }
 
         # Cesión: receptor dobla, solicitante descansa

@@ -386,7 +386,7 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
         from datetime import timedelta
 
         from ..services.ct_permanente_helper import (
-            _motivo_no_doblada_perm,
+            motivo_no_doblada_perm,
             precargar_ct_permanente,
         )
 
@@ -427,7 +427,7 @@ class PrevisualizarDobladaPermanenteView(LoginRequiredMixin, View):
                 while d <= ff:
                     wd = d.weekday()
                     if wd in dias:
-                        razon = _motivo_no_doblada_perm(solicitante, d)
+                        razon = motivo_no_doblada_perm(solicitante, d)
                         if razon:
                             excluidas.append({'fecha': d.strftime('%Y-%m-%d'), 'razon': razon})
                         else:
@@ -457,9 +457,9 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
         from empleados.models import Empleado
 
         from ..services.ct_permanente_helper import (
-            _jornada_doblada_perm,
-            _motivo_no_cubre_companero,
             bloque_calendario_no_apto,
+            jornada_doblada_perm,
+            motivo_no_cubre_companero,
             precargar_ct_permanente,
         )
 
@@ -512,7 +512,7 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
             (doblada, descanso, festivo, etc.). Fin de semana no aplica a la doblada permanente."""
             if d.weekday() >= 5:
                 return None
-            return _jornada_doblada_perm(solicitante, d)
+            return jornada_doblada_perm(solicitante, d)
 
         # por_dia["wd"]: por cada día de semana, las fechas del SOLICITANTE con SU jornada real
         # {f: fecha, ys: 'AM'/'PM'} — para que el formulario indique, ANTES de elegir compañero, en
@@ -544,12 +544,12 @@ class DiasDisponiblesDobladaPermanenteView(LoginRequiredMixin, View):
                         for (wd, cid), comp in pares_norm.items():
                             if wd != w:
                                 continue
-                            jr = _jornada_doblada_perm(comp, d) if comp else None
+                            jr = jornada_doblada_perm(comp, d) if comp else None
                             if jr and jr != js:
                                 por_par[f"{wd}|{cid}"].append({'f': ds, 'ys': js, 'yc': jr})
                             else:
                                 # Solo aquí se paga el costo de reconstruir el estado del compañero.
-                                motivo = _motivo_no_cubre_companero(comp, d, js)
+                                motivo = motivo_no_cubre_companero(comp, d, js)
                                 no_cubre[f"{wd}|{cid}"].append(
                                     {'f': ds, 'ys': js, 'tipo': motivo['tipo'], 'razon': motivo['razon']}
                                 )

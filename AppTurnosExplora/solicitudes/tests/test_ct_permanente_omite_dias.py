@@ -146,8 +146,8 @@ class CTPermanenteOmiteDiasTest(TestCase):
         de un día en el que el solicitante ya cubre AM y PM.
         """
         from solicitudes.services.ct_permanente_helper import (
-            _razones_exclusion_ct_permanente,
             evaluar_fechas_ct_permanente,
+            razones_exclusion_ct_permanente,
         )
         from turnos.services.turno_service import TurnoService
 
@@ -166,7 +166,7 @@ class CTPermanenteOmiteDiasTest(TestCase):
         aplicables, _ = evaluar_fechas_ct_permanente(
             self.fi, self.ff, self.sol, None, {'dias_semana': [1]})
         self.assertNotIn(m, aplicables, 'sin compañero elegido, un día ya doblado NO es aplicable')
-        self.assertEqual(_razones_exclusion_ct_permanente(m, self.sol, None), ['Doblada Solicitante'])
+        self.assertEqual(razones_exclusion_ct_permanente(m, self.sol, None), ['Doblada Solicitante'])
 
     # --- turno real que cambia la jornada (CT sencillo) → cambio previo ------
     def test_cambio_previo_se_omite(self):

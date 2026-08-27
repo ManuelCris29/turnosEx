@@ -76,7 +76,7 @@ class IndicadoresService:
     @staticmethod
     def _ocurrencias_doblada_perm(solicitud, anio, hasta):
         """Fechas reales de doblada de una doblada permanente dentro del año (cesión + devolución)."""
-        from solicitudes.services.ct_permanente_helper import _es_festivo
+        from solicitudes.services.ct_permanente_helper import es_festivo
         from turnos.models import DiaEspecial
         det = getattr(solicitud, 'doblada_permanente', None)
         if not det:
@@ -91,7 +91,7 @@ class IndicadoresService:
         fin = min(det.fecha_fin, date(anio, 12, 31), hasta)
         while d <= fin:
             if (d.weekday() in dias and d.weekday() != 6
-                    and not _es_festivo(d)
+                    and not es_festivo(d)
                     and not DiaEspecial.es_mantenimiento_efectivo(d)):
                 res.append(d)
             d += timedelta(days=1)
@@ -100,7 +100,7 @@ class IndicadoresService:
     @staticmethod
     def _ocurrencias_ct_perm(solicitud, anio, hasta):
         """Fechas reales de cambio de un CT permanente dentro del año (lun-vie, sin festivos)."""
-        from solicitudes.services.ct_permanente_helper import _es_festivo
+        from solicitudes.services.ct_permanente_helper import es_festivo
         det = getattr(solicitud, 'cambio_permanente', None)
         if not det:
             return []
@@ -112,13 +112,13 @@ class IndicadoresService:
         res = []
         if fechas_esp:
             for f in fechas_esp:
-                if f.year == anio and f <= hasta and f.weekday() < 5 and not _es_festivo(f):
+                if f.year == anio and f <= hasta and f.weekday() < 5 and not es_festivo(f):
                     res.append(f)
         else:
             d = max(det.fecha_inicio, date(anio, 1, 1))
             fin = min(det.fecha_fin or date(anio, 12, 31), date(anio, 12, 31), hasta)
             while d <= fin:
-                if d.weekday() < 5 and (not dias_sem or d.weekday() in dias_sem) and not _es_festivo(d):
+                if d.weekday() < 5 and (not dias_sem or d.weekday() in dias_sem) and not es_festivo(d):
                     res.append(d)
                 d += timedelta(days=1)
         return res

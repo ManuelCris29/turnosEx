@@ -30,7 +30,7 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
                 cuando `solo_jornada_contraria=True`. En el caso por defecto la lista es la de
                 todos los activos no administradores, sin ningún filtro por día: quien necesite
                 disponibilidad REAL por fecha debe evaluarla aparte (p. ej. el CT permanente lo
-                hace día a día con `_razones_exclusion_ct_permanente`).
+                hace día a día con `razones_exclusion_ct_permanente`).
             usuario_actual: Usuario actual (para excluirlo de la lista)
             solo_jornada_contraria: Si True, solo devuelve empleados de jornada contraria
 

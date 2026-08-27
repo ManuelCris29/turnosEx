@@ -689,8 +689,8 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
             # Con el mapeo de entre semana, quien trabajaba su sábado por un intercambio salía sin
             # compañero, y el detalle del día no podía decir con quién había cambiado (era el caso
             # de Marco el 15/08: trabajaba por el trueque con jeison y el mensaje no lo nombraba).
-            # `_otro_dia` es el MISMO helper que usa el aplicador: una sola fuente para sáb↔dom.
-            from solicitudes.services.cambio_descanso_aplicacion_service import _otro_dia
+            # `otro_dia` es el MISMO helper que usa el aplicador: una sola fuente para sáb↔dom.
+            from solicitudes.services.cambio_descanso_aplicacion_service import otro_dia
             fechas_set = set(fechas_obj)
             cd_finde = (SolicitudCambio.objects
                         .filter(tipo_cambio__nombre='CAMBIO DESCANSO', estado='aprobada')
@@ -704,7 +704,7 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
                 fp = sol.doblada.fecha_pago if sol.doblada else None
                 es_solicitante = sol.explorador_solicitante_id == empleado.id
                 if es_solicitante:
-                    dias_que_trabaja = [_otro_dia(f) for f in (fc, fp) if f]
+                    dias_que_trabaja = [otro_dia(f) for f in (fc, fp) if f]
                     companero, rol = sol.explorador_receptor, 'solicitante'
                 else:
                     dias_que_trabaja = [f for f in (fc, fp) if f]

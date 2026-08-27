@@ -472,7 +472,7 @@ class DobladaPermJornadaRealTest(TestCase):
         es DOBLADA → no elegible → el día se OMITE (no queda en el limbo)."""
         from django.core.cache import cache
 
-        from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm, _jornada_unica_real
+        from solicitudes.services.ct_permanente_helper import _jornada_unica_real, jornada_doblada_perm
         from solicitudes.services.doblada_permanente_aplicacion_service import (
             DobladaPermanenteAplicacionService as DPAS,
         )
@@ -482,7 +482,7 @@ class DobladaPermJornadaRealTest(TestCase):
         DescansoSemanaManual.objects.create(fecha=m, jornada=self.pm, activo=True)
         cache.clear()
         self.assertEqual(_jornada_unica_real(self.sol, m), 'AM', 'la BASE (lo que veía el form antes) es AM')
-        self.assertIsNone(_jornada_doblada_perm(self.sol, m), 'la realidad es DOBLADA virtual → no elegible')
+        self.assertIsNone(jornada_doblada_perm(self.sol, m), 'la realidad es DOBLADA virtual → no elegible')
         self.assertNotIn(m, list(DPAS._ocurrencias(self.fi, self.ff, {1}, self.sol, self.rec)))
 
     def test_cambio_descanso_da_jornada_real_elegible(self):
@@ -491,10 +491,10 @@ class DobladaPermJornadaRealTest(TestCase):
 
         Tras unificar `_es_dia_descanso` en `estado_dia` (antes era config-based), ambos helpers
         coinciden: el explorador trabaja AM de verdad, así que NI `_es_dia_descanso` lo ve como
-        descanso NI `_jornada_doblada_perm` lo omite. Antes divergían (config decía descanso)."""
+        descanso NI `jornada_doblada_perm` lo omite. Antes divergían (config decía descanso)."""
         from django.core.cache import cache
 
-        from solicitudes.services.ct_permanente_helper import _es_dia_descanso, _jornada_doblada_perm
+        from solicitudes.services.ct_permanente_helper import _es_dia_descanso, jornada_doblada_perm
         from turnos.models import DescansoSemanaManual, Turno
         m = self._martes()[0]
         # config: AM descansa. `motivo='otro'` porque un descanso FIJADO de temporada está vetado
@@ -505,7 +505,7 @@ class DobladaPermJornadaRealTest(TestCase):
         cache.clear()
         # Fuente de verdad: trabaja AM de verdad → NO descansa (ni por _es_dia_descanso ni por elegibilidad).
         self.assertFalse(_es_dia_descanso(self.sol, m), 'trabaja AM de verdad → no descansa (estado_dia)')
-        self.assertEqual(_jornada_doblada_perm(self.sol, m), 'AM', 'y es elegible en AM')
+        self.assertEqual(jornada_doblada_perm(self.sol, m), 'AM', 'y es elegible en AM')
 
 
 class DobladaPermRevertRestauraEstadoPrevioTest(TestCase):

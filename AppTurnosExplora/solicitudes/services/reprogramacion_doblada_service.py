@@ -195,7 +195,7 @@ class ReprogramacionDobladaService:
         cancelar), o None en D FDS —donde la unidad es el día completo y no hay jornada previa—.
         Lanza ValueError con el motivo si el día no sirve.
         """
-        from solicitudes.services.ct_permanente_helper import _jornada_doblada_perm
+        from solicitudes.services.ct_permanente_helper import jornada_doblada_perm
 
         hoy = hoy or timezone.localdate()
         if fecha_nueva == reprog.fecha_original:
@@ -214,7 +214,7 @@ class ReprogramacionDobladaService:
             return None
 
         # La persona debe tener jornada única real ese día (para poder doblar = agregar la contraria).
-        j = _jornada_doblada_perm(reprog.explorador, fecha_nueva)
+        j = jornada_doblada_perm(reprog.explorador, fecha_nueva)
         if j is None:
             raise ValueError(
                 'Ese día la persona no tiene una jornada única para doblar (ya dobla, descansa, '

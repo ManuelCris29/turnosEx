@@ -1,6 +1,33 @@
 """
-Helper para calcular fechas aplicables de cambios permanentes.
-Reutiliza la lógica de CTPermanenteStrategy para ser usada en otros contextos.
+Núcleo de evaluación de DÍAS para los cambios PERMANENTES.
+
+⚠ El nombre del archivo dice `ct_permanente`, pero el módulo sirve a los DOS
+formularios permanentes: CT PERMANENTE y DOBLADA PERMANENTE. El nombre es un
+resto histórico (nació sirviendo solo a CT); el contenido nunca fue solo de CT
+—este docstring ya decía «cambios permanentes», en genérico, desde el principio.
+
+Por qué la doblada permanente vive AQUÍ y no en su propio archivo
+-----------------------------------------------------------------
+Se auditó el 27 ago 2026 con la pregunta de si había que extraerla. La respuesta
+medida fue NO, y conviene dejarla escrita para no volver a plantearlo:
+
+`jornada_doblada_perm` y `motivo_no_doblada_perm` **no traen lógica propia**: son
+consumidoras del núcleo de este módulo. De sus 8 dependencias transitivas, 5 son
+COMPARTIDAS con CT permanente —`estado_ct`, `dia_libre_por_solicitud` y las tres
+lectoras de la caché `es_festivo` / `es_mantenimiento` / `es_temporada`— y las
+otras son `_dia_calendario_no_apto` (la puerta de calendario que citan como
+canónica hasta `turnos/services/turno_service.py` y `descanso_semana_service.py`)
+y `_jornada_unica_real`.
+
+Sacarlas a un `doblada_permanente_helper.py` obligaría a importar esas cuatro
+piezas —dos de ellas privadas— cruzando una frontera de módulo nueva, y dejaría
+la caché `ContextVar` en un archivo y a sus lectores en otro. Es decir:
+reintroduciría la fuga de API privada que cerró
+`core/tests/test_arquitectura_api_privada.py`, y a cambio de nada.
+
+La estructura correcta es la que hay: un NÚCLEO de evaluación de días (calendario,
+estado real, caché de precarga) y DOS familias construidas encima. Lo que sigue
+pendiente es el nombre del archivo, no su contenido.
 """
 import logging
 from contextlib import contextmanager
@@ -83,7 +110,7 @@ class _ContextoCTPermanente:
             if es_temp:
                 self.temporada.add(f)
         # Días de descanso FIJADOS de temporada: cuentan como temporada aunque su fecha no lleve
-        # el marcador de semana (son conjuntos distintos, ver `_es_temporada`). Se traen aquí, en
+        # el marcador de semana (son conjuntos distintos, ver `es_temporada`). Se traen aquí, en
         # una sola consulta para todo el rango, para no pagar una por día.
         self.temporada |= set(DescansoSemanaManual.objects.filter(
             fecha__range=(ini, fin), activo=True, motivo='temporada',
@@ -107,7 +134,7 @@ def precargar_ct_permanente(empleados, fecha_inicio: date, fecha_fin: date):
     Uso::
 
         with precargar_ct_permanente([solicitante, *candidatos], ini, fin):
-            ...  # evaluar_fechas_ct_permanente, _razones_exclusion_ct_permanente, etc.
+            ...  # evaluar_fechas_ct_permanente, razones_exclusion_ct_permanente, etc.
 
     Es puramente una optimización: los resultados son idénticos a los del camino individual.
     Si la precarga falla, se sigue sin caché (correcto, solo más lento).
@@ -256,7 +283,7 @@ def jornadas_intercambiables_ct(solicitante: Empleado, receptor: Empleado, fecha
     return None
 
 
-def _estado_ct(explorador: Empleado, fecha: date) -> dict:
+def estado_ct(explorador: Empleado, fecha: date) -> dict:
     """
     Estado REAL del día según "Mis Turnos" (`TurnoService.estado_dia`), o `{}` si no se pudo
     resolver. Punto único de acceso para no repetir el try/except ni recalcular el estado varias
@@ -300,11 +327,11 @@ def _razon_estado_no_apto(estado: dict, quien: str):
 
 def _jornada_efectiva_ct(explorador: Empleado, fecha: date):
     """Jornada REAL única ('AM'/'PM') del explorador ese día, o None (descansa o ya dobla)."""
-    jornada = _estado_ct(explorador, fecha).get('jornada')
+    jornada = estado_ct(explorador, fecha).get('jornada')
     return jornada if jornada in ('AM', 'PM') else None
 
 
-def _razones_exclusion_ct_permanente(
+def razones_exclusion_ct_permanente(
     fecha: date,
     solicitante: Empleado,
     receptor: Empleado = None,
@@ -326,14 +353,14 @@ def _razones_exclusion_ct_permanente(
 
     if fecha.weekday() in (5, 6):
         razones.append('Fines de semana')
-    if _es_festivo(fecha):
+    if es_festivo(fecha):
         razones.append('Festivo')
-    if _es_mantenimiento(fecha):
+    if es_mantenimiento(fecha):
         razones.append('Mantenimiento')
-    # `_es_temporada` incluye tanto la semana de temporada como los días de descanso fijados
+    # `es_temporada` incluye tanto la semana de temporada como los días de descanso fijados
     # dentro de ella (exclusivos del formulario de CAMBIO DESCANSO). Mismo motivo para los dos:
     # al usuario le da igual el matiz, el día no está disponible aquí.
-    if _es_temporada(fecha):
+    if es_temporada(fecha):
         razones.append('Temporada')
 
     # APTITUD DEL DÍA según el estado REAL ("Mis Turnos"): hace falta MEDIA JORNADA (AM/PM).
@@ -343,18 +370,18 @@ def _razones_exclusion_ct_permanente(
     # abajo— estaba condicionada a que hubiera receptor: un día ya DOBLADO se colaba como
     # aplicable en la previsualización sin compañero, y con compañero se excluía pero con el
     # motivo equivocado ('Sin jornada contraria' en vez de 'Doblada').
-    razon_sol = _razon_estado_no_apto(_estado_ct(solicitante, fecha), 'Solicitante')
+    razon_sol = _razon_estado_no_apto(estado_ct(solicitante, fecha), 'Solicitante')
     if razon_sol:
         razones.append(razon_sol)
     if receptor:
-        razon_rec = _razon_estado_no_apto(_estado_ct(receptor, fecha), 'Receptor')
+        razon_rec = _razon_estado_no_apto(estado_ct(receptor, fecha), 'Receptor')
         if razon_rec:
             razones.append(razon_rec)
 
     # Día LIBRE por otra solicitud aprobada (sin Turno: doblada cedida, cambio de descanso…)
-    if _dia_libre_por_solicitud(solicitante, fecha):
+    if dia_libre_por_solicitud(solicitante, fecha):
         razones.append('Día libre Solicitante')
-    if receptor and _dia_libre_por_solicitud(receptor, fecha):
+    if receptor and dia_libre_por_solicitud(receptor, fecha):
         razones.append('Día libre Receptor')
 
     # Día ya cambiado (doblada / CT sencillo / D FDS): no está en jornada predeterminada
@@ -416,7 +443,7 @@ def evaluar_fechas_ct_permanente(
     ):
         aplicables, excluidas = [], []
         for fecha_dia in sorted(candidatas):
-            razones = _razones_exclusion_ct_permanente(fecha_dia, solicitante, receptor, excluir_pasadas)
+            razones = razones_exclusion_ct_permanente(fecha_dia, solicitante, receptor, excluir_pasadas)
             if razones:
                 excluidas.append({'fecha': fecha_dia, 'razon': _razon_principal_ct_permanente(razones)})
             else:
@@ -424,7 +451,7 @@ def evaluar_fechas_ct_permanente(
     return aplicables, excluidas
 
 
-def _rango_detalle(detalle: CambioPermanenteDetalle) -> Tuple[date, date]:
+def rango_detalle(detalle: CambioPermanenteDetalle) -> Tuple[date, date]:
     """Rango (inicio, fin) del detalle; si no hay fecha_fin, hasta fin de año."""
     fecha_fin = detalle.fecha_fin or date(detalle.fecha_inicio.year, 12, 31)
     return detalle.fecha_inicio, fecha_fin
@@ -441,7 +468,7 @@ def calcular_fechas_aplicables_ct_permanente(
 
     Envoltorio sobre `evaluar_fechas_ct_permanente`.
     """
-    fecha_inicio, fecha_fin = _rango_detalle(detalle)
+    fecha_inicio, fecha_fin = rango_detalle(detalle)
     aplicables, _ = evaluar_fechas_ct_permanente(
         fecha_inicio, fecha_fin, solicitante, receptor,
         dias_seleccionados_desde_detalle(detalle),
@@ -449,7 +476,7 @@ def calcular_fechas_aplicables_ct_permanente(
     return aplicables
 
 
-def _es_festivo(fecha: date) -> bool:
+def es_festivo(fecha: date) -> bool:
     """Verificar si es festivo"""
     ctx = _CTX_CT_PERMANENTE.get()
     if ctx is not None and ctx.cubre_fecha(fecha):
@@ -457,7 +484,7 @@ def _es_festivo(fecha: date) -> bool:
     return DiaEspecial.es_festivo(fecha)
 
 
-def _es_mantenimiento(fecha: date) -> bool:
+def es_mantenimiento(fecha: date) -> bool:
     """Verificar si es día de mantenimiento EFECTIVO (temporada manda sobre mantenimiento)."""
     ctx = _CTX_CT_PERMANENTE.get()
     if ctx is not None and ctx.cubre_fecha(fecha):
@@ -467,7 +494,7 @@ def _es_mantenimiento(fecha: date) -> bool:
     except Exception:
         return False
 
-def _es_temporada(fecha: date) -> bool:
+def es_temporada(fecha: date) -> bool:
     """
     ¿`fecha` queda descartada por temporada? Cubre DOS cosas, no una:
 
@@ -509,7 +536,7 @@ def _es_dia_descanso(explorador: Empleado, fecha: date) -> bool:
     """
     # Por defecto `trabaja=True`: si el estado no se pudo resolver, no inventamos un descanso
     # (mismo comportamiento permisivo que tenía el try/except original).
-    return not _estado_ct(explorador, fecha).get('trabaja', True)
+    return not estado_ct(explorador, fecha).get('trabaja', True)
 
 
 def _tipo_cambio_previo(explorador: Empleado, fecha: date):
@@ -547,7 +574,7 @@ def _tipo_cambio_previo(explorador: Empleado, fecha: date):
         return None
 
 
-def _dia_libre_por_solicitud(empleado: Empleado, fecha: date, excluir_id=None) -> bool:
+def dia_libre_por_solicitud(empleado: Empleado, fecha: date, excluir_id=None) -> bool:
     """
     ¿El empleado tiene el día LIBRE por una solicitud APROBADA (doblada cedida, pago de doblada,
     cambio de descanso, doblada permanente)? Capta los descansos por solicitud que NO dejan un
@@ -576,7 +603,7 @@ def _jornada_unica_real(explorador: Empleado, fecha: date):
 
     Deliberadamente NO usa `estado_dia` (su capa L2 de descanso por solicitud): así la jornada del
     día no se confunde con el descanso que genera la PROPIA doblada permanente al re-validar o
-    re-aplicar. Los descansos por solicitud se filtran aparte con `_dia_libre_por_solicitud`
+    re-aplicar. Los descansos por solicitud se filtran aparte con `dia_libre_por_solicitud`
     (que sí admite `excluir_id`).
     """
     try:
@@ -611,8 +638,8 @@ def _elegibles_contrarios_doblada(solicitante: Empleado, receptor: Empleado, fec
     ¿En `fecha` el solicitante y el receptor son elegibles para doblarse? Ambos deben tener
     jornada ÚNICA real (AM/PM) y CONTRARIA entre sí. Devuelve (js, jr) si son contrarios, o None.
     """
-    js = _jornada_doblada_perm(solicitante, fecha)
-    jr = _jornada_doblada_perm(receptor, fecha)
+    js = jornada_doblada_perm(solicitante, fecha)
+    jr = jornada_doblada_perm(receptor, fecha)
     if js and jr and js != jr:
         return js, jr
     return None
@@ -625,7 +652,7 @@ def _dia_calendario_no_apto(fecha: date):
 
     Una doblada permanente parte de la jornada PREDETERMINADA del día y la duplica; en
     mantenimiento, festivo o temporada el día no está en jornada predeterminada, así que no hay
-    nada que doblar. Se comprueba por REGLA, igual que hace `_razones_exclusion_ct_permanente`
+    nada que doblar. Se comprueba por REGLA, igual que hace `razones_exclusion_ct_permanente`
     para el CT permanente, y NO se delega en que `estado_dia` lo refleje: la capa de temporada
     solo altera el estado de quien descansa o dobla por temporada, de modo que a un explorador
     que en temporada conserva su jornada el día le llegaba como 'base' AM/PM y se ofrecía como
@@ -633,18 +660,18 @@ def _dia_calendario_no_apto(fecha: date):
     una defensa de una sola capa que no cubre el POST directo ni un rango precargado.
 
     Prioridad igual que en el resto del módulo: mantenimiento > festivo > temporada. Ojo:
-    `_es_mantenimiento` ya es el mantenimiento EFECTIVO (en temporada no cuenta).
+    `es_mantenimiento` ya es el mantenimiento EFECTIVO (en temporada no cuenta).
 
-    `_es_temporada` cubre tanto el marcador de la SEMANA de temporada como los DOS DÍAS de
+    `es_temporada` cubre tanto el marcador de la SEMANA de temporada como los DOS DÍAS de
     descanso que el supervisor fija dentro de ella — que son territorio exclusivo del formulario
     de CAMBIO DESCANSO y que, en la práctica, aparecen también en fechas sin ese marcador
     (comprobado el 07/08/2026: 2026-09-15 salía apto).
     """
-    if _es_mantenimiento(fecha):
+    if es_mantenimiento(fecha):
         return 'mantenimiento'
-    if _es_festivo(fecha):
+    if es_festivo(fecha):
         return 'festivo'
-    if _es_temporada(fecha):
+    if es_temporada(fecha):
         return 'temporada'
     return None
 
@@ -771,7 +798,7 @@ def jornadas_unicas_reales(empleados, fecha: date) -> dict:
     return salida
 
 
-def _jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
+def jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
     """
     Jornada REAL efectiva (AM/PM) del explorador ese día para la DOBLADA PERMANENTE, según la
     FUENTE DE VERDAD de "Mis Turnos" (`TurnoService.estado_dia`): refleja turnos reales, temporada,
@@ -791,7 +818,7 @@ def _jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
     """
     if _dia_calendario_no_apto(fecha):
         return None
-    st = _estado_ct(explorador, fecha)
+    st = estado_ct(explorador, fecha)
     j = st.get('jornada')
     if j in ('AM', 'PM'):
         return j
@@ -801,12 +828,12 @@ def _jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
     # (excluir_id)— el día ya NO estaría libre, ese descanso es de la PROPIA doblada permanente:
     # recuperar la jornada previa (turno real o base) para no auto-excluirse al re-validar.
     if excluir_id is not None and st.get('fuente') == 'solicitud':
-        if not _dia_libre_por_solicitud(explorador, fecha, excluir_id):
+        if not dia_libre_por_solicitud(explorador, fecha, excluir_id):
             return _jornada_unica_real(explorador, fecha)
     return None
 
 
-def _motivo_no_doblada_perm(explorador: Empleado, fecha: date):
+def motivo_no_doblada_perm(explorador: Empleado, fecha: date):
     """
     Razón corta (para el preview) por la que el explorador NO puede doblar ese día, o None si SÍ
     puede (tiene jornada única AM/PM). Usa `estado_dia` para dar el motivo REAL (coincide con
@@ -814,14 +841,14 @@ def _motivo_no_doblada_perm(explorador: Empleado, fecha: date):
     """
     calendario = _dia_calendario_no_apto(fecha)
     if calendario:
-        # Mismo veredicto que `_jornada_doblada_perm`, con el motivo del calendario. Va primero
+        # Mismo veredicto que `jornada_doblada_perm`, con el motivo del calendario. Va primero
         # porque en temporada el estado del día puede seguir siendo una jornada normal.
         return {
             'mantenimiento': 'Mantenimiento',
             'festivo': 'Festivo',
             'temporada': 'Descanso de temporada',
         }[calendario]
-    st = _estado_ct(explorador, fecha)
+    st = estado_ct(explorador, fecha)
     if not st:
         return 'No se pudo determinar tu turno ese día'
     j = st.get('jornada')
@@ -845,7 +872,7 @@ def _motivo_no_doblada_perm(explorador: Empleado, fecha: date):
     return motivo or 'Ese día descansas o no tienes turno'
 
 
-def _motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicitante: str):
+def motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicitante: str):
     """
     Razón corta, en TERCERA persona, por la que `companero` NO puede cubrir/doblar con el
     solicitante en `fecha`; None si sí puede (jornada única y contraria).
@@ -870,7 +897,7 @@ def _motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicit
             'festivo': 'ese día es festivo',
             'temporada': 'ese día es de temporada',
         }[calendario]}
-    jr = _jornada_doblada_perm(companero, fecha)
+    jr = jornada_doblada_perm(companero, fecha)
     if jr and jr != jornada_solicitante:
         return None
     nombre = getattr(companero, 'nombre', '') or 'El compañero'
@@ -878,7 +905,7 @@ def _motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicit
         # Contrario a lo que sugería el mensaje genérico, aquí sí hay jornada: el choque es
         # que ambos están en la MISMA (nadie puede cubrir a nadie).
         return {'tipo': 'misma_jornada', 'razon': f'{nombre} también está {jr}'}
-    st = _estado_ct(companero, fecha)
+    st = estado_ct(companero, fecha)
     if not st:
         return {'tipo': 'no_disponible', 'razon': f'no se pudo determinar el turno de {nombre}'}
     if st.get('jornada') == JornadaDisplay.DOBLADA:
@@ -923,7 +950,7 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
     Returns:
         (fechas_aplicables, [{'fecha': date, 'razon': str}, ...])
     """
-    fecha_inicio, fecha_fin = _rango_detalle(detalle)
+    fecha_inicio, fecha_fin = rango_detalle(detalle)
     return evaluar_fechas_ct_permanente(
         fecha_inicio, fecha_fin, solicitante, receptor,
         dias_seleccionados_desde_detalle(detalle),

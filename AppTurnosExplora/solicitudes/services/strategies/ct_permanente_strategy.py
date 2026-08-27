@@ -35,7 +35,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
     def _datos_desde_solicitud(self, solicitud):
         """Reconstruye los datos para re-validar al aprobar (ver base). Rearma
         dias_seleccionados desde los CambioPermanenteDia del detalle."""
-        from ..ct_permanente_helper import _rango_detalle
+        from ..ct_permanente_helper import rango_detalle
 
         det = getattr(solicitud, 'cambio_permanente', None)
         if not det:
@@ -47,10 +47,10 @@ class CTPermanenteStrategy(SolicitudStrategy):
             elif d.tipo == 'dia_semana' and d.dia_semana is not None:
                 dias_semana.append(d.dia_semana)
         # `fecha_fin` es obligatoria desde hace tiempo, pero los registros HEREDADOS pueden no
-        # tenerla. Se usa el mismo cierre de rango que la aplicación y el detalle (`_rango_detalle`:
+        # tenerla. Se usa el mismo cierre de rango que la aplicación y el detalle (`rango_detalle`:
         # hasta fin de año) en vez de pasar None: con None, `validar_solicitud` cortaba en
         # "Faltan datos requeridos" y esas solicitudes antiguas quedaban INAPROBABLES para siempre.
-        _inicio, fecha_fin = _rango_detalle(det)
+        _inicio, fecha_fin = rango_detalle(det)
         return {
             'explorador_solicitante': solicitud.explorador_solicitante,
             'explorador_receptor': solicitud.explorador_receptor,
@@ -418,10 +418,10 @@ class CTPermanenteStrategy(SolicitudStrategy):
             from turnos.services.doblada_turno_service import DobladaTurnoService
 
             from ..ct_permanente_helper import (
-                _rango_detalle,
                 dias_seleccionados_desde_detalle,
                 evaluar_fechas_ct_permanente,
                 jornadas_intercambiables_ct,
+                rango_detalle,
             )
 
             detalle = solicitud.cambio_permanente
@@ -430,7 +430,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
 
             solicitante = solicitud.explorador_solicitante
             receptor = solicitud.explorador_receptor
-            fecha_inicio, fecha_fin_cambio = _rango_detalle(detalle)
+            fecha_inicio, fecha_fin_cambio = rango_detalle(detalle)
 
             fechas_aplicables, fechas_excluidas = evaluar_fechas_ct_permanente(
                 fecha_inicio, fecha_fin_cambio, solicitante, receptor,
@@ -586,7 +586,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
             # NO se le pasa `fecha_inicio`: en este modo el servicio IGNORA la fecha (ver su
             # docstring), así que pasársela sugería un filtro de disponibilidad por día que no
             # existe. La disponibilidad REAL se evalúa más abajo, fecha a fecha, con
-            # `_razones_exclusion_ct_permanente`.
+            # `razones_exclusion_ct_permanente`.
             #
             # El `usuario_actual` sí se pasa: el servicio acepta un Empleado y lo excluye él mismo
             # (antes se pasaba None "porque espera un User", pero eso dejó de ser cierto).
@@ -629,12 +629,12 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 }
             
             # 3. Evaluar día a día con la MISMA definición de "día aplicable" que usan la
-            # previsualización y la aplicación (`_razones_exclusion_ct_permanente`), para que el
+            # previsualización y la aplicación (`razones_exclusion_ct_permanente`), para que el
             # porcentaje signifique de verdad "días que se van a aplicar con este compañero".
             from ..ct_permanente_helper import (
-                _estado_ct,
-                _razones_exclusion_ct_permanente,
+                estado_ct,
                 precargar_ct_permanente,
+                razones_exclusion_ct_permanente,
             )
 
             # PRECARGA EN LOTE de la matriz empleado×día. Esto es lo que hace viable el cálculo:
@@ -651,7 +651,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
                 # que se calculan una sola vez y además fijan el denominador honesto del porcentaje:
                 # antes se dividía entre los días de calendario, inflando la compatibilidad.
                 fechas_evaluables = [
-                    f for f in fechas_a_evaluar if not _razones_exclusion_ct_permanente(f, usuario_actual)
+                    f for f in fechas_a_evaluar if not razones_exclusion_ct_permanente(f, usuario_actual)
                 ]
                 if not fechas_evaluables:
                     logger.debug("CT PERMANENTE: el solicitante no tiene ningún día aplicable en el rango")
@@ -664,18 +664,18 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     # ...)` dentro del bucle de candidatos, que recalculaba `estado_dia` del
                     # solicitante tantas veces como candidatos hubiera. El resultado es idéntico:
                     # contraria ⇔ ambas son AM/PM y distintas.
-                    j_sol = _estado_ct(usuario_actual, fecha_eval).get('jornada')
+                    j_sol = estado_ct(usuario_actual, fecha_eval).get('jornada')
                     j_sol = j_sol if j_sol in ('AM', 'PM') else None
                     fecha_fmt = fecha_eval.strftime('%Y-%m-%d')
                     for cand_id, info in mapa_compatibilidad.items():
                         candidato = info['empleado']
                         # El candidato debe estar disponible ese día Y tener jornada contraria.
-                        # `_razones_exclusion_ct_permanente` ya resuelve el estado del candidato,
+                        # `razones_exclusion_ct_permanente` ya resuelve el estado del candidato,
                         # así que la jornada se lee de ese mismo estado en vez de volver a
                         # derivarlo con `_jornada_efectiva_ct` (era un 40 % de recálculo puro).
                         es_compatible = False
-                        if j_sol and not _razones_exclusion_ct_permanente(fecha_eval, candidato):
-                            j_cand = _estado_ct(candidato, fecha_eval).get('jornada')
+                        if j_sol and not razones_exclusion_ct_permanente(fecha_eval, candidato):
+                            j_cand = estado_ct(candidato, fecha_eval).get('jornada')
                             es_compatible = j_cand in ('AM', 'PM') and j_cand != j_sol
                         if es_compatible:
                             info['dias_compatibles'].append(fecha_fmt)

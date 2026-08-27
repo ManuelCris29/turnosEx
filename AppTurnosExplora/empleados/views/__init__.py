@@ -41,7 +41,6 @@ from .restricciones import (
     RestriccionListView,
     RestriccionUpdateView,
     RestriccionVisualizarListView,
-    _invalidar_turnos_cache_restriccion,
 )
 from .roles import (
     RoleCreateView,
@@ -62,7 +61,6 @@ from .sanciones import (
     SancionListView,
     SancionUpdateView,
     SancionVisualizarListView,
-    _invalidar_turnos_cache_sancion,
 )
 
 __all__ = [
@@ -82,10 +80,9 @@ __all__ = [
     # restricciones
     'RestriccionListView', 'RestriccionCreateView', 'RestriccionUpdateView',
     'RestriccionDeleteView', 'RestriccionVisualizarListView',
-    '_invalidar_turnos_cache_restriccion',
     # sanciones
     'SancionListView', 'SancionCreateView', 'SancionUpdateView', 'SancionLevantarView',
-    'SancionVisualizarListView', 'MorososDeudaView', '_invalidar_turnos_cache_sancion',
+    'SancionVisualizarListView', 'MorososDeudaView',
     # indicadores
     'IndicadoresView', 'MisIndicadoresView',
     # pdh

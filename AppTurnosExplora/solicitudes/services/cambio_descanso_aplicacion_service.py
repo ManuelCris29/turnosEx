@@ -39,7 +39,7 @@ def _as_date(fecha):
     return fecha
 
 
-def _otro_dia(fecha: date) -> date:
+def otro_dia(fecha: date) -> date:
     """El otro día del mismo fin de semana (sábado<->domingo)."""
     fecha = _as_date(fecha)
     return fecha + timedelta(days=1) if fecha.weekday() == 5 else fecha - timedelta(days=1)
@@ -59,7 +59,7 @@ class CambioDescansoAplicacionService:
         detalle = getattr(solicitud, 'doblada', None)
         fechas = [f for f in (_as_date(solicitud.fecha_cambio_turno),
                               _as_date(detalle.fecha_pago) if detalle else None) if f]
-        opuestas = [_otro_dia(f) for f in fechas if f.weekday() in (5, 6)]
+        opuestas = [otro_dia(f) for f in fechas if f.weekday() in (5, 6)]
         out = []
         for f in fechas + opuestas:
             if f not in out:
@@ -140,7 +140,7 @@ class CambioDescansoAplicacionService:
                 comp = {'id': otro.id, 'nombre': f'{otro.nombre} {getattr(otro, "apellido", "")}'.strip()}
                 es_finde = bool(fc) and fc.weekday() in (5, 6)
                 if es_finde:
-                    dias = [fc, fp] if es_sol else [_otro_dia(fc), _otro_dia(fp)]
+                    dias = [fc, fp] if es_sol else [otro_dia(fc), otro_dia(fp)]
                 else:
                     # Entre semana: el descanso COMPLETO depende de la sub-modalidad.
                     # (Las medias jornadas quedan con Turno real y no pasan por aquí.)
@@ -272,7 +272,7 @@ class CambioDescansoAplicacionService:
         de que el turno sea borrado.
 
         SOLO FIN DE SEMANA, a propósito: la búsqueda de la solicitud dueña del turno se apoya en
-        `_otro_dia()` (sáb↔dom), que no tiene equivalente entre semana. Las rutas de temporada
+        `otro_dia()` (sáb↔dom), que no tiene equivalente entre semana. Las rutas de temporada
         resuelven el mismo principio ("última aprobada gana por día") por el otro lado: en vez de
         reemplazar la solicitud previa, la VALIDACIÓN impide crear la nueva mientras el día siga
         comprometido (`dia_comprometido_por_solicitud` / `estado_dia(...)['trabaja']`). Por eso
@@ -287,10 +287,10 @@ class CambioDescansoAplicacionService:
 
         from solicitudes.models import SolicitudCambio
 
-        otro = _otro_dia(fecha)
+        otro = otro_dia(fecha)
         # El turno en (explorador, fecha) fue creado porque:
         # - Explorador es RECEPTOR en una solicitud con fecha_cambio_turno=fecha o doblada.fecha_pago=fecha
-        # - Explorador es SOLICITANTE en una solicitud donde fecha=_otro_dia(fc) o fecha=_otro_dia(fp)
+        # - Explorador es SOLICITANTE en una solicitud donde fecha=otro_dia(fc) o fecha=otro_dia(fp)
         candidatas = SolicitudCambio.objects.filter(
             tipo_cambio__nombre='CAMBIO DESCANSO',
             estado='aprobada',
@@ -340,8 +340,8 @@ class CambioDescansoAplicacionService:
         fecha_cesion = _as_date(solicitud.fecha_cambio_turno)
         fecha_pago = _as_date(detalle.fecha_pago)
 
-        otro_w1 = _otro_dia(fecha_cesion)
-        otro_w2 = _otro_dia(fecha_pago)
+        otro_w1 = otro_dia(fecha_cesion)
+        otro_w2 = otro_dia(fecha_pago)
 
         # Snapshot idempotente: solo capturar la PRIMERA vez
         if not getattr(detalle, 'snapshot_turnos_previos', None):

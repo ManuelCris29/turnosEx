@@ -44,8 +44,8 @@ class DeudaCorporativaService:
         if fecha.weekday() >= 5:  # 5=sábado, 6=domingo
             return False
         try:
-            from solicitudes.services.ct_permanente_helper import _es_festivo
-            if _es_festivo(fecha):
+            from solicitudes.services.ct_permanente_helper import es_festivo
+            if es_festivo(fecha):
                 return False
         except Exception:
             logger.warning("Error verificando festivo para deuda (fecha=%s)", fecha, exc_info=True)

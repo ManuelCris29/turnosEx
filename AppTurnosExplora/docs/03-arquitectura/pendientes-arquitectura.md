@@ -115,6 +115,79 @@ sobre `I`: ver el comentario de [`pyproject.toml`](../../pyproject.toml).
 
 ---
 
+## 3-bis. API privada que cruzaba módulos — CERRADO (27 ago 2026)
+
+Medido con AST sobre código de producción (tests, `scripts/` y migraciones fuera):
+**10 imports de nombres privados entre módulos**, ocho de ellos saliendo de
+`solicitudes/services/ct_permanente_helper.py` y dos cruzando frontera de app
+(`empleados/services/indicadores_service.py` importaba `_es_festivo`).
+
+Un `_nombre` es un contrato: «detalle interno, puedo cambiarlo sin avisar». Con
+consumidores externos ese contrato es falso, y el autor refactoriza creyendo que
+no rompe nada.
+
+Se resolvió por dos caminos, según lo que el símbolo era **de verdad**:
+
+| Caso | Símbolos | Acción |
+|---|---|---|
+| API pública de facto | `es_festivo`, `es_mantenimiento`, `es_temporada`, `estado_ct`, `razones_exclusion_ct_permanente`, `motivo_no_cubre_companero`, `dia_libre_por_solicitud`, `jornada_doblada_perm`, `motivo_no_doblada_perm`, `rango_detalle`, `otro_dia` | Promovidos a nombre público: el nombre pasa a decir la verdad sobre quién los usa |
+| Re-exportación que no consumía nadie | `_invalidar_turnos_cache_restriccion`, `_invalidar_turnos_cache_sancion` en `empleados/views/__init__.py` | Retiradas del import y de `__all__` (reduce superficie pública) |
+
+Cambio de nombres puro, sin tocar una línea de lógica: el diff quedó en 56
+inserciones / 56 borrados más el reordenado de imports que exige la regla `I`.
+
+**El invariante queda vigilado**, que era lo que faltaba: el problema no fue
+ninguna de las diez fugas en particular, sino que nada las detectaba.
+[`core/tests/test_arquitectura_api_privada.py`](../../core/tests/test_arquitectura_api_privada.py)
+recorre el AST de todo el código de producción y falla si reaparece una. Se
+comprobó que **sabe ponerse en rojo** inyectando una fuga a propósito antes de
+darlo por bueno.
+
+> Nota de método, por segunda vez en este proyecto: la primera pasada de esta
+> auditoría usó `grep` y contó **4** fugas. El AST encontró **10** — `grep` no ve
+> los bloques `from x import (\n  _a,\n  _b,\n)`. Mismo patrón que el error del
+> commit `329d2c3`: **medir con la herramienta que entiende el lenguaje**, no con
+> la que lee líneas.
+
+### ¿Y partir `ct_permanente_helper.py`? — auditado, y la respuesta es NO
+
+Esta sección dejó escrito que el módulo «sigue alojando lógica de doblada
+permanente» y que partirlo quedaba pendiente. **Se auditó el 27 ago 2026 y esa
+propuesta se retira.**
+
+Grafo de dependencias del módulo, medido con AST: `jornada_doblada_perm` y
+`motivo_no_doblada_perm` **no traen lógica propia**. De sus 8 dependencias
+transitivas, **5 son compartidas con CT permanente** (`estado_ct`,
+`dia_libre_por_solicitud`, `es_festivo`, `es_mantenimiento`, `es_temporada`) y
+las otras son `_dia_calendario_no_apto` —infraestructura que citan como canónica
+hasta `turnos/services/turno_service.py` y `descanso_semana_service.py`— y
+`_jornada_unica_real`, que tiene un hermano BATCH usado por la strategy.
+
+Extraerlas a un archivo propio obligaría a importar cuatro piezas del núcleo
+—dos privadas— cruzando una frontera nueva, y dejaría la caché `ContextVar` en
+un archivo y sus lectores en otro: **reintroduciría exactamente la fuga que
+acaba de cerrarse arriba**. La estructura actual (un núcleo de evaluación de
+días + dos familias encima) es la correcta.
+
+Origen del malentendido: las tres funciones llegaron en el commit `3f6cacd`,
+titulado «*Checkpoint*: doblada permanente UX…», cuyo propio mensaje dice
+«guarda el estado actual antes de refactorizar». Fue expediencia, no diseño —
+pero acertó la ubicación. **El error fue el NOMBRE del archivo, no su
+contenido**: se llamó `ct_permanente_*` cuando su núcleo sirve a los cambios
+permanentes en general (su docstring original ya decía «cambios permanentes»).
+
+El razonamiento completo quedó en el docstring del propio módulo, que es donde
+lo va a leer quien se plantee lo mismo.
+
+**Lo único pendiente aquí es renombrar el archivo** (p. ej.
+`cambios_permanentes_helper.py`). Coste medido: 14 módulos de producción, 7 de
+test y 10 documentos. Es mecánico y de bajo riesgo, pero merece **commit propio
+sobre árbol limpio** —la misma regla que `pyproject.toml` aplica a la familia
+`I` de ruff—: un diff grande y mecánico esconde los cambios de lógica justo
+cuando revisarlos importa.
+
+---
+
 ## 4. Abierto y sin dueño
 
 - **`TipoSolicitudCambio.nombre` y `codigo_estrategia` son editables desde el admin**

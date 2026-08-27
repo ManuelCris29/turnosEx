@@ -536,11 +536,11 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
             
             from empleados.models import Empleado as _EmpRango
             from solicitudes.services.ct_permanente_helper import (
-                _dia_libre_por_solicitud,
-                _es_festivo,
-                _es_mantenimiento,
-                _es_temporada,
-                _estado_ct,
+                dia_libre_por_solicitud,
+                es_festivo,
+                es_mantenimiento,
+                es_temporada,
+                estado_ct,
                 precargar_ct_permanente,
             )
             from turnos.models import Jornada, Turno
@@ -572,14 +572,14 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                     turnos_dia = _turnos_por_fecha.get(fecha_obj, [])
                     if len(turnos_dia) >= 2:
                         jornada_nombre, jornada_id = 'DOBLADA', None
-                    elif _emp_rango and _dia_libre_por_solicitud(_emp_rango, fecha_obj):
+                    elif _emp_rango and dia_libre_por_solicitud(_emp_rango, fecha_obj):
                         # Día ya cedido/comprometido en otra solicitud aprobada (L2): no aplica.
                         jornada_nombre, jornada_id = 'COMPROMETIDO', None
-                    elif _es_mantenimiento(fecha_obj):
+                    elif es_mantenimiento(fecha_obj):
                         jornada_nombre, jornada_id = 'MANTENIMIENTO', None
-                    elif _es_festivo(fecha_obj):
+                    elif es_festivo(fecha_obj):
                         jornada_nombre, jornada_id = 'FESTIVO', None
-                    elif _es_temporada(fecha_obj):
+                    elif es_temporada(fecha_obj):
                         jornada_nombre, jornada_id = 'TEMPORADA', None
                     elif len(turnos_dia) == 1 and turnos_dia[0].jornada:
                         # Turno real único: la jornada REAL de ese día (no la predeterminada)
@@ -589,7 +589,7 @@ class ObtenerJornadasRangoView(LoginRequiredMixin, View):
                         # FUENTE DE VERDAD (estado_dia): igual que Mis Turnos. Cubre descanso de
                         # temporada por DescansoSemanaManual, día completo (grupo contrario
                         # descansa), festivos por rotación/override y demás capas.
-                        _est = _estado_ct(_emp_rango, fecha_obj)
+                        _est = estado_ct(_emp_rango, fecha_obj)
                         if not _est.get('trabaja'):
                             _map_fuente = {'temporada': 'TEMPORADA', 'mantenimiento': 'MANTENIMIENTO',
                                            'festivo': 'FESTIVO', 'solicitud': 'COMPROMETIDO'}
