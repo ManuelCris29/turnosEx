@@ -164,7 +164,19 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      # v7 (no v5): al subir desde v4 se saltan DOS versiones con cambios
+      # rompedores, y ninguno afecta aquí. Ambos son sobre la caché automática que
+      # v5 introdujo cuando `package.json` trae el campo `packageManager` (v6 la
+      # limitó a npm). Este job no tiene package.json —ver la nota de arriba—, así
+      # que esa caché no se activa y no hace falta `package-manager-cache: false`.
+      #
+      # El motivo del salto: v4 corre sobre Node 20, ya deprecado, y GitHub lo
+      # estaba forzando a Node 24 con un aviso en cada corrida. De v5 en adelante
+      # la acción ya usa node24 de forma nativa.
+      #
+      # `node-version` es la versión que ejecuta los TESTS y no depende de la
+      # versión de la acción: se mantiene en 22 (LTS) a propósito.
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
 
