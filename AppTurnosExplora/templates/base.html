@@ -69,12 +69,15 @@
                                 <p>Dashboard</p>
                             </a>
                         </li>
+                        {% if sesiones.mis_turnos %}
                         <li class="nav-item">
                             <a href="{% url 'mis_turnos' %}" class="nav-link">
                                 <i class="nav-icon far fa-calendar-alt"></i>
                                 <p>Mis Turnos / Mi Calendario</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.notificaciones %}
                         <li class="nav-item">
                             <a href="{% url 'solicitudes:solicitudes' %}" class="nav-link">
                                 <i class="nav-icon fas fa-bell"></i>
@@ -90,171 +93,220 @@
                                 </p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.cambios_turno %}
                         <li class="nav-item">
                             <a href="{% url 'solicitudes:cambio_turno_inicio' %}" class="nav-link">
                                 <i class="nav-icon fas fa-exchange-alt"></i>
                                 <p>Cambios de Turno</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.consolidado_horas %}
                         <li class="nav-item">
                             <a href="{% url 'consolidado_horas' %}" class="nav-link">
                                 <i class="nav-icon fas fa-clock"></i>
                                 <p>Consolidado de Horas</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.permisos_especiales %}
                         <li class="nav-item">
                             <a href="{% url 'permisos_especiales_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-calendar-check"></i>
                                 <p>Permisos Especiales</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.beneficios %}
                         <li class="nav-item">
                             <a href="{% url 'beneficios' %}" class="nav-link">
                                 <i class="nav-icon fas fa-gift"></i>
                                 <p>Beneficios Utilizados</p>
                             </a>
                         </li>
+                        {% endif %}
             
                         
                         <!-- Ítems visibles para todos -->
-                        <li class="nav-header">CONSULTAS RÁPIDAS</li>
+                        {% if sesiones.consulta_sanciones or sesiones.consulta_restricciones or sesiones.consulta_dias_especiales %}<li class="nav-header">CONSULTAS RÁPIDAS</li>{% endif %}
                         {# PDH se consulta desde "Consolidado de Horas" (explorador) y desde Administración → PDH (supervisor). #}
+                        {% if sesiones.consulta_sanciones %}
                         <li class="nav-item">
                             <a href="{% url 'sanciones_visualizar' %}" class="nav-link">
                                 <i class="nav-icon fas fa-gavel"></i>
                                 <p>Sanciones</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.consulta_restricciones %}
                         <li class="nav-item">
                             <a href="{% url 'restricciones_visualizar' %}" class="nav-link">
                                 <i class="nav-icon fas fa-ban"></i>
                                 <p>Restricciones</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.consulta_dias_especiales %}
                         <li class="nav-item">
                             <a href="{% url 'dias_especiales_visualizar' %}" class="nav-link">
                                 <i class="nav-icon fas fa-star"></i>
                                 <p>Días Especiales</p>
                             </a>
                         </li>
+                        {% endif %}
                         
                         
                         <!-- Admin Section -->
                         {% if puede_administrar %}
-                        <li class="nav-header">ADMINISTRACIÓN</li>
+                        {% if sesiones.indicadores or sesiones.empleados or sesiones.gestion_solicitudes or sesiones.reprogramaciones or sesiones.cierre_solicitudes or sesiones.apertura_anio or sesiones.descansos_semana or sesiones.fines_semana_festivos or sesiones.tipos_solicitud or sesiones.salas or sesiones.turnos or sesiones.jornadas or sesiones.pdh or sesiones.sanciones or sesiones.restricciones or sesiones.roles or sesiones.dias_especiales %}<li class="nav-header">ADMINISTRACIÓN</li>{% endif %}
+                        {% if sesiones.indicadores %}
                         <li class="nav-item">
                             <a href="{% url 'indicadores' %}" class="nav-link">
                                 <i class="nav-icon fas fa-chart-bar"></i>
                                 <p>Indicadores</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.empleados %}
                         <li class="nav-item">
                             <a href="{% url 'empleados' %}" class="nav-link">
                                 <i class="nav-icon fas fa-users"></i>
                                 <p>Empleados/Exploradores</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.gestion_solicitudes %}
                         <li class="nav-item">
                             <a href="{% url 'solicitudes:gestion_solicitudes' %}" class="nav-link">
                                 <i class="nav-icon fas fa-tasks"></i>
                                 <p>Gestión de Solicitudes</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.reprogramaciones %}
                         <li class="nav-item">
                             <a href="{% url 'solicitudes:reprog_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-calendar-alt"></i>
                                 <p>Reprogramaciones</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.cierre_solicitudes %}
                         <li class="nav-item">
                             <a href="{% url 'solicitudes:cierre_config' %}" class="nav-link">
                                 <i class="nav-icon fas fa-lock"></i>
                                 <p>Cierre de solicitudes</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.apertura_anio %}
                         <li class="nav-item">
                             <a href="{% url 'apertura_anio_actual' %}" class="nav-link">
                                 <i class="nav-icon fas fa-door-open"></i>
                                 <p>Apertura de Año</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.descansos_semana %}
                         <li class="nav-item">
                             <a href="{% url 'descanso_semana_anual' %}" class="nav-link">
                                 <i class="nav-icon fas fa-bed"></i>
                                 <p>Descansos de Semana</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.fines_semana_festivos %}
                         <li class="nav-item">
                             <a href="{% url 'asignacion_especial_anual' %}" class="nav-link">
                                 <i class="nav-icon fas fa-calendar-check"></i>
                                 <p>Fines de Semana / Festivos</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.tipos_solicitud %}
                         <li class="nav-item">
                             <a href="{% url 'solicitudes:tiposolicitudcambio_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-random"></i>
                                 <p>Tipos de Solicitud</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.salas %}
                         <li class="nav-item">
                             <a href="{% url 'salas_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-sitemap"></i>
                                 <p>Salas</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.turnos %}
                         <li class="nav-item">
                             <a href="{% url 'turnos_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-calendar-day"></i>
                                 <p>Turnos</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.jornadas %}
                         <li class="nav-item">
                             <a href="{% url 'jornadas_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-calendar-alt"></i>
                                 <p>Jornadas</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.pdh %}
                         <li class="nav-item">
                             <a href="{% url 'pdh_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-dollar-sign"></i>
                                 <p>PDH</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.sanciones %}
                         <li class="nav-item">
                             <a href="{% url 'sanciones_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-gavel"></i>
                                 <p>Sanciones</p>
                             </a>
                         </li>
+                        {% endif %}
 
+                        {% if sesiones.restricciones %}
                         <li class="nav-item">
                             <a href="{% url 'restricciones_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-ban"></i>
                                 <p>Restricciones</p>
                             </a>
                         </li>
+                        {% endif %}
                         
+                        {% if sesiones.roles %}
                         <li class="nav-item">
                             <a href="{% url 'roles_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-user-tag"></i>
                                 <p>Roles y Permisos</p>
                             </a>
                         </li>
+                        {% endif %}
+                        {% if sesiones.dias_especiales %}
                         <li class="nav-item">
                             <a href="{% url 'dias_especiales_list' %}" class="nav-link">
                                 <i class="nav-icon fas fa-star"></i>
                                 <p>Días Especiales</p>
                             </a>
                         </li>
+                        {% endif %}
                         {% endif %}
                     </ul>
                 </nav>

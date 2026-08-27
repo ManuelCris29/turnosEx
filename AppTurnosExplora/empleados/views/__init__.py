@@ -32,6 +32,9 @@ from .pdh import (
     PDHListView,
     PDHUpdateView,
 )
+from .permisos_sesion import (
+    PermisosSesionUpdateView,
+)
 from .restricciones import (
     RestriccionCreateView,
     RestriccionDeleteView,
@@ -68,6 +71,8 @@ __all__ = [
     'EmpleadoDeleteView',
     'EmpleadoUsuarioCreateView', 'AsignarRolesSalasForm', 'AsignarRolesSalasView',
     'ChangePasswordView',
+    # permisos de sesión
+    'PermisosSesionUpdateView',
     # roles
     'RoleListView', 'RoleCreateView', 'RoleUpdateView', 'RoleDeleteView',
     # salas

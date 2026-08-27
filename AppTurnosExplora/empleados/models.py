@@ -356,3 +356,45 @@ class SancionEmpleado(models.Model):
     def __str__(self):
         return f"{self.explorador.nombre} {self.explorador.apellido} - {self.fecha_inicio} supervisado por {self.supervisor.nombre} {self.supervisor.apellido}"
 
+
+
+class PermisoSesion(models.Model):
+    """Habilita o deshabilita UNA sesión del menú para UN empleado concreto.
+
+    La tabla guarda solo las EXCEPCIONES: si no hay fila para (empleado, sesión),
+    manda el valor por defecto del rol que define `core.sesiones`. Se hizo así, y
+    no sembrando una fila por empleado y sesión, para que añadir una sesión nueva
+    al catálogo no requiera una migración de datos ni deje a nadie fuera de una
+    pantalla que antes veía: lo que no está escrito se comporta como siempre.
+
+    ⚠ Este permiso NO puede dar acceso a algo que el rol no concede: es una reja
+    ADICIONAL. Un explorador con `pdh` habilitado aquí sigue chocando contra
+    `AdminRequiredMixin`, que exige rol Supervisor. Encender una sesión de
+    Administración solo tiene efecto sobre alguien que ya es supervisor.
+
+    ⚠ Tampoco aplica a `is_staff`/`is_superuser`: esos usuarios lo ven todo por
+    diseño (ver `core.permisos_sesion.sesiones_habilitadas`). Si se quiere
+    limitar a alguien, hay que quitarle el flag de staff, no marcarle casillas.
+    """
+
+    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE,
+                                 related_name='permisos_sesion')
+    #: Código del catálogo (`core.sesiones.CODIGOS`). Se guarda como texto y no
+    #: como FK a una tabla de sesiones porque el catálogo vive en el código: es
+    #: la lista de pantallas que existen, no un dato que el usuario administre.
+    sesion = models.CharField(max_length=50)
+    habilitado = models.BooleanField(default=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Permiso de sesión'
+        verbose_name_plural = 'Permisos de sesión'
+        ordering = ['empleado', 'sesion']
+        unique_together = [['empleado', 'sesion']]
+        indexes = [
+            models.Index(fields=['empleado'], name='permiso_sesion_emp_idx'),
+        ]
+
+    def __str__(self):
+        estado = 'habilitada' if self.habilitado else 'deshabilitada'
+        return f"{self.empleado.nombre} {self.empleado.apellido} - {self.sesion} ({estado})"

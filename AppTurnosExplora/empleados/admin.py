@@ -5,6 +5,7 @@ from .models import (
     Empleado,
     EmpleadoRole,
     Jornada,
+    PermisoSesion,
     RestriccionEmpleado,
     Role,
     Sala,
@@ -85,3 +86,17 @@ class SancionEmpleadoAdmin(admin.ModelAdmin):
         actions = super().get_actions(request)
         actions.pop('delete_selected', None)
         return actions
+
+
+@admin.register(PermisoSesion)
+class PermisoSesionAdmin(admin.ModelAdmin):
+    """Vista cruda de las excepciones. La pantalla de verdad es /empleados/permisos-sesion/.
+
+    Se registra sobre todo para poder diagnosticar: cuando un supervisor dice
+    "no me aparece X", aquí se ve en una línea si hay una fila apagada o si es
+    el valor por defecto del rol. Editar desde aquí funciona, pero no valida el
+    código contra el catálogo.
+    """
+    list_display = ['empleado', 'sesion', 'habilitado']
+    list_filter = ['habilitado', 'sesion']
+    search_fields = ['empleado__nombre', 'empleado__apellido', 'empleado__cedula', 'sesion']

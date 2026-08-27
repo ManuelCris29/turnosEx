@@ -20,6 +20,7 @@ from .views import (
     PDHDeleteView,
     PDHListView,
     PDHUpdateView,
+    PermisosSesionUpdateView,
     RestriccionCreateView,
     RestriccionDeleteView,
     RestriccionListView,
@@ -56,6 +57,9 @@ urlpatterns = [
     path('roles/create/', RoleCreateView.as_view(), name='roles_create'),
     path('roles/edit/<int:pk>/', RoleUpdateView.as_view(), name='roles_edit'),
     path('roles/delete/<int:pk>/', RoleDeleteView.as_view(), name='roles_delete'),
+    # Qué módulos del menú ve cada empleado. Solo para is_staff; ver la vista.
+    path('permisos-sesion/<int:empleado_id>/', PermisosSesionUpdateView.as_view(),
+         name='permisos_sesion_edit'),
     path('create_usuario_empleado/', EmpleadoUsuarioCreateView.as_view(), name='empleado_usuario_create'),
     path('asignar_roles_salas/<int:empleado_id>/', AsignarRolesSalasView.as_view(), name='asignar_roles_salas'),
     path('salas/', SalaListView.as_view(), name='salas_list'),

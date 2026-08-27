@@ -3,6 +3,7 @@ Middlewares compartidos del proyecto.
 """
 import logging
 
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.urls import reverse
 
@@ -70,4 +71,60 @@ class AperturaAnioMiddleware:
     def _es_admin(user) -> bool:
         # Delega en la única definición del permiso para no duplicar la regla.
         from core.mixins import es_supervisor
-        return es_supervisor(user)
+        from core.permisos_sesion import puede_ver
+
+        # Y además exige tener HABILITADA la sesión de apertura: a un supervisor
+        # al que se le ha quitado esa pantalla, redirigirle allí lo dejaría
+        # atrapado entre este middleware, que lo manda a la apertura, y
+        # PermisoSesionMiddleware, que se la niega.
+        return es_supervisor(user) and puede_ver(user, 'apertura_anio')
+
+
+class PermisoSesionMiddleware:
+    """Bloquea la URL de una sesión que el usuario tiene deshabilitada.
+
+    Ocultar el enlace del menú no es un permiso: quien conozca la URL entra
+    igual. Este middleware es la mitad seria de la función; el menú solo evita
+    enseñar puertas cerradas.
+
+    Se resuelve en `process_view` y no en `__call__` porque necesita el
+    `resolver_match` (el nombre de URL), que Django solo deja disponible una vez
+    ha enrutado la petición.
+
+    ⚠ Es un guardia ADICIONAL, nunca sustituye a `AdminRequiredMixin`: una URL
+    que no esté en `core.sesiones` pasa de largo y conserva el permiso que ya
+    tenía. Ver la nota del catálogo sobre por qué no se mapean los endpoints
+    AJAX.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        from core.permisos_sesion import puede_ver
+        from core.sesiones import POR_URL_NAME
+
+        user = getattr(request, 'user', None)
+        if not user or not user.is_authenticated:
+            return None
+
+        match = getattr(request, 'resolver_match', None)
+        codigo = POR_URL_NAME.get(getattr(match, 'view_name', '') or '')
+        if codigo is None or puede_ver(user, codigo):
+            return None
+
+        logger.info(
+            "Sesión '%s' deshabilitada para user=%s: acceso a %s bloqueado",
+            codigo, getattr(user, 'username', '?'), request.path,
+        )
+        # JSON para las peticiones AJAX: una redirección o una página HTML de
+        # error rompería el front, que espera un cuerpo que pueda leer.
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            from django.http import JsonResponse
+            return JsonResponse(
+                {'error': 'No tienes habilitada esta sección.'}, status=403,
+            )
+        raise PermissionDenied('No tienes habilitada esta sección.')

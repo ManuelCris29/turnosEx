@@ -31,3 +31,18 @@ def mensajes_comentario(request):
         'MSG_COMENTARIO': comentarios.MSG_COMENTARIO,
         'MSG_MOTIVO': comentarios.MSG_MOTIVO,
     }
+
+
+def sesiones_permitidas(request):
+    """
+    Expone a todas las plantillas qué sesiones del menú ve este usuario.
+
+    Se llama `sesiones` en la plantilla y es un dict {codigo: bool}, así que el
+    menú pregunta `{% if sesiones.pdh %}`. Es un dict COMPLETO (incluye las
+    apagadas con valor False) a propósito: en Django una clave que no existe y
+    una que vale False se pintan igual, y con el dict completo un código mal
+    escrito en la plantilla se detecta comparándolo con el catálogo en vez de
+    esconder la entrada en silencio.
+    """
+    from core.permisos_sesion import sesiones_habilitadas
+    return {'sesiones': sesiones_habilitadas(getattr(request, 'user', None))}

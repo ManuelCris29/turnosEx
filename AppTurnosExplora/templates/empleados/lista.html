@@ -84,6 +84,8 @@
                   <a href="{% url 'empleado_edit' empleado.id %}" class="pg-btn pg-btn-primary pg-btn-sm" title="Editar"><i class="fas fa-edit"></i></a>
                   <a href="{% url 'change_password' empleado.user.id %}" class="pg-btn pg-btn-warn pg-btn-sm" title="Cambiar contraseña"><i class="fas fa-key"></i></a>
                   <a href="{% url 'asignar_roles_salas' empleado.id %}" class="pg-btn pg-btn-warn pg-btn-sm" title="Roles/Salas"><i class="fas fa-user-cog"></i></a>
+                  {# Solo el administrador real: la vista lo exige igualmente, esto evita enseñar un botón que da 403. #}
+                  {% if user.is_staff %}<a href="{% url 'permisos_sesion_edit' empleado.id %}" class="pg-btn pg-btn-warn pg-btn-sm" title="Permisos de sesión"><i class="fas fa-sliders-h"></i></a>{% endif %}
                   <a href="{% url 'empleado_delete' empleado.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este empleado?');"><i class="fas fa-trash-alt"></i></a>
                   {% endif %}
                 </td>

@@ -81,3 +81,21 @@ class SupervisorApiRequiredMixin:
         if not es_supervisor(request.user):
             return JsonResponse({'error': 'Sin permisos'}, status=403)
         return super().dispatch(request, *args, **kwargs)
+
+
+class StaffRequiredMixin:
+    """
+    Restringe una vista al ADMINISTRADOR de la aplicación (`is_staff`).
+
+    Más estricto que `AdminRequiredMixin`, que también deja pasar al rol
+    Supervisor. Lo usa la pantalla de permisos de sesión: si un supervisor
+    pudiera editarla, podría devolverse a sí mismo cualquier sesión que el
+    administrador le hubiera quitado, y la función entera no serviría de nada.
+    """
+
+    def dispatch(self, request, *args, **kwargs):
+        if not getattr(request.user, 'is_authenticated', False):
+            return self.handle_no_permission()
+        if request.user.is_staff:
+            return super().dispatch(request, *args, **kwargs)
+        raise PermissionDenied('Solo un administrador puede gestionar los permisos de sesión.')

@@ -83,6 +83,7 @@ MIDDLEWARE = [
     'simple_history.middleware.HistoryRequestMiddleware',
     'axes.middleware.AxesMiddleware',               # debe ir al final
     'core.middleware.AperturaAnioMiddleware',       # bloquea al supervisor si falta planificar el año
+    'core.middleware.PermisoSesionMiddleware',      # niega la URL de una sesión deshabilitada
 ]
 
 if not IS_PRODUCTION:
@@ -104,6 +105,7 @@ TEMPLATES = [
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
                 'core.context_processors.permisos',
+                'core.context_processors.sesiones_permitidas',
                 'core.context_processors.mensajes_comentario',
             ],
         },

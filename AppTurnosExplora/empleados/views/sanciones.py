@@ -51,6 +51,20 @@ def _estados_sancion():
 _FILTROS_ESTADO = _estados_sancion()
 
 
+def _gestiona(user):
+    """True si este usuario ve la gestión COMPLETA de sanciones, no solo las suyas.
+
+    No basta con ser supervisor: esta pantalla es COMPARTIDA (al explorador le
+    muestra únicamente sus propias filas) y por eso el middleware de permisos de
+    sesión no la bloquea — negarla con un 403 dejaría también al supervisor sin
+    poder consultar las suyas. Lo que hace la sesión 'sanciones' cuando está
+    apagada es degradarlo a esa misma vista personal, que es exactamente lo que
+    significa "quitarle sanciones".
+    """
+    from core.permisos_sesion import puede_ver
+    return es_supervisor(user) and puede_ver(user, 'sanciones')
+
+
 # CRUD de Sanciones
 class SancionListView(LoginRequiredMixin, ListView):
     model = SancionEmpleado
@@ -68,7 +82,7 @@ class SancionListView(LoginRequiredMixin, ListView):
             .order_by('-fecha_inicio', '-id')
         )
         user = self.request.user
-        if es_supervisor(user):
+        if _gestiona(user):
             eid = _id_valido(self.request.GET.get('explorador'))
             if eid:
                 qs = qs.filter(explorador_id=eid)
@@ -102,7 +116,7 @@ class SancionListView(LoginRequiredMixin, ListView):
         total_finalizadas = queryset.filter(_FILTROS_ESTADO['finalizada'](hoy)).count()
         total_levantadas = queryset.filter(_FILTROS_ESTADO['levantada'](hoy)).count()
 
-        supervisa = es_supervisor(user)
+        supervisa = _gestiona(user)
         context.update({
             'es_supervisor': supervisa,
             'empleado_actual': getattr(user, 'empleado', None) if not supervisa else None,

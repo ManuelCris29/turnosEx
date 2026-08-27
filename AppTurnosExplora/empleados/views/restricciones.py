@@ -22,6 +22,18 @@ def _id_valido(valor):
 
 
 # CRUD de Restricciones
+def _gestiona(user):
+    """True si este usuario ve la gestión COMPLETA de restricciones, no solo las suyas.
+
+    Mismo motivo que en sanciones: la pantalla es COMPARTIDA (al explorador le
+    muestra solo sus propias filas), así que el middleware de permisos de sesión
+    no la bloquea. Apagar la sesión 'restricciones' degrada al supervisor a esa
+    vista personal en vez de darle un 403 que también le taparía las suyas.
+    """
+    from core.permisos_sesion import puede_ver
+    return es_supervisor(user) and puede_ver(user, 'restricciones')
+
+
 class RestriccionListView(LoginRequiredMixin, ListView):
     model = RestriccionEmpleado
     template_name = 'empleados/restricciones_list.html'
@@ -38,7 +50,7 @@ class RestriccionListView(LoginRequiredMixin, ListView):
             .order_by('-fecha_inicio', '-id')
         )
         user = self.request.user
-        if es_supervisor(user):
+        if _gestiona(user):
             eid = _id_valido(self.request.GET.get('explorador'))
             if eid:
                 qs = qs.filter(empleado_id=eid)
@@ -79,7 +91,7 @@ class RestriccionListView(LoginRequiredMixin, ListView):
         total_activos = queryset.filter(Q(fecha_fin__isnull=True) | Q(fecha_fin__gte=hoy)).count()
         total_finalizados = queryset.filter(fecha_fin__lt=hoy).count()
 
-        supervisa = es_supervisor(user)
+        supervisa = _gestiona(user)
         context.update({
             'es_supervisor': supervisa,
             'empleado_actual': getattr(user, 'empleado', None) if not supervisa else None,

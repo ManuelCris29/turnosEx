@@ -1,0 +1,85 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Permisos de sesión - AppTurnos{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-sliders-h"></i> Permisos de sesión</h1>
+      <p class="pg-subtitle">{{ empleado.nombre }} {{ empleado.apellido }} — {{ empleado.cedula }}</p>
+    </div>
+
+    {% if messages %}{% for m in messages %}<div class="alert alert-{{ m.tags }} shadow-sm">{{ m }}</div>{% endfor %}{% endif %}
+
+    {% if es_admin_total %}
+    {# Sin este aviso, el administrador marcaría casillas durante un rato antes de
+       descubrir que a este usuario no le afecta ninguna. #}
+    <div class="alert alert-warning shadow-sm">
+      <i class="fas fa-exclamation-triangle"></i>
+      <strong>Este usuario es administrador de la aplicación</strong> (<code>is_staff</code>),
+      así que ve todas las sesiones y estas casillas no le afectan.
+      Para poder limitarlo hay que quitarle antes el permiso de administrador desde
+      el panel de Django.
+    </div>
+    {% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head indigo">
+        <h3><i class="fas fa-sliders-h"></i> Sesiones habilitadas</h3>
+        <div class="pg-actions">
+          <a href="{% url 'empleado_detail' empleado.id %}" class="pg-btn pg-btn-light"><i class="fas fa-eye"></i> Ver ficha</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <p class="pg-intro">
+          Lo que dejes marcado es lo que este empleado verá en el menú y lo único a lo que
+          podrá entrar por URL. Marcar una sesión de <strong>Administración</strong> no
+          convierte a nadie en supervisor: si no tiene ese rol, la pantalla le seguirá
+          negando el acceso.
+          {% if not es_supervisor_empleado %}
+          <br><span class="text-muted">Este empleado no es supervisor, así que las sesiones
+          de Administración solo tendrán efecto el día que lo sea.</span>
+          {% endif %}
+        </p>
+
+        <form method="post" class="pg-form">
+          {% csrf_token %}
+          {% for bloque in matriz %}
+          <fieldset class="mb-4">
+            <legend class="pg-subtitle">{{ bloque.grupo }}</legend>
+            <div class="row">
+              {% for fila in bloque.filas %}
+              <div class="col-md-6">
+                <div class="custom-control custom-switch py-1">
+                  <input type="checkbox" class="custom-control-input"
+                         id="sesion_{{ fila.codigo }}" name="sesiones" value="{{ fila.codigo }}"
+                         {% if fila.activa %}checked{% endif %}>
+                  <label class="custom-control-label" for="sesion_{{ fila.codigo }}">
+                    {{ fila.etiqueta }}
+                    {% if fila.heredado %}
+                    <span class="pg-chip pg-chip-gray" title="Nadie ha tocado esta sesión: es el valor por defecto del rol">por defecto</span>
+                    {% endif %}
+                  </label>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </fieldset>
+          {% endfor %}
+
+          <div class="pg-actions mt-4">
+            <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-save"></i> Guardar permisos</button>
+            <a href="{% url 'empleados' %}" class="pg-btn pg-btn-secondary"><i class="fas fa-arrow-left"></i> Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
