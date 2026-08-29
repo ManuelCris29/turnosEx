@@ -42,6 +42,10 @@
                         <i class="far fa-user"></i> {{ request.user.username }}
                     </a>
                     <div class="dropdown-menu dropdown-menu-right">
+                        <a href="{% url 'password_change' %}" class="dropdown-item">
+                            <i class="fas fa-key mr-2"></i> Cambiar mi contraseña
+                        </a>
+                        <div class="dropdown-divider"></div>
                         <a href="{% url 'logout' %}" class="dropdown-item">
                             <i class="fas fa-sign-out-alt mr-2"></i> Cerrar Sesión
                         </a>

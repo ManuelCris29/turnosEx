@@ -236,10 +236,25 @@ AUTHENTICATION_BACKENDS = [
     'django.contrib.auth.backends.ModelBackend',
 ]
 
+# Vida del enlace de "olvidé mi contraseña". El valor por defecto de Django son
+# TRES DÍAS: una llave de la cuenta viajando por correo y válida 72 horas. Si el
+# buzón se ve comprometido en esa ventana, la cuenta cae detrás. Media hora es de
+# sobra para ir a leer un correo, y el propio mensaje lo anuncia.
+PASSWORD_RESET_TIMEOUT = env.int('PASSWORD_RESET_TIMEOUT', default=1800)
+
+# Sesiones en base de datos (el valor por defecto de Django, explícito aquí a
+# propósito). Con el backend de cookie firmada, cambiar la contraseña NO echaría
+# a quien tenga la cuenta tomada desde otro dispositivo, que es justo lo que se
+# espera de un cambio de contraseña: su sesión seguiría viva hasta caducar.
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
 # ---------------------------------------------------------------------------
 # Email
 # ---------------------------------------------------------------------------
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# Configurable para poder probar el flujo de recuperación de contraseña sin un
+# SMTP delante: con `django.core.mail.backends.console.EmailBackend` el correo
+# —enlace incluido— se imprime en la consola del runserver.
+EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')
 EMAIL_HOST = env('EMAIL_HOST', default='smtp.gmail.com')
 EMAIL_PORT = env.int('EMAIL_PORT', default=587)
 EMAIL_USE_TLS = env.bool('EMAIL_USE_TLS', default=True)
@@ -666,6 +681,16 @@ LOGGING = {
         'core.errors': {
             'handlers': _DESTINOS,
             'level': 'WARNING',
+            'propagate': False,
+        },
+        # Eventos de contraseñas: solicitud de recuperación, enlace consumido,
+        # cambio efectuado y límite de peticiones superado. En INFO a propósito:
+        # sin estas líneas un ataque contra el reset no dejaría NINGUNA huella en
+        # CloudWatch. Sobre ellas se puede montar después un metric filter, igual
+        # que con REVISION_SANCIONES_NO_EJECUTADA.
+        'core.seguridad': {
+            'handlers': _DESTINOS,
+            'level': 'INFO',
             'propagate': False,
         },
     },

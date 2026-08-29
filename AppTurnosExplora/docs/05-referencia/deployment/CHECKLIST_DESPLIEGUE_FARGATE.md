@@ -186,6 +186,8 @@ aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-ty
 
 - [ ] **DNS (IT):** `swalp.parqueexplora.org` → **DNS del ALB** (registro **CNAME**, o **Alias** si el dominio está en Route 53).
 - [ ] **SES:** verificar dominio `parqueexplora.org` (DKIM/SPF), **salir del sandbox**. Con el **task role** (`ses:SendEmail`) no hacen falta credenciales.
+- [ ] **⚠️ Salir del sandbox es BLOQUEANTE desde que existe "olvidé mi contraseña":** en sandbox, SES solo entrega a direcciones verificadas a mano, así que **nadie** puede recuperar su contraseña — y el fallo es silencioso (la pantalla dice "revisa tu correo" igualmente). **Se pide con 24 h hábiles de antelación**, no el día del despliegue. Paso a paso en **[MANUAL_RECUPERAR_CONTRASENA.md](./MANUAL_RECUPERAR_CONTRASENA.md)**.
+- [ ] **Salida al puerto 587** permitida en el grupo de seguridad de las tareas. Sin esto el envío se cuelga hasta agotar `EMAIL_TIMEOUT` y el usuario ve un error sin pista de la causa.
 
 **Outbox de correos — ⚠️ paso obligatorio:**
 - [ ] Crear una **EventBridge Scheduled Rule** (`rate(5 minutes)`) que lance una tarea ECS con la misma Task Definition, sobrescribiendo el comando a `["python","manage.py","procesar_email_outbox"]`. En Fargate no hay crontab.
@@ -221,6 +223,15 @@ aws ecs execute-command --cluster swalp-cluster --task <task-id> \
 - [ ] **Prueba de la caché compartida** (la que valida la trampa nº 1): con **≥2 tasks**, aprobar una solicitud y refrescar Mis Turnos varias veces. El resultado debe ser **siempre el mismo**; si alterna entre el dato viejo y el nuevo, la caché no es compartida.
 - [ ] Login (django-axes activo), dashboard, crear solicitud, aceptar pendiente (emisor y receptor) → OK.
 - [ ] Llega el correo desde `no-reply@parqueexplora.org` (DKIM=pass, SPF=pass).
+- [ ] **Recuperar contraseña de extremo a extremo:** pedir el enlace desde el login, comprobar que llega, que apunta a `https://swalp.parqueexplora.org/...` (no a `http://` ni al DNS interno del ALB), fijar la contraseña, entrar con ella, y verificar que **el mismo enlace ya no vale una segunda vez**. Casillas completas en **[MANUAL_RECUPERAR_CONTRASENA.md](./MANUAL_RECUPERAR_CONTRASENA.md)** §6. **Sin esta prueba no se sabe si funciona:** la pantalla responde lo mismo aunque no salga ningún correo.
+- [ ] Con sesión iniciada, el menú de usuario ofrece **Cambiar mi contraseña** y el flujo termina bien.
+- [ ] **Ninguna cuenta sin ficha de empleado.** Son cuentas fantasma: pueden entrar y recibir enlaces de recuperación, pero no aparecen en la pantalla de empleados, así que nadie las ve. Las generaba la versión antigua de "eliminar empleado" (hoy se da de baja, que no las crea) y también crearlas a mano desde `/admin/`.
+  ```bash
+  aws ecs execute-command --cluster swalp-cluster --task <task-id> \
+    --container web --interactive --command \
+    "python manage.py shell -c \"from django.contrib.auth.models import User; print(list(User.objects.filter(empleado__isnull=True).values_list('username', flat=True)))\""
+  ```
+  Debe salir `[]` (salvo cuentas de administración creadas a propósito con `createsuperuser`).
 - [ ] `/admin/` sin el error de zona horaria (RDS ya trae las tablas TZ).
 - [ ] Logs visibles en CloudWatch (`/ecs/swalp`).
 
