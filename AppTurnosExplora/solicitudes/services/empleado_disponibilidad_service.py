@@ -40,17 +40,11 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         if solo_jornada_contraria:
             return EmpleadoDisponibilidadService.get_empleados_jornada_contraria(fecha, usuario_actual)
         
-        # Lógica original: todos los empleados activos (no administradores)
-        # El modelo Empleado tiene relación 'user' (OneToOneField a User), no 'usuario'
-        empleados = (
-            Empleado.objects
-            .filter(
-                activo=True,
-                user__is_staff=False,
-                user__is_superuser=False
-            )
-            .select_related('supervisor')
-        )
+        # Todos los empleados que ejecutan turnos: `operativos()` excluye
+        # inactivos, staff/superusuario y rol Supervisor (el supervisor aprueba,
+        # no cubre). Antes aquí solo se filtraba por is_staff, que dejaba pasar
+        # al supervisor sin cuenta de staff.
+        empleados = Empleado.objects.operativos().select_related('supervisor')
         
         # Excluir al usuario actual si se proporciona (Empleado o User con .empleado)
         if usuario_actual:
@@ -136,8 +130,7 @@ class EmpleadoDisponibilidadService(IEmpleadoDisponibilidadService):
         # Buscar empleados que tengan la jornada contraria asignada
         empleados_contrarios = []
         empleados_activos = (
-            Empleado.objects
-            .filter(activo=True)
+            Empleado.objects.operativos()
             .exclude(id=empleado_actual.id)
             .select_related('supervisor')
         )

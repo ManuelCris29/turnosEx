@@ -38,6 +38,34 @@ class Jornada(models.Model):
         """True si es una de las jornadas base que el sistema requiere."""
         return self.nombre in self.NOMBRES_PROTEGIDOS
 
+class EmpleadoQuerySet(models.QuerySet):
+    """QuerySets de negocio de Empleado."""
+
+    def operativos(self):
+        """Empleados que EJECUTAN turnos: activos, sin rol Supervisor ni acceso admin.
+
+        Es el pool de "companero que cubre" de todos los formularios. El
+        supervisor aprueba las solicitudes, no las cubre, asi que no debe salir
+        como candidato de nadie.
+
+        Se excluye con la MISMA definicion de supervisor que
+        ``core.mixins.es_supervisor``: staff/superusuario **o** rol comparado
+        exacto contra ``Role.SUPERVISOR``. Filtrar solo por ``is_staff`` —como
+        hacia el unico camino que filtraba algo— dejaba pasar al supervisor sin
+        cuenta de staff, y filtrar el rol por coincidencia parcial excluiria a
+        un "Supervisor de sala", que es un explorador normal (ver Role).
+
+        Apagarle sesiones al supervisor no sustituye a esto: las sesiones
+        deciden que pantallas ve el, no como lo ven los demas, y los endpoints
+        que alimentan estos desplegables no son sesiones a proposito.
+        """
+        return self.filter(activo=True).exclude(
+            models.Q(user__is_staff=True)
+            | models.Q(user__is_superuser=True)
+            | models.Q(empleadorole__role__nombre__iexact=Role.SUPERVISOR)
+        ).distinct()
+
+
 class Empleado(models.Model):
     """Modelo principal para representar empleados/exploradores del sistema."""
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -47,6 +75,8 @@ class Empleado(models.Model):
     activo = models.BooleanField(default=True) #type:ignore
     supervisor = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='empleados_supervisados')
     historial = HistoricalRecords()
+
+    objects = EmpleadoQuerySet.as_manager()
 
     class Meta:
         verbose_name = 'Empleado'

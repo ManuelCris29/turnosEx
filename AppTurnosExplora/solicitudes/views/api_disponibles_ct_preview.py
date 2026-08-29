@@ -120,7 +120,7 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
             
         # v6: se añade el filtro por `fecha_descanso_receptor` (el candidato debe SEGUIR
         # descansando ese día); las listas cacheadas en v5 no lo aplican.
-        cache_key = f"empleados_disp_v6_{cache_params}"
+        cache_key = f"empleados_disp_v7_{cache_params}"
 
         def obtener_empleados():
             # Obtener empleados según el tipo de solicitud usando el Factory

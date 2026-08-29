@@ -11,7 +11,12 @@ DIAS_SEMANA = [
 
 
 def _empleados_qs():
-    return Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+    """Candidatos del campo `cubre`: quien puede cubrir el hueco del permiso.
+
+    `operativos()` deja fuera a los supervisores (por rol o por staff): el
+    supervisor aprueba el permiso, no cubre el turno de nadie.
+    """
+    return Empleado.objects.operativos().order_by('nombre', 'apellido')
 
 
 class _BasePermisoForm(forms.ModelForm):

@@ -456,7 +456,7 @@ class DFDSStrategy(SolicitudStrategy):
                 return []
 
             return list(
-                Empleado.objects.filter(activo=True)
+                Empleado.objects.operativos()
                 .exclude(id=usuario_actual.id)
                 .select_related('supervisor')
                 .order_by('nombre', 'apellido')

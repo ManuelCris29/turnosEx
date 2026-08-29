@@ -1261,7 +1261,7 @@ class DobladaStrategy(SolicitudStrategy):
                     grupo_descansa = 'PM' if jornada_trabaja_sabado.upper() == 'AM' else 'AM'
 
                     empleados_activos = (
-                        Empleado.objects.filter(activo=True)
+                        Empleado.objects.operativos()
                         .exclude(id=usuario_actual.id)
                         .select_related('supervisor')
                     )
@@ -1296,7 +1296,7 @@ class DobladaStrategy(SolicitudStrategy):
                     # Sin jornada_cedida específica: mantener lógica original:
                     # mostrar quienes TRABAJAN ese sábado según alternancia.
                     empleados_activos = (
-                        Empleado.objects.filter(activo=True)
+                        Empleado.objects.operativos()
                         .exclude(id=usuario_actual.id)
                         .select_related('supervisor')
                     )
@@ -1351,7 +1351,7 @@ class DobladaStrategy(SolicitudStrategy):
                 ):
                     grupo_descansa = 'PM' if grupo_que_dobla.upper() == 'AM' else 'AM'
                     empleados_activos = (
-                        Empleado.objects.filter(activo=True)
+                        Empleado.objects.operativos()
                         .exclude(id=usuario_actual.id)
                         .select_related('supervisor')
                     )
@@ -1395,7 +1395,7 @@ class DobladaStrategy(SolicitudStrategy):
 
                         if jornada_cedida:
                             jornada_contraria = 'PM' if jornada_a_ceder == 'AM' else 'AM'
-                            empleados_activos = Empleado.objects.filter(activo=True).exclude(id=usuario_actual.id)
+                            empleados_activos = Empleado.objects.operativos().exclude(id=usuario_actual.id)
                             empleados_contrarios = []
                             for empleado in empleados_activos:
                                 jornada_empleado = JornadaService.get_jornada_explorador_fecha(empleado.id, fecha)

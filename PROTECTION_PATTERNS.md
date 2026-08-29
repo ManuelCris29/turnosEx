@@ -1893,6 +1893,64 @@ al escribirse **4 casos que el `grep` manual se había dejado**.
 
 ---
 
+### 43. **Quien decide sobre una operación no puede ser CANDIDATO de esa operación** (Backend)
+**Qué es:** el supervisor aprueba las solicitudes de cambio de turno; no las ejecuta. Aun así
+aparecía en el desplegable de "compañero que cubre" de **todos** los formularios, porque el pool de
+candidatos se armaba en cada camino por separado y ninguno preguntaba por el rol. La exclusión de
+un rol que decide es una regla de **datos**, y vive en el queryset que produce a los candidatos.
+
+**Por qué:** son dos errores distintos y el segundo es el estructural.
+
+1. **Apagarle sesiones no lo saca de la lista.** La tentación es resolverlo con los permisos por
+   sesión (`core/sesiones.py`), que ya existen. Pero las sesiones deciden **qué pantallas ve él**,
+   no **cómo lo ven los demás**: aunque se le apague "Cambio de turno", sigue saliendo en el
+   desplegable de cualquier explorador, porque ese desplegable lo llenan endpoints AJAX que —por
+   diseño documentado— **no son sesiones**. Navegación y elegibilidad son capas distintas; meter
+   una regla de negocio en el catálogo de menús la deja además fuera de toda auditoría por rol.
+2. **Había ONCE pools de candidatos y sólo uno filtraba algo.** `EmpleadoDisponibilidadService`
+   excluía por `user__is_staff` — que **no es** la definición de supervisor del sistema
+   (`core/mixins.py:es_supervisor` = staff **o** rol `Role.SUPERVISOR`). Un supervisor por ROL, sin
+   cuenta de staff, pasaba ese filtro y los otros diez ni preguntaban. El más abierto era el campo
+   `cubre` de los permisos especiales: `filter(activo=True)` a secas.
+
+**Reglas:**
+1. La exclusión se expresa **una vez**, como queryset de negocio del modelo
+   (`Empleado.objects.operativos()`), y todos los pools parten de ahí. Un pool que se arma con
+   `filter(activo=True)` propio es un pool que mañana se olvidará de la siguiente regla.
+2. Se excluye con la **misma definición** que concede el permiso. Si `es_supervisor` mira staff **o**
+   rol exacto, el queryset mira staff **o** rol exacto: dos definiciones del mismo rol divergen
+   siempre, y divergen en silencio.
+3. La comparación del rol es `iexact` contra `Role.SUPERVISOR`, nunca `icontains` (ver #31): un
+   "Supervisor de sala" es un explorador normal y **debe seguir siendo candidato**. Excluirlo sería
+   el mismo fallo del patrón #31 con el signo cambiado.
+4. `.distinct()` obligatorio: el `exclude` cruza el M2M `EmpleadoRole` y sin él un compañero con
+   varios roles sale **repetido** en el desplegable.
+5. El filtro es del **selector**, no del historial. Las solicitudes ya existentes con esa persona se
+   siguen mostrando: dejar de pintarlas no la desimplica, sólo esconde el dato.
+6. Al cambiar quién es candidato, **sube la versión de la clave de caché** del endpoint
+   (`empleados_disp_v6_` → `v7_`) o seguirás sirviendo la lista vieja.
+
+**Estado:** ✅ **APLICADO** (2026-08-28)
+- `empleados/models.py` - `EmpleadoQuerySet.operativos()`: única definición
+- Once pools migrados: `empleado_disponibilidad_service.py` (base + jornada contraria),
+  `strategies/` (`doblada` ×4, `doblada_permanente`, `cambio_descanso`, `d_fds`),
+  `doblada_filtro_service.py`, `api_fin_semana.py`, `api_dobladas_consulta.py`
+- `permisos/forms.py` - `_empleados_qs()`: el campo `cubre` de permiso especial y permanente
+- Tests: `empleados/tests/test_empleados_operativos.py` (incluye "Supervisor de sala" y duplicados),
+  `solicitudes/tests/test_supervisor_excluido_candidatos.py` (los 6 caminos)
+
+⚠️ **El test necesita un GEMELO.** Comprobar sólo que el supervisor no está lo pasa también un
+montaje incompleto que devuelve la lista **vacía**. Cada caso monta además un explorador idéntico
+(misma jornada base, mismos turnos) y afirma que ÉL sí sale: es lo que distingue "filtrado
+correctamente" de "no había candidatos".
+
+⚠️ **NO tocar sin releer esto:** un queryset de candidatos que empiece por
+`Empleado.objects.filter(activo=True)` está saltándose la regla. La excepción legítima son los
+**filtros de listado** que usa el propio supervisor (p. ej. `permisos/views.py`, el desplegable
+"por explorador"): ahí el pool es de personas a consultar, no de candidatos a cubrir.
+
+---
+
 ## 🛠️ Checklist para Nuevos Flujos o Cambios de Estado
 
 Cuando crees un nuevo flujo que modifique estado, verifica TODOS estos puntos:
@@ -2112,6 +2170,10 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 | | **Reescrito el patrón #17**: la ventana de 30 minutos con cancelación unilateral ya no existe | #17 | El documento describía una regla MUERTA y un snippet con `VENTANA_CANCELACION_MINUTOS`, constante que no está en el código. Hoy son 24 h para pedirla + 24 h para que la contraparte responda, con estado CADUCADA si calla ([ADR 009](AppTurnosExplora/docs/03-arquitectura/adr/009-cancelacion-consensuada.md)). Afecta también a los patrones #3 y #13, que citaban los 30 min |
 | | Agregado patrón #42 (trinquete: la deuda congelada solo puede menguar) | #42 (nuevo) | Ya existían DOS trinquetes en el código sin documentar: `test_arquitectura_dispatch_por_tipo.py` y `test_arquitectura_api_privada.py`. El patrón separa no crear deuda nueva (automatizable) de saldar la vieja (un proyecto) |
 | | #31: retirada la referencia a `empleado_repository.py` | #31 | El archivo se borró en `b69cb80` por no importarlo nadie, pero el patrón seguía listándolo como sitio donde la protección está aplicada. La definición única del permiso vive hoy en `core/mixins.py:33` |
+| **2026-08-28** | Agregado patrón #43 (quien decide no es candidato) tras excluir al supervisor de los desplegables de "compañero que cubre" | #43 (nuevo), #31, #9 | El supervisor aprueba, no cubre turnos, y salía como candidato en los **once** pools del sistema. Sólo uno filtraba algo (`is_staff`), que no es la definición de supervisor: un supervisor por ROL pasaba. El campo `cubre` de permisos especiales era `filter(activo=True)` a secas |
+| | La exclusión se unifica en `Empleado.objects.operativos()` y los once pools parten de ahí | #43, #9 | Mismo fallo de fondo que la escalada de #31: la regla estaba repetida (o ausente) en cada camino en vez de definida una vez |
+| | Descartado resolverlo apagándole sesiones al supervisor | #43 | Las sesiones deciden qué ve ÉL, no cómo lo ven los demás: los endpoints que llenan estos desplegables no son sesiones a propósito, así que habría seguido saliendo en la lista de todos |
+| | Clave de caché de candidatos `empleados_disp_v6_` → `v7_` | #43, #6 | Sin subirla, el endpoint seguía sirviendo listas cacheadas **con** supervisores |
 
 ---
 
@@ -2123,7 +2185,7 @@ Cuando descubras/implemente un nuevo patrón o mejora:
 
 ---
 
-**Última actualización:** 2026-08-27  
+**Última actualización:** 2026-08-28  
 **Mantenedor:** Equipo de AppTurnos  
 **Próxima revisión:** Cuando se implemente nuevo patrón o cambio arquitectónico importante
 
