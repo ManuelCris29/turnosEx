@@ -87,7 +87,7 @@ SESIONES = (
     Sesion('indicadores', 'Indicadores', GRUPO_ADMIN,
            ['indicadores'], defecto_explorador=False),
     Sesion('empleados', 'Empleados/Exploradores', GRUPO_ADMIN,
-           ['empleados', 'empleado_detail', 'empleado_edit', 'empleado_delete',
+           ['empleados', 'empleado_detail', 'empleado_edit', 'empleado_baja', 'empleado_reingreso',
             'empleado_usuario_create', 'asignar_roles_salas', 'change_password'],
            defecto_explorador=False),
     Sesion('gestion_solicitudes', 'Gestión de Solicitudes', GRUPO_ADMIN,

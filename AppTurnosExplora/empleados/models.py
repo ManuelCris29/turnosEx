@@ -90,6 +90,44 @@ class Empleado(models.Model):
     def __str__(self):
         return f"{self.nombre} {self.apellido} ({self.user.username})"
 
+    def save(self, *args, **kwargs):
+        """Guarda la ficha y deja la CUENTA en el mismo estado que `activo`.
+
+        POR QUE ESTA AQUI Y NO EN LAS VISTAS
+        ------------------------------------
+        `activo` no bloqueaba el acceso. Un empleado marcado como inactivo
+        entraba igual y llegaba al dashboard: la casilla solo servia para filtrar
+        listados. Es el mismo genero de fallo que tenia el correo duplicado (ver
+        la propiedad `email` mas abajo): dos datos que TODO EL MUNDO da por
+        sincronizados y que nada sincronizaba.
+
+        Arreglarlo en la vista de baja habria tapado solo esa puerta. Quedarian
+        abiertas la edicion de la ficha, el alta y cualquier script que toque
+        `activo`; y la siguiente vista que alguien escriba volveria a olvidarlo.
+        Aqui pasa TODO lo que guarda un empleado, asi que es el unico sitio donde
+        la garantia se sostiene sola.
+
+        A diferencia del correo, `activo` NO se convierte en una propiedad sobre
+        `user.is_active`: es una columna con dos indices y decenas de
+        `filter(activo=True)` repartidos por el codigo. Sincronizar es aqui la
+        opcion barata; unificar habria sido reescribir media aplicacion.
+
+        LIMITE CONOCIDO: la direccion contraria no se cubre. Desactivar la cuenta
+        desde /admin/ deja `activo=True` en la ficha. Es territorio de
+        superusuario y el acceso queda cortado igual, que es lo que importa.
+        Tampoco pasan por aqui los `update()` masivos de queryset, que por diseño
+        de Django no llaman a `save()`.
+        """
+        super().save(*args, **kwargs)
+
+        if not self.user_id:
+            return
+        # Se compara antes de escribir: sin esto, cada guardado de la ficha
+        # dispararia un UPDATE sobre auth_user aunque no hubiera cambiado nada.
+        if self.user.is_active != self.activo:
+            self.user.is_active = self.activo
+            self.user.save(update_fields=['is_active'])
+
     @property
     def email(self):
         """
