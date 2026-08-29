@@ -57,6 +57,34 @@ Si se trata de un reingreso, primero hay que reingresarlo desde la lista de empl
 
 ## 3. SES, paso a paso
 
+### 3.0 Antes de empezar: SMTP o API — elige UNA
+
+Los manuales de despliegue de este proyecto proponen dos caminos distintos para SES,
+y conviene decidir cuál antes de tocar nada, porque **los pasos no son los mismos**:
+
+| | **SMTP** (lo que documenta este manual) | **API** (`django-ses`) |
+|---|---|---|
+| Código | **Ninguno.** `settings.py` ya lo soporta | `pip install django-ses boto3`, añadirlo a `requirements.txt` y reconstruir la imagen |
+| Credenciales | Usuario y contraseña SMTP en Secrets Manager | **Sin secretos**: IAM task role con `ses:SendEmail` |
+| Red | Salida al **puerto 587** | HTTPS (443), que ya suele estar abierto |
+| Latencia | Handshake SMTP (~segundos) | Menor |
+
+**`django-ses` y `boto3` NO están hoy en `requirements.txt`**, así que el camino API exige
+un cambio de dependencias y una imagen nueva. Los otros manuales
+([CHECKLIST_DESPLIEGUE_FARGATE.md](./CHECKLIST_DESPLIEGUE_FARGATE.md) §"Correo",
+[arquitectura-aws-rds-recomendada.md](./arquitectura-aws-rds-recomendada.md)) lo
+recomiendan como **mejora posterior**, no como punto de partida.
+
+**Recomendación: empieza por SMTP** (secciones 3.1 a 6 de este manual) y pásate a la API
+más adelante si la latencia molesta. La recuperación de contraseña funciona igual con
+los dos: Django manda el correo por el `EMAIL_BACKEND` que esté configurado, sea cual sea.
+
+> ⚠️ **`EMAIL_BACKEND` en producción debe quedar sin definir** (usa el SMTP por defecto)
+> **o** valer `django_ses.SESBackend`. Si se queda con
+> `django.core.mail.backends.console.EmailBackend` —el que se usa para probar en local—
+> los correos se escriben en el log de CloudWatch y **no los recibe nadie**, sin ningún
+> error. Es la misma clase de fallo silencioso que el sandbox.
+
 ### 3.1 Verificar la identidad del remitente
 
 1. Consola de AWS → **Amazon SES** → región del despliegue → **Identities** →
@@ -188,6 +216,7 @@ Después de desplegar, con una cuenta real (no la de un admin):
 | No llega, y SES está en producción | La cuenta **no tiene email** | `/admin/auth/user/` → ver el campo email |
 | No llega, y la cuenta sí tiene email | **Puerto 587 cerrado** | Logs: error de timeout SMTP al enviar |
 | Llega a **spam** | DKIM/SPF sin verificar | Cabeceras del correo: `dkim=pass`, `spf=pass` |
+| No llega nada y en CloudWatch se ve el correo entero escrito en el log | `EMAIL_BACKEND` quedó en `console` | Quitar esa variable del *task definition* (§3.0) |
 | Enlace "caducado" al primer intento | El enlace **ya se usó**, o `PASSWORD_RESET_TIMEOUT` demasiado bajo | Pedir uno nuevo; revisar la variable |
 | Enlace apunta a `http://` o al DNS del ALB | `SECURE_PROXY_SSL_HEADER` / `ALLOWED_HOSTS` | Sección 5 |
 | Deja de enviarse de golpe para todos | **Reputación de SES** dañada | SES → *Reputation metrics*; revisar bounces y quejas |
