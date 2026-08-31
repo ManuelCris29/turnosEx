@@ -58,6 +58,32 @@
 .tag-permiso  { background: #dcfce7; color: #15803d; }
 .tag-motivo   { background: #f1f5f9; color: #475569; }
 .tag-sinplan  { background: #fee2e2; color: #991b1b; }
+/* Avisos por persona: los mismos que el Excel pinta en sus columnas. El detalle
+   completo va en el title, para no romper la tarjeta con textos largos. */
+.tag-restriccion { background: #fef3c7; color: #92400e; cursor: help; }
+.tag-sancion     { background: #fee2e2; color: #991b1b; cursor: help; }
+.tag-deuda       { background: #ede9fe; color: #5b21b6; cursor: help; }
+.tag-paga-hoy    { background: #dcfce7; color: #166534; cursor: help; }
+
+/* Tira de deuda del mes */
+.rep-deuda { display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+             padding: 9px 14px; border-radius: 10px; margin-bottom: 14px;
+             font-size: .85rem; border: 1px solid transparent; }
+.rep-deuda-hay { background: #fef2f2; border-color: #fecaca; color: #991b1b; }
+.rep-deuda-ok  { background: #f0fdf4; border-color: #bbf7d0; color: #166534; }
+.rep-deuda b   { font-size: 1rem; }
+.rep-deuda a   { margin-left: auto; font-weight: 600; color: inherit; text-decoration: underline; }
+
+/* Tipo de día en la cuadrícula del calendario */
+.fc-day-festivo  .fc-daygrid-day-frame { background: #fef2f2; }
+.fc-day-mant     .fc-daygrid-day-frame { background: #f1f5f9; }
+.fc-day-finde    .fc-daygrid-day-frame { background: #f8fafc; }
+.fc-day-sinplan  .fc-daygrid-day-frame { background: #fee2e2; box-shadow: inset 0 0 0 2px #fca5a5; }
+.fc-day-selected .fc-daygrid-day-frame { background: transparent; }
+.rep-leyenda { display: flex; gap: 14px; flex-wrap: wrap; margin: 10px 0 14px;
+               font-size: .74rem; color: #fff; }
+.rep-leyenda span { display: inline-flex; align-items: center; gap: 5px; }
+.rep-leyenda i.box { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
 
 .rep-empty { text-align: center; color: #94a3b8; font-size: .82rem; padding: 20px 0; }
 

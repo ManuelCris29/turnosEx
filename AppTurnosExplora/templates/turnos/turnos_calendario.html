@@ -19,6 +19,12 @@
 
     <!-- Calendario -->
     <div id="calendar"></div>
+    <div class="rep-leyenda">
+      <span><i class="box" style="background:#fef2f2;border:1px solid #fecaca;"></i> Festivo</span>
+      <span><i class="box" style="background:#f1f5f9;border:1px solid #cbd5e1;"></i> Mantenimiento</span>
+      <span><i class="box" style="background:#f8fafc;border:1px solid #e2e8f0;"></i> Fin de semana</span>
+      <span><i class="box" style="background:#fee2e2;border:2px solid #fca5a5;"></i> Sin alternancia publicada</span>
+    </div>
 
     <!-- Encabezado del reporte -->
     <div class="rep-header">
@@ -33,6 +39,10 @@
         </a>
       </div>
     </div>
+
+    <!-- Deuda pendiente del mes hasta la fecha elegida -->
+    <div id="rep-deuda" class="rep-deuda" style="display:none;"
+         data-url-morosos="{% url 'sanciones_morosos' %}"></div>
 
     <!-- Tres columnas -->
     <div class="rep-grid">

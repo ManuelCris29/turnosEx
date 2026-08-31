@@ -31,6 +31,65 @@ def _nombre(emp):
 class ReporteDiaService:
 
     @staticmethod
+    def dias_del_mes(anio: int, mes: int) -> dict:
+        """
+        Qué TIPO de día es cada fecha del mes: festivo, fin de semana, mantenimiento o
+        sin planificar. Hermano de `reporte()`, pero sin tocar empleados: es solo el
+        calendario, para poder pintar la cuadrícula del mes de una sola petición en vez
+        de una por día.
+
+        Las cuatro claves significan exactamente lo mismo que en `reporte()['dia_info']`
+        y salen de las mismas fuentes (`DiaEspecial`, `AsignacionEspecialManual`), en
+        batch: si alguna vez divergieran, la celda pintada y el reporte al hacer clic
+        dirían cosas distintas del mismo día.
+
+        Devuelve {'YYYY-MM-DD': {es_festivo, es_finde, es_mantenimiento, sin_planificar}}
+        solo para los días que tienen algo que contar; un día laboral normal no aparece.
+        """
+        import calendar
+
+        from turnos.models import AsignacionEspecialManual
+
+        primero = _date(anio, mes, 1)
+        ultimo = _date(anio, mes, calendar.monthrange(anio, mes)[1])
+
+        especiales = {'festivo': set(), 'mantenimiento': set(), 'temporada': set()}
+        for fecha, tipo, es_temporada in (DiaEspecial.objects
+                                          .filter(fecha__range=(primero, ultimo), activo=True)
+                                          .values_list('fecha', 'tipo', 'es_temporada')):
+            if es_temporada:
+                especiales['temporada'].add(fecha)
+            if tipo in especiales:
+                especiales[tipo].add(fecha)
+
+        planificados = set(AsignacionEspecialManual.objects
+                           .filter(fecha__range=(primero, ultimo), activo=True)
+                           .values_list('fecha', flat=True))
+
+        dias = {}
+        for n in range(1, ultimo.day + 1):
+            fecha = _date(anio, mes, n)
+            es_festivo = fecha in especiales['festivo']
+            es_finde = fecha.weekday() in (5, 6)
+            # La temporada manda sobre el mantenimiento, igual que en
+            # `DiaEspecial.es_mantenimiento_efectivo`.
+            es_mant = (not es_festivo and not es_finde
+                       and fecha in especiales['mantenimiento']
+                       and fecha not in especiales['temporada'])
+            # Sin fila de alternancia el día NO es "todos descansan": es que nadie lo
+            # ha planificado. Ver `AsignacionEspecialManual`.
+            sin_plan = ((es_finde or (es_festivo and fecha.weekday() < 5))
+                        and fecha not in planificados)
+            if es_festivo or es_finde or es_mant or sin_plan:
+                dias[fecha.isoformat()] = {
+                    'es_festivo': es_festivo,
+                    'es_finde': es_finde,
+                    'es_mantenimiento': es_mant,
+                    'sin_planificar': sin_plan,
+                }
+        return dias
+
+    @staticmethod
     def reporte(fecha: _date) -> dict:
         """
         Devuelve el estado de todos los empleados activos para `fecha`.

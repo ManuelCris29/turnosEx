@@ -5,6 +5,11 @@
   // una respuesta lenta de la anterior podía pintarse encima de la nueva. Solo se
   // renderiza la respuesta de la última petición lanzada.
   let peticionActual = 0;
+  // Tipo de día del mes visible ('YYYY-MM-DD' -> {es_festivo,…}), para pintar la
+  // cuadrícula sin una petición por celda. Es una capa visual: si falla, el
+  // calendario sigue funcionando exactamente igual.
+  let diasMes = {};
+  let mesCargado = null;
 
   // Todo el contenido dinámico se inserta con innerHTML, así que cualquier texto
   // que venga de la base de datos (nombres, especificación del permiso, motivos)
@@ -40,6 +45,13 @@
       },
       dayCellDidMount: function(info){
         if(info.dateStr === fechaActual) info.el.classList.add('fc-day-selected');
+        pintarCelda(info.el, info.dateStr);
+      },
+      datesSet: function(info){
+        // `view.currentStart` es el mes real mostrado; `info.start` incluye los días
+        // de relleno del mes anterior y daría el mes equivocado en las primeras filas.
+        const ref = info.view.currentStart;
+        cargarMes(ref.getFullYear(), ref.getMonth() + 1);
       }
     });
     const hoy = new Date();
@@ -49,6 +61,43 @@
     cal.render();
     cargarReporte(hoyStr, hoy);
   });
+
+  function cargarMes(anio, mes){
+    const clave = `${anio}-${mes}`;
+    if(mesCargado === clave) return;
+    mesCargado = clave;
+    fetch(`/turnos/api/reporte-mes/dias/?anio=${anio}&mes=${mes}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r))
+      .then(data => {
+        diasMes = Object.assign({}, diasMes, data.dias || {});
+        repintarCalendario();
+      })
+      .catch(() => { /* el color es un extra: sin él la página sigue completa */ });
+  }
+
+  const CLASES_DIA = ['fc-day-festivo','fc-day-mant','fc-day-finde','fc-day-sinplan'];
+
+  function pintarCelda(el, fechaStr){
+    CLASES_DIA.forEach(c => el.classList.remove(c));
+    const d = diasMes[fechaStr];
+    if(!d) return;
+    // Un mismo día puede ser festivo Y estar sin planificar: gana el aviso, que es
+    // lo accionable (falta publicar la alternancia).
+    if(d.sin_planificar)         el.classList.add('fc-day-sinplan');
+    else if(d.es_festivo)        el.classList.add('fc-day-festivo');
+    else if(d.es_mantenimiento)  el.classList.add('fc-day-mant');
+    else if(d.es_finde)          el.classList.add('fc-day-finde');
+    el.title = [d.es_festivo && 'Festivo', d.es_finde && 'Fin de semana',
+                d.es_mantenimiento && 'Día de mantenimiento',
+                d.sin_planificar && 'Sin alternancia publicada: nadie ha planificado este día']
+                .filter(Boolean).join(' · ');
+  }
+
+  function repintarCalendario(){
+    document.querySelectorAll('#calendar .fc-daygrid-day[data-date]').forEach(el => {
+      pintarCelda(el, el.getAttribute('data-date'));
+    });
+  }
 
   function cargarReporte(fechaStr, fechaDate){
     const miPeticion = ++peticionActual;
@@ -92,6 +141,8 @@
     document.getElementById('col-pm').innerHTML   = pm.length   ? pm.map(e => cardTrabaja(e,'pm')).join('') : vacio(msgVacio || 'No hay exploradores PM');
     document.getElementById('col-desc').innerHTML = desc.length ? desc.map(cardDescansa).join('') : vacio('Todos trabajan este día');
 
+    renderDeuda(data.deuda_corte);
+
     const badge = document.getElementById('rep-dia-badge');
     badge.innerHTML = '';
     if(info.es_festivo)          badge.innerHTML = '<span class="rep-badge-dia badge-festivo"><i class="fas fa-star"></i> Festivo</span>';
@@ -103,6 +154,40 @@
     }
   }
 
+  // Los MISMOS avisos que el Excel pinta en sus columnas Restricción / Sanción /
+  // Doblada pendiente. Los datos ya venían en el JSON; sin esto había que descargar
+  // el Excel para enterarse de que alguien está sancionado o con restricción médica.
+  function chipsAviso(emp){
+    let out = '';
+    const r = emp.restriccion, sa = emp.sancion, d = emp.deuda_reprogramacion;
+    if(r){
+      const det = [r.tipo, r.recomendacion, r.fecha_fin ? `Hasta ${fmtFecha(r.fecha_fin)}` : 'Sin fecha de fin']
+                    .filter(Boolean).join(' · ');
+      out += `<span class="tag tag-restriccion" title="${esc(det)}">⚠ Restricción</span>`;
+    }
+    if(sa){
+      const det = [sa.motivo, `Del ${fmtFecha(sa.fecha_inicio)} al ${sa.fecha_fin ? fmtFecha(sa.fecha_fin) : '—'}`]
+                    .filter(Boolean).join(' · ');
+      out += `<span class="tag tag-sancion" title="${esc(det)}">⛔ Sancionado</span>`;
+    }
+    if(d){
+      if(d.paga_hoy){
+        out += `<span class="tag tag-paga-hoy" title="${esc('Hoy cumple la doblada que debía del ' + fmtFecha(d.fecha_original))}">💥 Paga doblada hoy</span>`;
+      } else {
+        const det = `Debe la doblada del ${fmtFecha(d.fecha_original)}`
+                  + (d.fecha_reprogramada ? ` · la paga el ${fmtFecha(d.fecha_reprogramada)}` : ' · sin fecha asignada');
+        out += `<span class="tag tag-deuda" title="${esc(det)}">🔁 Debe doblada</span>`;
+      }
+    }
+    return out;
+  }
+
+  function fmtFecha(iso){
+    if(!iso) return '';
+    const p = String(iso).split('-');
+    return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : String(iso);
+  }
+
   function cardTrabaja(emp, lado){
     const avClass = emp.jornada_dia === 'DOBLADA' ? 'av-dob' : `av-${lado}`;
     const iniciales = (emp.nombre[0]||'') + (emp.apellido[0]||'');
@@ -111,6 +196,7 @@
     else if(emp.tipo === 'cambio') tags += '<span class="tag tag-cambio">Cambio</span>';
     else                           tags += '<span class="tag tag-oficial">Oficial</span>';
     if(emp.permiso) tags += `<span class="tag tag-permiso">${esc(emp.permiso.horas)}h permiso</span>`;
+    tags += chipsAviso(emp);
     let detalle = '';
     if(emp.jornada_dia === 'DOBLADA') detalle += '<div class="emp-detalle" style="color:#7c3aed;font-weight:600;">AM + PM (dobló)</div>';
     if(emp.cubre_a)   detalle += `<div class="emp-detalle">Cubre a: <b>${esc(emp.cubre_a.nombre)}</b></div>`;
@@ -134,6 +220,8 @@
     let detalle = `<div class="emp-detalle"><span class="${tagCls}">${esc(capitalizar(motivo))}</span></div>`;
     if(emp.companero) detalle += `<div class="emp-detalle">Con: <b>${esc(emp.companero.nombre)}</b></div>`;
     if(emp.permiso && emp.permiso.especificacion) detalle += `<div class="emp-detalle" style="color:#15803d;">${esc(emp.permiso.tipo)}: ${esc(emp.permiso.especificacion)}</div>`;
+    const avisos = chipsAviso(emp);
+    if(avisos) detalle += `<div class="emp-tags">${avisos}</div>`;
     return `
       <div class="emp-card">
         <div class="emp-avatar av-desc">${esc(iniciales.toUpperCase())}</div>
@@ -143,6 +231,35 @@
           ${detalle}
         </div>
       </div>`;
+  }
+
+  // Titular de la deuda del mes hasta la fecha elegida. El detalle nominal vive en
+  // /empleados/sanciones/morosos/?corte=…, que es a donde lleva el enlace: aquí solo
+  // interesa saber si hay algo que mirar.
+  function renderDeuda(d){
+    const box = document.getElementById('rep-deuda');
+    if(!box) return;
+    if(!d){ box.style.display = 'none'; return; }
+    const dia = Number(fechaActual.split('-')[2]);
+    box.style.display = '';
+    if(!d.exploradores){
+      box.className = 'rep-deuda rep-deuda-ok';
+      box.innerHTML = `<i class="fas fa-check-circle"></i> Nadie debe horas del 1 al ${dia} de este mes.`;
+      return;
+    }
+    const etiqueta = d.proyectada ? 'Deuda proyectada' : 'Deuda pendiente';
+    const nota = d.proyectada
+      ? ' <small>(la fecha aún no ha llegado: incluye días no vencidos)</small>' : '';
+    box.className = 'rep-deuda rep-deuda-hay';
+    box.innerHTML = `<i class="fas fa-hand-holding-usd"></i> ${etiqueta} del 1 al ${dia}: `
+      + `<b>${esc(d.exploradores)}</b> explorador(es) · <b>${esc(d.horas)} h</b> (${esc(d.minutos)} min)${nota}`
+      + `<a href="${esc(box.dataset.urlMorosos)}?corte=${encodeURIComponent(fechaActual)}">Ver quién debe</a>`;
+  }
+
+  // SweetAlert2 lo carga base.html; el alert nativo es solo por si faltara.
+  function avisarError(msg){
+    if(typeof Swal !== 'undefined') Swal.fire({icon:'error', title:'Descarga fallida', text:msg});
+    else alert(msg);
   }
 
   function vacio(msg){ return `<div class="rep-empty"><i class="fas fa-check-circle" style="color:#86efac;"></i><br>${esc(msg)}</div>`; }
@@ -158,6 +275,7 @@
     ['col-am','col-pm','col-desc'].forEach(id => { document.getElementById(id).innerHTML = spinner; });
     ['cnt-am','cnt-pm','cnt-desc'].forEach(id => { document.getElementById(id).textContent = '…'; });
     document.getElementById('rep-dia-badge').innerHTML = '';
+    document.getElementById('rep-deuda').style.display = 'none';
     document.getElementById('btn-excel').style.display = 'none';
     reporteData = null;
   }
@@ -166,10 +284,33 @@
     ['col-am','col-pm','col-desc'].forEach(id => { document.getElementById(id).innerHTML = html; });
   }
 
+  // Con `window.location.href`, un 500 del endpoint hacía que el navegador abriera el
+  // JSON de error como si fuera la descarga. Así el error se ve donde el supervisor
+  // está mirando, y el botón vuelve a su estado.
   function descargarExcel(e){
     e.preventDefault();
     if(!fechaActual) return;
-    window.location.href = `/turnos/api/reporte-dia/excel/?fecha=${encodeURIComponent(fechaActual)}`;
+    const btn = document.getElementById('btn-excel');
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generando…';
+    btn.style.pointerEvents = 'none';
+    fetch(`/turnos/api/reporte-dia/excel/?fecha=${encodeURIComponent(fechaActual)}`)
+      .then(r => {
+        if(r.ok) return r.blob();
+        return r.json().then(j => Promise.reject(j && j.error), () => Promise.reject(null));
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `reporte_operacion_${fechaActual}.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      })
+      .catch(msg => avisarError(msg || 'No se pudo generar el Excel. Inténtalo de nuevo.'))
+      .finally(() => { btn.innerHTML = original; btn.style.pointerEvents = ''; });
   }
 
   document.addEventListener('DOMContentLoaded', function(){

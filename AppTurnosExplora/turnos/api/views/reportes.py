@@ -144,6 +144,39 @@ def _altura(*pairs):
     return min(140, max(16, lineas * 14 + 2))
 
 
+MESES_ES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+            'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+DIAS_ES = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo']
+
+
+def _deuda_del_corte(fecha):
+    """
+    Deuda todavía sin pagar del día 1 del mes de `fecha` hasta `fecha`, y su agregado.
+
+    Misma fuente de verdad que /empleados/sanciones/morosos/?corte=…: la regla vive en
+    `DeudaCorporativaService.deuda_a_corte` y aquí solo se consulta. La comparten la vista
+    JSON (que expone únicamente el agregado) y la de Excel (que lleva además el detalle),
+    para que las dos no puedan contar cosas distintas del mismo día.
+
+    Devuelve (filas, resumen) con resumen = {exploradores, minutos, horas, proyectada}.
+    `proyectada` avisa de que la fecha es futura: entonces la cifra incluye días que
+    todavía no han vencido, así que no es deuda exigible, es una previsión.
+    """
+    from django.utils import timezone
+
+    from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+
+    filas = DeudaCorporativaService.deuda_a_corte(fecha)
+    minutos = sum(f['minutos'] for f in filas)
+    return filas, {
+        'exploradores': len(filas),
+        'minutos': minutos,
+        # En horas, que es como se paga: el PDH se registra en horas.
+        'horas': round(minutos / 60, 2),
+        'proyectada': fecha > timezone.localdate(),
+    }
+
+
 def _fecha_de_request(request):
     """
     Lee y valida ?fecha=YYYY-MM-DD.
@@ -183,9 +216,37 @@ class ReporteDiaView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
 
         try:
             from turnos.services.reporte_dia_service import ReporteDiaService
-            return JsonResponse(ReporteDiaService.reporte(fecha))
+            data = ReporteDiaService.reporte(fecha)
+            # Solo el agregado: la pantalla es un panorama de la operación y el detalle de
+            # quién debe ya tiene la suya (/empleados/sanciones/morosos/). El Excel sí lo lleva.
+            data['deuda_corte'] = _deuda_del_corte(fecha)[1]
+            return JsonResponse(data)
         except Exception as e:
             return _error_500('ReporteDiaView', e)
+
+
+class ReporteMesDiasView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
+    """
+    Tipo de día (festivo / finde / mantenimiento / sin planificar) de todo un mes.
+
+    Alimenta el pintado del calendario: una petición por mes en vez de una por celda.
+    Es solo el calendario, sin datos de personas, así que es barato.
+    """
+
+    def get(self, request):
+        try:
+            anio = int(request.GET.get('anio', ''))
+            mes = int(request.GET.get('mes', ''))
+        except (TypeError, ValueError):
+            return JsonResponse({'error': 'Debe enviar anio y mes numéricos'}, status=400)
+        if not 1 <= mes <= 12:
+            return JsonResponse({'error': 'El mes debe estar entre 1 y 12'}, status=400)
+
+        try:
+            from turnos.services.reporte_dia_service import ReporteDiaService
+            return JsonResponse({'dias': ReporteDiaService.dias_del_mes(anio, mes)})
+        except Exception as e:
+            return _error_500('ReporteMesDiasView', e)
 
 
 class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
@@ -199,21 +260,22 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         try:
             from turnos.services.reporte_dia_service import ReporteDiaService
             data = ReporteDiaService.reporte(fecha)
-            return self._generar_excel(fecha, data)
+            # Se consulta aquí, no dentro del generador, para que el Excel siga siendo
+            # solo formato: `_generar_excel` recibe datos ya resueltos.
+            filas_deuda, resumen_deuda = _deuda_del_corte(fecha)
+            return self._generar_excel(fecha, data, filas_deuda, resumen_deuda)
         except Exception as e:
             return _error_500('ReporteDiaExcelView', e)
 
-    def _generar_excel(self, fecha, data):
+    def _generar_excel(self, fecha, data, filas_deuda=None, resumen_deuda=None):
         import io
 
         from django.http import HttpResponse
         from openpyxl import Workbook
         from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-        MESES = ['', 'enero','febrero','marzo','abril','mayo','junio',
-                 'julio','agosto','septiembre','octubre','noviembre','diciembre']
-        DIAS  = ['lunes','martes','miércoles','jueves','viernes','sábado','domingo']
-        fecha_legible = f'{DIAS[fecha.weekday()]} {fecha.day} de {MESES[fecha.month]} de {fecha.year}'
+        fecha_legible = (f'{DIAS_ES[fecha.weekday()]} {fecha.day} de '
+                         f'{MESES_ES[fecha.month]} de {fecha.year}')
 
         trabajando  = data.get('trabajando', [])
         descansando = data.get('descansando', [])
@@ -238,6 +300,8 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         GRIS_CLARO   = 'F1F5F9'
         VERDE_CL     = 'DCFCE7'
         MORADO_CL    = 'EDE9FE'
+        ROJO_OSC     = '7F1D1D'
+        ROJO_MED     = 'DC2626'
         BLANCO       = 'FFFFFF'
 
         def fuente(bold=False, color='000000', size=10, italic=False):
@@ -325,8 +389,26 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             num.border = borde_fino()
             ws.row_dimensions[6].height = 36
 
-        # Separador
-        ws.row_dimensions[7].height = 8
+        # ── Deuda pendiente del mes hasta esta fecha ─────────────────────────
+        # El detalle está en la hoja "Deuda pendiente"; aquí va el titular, para que no
+        # haya que cambiar de hoja para enterarse de que hay gente debiendo.
+        rd = resumen_deuda or {}
+        ws.merge_cells('A7:D7')
+        c = ws['A7']
+        if not rd.get('exploradores'):
+            c.value = f'✅ Nadie debe horas del 1 al {fecha.day} de {MESES_ES[fecha.month]}'
+            c.font = fuente(bold=True, color='166534', size=10)
+            c.fill = fill('DCFCE7')
+        else:
+            etiqueta = 'Deuda PROYECTADA' if rd.get('proyectada') else 'Deuda pendiente'
+            c.value = (f'💸  {etiqueta} del 1 al {fecha.day} de {MESES_ES[fecha.month]}: '
+                       f'{rd["exploradores"]} explorador(es) · {rd["horas"]} h '
+                       f'({rd["minutos"]} min)  ·  detalle en la hoja "Deuda pendiente"')
+            c.font = fuente(bold=True, color='991B1B', size=10)
+            c.fill = fill('FEE2E2')
+        c.alignment = centrado()
+        c.border = borde_fino()
+        ws.row_dimensions[7].height = 20
 
         # Mini-lista resumen: por persona, etiqueta corta + frase explicativa + flags
         TIPO_BG = {'oficial': 'DBEAFE', 'cambio': 'FEF9C3', 'doblada': 'EDE9FE'}
@@ -453,6 +535,16 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                              GRIS_OSC=GRIS_OSC, GRIS_MED=GRIS_MED,
                              GRIS_CLARO=GRIS_CLARO, VERDE_CL=VERDE_CL,
                              MORADO_CL=MORADO_CL)
+
+        # ════════════════════════════════════════════════════════════════════
+        # HOJA 5 — DEUDA PENDIENTE AL CORTE
+        # ════════════════════════════════════════════════════════════════════
+        ws_deuda = wb.create_sheet('Deuda pendiente')
+        self._hoja_deuda(ws_deuda, filas_deuda or [], resumen_deuda or {},
+                         fecha, fecha_legible,
+                         fill=fill, fuente=fuente, borde=borde_fino,
+                         centrado=centrado, izquierda=izquierda,
+                         ROJO_OSC=ROJO_OSC, ROJO_MED=ROJO_MED)
 
         # ── Respuesta HTTP ───────────────────────────────────────────────────
         buf = io.BytesIO()
@@ -612,3 +704,93 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             c.value = 'Todos los exploradores trabajan este día'
             c.font = fuente(italic=True, color='94A3B8', size=10)
             c.alignment = centrado()
+
+    def _hoja_deuda(self, ws, filas, resumen, fecha, fecha_legible,
+                    fill, fuente, borde, centrado, izquierda, ROJO_OSC, ROJO_MED):
+        """
+        Deuda todavía sin pagar generada del día 1 de ese mes hasta la fecha elegida.
+
+        Es la misma lectura que la pantalla de morosos con fecha de corte: solo lo ya
+        devengado (de un permiso permanente entran únicamente las ocurrencias que ya
+        pasaron) y sin arrastrar meses anteriores, que a estas alturas o están pagados
+        o los consumió una sanción.
+
+        Con fecha futura la cifra deja de ser exigible y se rotula PROYECTADA: aquí el
+        supervisor llega desde un calendario donde clicar un día que aún no ha llegado es
+        lo normal, y "debe 3 h" de un día que no ha pasado se lee mal.
+        """
+        from openpyxl.utils import get_column_letter
+
+        proyectada = bool(resumen.get('proyectada'))
+        periodo = f'del 1 al {fecha.day} de {MESES_ES[fecha.month]} de {fecha.year}'
+
+        COLS = [(5, '#'), (20, 'Nombre'), (16, 'Apellido'), (24, 'Supervisor'),
+                (12, 'Debe (h)'), (12, 'Debe (min)'), (18, 'Dobladas (min)'),
+                (18, 'Permisos (min)'), (12, 'Ocasiones'), (14, 'Desde')]
+        titulo = (f'DEUDA {"PROYECTADA ⏳" if proyectada else "PENDIENTE 💸"}  ·  {periodo}')
+        self._encabezado_hoja(ws, titulo, fecha_legible, ROJO_OSC, ROJO_MED,
+                              fill, fuente, centrado, COLS)
+        self._fila_header(ws, 4, COLS, ROJO_MED, 'FFFFFF',
+                          fill, fuente, centrado, borde)
+
+        ultima = get_column_letter(len(COLS))
+        for i, f in enumerate(filas, 5):
+            bg = 'FFFFFF' if i % 2 == 1 else 'F8FAFC'
+            explorador = f['explorador']
+            sup = explorador.supervisor
+            vals = [i - 4, explorador.nombre, explorador.apellido,
+                    f'{sup.nombre} {sup.apellido}' if sup else '—',
+                    f['horas'], f['minutos'],
+                    f['minutos_dobladas'] or '—', f['minutos_permisos'] or '—',
+                    f['dias'], _fmt_fecha(f['deuda_mas_antigua'])]
+            for col, v in enumerate(vals, 1):
+                c = ws.cell(row=i, column=col, value=v)
+                c.border = borde()
+                c.font = fuente(size=10)
+                c.alignment = izquierda(True) if col in (2, 3, 4) else centrado()
+                if col == 5:  # las horas son la cifra que se paga: se destacan
+                    c.fill = fill('FEE2E2')
+                    c.font = fuente(bold=True, color=ROJO_OSC, size=10)
+                else:
+                    c.fill = fill(bg)
+
+        if not filas:
+            ws.merge_cells(f'A5:{ultima}5')
+            c = ws['A5']
+            c.value = f'Nadie debe nada {periodo} ✅'
+            c.font = fuente(italic=True, color='94A3B8', size=10)
+            c.alignment = centrado()
+            return
+
+        total_min = resumen.get('minutos') or sum(f['minutos'] for f in filas)
+        fila_total = 5 + len(filas)
+        ws.merge_cells(f'A{fila_total}:D{fila_total}')
+        c = ws[f'A{fila_total}']
+        c.value = f'TOTAL · {len(filas)} explorador(es) deben'
+        c.font = fuente(bold=True, color='FFFFFF', size=10)
+        c.fill = fill(ROJO_OSC)
+        c.alignment = centrado()
+        for col, v in enumerate([round(total_min / 60, 2), total_min,
+                                 sum(f['minutos_dobladas'] for f in filas),
+                                 sum(f['minutos_permisos'] for f in filas),
+                                 sum(f['dias'] for f in filas), ''], 5):
+            c = ws.cell(row=fila_total, column=col, value=v)
+            c.font = fuente(bold=True, color='FFFFFF', size=10)
+            c.fill = fill(ROJO_OSC)
+            c.alignment = centrado()
+            c.border = borde()
+
+        nota_txt = ('Solo cuenta lo ya devengado a esa fecha: de un permiso permanente entran '
+                    'únicamente las ocurrencias que ya han pasado. La deuda de meses anteriores '
+                    'no aparece — a estas alturas o está pagada o la consumió una sanción.')
+        if proyectada:
+            nota_txt = ('⏳ PROYECCIÓN: la fecha elegida aún no ha llegado, así que esta cifra '
+                        'incluye días que todavía no han vencido. No es deuda exigible hoy. '
+                        + nota_txt)
+        nota = fila_total + 2
+        ws.merge_cells(f'A{nota}:{ultima}{nota}')
+        c = ws[f'A{nota}']
+        c.value = nota_txt
+        c.font = fuente(italic=True, color=('991B1B' if proyectada else '64748B'), size=9)
+        c.alignment = izquierda(True)
+        ws.row_dimensions[nota].height = 30

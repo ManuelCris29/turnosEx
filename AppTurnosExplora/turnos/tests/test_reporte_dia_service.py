@@ -5,6 +5,7 @@ None) según los datos, y un smoke test de la exportación a Excel.
 """
 import io
 from datetime import date, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import RequestFactory, TestCase
@@ -135,11 +136,125 @@ class ReporteDiaEnriquecidoTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn('spreadsheetml', resp['Content-Type'])
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
-        self.assertEqual(wb.sheetnames, ['Resumen', 'Trabajan AM', 'Trabajan PM', 'Descansan'])
+        self.assertEqual(wb.sheetnames,
+                         ['Resumen', 'Trabajan AM', 'Trabajan PM', 'Descansan',
+                          'Deuda pendiente'])
+        deuda = [wb['Deuda pendiente'].cell(row=4, column=c).value for c in range(1, 11)]
+        self.assertIn('Debe (h)', deuda)
+        self.assertIn('Supervisor', deuda)
+        self.assertIn('Dobladas (min)', deuda)
+        self.assertIn('Permisos (min)', deuda)
         headers = [wb['Trabajan AM'].cell(row=4, column=c).value for c in range(1, 10)]
         self.assertIn('¿Por qué trabaja hoy?', headers)
         self.assertIn('Restricción', headers)
         self.assertIn('Doblada pendiente', headers)
+
+    def test_excel_hoja_deuda_lista_lo_pendiente_del_mes_hasta_la_fecha(self):
+        """La hoja replica /empleados/sanciones/morosos/?corte=: del día 1 al día elegido."""
+        import openpyxl
+
+        from solicitudes.models import DeudaCorporativa
+        from turnos.api.views.reportes import ReporteDiaExcelView
+
+        DeudaCorporativa.objects.create(explorador=self.a, minutos=30,
+                                        fecha_doblada=FECHA - timedelta(1), estado='activa')
+        # Posterior al corte: todavía no se debe, no debe aparecer.
+        DeudaCorporativa.objects.create(explorador=self.b, minutos=30,
+                                        fecha_doblada=FECHA + timedelta(1), estado='activa')
+
+        req = RequestFactory().get(f'/x?fecha={FECHA.isoformat()}')
+        req.user = self.sup.user
+        wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+        ws = wb['Deuda pendiente']
+
+        nombres = [ws.cell(row=r, column=2).value for r in range(5, ws.max_row + 1)]
+        self.assertIn(self.a.nombre, nombres)
+        self.assertNotIn(self.b.nombre, nombres)
+        self.assertEqual(ws.cell(row=5, column=6).value, 30)  # minutos
+
+    def test_excel_hoja_deuda_avisa_cuando_la_fecha_es_futura(self):
+        """Una fecha que aún no ha llegado no es deuda exigible: se rotula PROYECTADA."""
+        import openpyxl
+
+        from turnos.api.views.reportes import ReporteDiaExcelView
+
+        req = RequestFactory().get('/x?fecha=' + FECHA.isoformat())
+        req.user = self.sup.user
+        with patch('django.utils.timezone.localdate', return_value=FECHA - timedelta(5)):
+            wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+        self.assertIn('PROYECTADA', wb['Deuda pendiente']['A1'].value)
+
+        with patch('django.utils.timezone.localdate', return_value=FECHA + timedelta(5)):
+            wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+        self.assertIn('PENDIENTE', wb['Deuda pendiente']['A1'].value)
+
+    def test_excel_hoja_deuda_trae_el_supervisor(self):
+        import openpyxl
+
+        from solicitudes.models import DeudaCorporativa
+        from turnos.api.views.reportes import ReporteDiaExcelView
+
+        self.a.supervisor = self.sup
+        self.a.save(update_fields=['supervisor'])
+        DeudaCorporativa.objects.create(explorador=self.a, minutos=30,
+                                        fecha_doblada=FECHA, estado='activa')
+
+        req = RequestFactory().get('/x?fecha=' + FECHA.isoformat())
+        req.user = self.sup.user
+        wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+        self.assertEqual(wb['Deuda pendiente'].cell(row=5, column=4).value,
+                         f'{self.sup.nombre} {self.sup.apellido}')
+
+    def test_json_trae_el_agregado_de_deuda(self):
+        """La pantalla necesita el titular; el detalle nominal sigue solo en morosos."""
+        import json
+
+        from solicitudes.models import DeudaCorporativa
+        from turnos.api.views.reportes import ReporteDiaView
+
+        DeudaCorporativa.objects.create(explorador=self.a, minutos=90,
+                                        fecha_doblada=FECHA, estado='activa')
+        req = RequestFactory().get('/x?fecha=' + FECHA.isoformat())
+        req.user = self.sup.user
+        data = json.loads(ReporteDiaView().get(req).content)
+
+        self.assertEqual(data['deuda_corte'],
+                         {'exploradores': 1, 'minutos': 90, 'horas': 1.5,
+                          'proyectada': FECHA > date.today()})
+        # Solo el agregado: ningún nombre viaja al JSON de la pantalla.
+        self.assertNotIn(self.a.nombre, json.dumps(data['deuda_corte']))
+
+    # ── 7b. Tipo de día del mes (pintado del calendario) ─────────────────────
+    def test_dias_del_mes_marca_festivo_mantenimiento_y_sin_planificar(self):
+        from turnos.models import AsignacionEspecialManual, DiaEspecial
+
+        festivo = date(2026, 3, 23)   # lunes
+        mant = date(2026, 3, 30)      # lunes
+        DiaEspecial.objects.create(fecha=festivo, tipo='festivo', activo=True)
+        DiaEspecial.objects.create(fecha=mant, tipo='mantenimiento', activo=True)
+        sabado = date(2026, 3, 7)
+        AsignacionEspecialManual.objects.create(fecha=sabado, jornada_trabaja=self.am, activo=True)
+
+        dias = ReporteDiaService.dias_del_mes(2026, 3)
+
+        self.assertTrue(dias[festivo.isoformat()]['es_festivo'])
+        self.assertTrue(dias[festivo.isoformat()]['sin_planificar'])  # festivo entre semana sin alternancia
+        self.assertTrue(dias[mant.isoformat()]['es_mantenimiento'])
+        self.assertFalse(dias[sabado.isoformat()]['sin_planificar'])  # tiene alternancia publicada
+        self.assertTrue(dias[date(2026, 3, 8).isoformat()]['sin_planificar'])  # domingo sin sembrar
+        self.assertNotIn(date(2026, 3, 4).isoformat(), dias)  # miércoles normal: no se pinta
+
+    def test_endpoint_mes_responde_403_a_explorador_raso(self):
+        self.client.force_login(self.a.user)
+        resp = self.client.get('/turnos/api/reporte-mes/dias/', {'anio': 2026, 'mes': 3})
+        self.assertEqual(resp.status_code, 403)
+
+    def test_endpoint_mes_rechaza_parametros_invalidos(self):
+        self.client.force_login(self.sup.user)
+        for params in ({'anio': 'x', 'mes': 3}, {'anio': 2026, 'mes': 13}, {}):
+            with self.subTest(params=params):
+                resp = self.client.get('/turnos/api/reporte-mes/dias/', params)
+                self.assertEqual(resp.status_code, 400)
 
     # ── 8. Permisos de la API ────────────────────────────────────────────────
     def test_api_sin_rol_supervisor_devuelve_403(self):
