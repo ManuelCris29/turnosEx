@@ -157,7 +157,10 @@ class ReconciliacionColateralTest(TestCase):
         for k in claves.values():
             CacheService.set(k, {'stale': True}, ttl=600)
 
-        self._reconciliar()
+        # La invalidación se aplaza al commit (ver CacheService.invalidar_cache_turnos_empleado):
+        # dentro de un TestCase, atómico y con rollback, hay que ejecutar los callbacks a mano.
+        with self.captureOnCommitCallbacks(execute=True):
+            self._reconciliar()
 
         for emp, k in claves.items():
             self.assertIsNone(CacheService.get(k),

@@ -5,6 +5,7 @@ import logging
 from typing import Any, Callable
 
 from django.core.cache import cache
+from django.db import transaction
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,19 @@ class CacheService:
             - mes: string con dos dígitos (ej: '02')
         
         Este helper normaliza mes/año para mantener un formato consistente.
+
+        El borrado se APLAZA HASTA EL COMMIT (`transaction.on_commit`). Aplicar una
+        solicitud corre dentro de `transaction.atomic()`, y borrar ahí la clave abre una
+        carrera: entre el borrado y el commit, otra petición lee Mis Turnos, no ve los
+        cambios todavía sin confirmar y RE-CACHEA el horario viejo. Como ya nadie vuelve
+        a invalidar, ese dato viejo se sirve durante todo el TTL (una hora). Aplazar al
+        commit cierra la ventana: cuando la clave cae, la BD ya tiene el turno nuevo.
+
+        Fuera de un bloque atómico `on_commit` ejecuta el borrado en el acto, así que las
+        llamadas desde vistas sin transacción siguen siendo inmediatas.
+
+        En tests envueltos en `TestCase` (atómicos y con rollback) los callbacks NO corren
+        solos: usa `self.captureOnCommitCallbacks(execute=True)` para observar el borrado.
         """
         try:
             mes_int = int(mes)
@@ -147,13 +161,20 @@ class CacheService:
         except (TypeError, ValueError):
             logger.error(f"No se pudo invalidar caché de turnos: mes/anio inválidos (mes={mes!r}, anio={anio!r})")
             return
-        
+
         mes_str = f"{mes_int:02d}"
         anio_str = str(anio_int)
-        
+
         cache_key = f"turnos_mes_{empleado_id}_{anio_str}_{mes_str}"
-        CacheService.delete(cache_key)
-        logger.info(f"Caché de turnos invalidado para empleado={empleado_id}, anio={anio_str}, mes={mes_str} (key={cache_key})")
+
+        def _borrar() -> None:
+            CacheService.delete(cache_key)
+            logger.info(
+                f"Caché de turnos invalidado para empleado={empleado_id}, "
+                f"anio={anio_str}, mes={mes_str} (key={cache_key})"
+            )
+
+        transaction.on_commit(_borrar)
     
     @staticmethod
     def invalidate_pattern(pattern: str) -> None:
