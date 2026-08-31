@@ -781,9 +781,34 @@ class MediaJornadaTemporadaCreateView(LoginRequiredMixin, View):
             return json_error('El motivo es obligatorio.', status=400, code='invalid')
         if f_trabajo.weekday() >= 5 or f_comp.weekday() >= 5:
             return json_error('Ambos días deben ser de lunes a viernes.', status=400, code='invalid')
+        # ---------------------------------------------------------------------------------
+        # DOCUMENTAR: la ventana de la media jornada de temporada es la SEMANA, no el mes.
+        #
+        # La regla vigente, confirmada el 2026-08-30, son exactamente dos condiciones: ambos
+        # días de LUNES A VIERNES y en la MISMA semana (mismo lunes). NO se exige que sean del
+        # mismo mes, y es habitual asumir lo contrario.
+        #
+        # El corolario importa y hay que dejarlo escrito en el manual: «misma semana» NO implica
+        # «mismo mes». Una semana de lunes a viernes cruza el cambio de mes varias veces al año
+        # —lunes 30/11 con martes 01/12 es un par VÁLIDO—, y eso obliga a que quien consulte los
+        # permisos de un mes traiga también los de la semana anterior (ver
+        # `MisTurnosPorMesView._permisos_por_fecha`, que filtra por rango O por
+        # `fecha_compensacion`).
+        #
+        # Lo que sí acota el año es la frontera de AÑO OPERATIVO, unas líneas más abajo: como
+        # «misma semana» tampoco implica «mismo año» (jueves 31/12 y viernes 01/01), esa
+        # comprobación es la que impide el cruce de año.
+        # ---------------------------------------------------------------------------------
         if (f_trabajo - _td(days=f_trabajo.weekday())) != (f_comp - _td(days=f_comp.weekday())):
             return json_error('La compensación debe ser en la MISMA semana de temporada.',
                               status=400, code='invalid')
+        # Año operativo. Ojo: «misma semana» NO implica «mismo año» —el jueves 31/12 y el viernes
+        # 01/01 son la misma semana—, así que la regla de arriba no cubre este caso y hace falta
+        # comprobarlo aparte.
+        from core.utils.anio_operativo import mensaje_fuera_del_anio_operativo
+        _msg_anio = mensaje_fuera_del_anio_operativo([f_trabajo, f_comp])
+        if _msg_anio:
+            return json_error(_msg_anio, status=400, code='fuera_anio_operativo')
 
         # No se pueden pedir días pasados (el resto del formulario de Cambio de Descanso ya lo
         # valida; esta vista es otro endpoint y hay que repetirlo aquí).

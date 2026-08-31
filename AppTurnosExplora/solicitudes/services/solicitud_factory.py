@@ -288,11 +288,59 @@ class SolicitudFactory:
         strategy = cls.get_strategy(tipo_solicitud)
         if not strategy:
             return False, f"No se encontró estrategia para el tipo: {tipo_solicitud.nombre}"
-        
+
+        # Frontera de AÑO OPERATIVO, antes de delegar: aplica a los seis tipos por igual y aquí
+        # se escribe una sola vez, así que un tipo nuevo la hereda sin tener que acordarse.
+        error_anio = cls._error_de_anio_operativo(datos)
+        if error_anio:
+            return False, error_anio
+
         # Sin try/except: las estrategias ya devuelven (False, mensaje) para las reglas de negocio
         # incumplidas. Envolver esto convertía cualquier BUG en un rechazo de validación con la
         # misma forma, ocultándolo tras un mensaje que el usuario lee como "mi solicitud está mal".
         return strategy.validar_solicitud(datos)
+
+    #: Claves de `datos` que NO son fechas del turno solicitado y por tanto no se someten a la
+    #: frontera de año. `fecha_creacion_solicitud` es "hoy" (o el día en que se envió), no una
+    #: fecha sobre la que se opere.
+    _CLAVES_FECHA_AJENAS = frozenset({'fecha_creacion_solicitud'})
+
+    @classmethod
+    def _error_de_anio_operativo(cls, datos: Dict[str, Any]) -> str | None:
+        """
+        Mensaje si alguna fecha de `datos` se sale del año en curso; None si todas caben.
+
+        Las fechas se recogen por CONVENIO DE NOMBRE (toda clave que empiece por `fecha`), en vez
+        de con una lista fija por tipo. Cada tipo nombra las suyas distinto —`fecha_pago`,
+        `fecha_fin`, `fechas_cesion`, `fechas_devolucion`— y una lista fija se queda corta en
+        silencio en cuanto alguien añade un campo: el hueco no lo delataría ningún error, solo una
+        solicitud que se cuela al año siguiente. Los valores que no son fecha se ignoran; su
+        formato ya lo reportan los validadores del tipo.
+
+        Se omite al RE-VALIDAR (`es_revalidacion`): es una regla de creación. Una solicitud
+        enviada en diciembre y aprobada en enero no debe rechazarse por esto —para eso está la
+        validación de fechas pasadas—, igual que se omiten "no empezar en el pasado" y la
+        duración máxima del rango permanente.
+        """
+        if datos.get('es_revalidacion'):
+            return None
+
+        from core.utils.anio_operativo import mensaje_fuera_del_anio_operativo
+        from core.utils.date_utils import DateUtils
+
+        fechas = []
+        for clave, valor in datos.items():
+            if not clave.startswith('fecha') or clave in cls._CLAVES_FECHA_AJENAS:
+                continue
+            for bruto in (valor if isinstance(valor, (list, tuple, set)) else [valor]):
+                if not bruto:
+                    continue
+                try:
+                    fechas.append(DateUtils.parse_date(bruto))
+                except (TypeError, ValueError):
+                    continue  # no es una fecha; su formato lo valida el tipo
+
+        return mensaje_fuera_del_anio_operativo(fechas)
     
     @classmethod
     def aplicar_cambios(cls, solicitud: 'SolicitudCambio') -> tuple:

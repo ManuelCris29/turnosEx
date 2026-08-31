@@ -148,6 +148,12 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
         # Permisos de MEDIA JORNADA de temporada aprobados este año: consumen el día de descanso
         # (fecha_compensacion), por eso ese mes no hay descanso disponible. Se devuelve para que
         # el formulario explique el porqué en vez de mostrar el mensaje genérico.
+        #
+        # Filtrar por `fecha_inicio__year` basta para encontrar también su `fecha_compensacion`
+        # PORQUE ninguna solicitud ni permiso cruza el año (`core/utils/anio_operativo.py`): el
+        # día de trabajo y el de compensación caen siempre en el mismo año. Sin esa frontera, un
+        # permiso del jueves 31/12 compensado el viernes 01/01 —misma semana, años distintos— se
+        # perdería al consultar el año nuevo.
         permisos_temporada = {}
         if es_propio:
             from permisos.models import PermisoEspecial

@@ -1,5 +1,6 @@
 from django import forms
 
+from core.utils.anio_operativo import mensaje_fuera_del_anio_operativo
 from empleados.models import Empleado
 
 from .models import PermisoEspecial
@@ -48,6 +49,21 @@ class _BasePermisoForm(forms.ModelForm):
         self.fields['cubre'].queryset = qs
         self.fields['cubre'].required = False
 
+    def _validar_anio_operativo(self, *campos):
+        """
+        Ningún permiso cruza el 31 de diciembre: el año siguiente todavía no tiene calendario
+        publicado (se prepara en la apertura de año). Ver `core/utils/anio_operativo.py`.
+
+        Vive en la base porque las dos subclases tienen la misma regla con campos de fecha
+        distintos —`fecha` la puntual, `fecha_inicio`/`fecha_fin` la permanente—. El error se
+        cuelga del campo infractor, que puede ser más de uno, para que el formulario lo marque
+        donde el usuario tiene que corregirlo.
+        """
+        for campo in campos:
+            error = mensaje_fuera_del_anio_operativo([self.cleaned_data.get(campo)])
+            if error:
+                self.add_error(campo, error)
+
 
 class PermisoEspecialForm(_BasePermisoForm):
     """Permiso especial puntual (un día)."""
@@ -57,6 +73,11 @@ class PermisoEspecialForm(_BasePermisoForm):
     )
 
     field_order = ['fecha', 'tiempo', 'tipo', 'especificacion', 'cubre', 'motivo']
+
+    def clean(self):
+        cleaned = super().clean()
+        self._validar_anio_operativo('fecha')
+        return cleaned
 
 
 class PermisoEspecialPermanenteForm(_BasePermisoForm):
@@ -80,6 +101,7 @@ class PermisoEspecialPermanenteForm(_BasePermisoForm):
     def clean(self):
         cleaned = super().clean()
         fi, ff = cleaned.get('fecha_inicio'), cleaned.get('fecha_fin')
+        self._validar_anio_operativo('fecha_inicio', 'fecha_fin')
         if fi and ff and ff < fi:
             self.add_error('fecha_fin', 'La fecha "Hasta" debe ser igual o posterior a "Desde".')
         return cleaned
