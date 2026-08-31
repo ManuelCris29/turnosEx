@@ -850,7 +850,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
             grupo_contrario = 'PM' if grupo_sol == 'AM' else 'AM'
 
             from turnos.models import AsignarJornadaExplorador
-            empleados = (Empleado.objects.filter(activo=True)
+            empleados = (Empleado.objects.operativos()
                          .exclude(id=usuario_actual.id).select_related('supervisor'))
             bases = {}
             for asg in (AsignarJornadaExplorador.objects

@@ -71,7 +71,12 @@
                   {% for empleado_rol in empleado.empleadorole_set.all %}<span class="pg-chip pg-chip-info" style="margin:1px;">{{ empleado_rol.role.nombre }}</span>{% endfor %}
                 </td>
                 <td>
-                  {% if empleado.activo %}<span class="pg-chip pg-chip-ok">Activo</span>{% else %}<span class="pg-chip pg-chip-no">Inactivo</span>{% endif %}
+                  {% comment %}
+                  "De baja" y no "Inactivo": desde que `activo` revoca el acceso de
+                  verdad (ver Empleado.save), la palabra tiene consecuencias y la
+                  etiqueta tiene que decirlas.
+                  {% endcomment %}
+                  {% if empleado.activo %}<span class="pg-chip pg-chip-ok">Activo</span>{% else %}<span class="pg-chip pg-chip-no" title="Sin acceso a la aplicación">De baja</span>{% endif %}
                 </td>
                 <td style="white-space:nowrap;">
                   <a href="{% url 'empleado_detail' empleado.id %}" class="pg-btn pg-btn-secondary pg-btn-sm" title="Ver detalle"><i class="fas fa-eye"></i></a>
@@ -86,7 +91,21 @@
                   <a href="{% url 'asignar_roles_salas' empleado.id %}" class="pg-btn pg-btn-warn pg-btn-sm" title="Roles/Salas"><i class="fas fa-user-cog"></i></a>
                   {# Solo el administrador real: la vista lo exige igualmente, esto evita enseñar un botón que da 403. #}
                   {% if user.is_staff %}<a href="{% url 'permisos_sesion_edit' empleado.id %}" class="pg-btn pg-btn-warn pg-btn-sm" title="Permisos de sesión"><i class="fas fa-sliders-h"></i></a>{% endif %}
-                  <a href="{% url 'empleado_delete' empleado.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este empleado?');"><i class="fas fa-trash-alt"></i></a>
+                  {% comment %}
+                  Ya no hay boton de ELIMINAR. Borraba la ficha y dejaba la cuenta de
+                  acceso viva: la persona seguia pudiendo entrar. Se sustituye por dar
+                  de baja, que es lo que el administrador queria hacer en realidad; el
+                  borrado fisico queda solo en /admin/ para superusuarios.
+                  {% endcomment %}
+                  {% if empleado.activo %}
+                  <a href="{% url 'empleado_baja' empleado.id %}" class="pg-btn pg-btn-warn pg-btn-sm" title="Dar de baja"><i class="fas fa-user-slash"></i></a>
+                  {% else %}
+                  {# Reingreso sin pantalla intermedia: devolver el acceso no destruye nada. #}
+                  <form method="post" action="{% url 'empleado_reingreso' empleado.id %}" style="display:inline;" onsubmit="return confirm('¿Reingresar a {{ empleado.nombre|escapejs }} {{ empleado.apellido|escapejs }}? Volverá a tener acceso.');">
+                    {% csrf_token %}
+                    <button type="submit" class="pg-btn pg-btn-success pg-btn-sm" title="Reingresar"><i class="fas fa-user-check"></i></button>
+                  </form>
+                  {% endif %}
                   {% endif %}
                 </td>
               </tr>

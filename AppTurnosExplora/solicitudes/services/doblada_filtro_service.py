@@ -199,7 +199,7 @@ class DobladaFiltroService:
         fecha_obj = DateUtils.parse_date(fecha) if isinstance(fecha, str) else fecha
 
         empleados_activos = (
-            Empleado.objects.filter(activo=True)
+            Empleado.objects.operativos()
             .exclude(id=excluir_id)
             .select_related('supervisor')
         )

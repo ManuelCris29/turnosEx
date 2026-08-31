@@ -6,12 +6,13 @@ __init__ re-exporta todas las vistas para que `from . import views` + `views.X`
 """
 from .calculo_automatico import CalcularFestivosAutomaticoView, CalcularMantenimientoAutomaticoView
 from .dias_especiales import DiasEspecialesPorTipoView, DiasFestivosView, DiasTemporadaView
-from .reportes import ReporteDiaExcelView, ReporteDiaView
+from .reportes import ReporteDiaExcelView, ReporteDiaView, ReporteMesDiasView
 from .turnos_mes import MisTurnosPorMesView, TurnosPorDiaView, TurnosPorMesView
 
 __all__ = [
     'ReporteDiaView',
     'ReporteDiaExcelView',
+    'ReporteMesDiasView',
     'TurnosPorDiaView',
     'TurnosPorMesView',
     'MisTurnosPorMesView',

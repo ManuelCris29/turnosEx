@@ -28,6 +28,10 @@ class AperturaAnioMiddleware:
     EXENTOS = (
         '/static/', '/media/', '/admin/',
         '/logout', '/login', '/accounts/',
+        # Sin esto, un administrador con el año sin abrir no podría ni cambiar su
+        # propia contraseña: el middleware lo devolvería a la apertura de año una
+        # y otra vez.
+        '/password/',
         '/turnos/apertura-anio/',
         # Las cinco pantallas del checklist y sus endpoints de apoyo.
         '/turnos/dias-especiales/',

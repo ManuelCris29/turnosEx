@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block title %}Dar de baja{% endblock %}
+
+{% block page_title %}Dar de baja{% endblock %}
+
+{% block content %}
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-12 col-md-8 col-lg-6">
+            <div class="card shadow">
+                <div class="card-header bg-warning">
+                    <h4 class="mb-0"><i class="fas fa-user-slash"></i> Dar de baja</h4>
+                </div>
+                <div class="card-body">
+                    <p class="lead text-center">
+                        ¿Dar de baja a <strong>{{ object.nombre }} {{ object.apellido }}</strong>
+                        ({{ object.user.username }})?
+                    </p>
+
+                    {% comment %}
+                    Se detalla lo que pasa y lo que NO pasa porque el botón anterior decía
+                    "Eliminar" y en realidad no eliminaba la cuenta: dejaba entrar a la
+                    persona. Quien pulse aquí tiene que saber exactamente qué compra.
+                    {% endcomment %}
+                    <ul>
+                        <li><strong>Pierde el acceso de inmediato</strong>, incluidas las sesiones que tenga abiertas ahora mismo.</li>
+                        <li>Deja de poder recuperar su contraseña por correo.</li>
+                        <li><strong>Se conserva su historial</strong>: solicitudes, turnos y auditoría siguen intactos.</li>
+                        <li>Es reversible: puedes reingresarlo desde la lista de empleados.</li>
+                    </ul>
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        Para borrar la cuenta de forma definitiva hay que entrar al panel de
+                        Django como superusuario. Aquí no se borra nada.
+                    </div>
+
+                    <form method="post" class="text-center">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-warning px-4">
+                            <i class="fas fa-user-slash"></i> Dar de baja
+                        </button>
+                        <a href="{% url 'empleados' %}" class="btn btn-secondary px-4">
+                            <i class="fas fa-arrow-left"></i> Cancelar
+                        </a>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

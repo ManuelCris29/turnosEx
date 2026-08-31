@@ -139,6 +139,25 @@ class AltaRechazadaTestCase(BaseAlta):
         self.assertFalse(User.objects.filter(username='nuevo.usuario').exists(),
                          'si el alta se rechaza, tampoco debe quedar el usuario suelto')
 
+    def test_F_usuario_nuevo_sin_email_se_rechaza(self):
+        # El email dejo de ser opcional al existir "olvide mi contrasena": sin el,
+        # esa persona NUNCA podra recuperar su cuenta sola, y el fallo es silencioso
+        # (la pantalla de reset responde lo mismo haya cuenta o no). El unico momento
+        # de detectarlo es aqui, al crearla.
+        r = self.enviar(email='')
+
+        self._rechaza(r, 'email')
+        self.assertFalse(User.objects.filter(username='nuevo.usuario').exists())
+
+    def test_F_reutilizar_un_usuario_existente_no_exige_email(self):
+        # Su cuenta ya trae el suyo; exigirlo aqui obligaria a reescribirlo.
+        u = User.objects.create_user(
+            username='ya.tiene.cuenta', password='LaSuya.1', email='suyo@ejemplo.com')
+
+        r = self.enviar(usuario_existente=u.id, username='', password='', email='')
+
+        self.assertEqual(r.status_code, 302)
+
 
 class NoSeRompeLoQueYaValidabaTestCase(BaseAlta):
     """El clean() anterior exigia sala y jornada a los no supervisores."""

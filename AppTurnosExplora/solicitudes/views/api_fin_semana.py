@@ -210,7 +210,7 @@ class CoberturaCandidatosView(LoginRequiredMixin, View):
         mi_grupo = asg.jornada.nombre.upper() if asg else None
         contrario = 'PM' if mi_grupo == 'AM' else 'AM'
 
-        empleados = list(Empleado.objects.filter(activo=True).exclude(id=emp.id).select_related('user'))
+        empleados = list(Empleado.objects.operativos().exclude(id=emp.id).select_related('user'))
         bases = {}
         for a in (AsignarJornadaExplorador.objects.filter(explorador__in=empleados, fecha_inicio__lte=fecha_trabajo)
                   .select_related('jornada').order_by('explorador_id', '-fecha_inicio')):

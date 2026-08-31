@@ -34,7 +34,7 @@ no en el código.** Empieza siempre por listar las variables del contenedor.
 | `DEBUG` | `False` | Con `True` expones trazas completas con configuración y consultas SQL a cualquiera que provoque un error. |
 | `ALLOWED_HOSTS` | `swalp.parqueexplora.org` | **400 Bad Request** en todas las peticiones. Ver la trampa nº 3. |
 | `DB_NAME` `DB_USER` `DB_PASSWORD` `DB_HOST` `DB_PORT` | Datos de RDS | No arranca. `DB_HOST` es el *endpoint* de RDS, no una IP. |
-| `EMAIL_HOST_USER` `EMAIL_HOST_PASSWORD` `DEFAULT_FROM_EMAIL` | Según SES | No arranca (se leen sin valor por defecto). |
+| `EMAIL_HOST_USER` `EMAIL_HOST_PASSWORD` `DEFAULT_FROM_EMAIL` | Según SES | No arranca (se leen sin valor por defecto). **Ya no son solo para los avisos de solicitudes:** de ellas depende que la gente pueda **recuperar su contraseña**, y ahí el fallo es silencioso. Ver [MANUAL_RECUPERAR_CONTRASENA.md](./MANUAL_RECUPERAR_CONTRASENA.md). |
 
 ### 2.2 Críticas para que funcione BIEN (arranca sin ellas, pero con fallos)
 
@@ -54,7 +54,8 @@ problema aparece después, en forma de datos incorrectos o caídas intermitentes
 |---|---|---|
 | `DB_CONN_MAX_AGE` | `60` en producción, `0` en desarrollo | Casi nunca. Bájalo si RDS se queda sin conexiones. |
 | `SECURE_HTTPS` | `True` en producción | Solo `False` para probar la imagen de producción en HTTP local. **Nunca en AWS.** |
-| `EMAIL_SEND_ASYNC` | `True` en producción | Solo para depurar el envío de correo. |
+| `EMAIL_SEND_ASYNC` | `True` en producción | Solo para depurar el envío de correo. No afecta al enlace de recuperación: ese sale síncrono a propósito (nadie puede esperar 5 minutos con la pantalla delante). |
+| `PASSWORD_RESET_TIMEOUT` | `1800` (30 min) | Casi nunca. **No lo subas sin una razón:** el defecto de Django son *tres días*, y ese enlace es una llave de la cuenta viajando por correo. |
 | `CORS_ALLOWED_ORIGINS` | localhost | Ponle el dominio real si algo externo consume la API. |
 
 ---
@@ -245,6 +246,13 @@ aws ecs execute-command --cluster swalp-cluster --task <task-id> \
   --container web --interactive --command "python manage.py check --deploy"
 ```
 
+**Prueba de recuperación de contraseña — no la saltes.** Es la única comprobación
+de esta lista cuyo fallo *no da ningún error*: la pantalla responde "revisa tu
+correo" aunque SES esté en sandbox y no salga nada. Pide un enlace con una cuenta
+real, comprueba que llega, que apunta a `https://` con el dominio bueno, y que
+**no sirve dos veces**. Casillas completas en
+[MANUAL_RECUPERAR_CONTRASENA.md](./MANUAL_RECUPERAR_CONTRASENA.md) §6.
+
 ---
 
 ## 6. Resumen para el día del despliegue
@@ -274,17 +282,23 @@ DB_SSL_CA=/app/certs/rds-ca-global.pem       # TLS verificado
 CACHE_URL=redis://<endpoint-elasticache>:6379/1
 # CACHE_URL=db://cache_appturnos             # alternativa sin infra nueva
 
-# --- Correo ---
-EMAIL_HOST_USER=<...>
+# --- Correo (SES) ---
+EMAIL_HOST=email-smtp.us-east-1.amazonaws.com   # endpoint SMTP de SES
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=<credencial SMTP de SES, NO una access key IAM>
 EMAIL_HOST_PASSWORD=<desde Secrets Manager>
 DEFAULT_FROM_EMAIL=SWALP <no-reply@parqueexplora.org>
+PASSWORD_RESET_TIMEOUT=1800                  # 30 min; el defecto de Django son 3 dias
 ```
 
-**Las tres cosas que no puedes olvidar:**
+**Las cuatro cosas que no puedes olvidar:**
 
 1. `CACHE_URL` definida (si no, los usuarios verán turnos incorrectos).
 2. Health check del ALB apuntando a **`/health/`** (si no, no arranca nunca).
 3. Decidir la trampa nº 3 (`ALLOWED_HOSTS` frente al ALB).
+4. **SES fuera del sandbox** (se pide con 24 h hábiles de antelación). Si no,
+   nadie puede recuperar su contraseña y nada avisa de ello.
 
 ---
 

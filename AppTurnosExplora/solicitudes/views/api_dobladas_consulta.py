@@ -107,7 +107,7 @@ class ExploradoresConDobladaView(LoginRequiredMixin, View):
             return json_ok({'exploradores': [], 'motivo': 'solicitante_ocupado'})
         con_doblada_b = 0   # cuántos tienen doblada el día B (antes del filtro "libre el día A")
         out = []
-        for emp in Empleado.objects.filter(activo=True).exclude(id=getattr(yo, 'id', None)):
+        for emp in Empleado.objects.operativos().exclude(id=getattr(yo, 'id', None)):
             if _TS.estado_dia(emp, fecha_obj).get('jornada') != JornadaDisplay.DOBLADA:
                 continue
             con_doblada_b += 1

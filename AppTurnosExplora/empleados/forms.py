@@ -396,6 +396,9 @@ class EmpleadoUsuarioForm(forms.Form):
     )
     username = forms.CharField(label='Usuario', max_length=150, required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
     password = forms.CharField(label='Contraseña', required=False, widget=forms.PasswordInput(attrs={'class': 'form-control'}))
+    # `required=False` a nivel de campo, obligatorio en `_validar_cuenta` solo cuando
+    # se crea un usuario NUEVO: si se reutiliza uno existente, su email ya está puesto
+    # y exigirlo aquí obligaría a reescribirlo.
     email = forms.EmailField(label='Email', required=False, widget=forms.EmailInput(attrs={'class': 'form-control'}))
     nombre = forms.CharField(label='Nombre', max_length=50, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
     apellido = forms.CharField(label='Apellido', max_length=50, required=True, widget=forms.TextInput(attrs={'class': 'form-control'}))
@@ -473,6 +476,17 @@ class EmpleadoUsuarioForm(forms.Form):
             self.add_error('username', 'Ese usuario ya existe. Elígelo en «Usuario existente».')
         if not password:
             self.add_error('password', 'Escribe la contraseña del usuario nuevo.')
+        # El email deja de ser opcional desde que existe "olvidé mi contraseña":
+        # sin correo registrado esa persona NUNCA podrá recuperar su cuenta sola,
+        # y el fallo es silencioso —la pantalla dice "te hemos enviado un correo"
+        # igual, para no revelar qué cuentas existen—, así que no se descubre
+        # hasta que alguien lo necesita de verdad.
+        if not (cleaned.get('email') or '').strip():
+            self.add_error(
+                'email',
+                'Escribe el email: es la única forma de que esta persona pueda '
+                'recuperar su contraseña si la olvida.',
+            )
 
     def clean(self):
         cleaned = super().clean()

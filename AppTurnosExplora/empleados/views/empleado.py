@@ -11,7 +11,6 @@ from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views import View
 from django.views.generic import DetailView, ListView, UpdateView
-from django.views.generic.edit import DeleteView
 
 from core.mixins import AdminRequiredMixin, es_supervisor
 from turnos.models import AsignarJornadaExplorador
@@ -244,7 +243,7 @@ class EmpleadoEditView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     """
     Edita la ficha de un explorador. Solo administración y supervisores.
 
-    `AdminRequiredMixin` NO estaba, y sus vistas hermanas (`EmpleadoDeleteView`,
+    `AdminRequiredMixin` NO estaba, y sus vistas hermanas (`EmpleadoBajaView`,
     `EmpleadoUsuarioCreateView`, `AsignarRolesSalasView`) sí lo tienen: fue un
     olvido, no una decisión. Sin él, cualquier explorador con sesión podía hacer
     POST a /empleados/edit/<id>/ y cambiar la ficha de CUALQUIER compañero —
@@ -292,10 +291,75 @@ class EmpleadoEditView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
         messages.success(self.request, 'Empleado actualizado correctamente.')
         return super().form_valid(form)
 
-class EmpleadoDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
-    model = Empleado
-    template_name = 'empleados/confirm_delete.html'
-    success_url = '/empleados/'  # Redirigir a la lista después de eliminar
+class EmpleadoBajaView(LoginRequiredMixin, AdminRequiredMixin, View):
+    """Da de baja a un empleado: conserva la ficha y le CORTA el acceso.
+
+    POR QUE YA NO SE BORRA
+    ----------------------
+    Antes esto era un `DeleteView` sobre `Empleado`. `Empleado.user` es un
+    OneToOne con `on_delete=CASCADE`, y ese cascade va en un solo sentido:
+    borrar el `User` arrastra su `Empleado`, pero borrar el `Empleado` deja el
+    `User` intacto. Resultado: "eliminar empleado" borraba la ficha y dejaba la
+    cuenta viva y activa.
+
+    Se descubrio porque un usuario dado de baja siguio recibiendo correos de
+    recuperacion de contraseña. El correo era el sintoma; el problema real es que
+    esa cuenta TAMBIEN podia seguir entrando en la aplicacion — comprobado: login
+    302 al dashboard, que respondia 200. En produccion eso significa que quien
+    sale de la organizacion conserva su acceso.
+
+    Dar de baja en vez de borrar resuelve las dos cosas y ademas conserva el
+    historial (`simple_history`, solicitudes pasadas, auditoria), que un borrado
+    fisico se llevaria por delante. El borrado real queda solo en /admin/, para
+    superusuarios.
+
+    La revocacion no se escribe aqui: basta con `activo=False`, porque
+    `Empleado.save()` sincroniza `User.is_active`. Django invalida ademas las
+    sesiones ya abiertas en cuanto la cuenta deja de estar activa, asi que no
+    hace falta cerrarlas a mano.
+    """
+
+    template_name = 'empleados/confirm_baja.html'
+
+    def get(self, request, pk):
+        return render(request, self.template_name, {'object': get_object_or_404(Empleado, pk=pk)})
+
+    def post(self, request, pk):
+        empleado = get_object_or_404(Empleado, pk=pk)
+
+        # Darse de baja a uno mismo deja la pantalla sin administrador y expulsa
+        # a quien acaba de pulsar el boton.
+        if empleado.user_id == request.user.id:
+            messages.error(request, 'No puedes darte de baja a ti mismo.')
+            return redirect('empleados')
+
+        empleado.activo = False
+        empleado.save()
+        logger.info('EMPLEADO_BAJA empleado_id=%s por_user_id=%s', empleado.id, request.user.id)
+        messages.success(
+            request,
+            f'{empleado.nombre} {empleado.apellido} quedo dado de baja y ya no puede entrar.',
+        )
+        return redirect('empleados')
+
+
+class EmpleadoReingresoView(LoginRequiredMixin, AdminRequiredMixin, View):
+    """Deshace una baja y devuelve el acceso.
+
+    Sin esto, corregir una baja equivocada obligaria a entrar a /admin/, que es
+    justo lo que la pantalla de empleados trata de evitar.
+    """
+
+    def post(self, request, pk):
+        empleado = get_object_or_404(Empleado, pk=pk)
+        empleado.activo = True
+        empleado.save()
+        logger.info('EMPLEADO_REINGRESO empleado_id=%s por_user_id=%s', empleado.id, request.user.id)
+        messages.success(
+            request,
+            f'{empleado.nombre} {empleado.apellido} fue reingresado y ya puede entrar.',
+        )
+        return redirect('empleados')
 
 # Formulario personalizado para crear usuario, empleado, roles y salas
 class EmpleadoUsuarioCreateView(LoginRequiredMixin, AdminRequiredMixin, View):

@@ -1,0 +1,53 @@
+{% load static %}
+{% comment %}
+Esqueleto de las pantallas PÚBLICAS de contraseña (las cuatro del flujo de
+recuperación). Reutiliza el diseño y el CSS de `login.html` en vez de duplicarlo
+en cada una.
+
+No pueden extender `base.html`: ahí el navbar y el sidebar dan por hecho que hay
+un `request.user` autenticado, y en estas pantallas justamente no lo hay.
+
+Se recorta el panel visual a un bloque simple porque estas páginas son un trámite
+corto, no la puerta de entrada. Ningún recurso externo nuevo: solo `auth.css` y
+Font Awesome, ya locales, para no tener que tocar la allowlist de CSP.
+{% endcomment %}<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Contraseña{% endblock %} · SWALP — Parque Explora</title>
+
+  <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
+  <link rel="stylesheet" href="{% static 'plugins/fontawesome-free/css/all.min.css' %}">
+  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+</head>
+<body class="auth-body">
+<div class="auth-wrap">
+
+  <aside class="auth-visual">
+    <div class="auth-visual__img"></div>
+    <div class="auth-visual__overlay"></div>
+    <div class="auth-visual__content">
+      <h2 class="auth-visual__wordmark">SWALP</h2>
+      <p class="auth-visual__tagline">Gestión de turnos del equipo · Parque Explora</p>
+    </div>
+  </aside>
+
+  <main class="auth-panel">
+    <div class="auth-card">
+
+      <div class="auth-card__logo">
+        <img src="{% static 'img/parque-explora-logo.svg' %}" alt="Parque Explora">
+      </div>
+
+      <h1 class="auth-title">{% block encabezado %}{% endblock %}</h1>
+      <p class="auth-subtitle">{% block subtitulo %}{% endblock %}</p>
+
+      {% block cuerpo %}{% endblock %}
+
+      <p class="auth-foot">© {% now "Y" %} SWALP · Parque Explora</p>
+    </div>
+  </main>
+</div>
+</body>
+</html>

@@ -482,7 +482,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 return []
             from ..cambios_permanentes_helper import jornadas_unicas_reales
             empleados = list(
-                Empleado.objects.filter(activo=True)
+                Empleado.objects.operativos()
                 .exclude(id=usuario_actual.id)
                 .select_related('supervisor')
             )

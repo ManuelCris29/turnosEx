@@ -87,7 +87,7 @@ SESIONES = (
     Sesion('indicadores', 'Indicadores', GRUPO_ADMIN,
            ['indicadores'], defecto_explorador=False),
     Sesion('empleados', 'Empleados/Exploradores', GRUPO_ADMIN,
-           ['empleados', 'empleado_detail', 'empleado_edit', 'empleado_delete',
+           ['empleados', 'empleado_detail', 'empleado_edit', 'empleado_baja', 'empleado_reingreso',
             'empleado_usuario_create', 'asignar_roles_salas', 'change_password'],
            defecto_explorador=False),
     Sesion('gestion_solicitudes', 'Gestión de Solicitudes', GRUPO_ADMIN,
@@ -116,7 +116,7 @@ SESIONES = (
     Sesion('salas', 'Salas', GRUPO_ADMIN,
            ['salas_list', 'salas_create', 'salas_edit', 'salas_delete'],
            defecto_explorador=False),
-    Sesion('turnos', 'Turnos', GRUPO_ADMIN, ['turnos_list'], defecto_explorador=False),
+    Sesion('turnos', 'Reporte Diario', GRUPO_ADMIN, ['turnos_list'], defecto_explorador=False),
     Sesion('jornadas', 'Jornadas', GRUPO_ADMIN,
            ['jornadas_list', 'jornadas_create', 'jornadas_edit', 'jornadas_delete'],
            defecto_explorador=False),
@@ -139,7 +139,7 @@ SESIONES = (
     # Quien administra roles puede darse a sí mismo cualquier permiso, así que
     # esta sesión es la llave maestra: apagarla es lo que de verdad separa a un
     # supervisor de un administrador.
-    Sesion('roles', 'Roles y Permisos', GRUPO_ADMIN,
+    Sesion('roles', 'Roles', GRUPO_ADMIN,
            ['roles_list', 'roles_create', 'roles_edit', 'roles_delete',
             'permisos_sesion_edit'],
            defecto_explorador=False),

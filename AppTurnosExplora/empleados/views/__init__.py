@@ -8,11 +8,12 @@ from .empleado import (
     AsignarRolesSalasForm,
     AsignarRolesSalasView,
     ChangePasswordView,
-    EmpleadoDeleteView,
+    EmpleadoBajaView,
     EmpleadoDetailView,
     EmpleadoEditForm,
     EmpleadoEditView,
     EmpleadoListView,
+    EmpleadoReingresoView,
     EmpleadoUsuarioCreateView,
 )
 from .indicadores import (
@@ -66,7 +67,8 @@ from .sanciones import (
 __all__ = [
     # empleado
     'EmpleadoListView', 'EmpleadoDetailView', 'EmpleadoEditForm', 'EmpleadoEditView',
-    'EmpleadoDeleteView',
+    'EmpleadoBajaView',
+    'EmpleadoReingresoView',
     'EmpleadoUsuarioCreateView', 'AsignarRolesSalasForm', 'AsignarRolesSalasView',
     'ChangePasswordView',
     # permisos de sesión
