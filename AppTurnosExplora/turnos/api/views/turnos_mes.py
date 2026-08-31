@@ -399,12 +399,23 @@ class MisTurnosPorMesView(LoginRequiredMixin, View):
     def _permisos_por_fecha(empleado, fecha_inicio, fecha_fin):
         # PERMISOS ESPECIALES del explorador que caen en el mes (puntual o permanente).
         # No cambian la jornada; se muestran como indicador en el día.
+        from django.db.models import Q
+
         from permisos.models import PermisoEspecial
         permisos_por_fecha = {}
+        # El permiso entra si su RANGO se solapa con el mes, o si su día de COMPENSACIÓN cae
+        # dentro. Lo segundo no es redundante: la compensación de MEDIA_JORNADA_TEMPORADA es un
+        # día de la misma SEMANA, y una semana puede cruzar el cambio de mes. Filtrando solo por
+        # el rango, un permiso del 31 de enero con compensación el 2 de febrero no se traía al
+        # consultar febrero, y el bloque que marca `fecha_compensacion` de más abajo quedaba
+        # muerto justo en el caso que lo justifica.
         pe_qs = (
             PermisoEspecial.objects
-            .filter(empleado=empleado, estado__in=['APROBADO', 'PENDIENTE'],
-                    fecha_inicio__lte=fecha_fin, fecha_fin__gte=fecha_inicio)
+            .filter(
+                Q(fecha_inicio__lte=fecha_fin, fecha_fin__gte=fecha_inicio)
+                | Q(fecha_compensacion__range=(fecha_inicio, fecha_fin)),
+                empleado=empleado, estado__in=['APROBADO', 'PENDIENTE'],
+            )
             .select_related('cubre')
         )
         for p in pe_qs:

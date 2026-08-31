@@ -107,19 +107,41 @@ def _sincronizar_deuda_mensual(permiso):
         logger.exception('Error sincronizando la deuda mensual del permiso %s', permiso.id)
 
 
+def _meses_afectados_por_permiso(permiso) -> set[tuple[int, int]]:
+    """
+    Meses (mes, año) cuyo calendario cambia al aplicar o revertir `permiso`.
+
+    Son el rango `fecha_inicio..fecha_fin` MÁS el día de compensación. Un permiso de
+    MEDIA_JORNADA_TEMPORADA marca también `fecha_compensacion` en Mis Turnos (ahí se
+    trabaja la otra media, ver `MisTurnosPorMesView._permisos_por_fecha`), y esa fecha
+    puede caer en otro mes: sin incluirla, ese mes conserva el horario viejo durante
+    todo el TTL de la caché.
+
+    El recorrido avanza en saltos de 28 días —puede saltarse febrero—, por eso el mes
+    del FINAL se añade siempre aparte. Es la misma aritmética que
+    `SolicitudStrategy._meses_del_rango`.
+    """
+    from datetime import timedelta
+
+    meses = set()
+    d = permiso.fecha_inicio
+    while d <= permiso.fecha_fin:
+        meses.add((d.month, d.year))
+        d += timedelta(days=28)
+    meses.add((permiso.fecha_fin.month, permiso.fecha_fin.year))
+
+    fcomp = getattr(permiso, 'fecha_compensacion', None)
+    if fcomp:
+        meses.add((fcomp.month, fcomp.year))
+
+    return meses
+
+
 def _invalidar_turnos_cache(permiso):
     """Invalida la caché de Mis Turnos del explorador para que el permiso se vea al instante."""
     try:
-        from datetime import timedelta
-
         from core.services.cache_service import CacheService
-        meses = set()
-        d = permiso.fecha_inicio
-        while d <= permiso.fecha_fin:
-            meses.add((d.month, d.year))
-            d += timedelta(days=28)
-        meses.add((permiso.fecha_fin.month, permiso.fecha_fin.year))
-        for m, y in meses:
+        for m, y in _meses_afectados_por_permiso(permiso):
             CacheService.invalidar_cache_turnos_empleado(permiso.empleado.id, m, y)
     except Exception:
         logger.warning("Error invalidando caché de turnos por permiso (empleado=%s)", permiso.empleado_id, exc_info=True)
