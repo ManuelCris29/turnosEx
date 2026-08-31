@@ -248,3 +248,65 @@ class ResetPasswordTestCase(BasePassword):
 
         self.assertRedirects(r, reverse('password_reset_done'))
         self.assertEqual(len(mail.outbox), 5)
+
+
+@override_settings(CACHES=CACHE_DE_TEST, AXES_ENABLED=True)
+class ResetLevantaBloqueoAxesTestCase(BasePassword):
+    """Recuperar la contraseña debe DESBLOQUEAR, no solo cambiar la clave.
+
+    Quien llega a este flujo suele venir de fallar el login varias veces, así que
+    lo normal es que axes ya lo tenga bloqueado. Terminar el reset con éxito y
+    seguir sin poder entrar, sin explicación, es el peor final posible: la
+    persona cree que la contraseña nueva tampoco funciona.
+
+    El test entra por la puerta —fallar el login de verdad hasta el bloqueo y
+    volver a entrar al final— en vez de comprobar que se llamó a `axes.utils.reset`.
+    Un mock daría por bueno cualquier `reset()` aunque limpiara la clave
+    equivocada, y con `AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']` ese
+    matiz es justo el que puede dejar a alguien fuera.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from axes.utils import reset as axes_reset
+
+        # El estado de axes vive en la BD y es global, no por test.
+        axes_reset()
+        self.addCleanup(axes_reset)
+
+    def _fallar_login_hasta_bloquear(self):
+        for _ in range(settings.AXES_FAILURE_LIMIT):
+            self.client.post(reverse('login'), {
+                'username': self.user.username,
+                'password': 'no-es-la-buena',
+            })
+
+    def test_el_reset_desbloquea_a_quien_axes_habia_bloqueado(self):
+        self._fallar_login_hasta_bloquear()
+
+        # Con la contraseña BUENA sigue sin entrar: eso confirma que el bloqueo
+        # es real y que lo que se mide después es el efecto del reset.
+        self.client.post(reverse('login'), {
+            'username': self.user.username,
+            'password': CLAVE_VIEJA,
+        })
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+        self.client.post(reverse('password_reset'), {'email': self.user.email})
+        enlace = self.enlace_del_correo()
+        destino = self.client.get(enlace, follow=True).redirect_chain[-1][0]
+        r = self.client.post(destino, {
+            'new_password1': CLAVE_NUEVA,
+            'new_password2': CLAVE_NUEVA,
+        })
+        self.assertRedirects(r, reverse('password_reset_complete'))
+
+        r = self.client.post(reverse('login'), {
+            'username': self.user.username,
+            'password': CLAVE_NUEVA,
+        })
+
+        self.assertIn(
+            '_auth_user_id', self.client.session,
+            'tras recuperar la contraseña el bloqueo de axes debe estar levantado',
+        )
