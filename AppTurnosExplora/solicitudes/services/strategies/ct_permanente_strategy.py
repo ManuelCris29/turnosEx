@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.constants import TipoCambioTurno
 from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
+from core.utils.mensajes_error import texto_de_error
 from empleados.models import Empleado
 from solicitudes.models import CambioPermanenteDetalle, CambioPermanenteDia, SolicitudCambio
 
@@ -294,7 +295,10 @@ class CTPermanenteStrategy(SolicitudStrategy):
                     sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha)
                     sala_id = sala.id if sala else None
                 if not sala_id:
-                    continue
+                    # Igual que en el revert de doblada: la sala es opcional, así que no
+                    # restaurar por su ausencia perdería el turno previo. Se restaura sin sala.
+                    logger.info('CT permanente revert: sin sala para %s en %s; se restaura sin sala.',
+                                emp_id, fecha)
                 Turno.objects.create(
                     explorador_id=emp_id, fecha=fecha, jornada=jornada,
                     sala_id=sala_id, tipo_cambio=fila.get('tipo_cambio'),
@@ -542,7 +546,7 @@ class CTPermanenteStrategy(SolicitudStrategy):
 
         except Exception as e:
             logger.exception("Error aplicando cambio permanente para solicitud %s", getattr(solicitud, 'id', '?'))
-            return False, f"Error aplicando cambio permanente: {str(e)}"
+            return False, f"Error aplicando cambio permanente: {texto_de_error(e)}"
 
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """

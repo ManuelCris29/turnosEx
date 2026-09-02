@@ -15,6 +15,7 @@ from django.utils import timezone
 from core.constants import JornadaDisplay, TipoCambioTurno
 from core.services import get_empleado_disponibilidad_service
 from core.utils.date_utils import DateUtils
+from core.utils.mensajes_error import texto_de_error
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 
@@ -633,7 +634,7 @@ class CambioTurnoStrategy(SolicitudStrategy):
             
         except Exception as e:
             # En caso de error, la transacción se revierte automáticamente
-            return False, f"Error aplicando cambio de turno: {str(e)}"
+            return False, f"Error aplicando cambio de turno: {texto_de_error(e)}"
     
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
         """

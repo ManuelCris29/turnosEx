@@ -147,8 +147,11 @@ class DobladaSnapshotService:
                     sala = DobladaTurnoService.obtener_sala_explorador_fecha(empleado, fecha)
                     sala_id = sala.id if sala else None
                 if not sala_id:
-                    logger.warning('Snapshot doblada: sin sala para %s en %s', emp_id, fecha)
-                    continue
+                    # La sala es informativa y opcional: NO restaurar el turno por falta de
+                    # sala perdería el turno previo en silencio y rompería el revert de los
+                    # 30 min. Se restaura sin sala; la UI muestra 'Por asignar'.
+                    logger.info('Snapshot doblada: sin sala para %s en %s; se restaura sin sala.',
+                                emp_id, fecha)
                 Turno.objects.create(
                     explorador_id=emp_id,
                     fecha=fecha,

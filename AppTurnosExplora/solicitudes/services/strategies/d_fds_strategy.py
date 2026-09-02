@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from core.constants import JornadaDisplay
 from core.utils.date_utils import DateUtils
+from core.utils.mensajes_error import texto_de_error
 from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio
 
@@ -357,7 +358,7 @@ class DFDSStrategy(SolicitudStrategy):
         except Exception as e:
             import logging
             logging.getLogger(__name__).exception("Error aplicando D FDS")
-            return False, f"Error aplicando D FDS: {str(e)}"
+            return False, f"Error aplicando D FDS: {texto_de_error(e)}"
 
     @staticmethod
     def _avisar_traspaso_cobertura(solicitud: SolicitudCambio, info_cobertura: dict) -> None:

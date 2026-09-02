@@ -16,6 +16,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from core.utils.mensajes_error import texto_de_error
 from solicitudes.models import TipoSolicitudCambio
 
 if TYPE_CHECKING:
@@ -382,7 +383,7 @@ class SolicitudFactory:
             )
             return result
         except Exception as e:
-            error_msg = f"Error aplicando cambios: {str(e)}"
+            error_msg = f"Error aplicando cambios: {texto_de_error(e)}"
             logger.exception("SolicitudFactory.aplicar_cambios - Excepción: %s", error_msg)
             return False, error_msg
 

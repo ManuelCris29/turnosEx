@@ -26,6 +26,7 @@ from django.utils import timezone
 
 from core.constants import JornadaDisplay
 from core.utils.date_utils import DateUtils
+from core.utils.mensajes_error import texto_de_error
 from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio
 
@@ -835,7 +836,7 @@ class CambioDescansoStrategy(SolicitudStrategy):
         except Exception as e:
             import logging
             logging.getLogger(__name__).exception("Error aplicando cambio de descanso")
-            return False, f"Error aplicando cambio de descanso: {str(e)}"
+            return False, f"Error aplicando cambio de descanso: {texto_de_error(e)}"
 
     # --------------------------------------------------- empleados disponibles
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:

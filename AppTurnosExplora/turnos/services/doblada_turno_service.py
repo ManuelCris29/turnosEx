@@ -26,24 +26,27 @@ class DobladaTurnoService:
     """
     
     @staticmethod
-    def obtener_sala_explorador_fecha(explorador: Empleado, fecha: date) -> Sala:
+    def obtener_sala_explorador_fecha(explorador: Empleado, fecha: date) -> Sala | None:
         """
         Obtiene la sala del explorador para una fecha específica.
         
         Prioridad:
         1. Sala del turno existente en esa fecha
-        2. Sala de asignación especial activa
-        3. Primera sala de competencia del explorador
+        2. Primera sala de competencia del explorador
+        
+        La sala es INFORMATIVA (dice en qué espacio tiene competencia el explorador) y NO
+        condiciona el turno, así que la ausencia de sala NO es un error: se devuelve None y
+        el turno se crea sin ella; la UI muestra 'Por asignar'. Antes esto lanzaba
+        ValidationError y hacía fallar la aprobación de una solicitud legítima cuando el
+        explorador no tenía competencia cargada (caso real: alguien que pasa de supervisor a
+        explorador y conserva jornada pero no competencia).
         
         Args:
             explorador: Explorador para el cual obtener la sala
             fecha: Fecha para la cual obtener la sala
         
         Returns:
-            Instancia de Sala
-        
-        Raises:
-            ValidationError: Si no se encuentra ninguna sala asignada
+            Instancia de Sala, o None si el explorador no tiene sala asignada.
         """
         # 1. Buscar sala del turno existente en esa fecha.
         # El `order_by('jornada_id')` no es cosmético: si el explorador tiene AM y PM en salas
@@ -69,10 +72,13 @@ class DobladaTurnoService:
         if competencia:
             return competencia.sala
         
-        # Si no hay sala, lanzar error
-        raise ValidationError(
-            f'Explorador {explorador.nombre} no tiene sala asignada para la fecha {fecha}'
+        # Sin competencia cargada no hay sala que asignar. No es un error: el turno se crea
+        # sin sala y la UI lo muestra como 'Por asignar'.
+        logger.info(
+            "Explorador %s (id=%s) sin sala para %s: el turno se crea sin sala ('Por asignar').",
+            explorador.nombre, explorador.id, fecha
         )
+        return None
     
     @staticmethod
     def crear_doblada_completa(
@@ -95,8 +101,8 @@ class DobladaTurnoService:
         Returns:
             Tupla con (turno_base, turno_adicional)
         
-        Raises:
-            ValidationError: Si no se puede obtener la sala del explorador
+        Nota: la sala puede quedar en None si el explorador no tiene competencia cargada
+        (es informativa, no bloquea el turno).
         """
         # Obtener sala del explorador
         sala = DobladaTurnoService.obtener_sala_explorador_fecha(explorador, fecha)
@@ -148,7 +154,7 @@ class DobladaTurnoService:
             Instancia de Turno creada
         
         Raises:
-            ValidationError: Si la jornada adicional ya existe o no se puede obtener la sala
+            ValidationError: Si la jornada adicional ya existe en esa fecha
         """
         # Verificar que no exista ya la jornada adicional
         turno_existente = Turno.objects.filter(
