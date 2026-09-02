@@ -201,6 +201,27 @@ aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-ty
 - [ ] Probada la alarma: lanzar la tarea a mano con la base sin ninguna fila en `RevisionSancionesDeuda` (o esperar 3 días) y comprobar que **llega la notificación**. Un aviso sin probar no es un aviso.
 - [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](./MANUAL_SANCIONES_DEUDA.md)**.
 
+**Comprobar que las dos tareas de arriba existen de verdad — ⚠️ paso obligatorio:**
+```bash
+# Dentro de la tarea, con ECS Exec. Termina con codigo 1 si algo va mal.
+aws ecs execute-command --cluster swalp-cluster --task <task-id>   --container web --interactive --command "python manage.py verificar_crons"
+```
+- [ ] Sale **`[ok]`** en las dos líneas.
+- [ ] **Por qué hace falta si ya está la alarma de arriba:** esa alarma la emite el propio
+      comando de sanciones, así que solo puede sonar **cuando alguien lo ejecuta**. Contra el
+      fallo que de verdad ocurre —que la Scheduled Rule nunca se llegó a crear— un proceso no
+      puede avisar de su propia ausencia. `verificar_crons` mira desde fuera lo que las dos
+      tareas dejan en la base: la espera del correo pendiente más antiguo y el día de la
+      última revisión. Antes, la única defensa contra "nadie programó el cron" era que una
+      persona leyera esta lista.
+- [ ] **Vuelve a lanzarlo 24 h después del despliegue.** El día 1 la revisión de sanciones
+      puede no haber corrido todavía y el aviso de "NUNCA se ha ejecutado" es esperable; lo que
+      no es normal es que siga saliendo al día siguiente.
+- [ ] Recomendado: la **misma** Scheduled Rule diaria puede lanzar `verificar_crons` con
+      `--json`; su código de salida 1 marca la ejecución como fallida y eso ya es visible en
+      EventBridge sin montar nada más. El marcador para un *metric filter* propio es
+      **`CRON_NO_EJECUTADO`**.
+
 ---
 
 ## FASE 10 — Verificación
