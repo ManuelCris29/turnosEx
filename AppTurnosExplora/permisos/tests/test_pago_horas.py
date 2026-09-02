@@ -98,7 +98,11 @@ class AplicarPagoTest(PagoHorasBase):
         self.assertEqual(pdh.fecha, date.today() + timedelta(days=3))
 
     def test_fecha_anterior_a_la_deuda_permitida(self):
-        d = self._deuda(fecha=date.today() - timedelta(days=2))
+        # La deuda es del mes EN CURSO a propósito. Antes se creaba con `hoy - 2 días`, y los
+        # primeros días de cada mes eso caía en el mes anterior: la deuda salía vencida y el
+        # pago se rechazaba por una regla que este test no está probando. Lo que se comprueba
+        # aquí es solo que la FECHA DEL PAGO pueda ser anterior a la de la deuda.
+        d = self._deuda(fecha=date.today())
         pdh, error = PagoHorasService.aplicar_pago(
             supervisor=self.supervisor, explorador=self.explorador,
             fecha=date.today() - timedelta(days=5), keys=[f'doblada:{d.id}'],
