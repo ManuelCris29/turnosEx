@@ -19,7 +19,6 @@ Los dos huecos:
 Cada clase trae también su CONTROL: el patrón #25 avisa de que "fallar cerrado"
 no puede degenerar en "bloquear siempre".
 """
-import json
 
 from django.core.exceptions import ValidationError
 from django.http import QueryDict
@@ -78,11 +77,10 @@ class TestCierreSemanalFallaCerrado(TestCase):
 
     def test_fecha_ilegible_rechaza_la_solicitud(self):
         """Antes se caía de la lista en silencio y ese día no se comprobaba."""
-        resp = self._llamar(self._post('31/02/2026'))
+        res = self._llamar(self._post('31/02/2026'))
 
-        self.assertEqual(resp.status_code, 400)
-        cuerpo = json.loads(resp.content)
-        self.assertIn('no es válida', cuerpo['error'])
+        self.assertEqual(res.status, 400)
+        self.assertIn('no es válida', res.como_payload()['error'])
 
     def test_fecha_vacia_rechaza_la_solicitud(self):
         """
@@ -90,9 +88,9 @@ class TestCierreSemanalFallaCerrado(TestCase):
         El JS solo envía valores de checkboxes marcados, así que aquí no llega
         vacío por diseño: si llega, el POST está malformado.
         """
-        resp = self._llamar(self._post(''))
+        res = self._llamar(self._post(''))
 
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(res.status, 400)
 
     def test_control_el_flujo_por_weekday_no_se_ve_afectado(self):
         """
@@ -102,11 +100,11 @@ class TestCierreSemanalFallaCerrado(TestCase):
         q = QueryDict(mutable=True)
         q.update({'fecha_inicio': '2026-09-01', 'fecha_fin': '2026-09-30'})
 
-        resp = SolicitudOrchestrator._procesar_doblada_permanente_multi(
+        res = SolicitudOrchestrator._procesar_doblada_permanente_multi(
             q, tipo_solicitud=None, solicitante=None, comentario='comentario de prueba'
         )
 
         # Se rechaza más adelante por falta de compañeros/días, pero NUNCA con el
         # mensaje de fecha inválida: la guardia del cierre no se ha disparado.
-        if resp.status_code == 400:
-            self.assertNotIn('no es válida', json.loads(resp.content).get('error', ''))
+        if res.status == 400:
+            self.assertNotIn('no es válida', res.como_payload().get('error', ''))

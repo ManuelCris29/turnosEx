@@ -693,17 +693,16 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
             post, self.tipo, self.solicitante, post.get('comentarios'))
 
     @staticmethod
-    def _error(resp):
-        """Mensaje de error ya decodificado (en el content los acentos van escapados)."""
-        import json
-        return json.loads(resp.content.decode()).get('error', '')
+    def _error(res):
+        """Mensaje de error del `ResultadoSolicitud` que devuelve el orquestador."""
+        return res.como_payload().get('error', '')
 
     def test_una_solicitud_por_companero(self):
         post = self._post(
             [(self.lunes, self.receptor.id), (self.miercoles, self.receptor2.id)],
             [(self.martes, self.receptor.id), (self.jueves, self.receptor2.id)])
         resp = self._procesar(post)
-        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertEqual(resp.status, 201, resp.como_payload())
         self.assertEqual(SolicitudCambio.objects.filter(tipo_cambio=self.tipo).count(), 2)
 
     def test_misma_fecha_como_cesion_y_devolucion_de_otro_rechazada(self):
@@ -716,7 +715,7 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
             [(self.lunes, self.receptor.id), (self.miercoles, self.receptor2.id)],
             [(self.martes, self.receptor.id), (self.lunes, self.receptor2.id)])
         resp = self._procesar(post)
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status, 400)
         self.assertIn('cedes y como día que devuelves', self._error(resp))
         self.assertEqual(SolicitudCambio.objects.filter(tipo_cambio=self.tipo).count(), 0)
 
@@ -725,7 +724,7 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
             [(self.lunes, self.receptor.id), (self.lunes, self.receptor2.id)],
             [(self.martes, self.receptor.id), (self.jueves, self.receptor2.id)])
         resp = self._procesar(post)
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status, 400)
         self.assertIn('dos compañeros', self._error(resp))
 
     def test_balance_por_companero(self):
@@ -733,7 +732,7 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
             [(self.lunes, self.receptor.id), (self.miercoles, self.receptor2.id)],
             [(self.martes, self.receptor.id)])          # al 2º no se le devuelve nada
         resp = self._procesar(post)
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status, 400)
         self.assertIn('misma cantidad', self._error(resp))
 
     def test_creacion_es_todo_o_nada(self):
@@ -757,7 +756,7 @@ class DobladaPermanenteMultiCompaneroTest(DobladaPermanenteBaseTest):
         with patch.object(SolicitudFactory, 'crear_solicitud', side_effect=_falla_la_segunda):
             resp = self._procesar(post)
 
-        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.status, 400)
         self.assertEqual(
             SolicitudCambio.objects.filter(tipo_cambio=self.tipo).count(), 0,
             'La primera solicitud debió deshacerse con el rollback')

@@ -161,9 +161,9 @@ class CierreIntegracionTest(TestCase):
         cfg = CierreSolicitudesConfig.obtener()
         cfg.habilitado = True; cfg.dia_cierre = 'jueves'; cfg.hora_cierre = time(14, 0); cfg.save()
         # Fecha en ventana cerrada de una semana ya pasada → cutoff < ahora → bloquea.
-        resp = SO.verificar_cierre([self._sab])
-        self.assertIsNotNone(resp)
-        self.assertEqual(resp.status_code, 400)
+        res = SO.verificar_cierre([self._sab])
+        self.assertIsNotNone(res)
+        self.assertEqual(res.status, 400)
         # Deshabilitado → no bloquea.
         cfg.habilitado = False; cfg.save()
         self.assertIsNone(SO.verificar_cierre([self._sab]))
