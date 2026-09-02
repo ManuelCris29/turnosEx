@@ -296,6 +296,26 @@ sudo systemctl status certbot.timer     # renovación automática
       correo**. Un aviso sin probar no es un aviso.
 - [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](./MANUAL_SANCIONES_DEUDA.md)**.
 
+**Comprobar que las dos tareas de arriba existen de verdad — ⚠️ paso obligatorio:**
+```bash
+cd /srv/swalp/AppTurnosExplora && source venv/bin/activate
+python manage.py verificar_crons        # termina con codigo 1 si algo va mal
+```
+- [ ] Sale **`[ok]`** en las dos líneas.
+- [ ] **Por qué hace falta si ya está el aviso de arriba:** ese aviso lo emite el propio
+      comando de sanciones, así que solo puede sonar **cuando alguien lo ejecuta**. Contra el
+      fallo que de verdad ocurre —que la línea del `crontab` nunca se llegó a añadir— un
+      proceso no puede avisar de su propia ausencia. `verificar_crons` mira desde fuera lo que
+      las dos tareas dejan en la base: la espera del correo pendiente más antiguo y el día de
+      la última revisión. Antes, la única defensa contra "nadie programó el cron" era que una
+      persona leyera esta lista.
+- [ ] **Vuelve a lanzarlo 24 h después.** El día 1 la revisión de sanciones puede no haber
+      corrido aún y el aviso de "NUNCA se ha ejecutado" es esperable; lo que no es normal es
+      que siga saliendo al día siguiente.
+- [ ] Recomendado: añadirlo al `crontab` una vez al día. Su código de salida 1 hace que cron
+      envíe el correo de error automáticamente, sin montar nada más. El marcador para un
+      `grep` propio es **`CRON_NO_EJECUTADO`**.
+
 ---
 
 ## FASE 11 — Verificación final

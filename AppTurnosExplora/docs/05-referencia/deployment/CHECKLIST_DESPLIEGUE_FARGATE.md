@@ -25,6 +25,21 @@ Lo necesario para contenedor **ya se hizo**; solo repásalo:
 > Explica qué vale cada variable, **qué se rompe si falta**, y las trampas del ALB.
 > Este checklist es el "cómo"; ese documento es el "por qué".
 
+**Comprobación opcional antes de empaquetar (10 min, en local):**
+```bash
+cd AppTurnosExplora
+pytest -n auto                       # la suite normal: debe estar en verde
+pytest -n auto --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de mes y medio?
+```
+- [ ] La segunda corrida sale en verde. **Si sale algo en rojo, eso es el hallazgo, no un
+      error de la corrida:** ese test va a fallar solo dentro de unas semanas, sin que nadie
+      toque el código. Se decide si se arregla ahora o se anota, pero no se despliega sin
+      saber qué es.
+- [ ] Por qué aquí: la suite normal siempre corre con el reloj de hoy, así que de esto solo
+      se entera el día que ya es tarde. Pasó el 2026-09-02 con 17 tests en rojo de golpe y
+      nada tocado. **Contexto, cómo leerlo y la decisión de si esto debe ir al CI:
+      [MANUAL_TESTS_QUE_CADUCAN.md](./MANUAL_TESTS_QUE_CADUCAN.md).**
+
 ---
 
 ## FASE 1 — Base de datos RDS
