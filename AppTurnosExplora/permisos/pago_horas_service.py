@@ -39,6 +39,10 @@ logger = logging.getLogger(__name__)
 # SIEMPRE se pueden dividir: la deuda de un permiso se puede abonar por partes.
 MAX_HORAS_POR_PAGO = 24
 
+# A cuántos días del cierre se avisa de que el plazo se acaba. Una semana da margen para
+# localizar al explorador y acordar el pago; menos convierte el aviso en un sobresalto.
+DIAS_AVISO_VENCIMIENTO = 7
+
 _MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio',
           'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
@@ -59,8 +63,8 @@ class PagoHorasService:
         Deudas pendientes del explorador AGRUPADAS POR MES, del más antiguo al más reciente.
 
         Cada grupo:
-            {periodo, anio, mes, etiqueta, vencido, pagable,
-             horas_debidas, horas_pagadas, horas_pendientes, items: [...]}
+            {periodo, anio, mes, etiqueta, vencido, pagable, fin_de_plazo, dias_restantes,
+             urgente, horas_debidas, horas_pagadas, horas_pendientes, items: [...]}
 
         Cada item:
             {key, tipo, id, fecha, fecha_str, horas, parcial, descripcion}
@@ -72,6 +76,20 @@ class PagoHorasService:
         tiene que poder destacarlos. `pagable` es su negación, y existe aparte porque es lo
         que la pantalla necesita para deshabilitar la casilla: si algún día un mes vencido
         volviera a admitir pago, cambia aquí y no en el JavaScript.
+
+        `fin_de_plazo`, `dias_restantes` y `urgente` son el AVISO PREVIO, y se calculan aquí
+        por la misma razón que `vencido`: el día que cierra el plazo debe salir de
+        `Periodo`, no de una resta hecha en el navegador.
+
+        Existen porque la pantalla solo sabía contar la historia a toro pasado. El día 1 el
+        mes anterior aparece VENCIDO y bloqueado —correcto—, pero el día 31 no había nada
+        que dijera que ese plazo se cerraba esa noche. El supervisor no tenía forma de
+        saberlo, y la consecuencia no es un aviso tardío: es que el explorador queda
+        sancionado y ya no puede evitarlo pagando.
+
+        `dias_restantes` es 0 el ÚLTIMO día hábil del plazo (hoy todavía se puede pagar), y
+        negativo si el mes ya venció. `urgente` marca la última semana; el umbral vive aquí
+        para que la pantalla no invente su propia regla.
 
         `hoy` se inyecta para poder fijar el día en las pruebas; por defecto, el de hoy.
         """
@@ -153,13 +171,19 @@ class PagoHorasService:
         salida = []
         for (anio, mes), grupo in sorted(grupos.items()):
             pendientes = sum(i['horas_pendientes'] for i in grupo['items'])
-            vencido = Periodo(anio, mes).esta_vencido(hoy)
+            periodo = Periodo(anio, mes)
+            vencido = periodo.esta_vencido(hoy)
+            fin = periodo.fin_de_plazo()
+            dias_restantes = (fin - hoy).days
             salida.append({
                 'periodo': grupo['periodo'],
                 'anio': anio, 'mes': mes,
                 'etiqueta': grupo['etiqueta'],
                 'vencido': vencido,
                 'pagable': not vencido,
+                'fin_de_plazo': _fmt(fin),
+                'dias_restantes': dias_restantes,
+                'urgente': not vencido and dias_restantes <= DIAS_AVISO_VENCIMIENTO,
                 'horas_debidas': _horas(grupo['minutos_debidos']),
                 'horas_pagadas': _horas(grupo['minutos_pagados']),
                 'horas_pendientes': round(pendientes, 2),

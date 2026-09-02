@@ -113,6 +113,17 @@
     }
     if (!mes.pagable) {
       cabecera.appendChild(span('pdh-mes-nota', 'No se puede pagar: el plazo cerró'));
+    } else if (mes.fin_de_plazo) {
+      // AVISO PREVIO. Sin esto la pantalla solo hablaba del plazo una vez perdido: el día 1
+      // el mes salía VENCIDO y bloqueado, pero el día 31 nada advertía de que cerraba esa
+      // noche. Y perderlo no se arregla pagando después — el explorador queda sancionado.
+      // El día, los días restantes y la urgencia los calcula el servidor (PagoHorasService).
+      var texto = mes.dias_restantes === 0
+        ? 'Último día para pagar este mes (' + mes.fin_de_plazo + ')'
+        : 'Se puede pagar hasta el ' + mes.fin_de_plazo
+          + ' · quedan ' + mes.dias_restantes + ' días';
+      cabecera.appendChild(span('pdh-mes-plazo' + (mes.urgente ? ' pdh-mes-plazo-urgente' : ''),
+                                texto));
     }
     cabecera.appendChild(span('pdh-mes-cifra', 'Debido ' + mes.horas_debidas + ' h'));
     cabecera.appendChild(span('pdh-mes-cifra', 'Pagado ' + mes.horas_pagadas + ' h'));

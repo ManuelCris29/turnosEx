@@ -26,6 +26,11 @@
 .pdh-mes-cifra { font-size: 12px; color: #6b7280; }
 .pdh-mes-pendiente { margin-left: auto; font-weight: 700; color: #b45309; }
 .pdh-mes-nota { font-size: 12px; font-weight: 600; color: #b91c1c; }
+/* Aviso PREVIO del cierre del plazo. Gris mientras hay margen y ámbar en la última
+   semana: en rojo competiría con el mes ya vencido, que es un estado distinto —uno
+   todavía se puede evitar, el otro ya no—. */
+.pdh-mes-plazo { font-size: 12px; color: #6b7280; }
+.pdh-mes-plazo-urgente { font-weight: 700; color: #b45309; }
 .badge-vencido { font-size: 10px; font-weight: 700; letter-spacing: .04em; padding: 2px 7px; border-radius: 5px; background: #dc2626; color: #fff; }
 /* Campo de pago parcial: solo lo llevan las deudas de permiso, que se pueden
    abonar por partes (una doblada son 30 min indivisibles). */
