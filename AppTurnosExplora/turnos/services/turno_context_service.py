@@ -139,13 +139,15 @@ class TurnoContextService:
                 tipo_cambio_principal = tipos_cambio[0] if tipos_cambio else None
                 
                 # Determinar sala(s)
+                # La sala es opcional (informativa): si ningún turno del día la tiene, se
+                # muestra 'Por asignar' en vez de una cadena vacía.
                 salas = [t.sala.nombre for t in turnos_dia if t.sala]
                 if len(set(salas)) == 1:
                     # Todas las salas son iguales
                     sala_display = salas[0]
                 else:
                     # Salas diferentes (raro, pero posible)
-                    sala_display = ', '.join(set(salas))
+                    sala_display = ', '.join(set(salas)) if salas else 'Por asignar'
                 
                 coincide_con_predeterminada = jornada_display == jornada_predeterminada if jornada_display else False
                 

@@ -4,21 +4,23 @@ SolicitudOrchestrator
 Orquesta el flujo completo de creación de una solicitud:
   sanción → restricción médica → parseo → validación → creación.
 
-No contiene lógica HTTP: recibe datos ya parseados del POST y devuelve
-JsonResponse. Toda la lógica de negocio la delega en Factory/strategies.
+No contiene lógica HTTP: recibe los datos crudos del POST y devuelve un
+`ResultadoSolicitud` (éxito/error, mensaje, código y datos). Quien lo convierte en
+`JsonResponse` es la vista — así el alta se puede ejecutar desde un test de
+integración o un comando sin fabricar una petición.
+Toda la lógica de negocio la delega en Factory/strategies.
 """
 import json
 import logging
 
-from django.http import JsonResponse
 from django.utils import timezone
 
 from core.utils.date_utils import DateUtils
-from core.utils.json_responses import json_error, json_ok
 from empleados.models import Empleado
 
 from ..models import TipoSolicitudCambio
 from .errores_validacion import ErrorDelCompanero, RequiereCambioTurnoPrevio
+from .resultado import ResultadoSolicitud
 from .solicitud_factory import SolicitudFactory
 from .solicitud_request_parser import SolicitudRequestParser
 
@@ -51,7 +53,7 @@ class SolicitudOrchestrator:
         return refrescar_y_sancion(empleado)
 
     @staticmethod
-    def _verificar_dedupe(post, tipo_nombre: str, solicitante) -> JsonResponse | None:
+    def _verificar_dedupe(post, tipo_nombre: str, solicitante) -> ResultadoSolicitud | None:
         """
         Bloquea un reenvío inmediato del MISMO POST (doble-clic, doble-tap, reintento del
         navegador). La clave incluye el contenido del formulario: dos solicitudes distintas
@@ -70,7 +72,7 @@ class SolicitudOrchestrator:
         clave = f"solreq_dedupe_{solicitante.id}_{tipo_nombre}_{huella}"
 
         if not CacheService.acquire_lock(clave, ttl=10):
-            return json_error(
+            return ResultadoSolicitud.error(
                 'Ya se está procesando esta solicitud. Espera unos segundos antes de reintentar.',
                 status=409, code='duplicate_request')
         return None
@@ -139,7 +141,7 @@ class SolicitudOrchestrator:
         return out
 
     @classmethod
-    def verificar_cierre(cls, fechas) -> JsonResponse | None:
+    def verificar_cierre(cls, fechas) -> ResultadoSolicitud | None:
         """Cierre semanal: bloquea si alguna fecha objetivo cae en una ventana cerrada habilitada.
 
         Fail-open deliberado: si la verificación se rompe, se deja pasar la solicitud (romper el
@@ -151,23 +153,23 @@ class SolicitudOrchestrator:
             from solicitudes.services.cierre_solicitudes_service import CierreSolicitudesService
             _f, msg = CierreSolicitudesService.validar_fechas([f for f in fechas if f])
             if msg:
-                return json_error(msg, status=400, code='cierre_semanal')
+                return ResultadoSolicitud.error(msg, status=400, code='cierre_semanal')
         except Exception:
             logger.critical('CIERRE SEMANAL INOPERATIVO: falló la verificación para las fechas %s; '
                             'la solicitud se permite sin validar el cierre.', fechas, exc_info=True)
         return None
 
     @classmethod
-    def verificar_sancion(cls, solicitante) -> JsonResponse | None:
+    def verificar_sancion(cls, solicitante) -> ResultadoSolicitud | None:
         """Gestiona la sanción automática y bloquea si el SOLICITANTE está sancionado."""
         sancion = cls._refrescar_y_sancion(solicitante)
         if sancion:
             from empleados.sancion_utils import mensaje_sancion
-            return json_error(mensaje_sancion(sancion), status=403, code='sancionado')
+            return ResultadoSolicitud.error(mensaje_sancion(sancion), status=403, code='sancionado')
         return None
 
     @classmethod
-    def verificar_sancion_receptor(cls, receptor) -> JsonResponse | None:
+    def verificar_sancion_receptor(cls, receptor) -> ResultadoSolicitud | None:
         """
         Bloquea si el COMPAÑERO/receptor está sancionado. Un sancionado no puede
         participar en NINGUNA solicitud ni siquiera como compañero: de lo contrario
@@ -176,7 +178,7 @@ class SolicitudOrchestrator:
         sancion = cls._refrescar_y_sancion(receptor)
         if sancion:
             nombre = getattr(receptor, 'nombre', None) or str(receptor)
-            return json_error(
+            return ResultadoSolicitud.error(
                 f'El compañero {nombre} está sancionado y no puede participar en la solicitud. '
                 'Elige otro compañero o espera a que termine su sanción.',
                 status=403, code='sancionado_receptor')
@@ -207,16 +209,16 @@ class SolicitudOrchestrator:
         rid1 = post.get('empleado_receptor')
         rid2 = post.get('empleado_receptor_2')
         if not rid1:
-            return json_error('Selecciona el compañero que te cubre la jornada AM.',
+            return ResultadoSolicitud.error('Selecciona el compañero que te cubre la jornada AM.',
                               status=400, code='missing_fields')
         if str(rid1) == str(rid2):
-            return json_error('Los dos compañeros deben ser personas distintas.',
+            return ResultadoSolicitud.error('Los dos compañeros deben ser personas distintas.',
                               status=400, code='validation_error')
         try:
             receptor_am = Empleado.objects.get(id=rid1)
             receptor_pm = Empleado.objects.get(id=rid2)
         except Empleado.DoesNotExist:
-            return json_error('Alguno de los compañeros seleccionados no existe.',
+            return ResultadoSolicitud.error('Alguno de los compañeros seleccionados no existe.',
                               status=400, code='validation_error')
 
         for receptor in (receptor_am, receptor_pm):
@@ -229,7 +231,7 @@ class SolicitudOrchestrator:
         fechas = SolicitudRequestParser.get_fechas_del_post(post)
         restriccion = cls.verificar_restriccion(solicitante, {str(rid1), str(rid2)}, fechas, confirmar)
         if restriccion:
-            return JsonResponse(restriccion, status=400)
+            return ResultadoSolicitud.desde_payload(restriccion, status=400)
 
         def _datos(receptor, jornada):
             return {
@@ -270,16 +272,16 @@ class SolicitudOrchestrator:
         except _FalloParcial as e:
             logger.warning('Cobertura con 2 compañeros revertida (solicitante=%s): %s',
                            solicitante.id, e)
-            return json_error(
+            return ResultadoSolicitud.error(
                 f'No se pudo crear la cobertura completa, no se creó ninguna solicitud. {e}',
                 status=400, code='creation_failed')
         except Exception:
             logger.exception('Error creando cobertura con 2 compañeros (solicitante=%s)', solicitante.id)
-            return json_error(_MSG_ERROR_INTERNO, status=500, code='internal_error')
+            return ResultadoSolicitud.error(_MSG_ERROR_INTERNO, status=500, code='internal_error')
 
         logger.info('Cobertura con 2 compañeros creada — solicitudes %s solicitante=%s',
                     [s.id for s in creadas], solicitante.id)
-        return json_ok({
+        return ResultadoSolicitud.exito({
             'message': 'Se crearon las 2 solicitudes de cobertura (AM y PM). '
                        'Cada compañero la aprueba por separado.',
             'solicitud_ids': [s.id for s in creadas],
@@ -342,7 +344,7 @@ class SolicitudOrchestrator:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _respuesta_error_validacion(mensaje: str) -> JsonResponse:
+    def _respuesta_error_validacion(mensaje: str) -> ResultadoSolicitud:
         """
         Convierte el mensaje de error del Factory en la respuesta JSON adecuada.
         Maneja el caso especial de 'requiere_cambio_turno_previo'.
@@ -353,21 +355,21 @@ class SolicitudOrchestrator:
         escriben en `RequiereCambioTurnoPrevio.como_payload()` y en ningún otro sitio.
         """
         if isinstance(mensaje, RequiereCambioTurnoPrevio):
-            return JsonResponse(mensaje.como_payload(), status=400)
-        return json_error(mensaje, status=400, code='validation_error')
+            return ResultadoSolicitud.desde_payload(mensaje.como_payload(), status=400)
+        return ResultadoSolicitud.error(mensaje, status=400, code='validation_error')
 
     # ------------------------------------------------------------------
     # DOBLADA PERMANENTE (flujo multi-compañero independiente)
     # ------------------------------------------------------------------
 
     @classmethod
-    def _procesar_doblada_permanente_multi(cls, post, tipo_solicitud, solicitante, comentario) -> JsonResponse:
+    def _procesar_doblada_permanente_multi(cls, post, tipo_solicitud, solicitante, comentario) -> ResultadoSolicitud:
         """
         DOBLADA PERMANENTE con varios compañeros: agrupa días por compañero
         y crea una solicitud independiente por cada uno. Valida todo antes de crear ninguna.
         """
         if not comentario or not comentario.strip():
-            return json_error('Ingresa un comentario.', status=400, code='missing_fields')
+            return ResultadoSolicitud.error('Ingresa un comentario.', status=400, code='missing_fields')
 
         from datetime import datetime as _dt
 
@@ -412,7 +414,7 @@ class SolicitudOrchestrator:
             except (ValueError, TypeError):
                 _fmt = _f
             _accion = 'cubrirla' if _dup_c else 'pagarla'
-            return json_error(
+            return ResultadoSolicitud.error(
                 f'La fecha {_fmt} está asignada a dos compañeros; una fecha solo puede {_accion} un '
                 f'compañero (no puedes cubrir ni pagar la misma jornada el mismo día con dos personas).',
                 status=400, code='validation_error')
@@ -430,7 +432,7 @@ class SolicitudOrchestrator:
                 _fmt = _dt.strptime(_cruce[0], '%Y-%m-%d').strftime('%d/%m/%Y')
             except (ValueError, TypeError):
                 _fmt = _cruce[0]
-            return json_error(
+            return ResultadoSolicitud.error(
                 f'El {_fmt} lo tienes como día que cedes y como día que devuelves a la vez. '
                 f'Ese día no puedes descansar y doblarte al mismo tiempo, aunque sean compañeros '
                 f'distintos.',
@@ -460,7 +462,7 @@ class SolicitudOrchestrator:
                     logger.warning(
                         'Fecha no parseable (%r) en la doblada permanente: se RECHAZA la '
                         'solicitud (no se puede comprobar la ventana de cierre)', _s)
-                    return json_error(
+                    return ResultadoSolicitud.error(
                         'Una de las fechas seleccionadas no es válida, así que no se puede '
                         'comprobar si cae en una semana cerrada. Vuelve a marcar las fechas.',
                         status=400, code='validation_error')
@@ -494,17 +496,17 @@ class SolicitudOrchestrator:
         base_ces = cesion_fechas_por_comp if usa_fechas else cesion_por_comp
         base_dev = devol_fechas_por_comp if usa_fechas else devol_por_comp
         if not base_ces:
-            return json_error('Agrega al menos un día de cesión con su compañero',
+            return ResultadoSolicitud.error('Agrega al menos un día de cesión con su compañero',
                               status=400, code='missing_fields')
         for comp in base_dev:
             if comp not in base_ces:
-                return json_error('Solo puedes devolverle a un compañero que te cubra.',
+                return ResultadoSolicitud.error('Solo puedes devolverle a un compañero que te cubra.',
                                   status=400, code='validation_error')
         # BALANCE (bloqueo): por compañero, nº de FECHAS de cesión == nº de FECHAS de devolución.
         unidad = 'fechas' if usa_fechas else 'días'
         for comp, cset in base_ces.items():
             if len(base_dev.get(comp, set())) != len(cset):
-                return json_error(
+                return ResultadoSolicitud.error(
                     f'A cada compañero debes devolverle la misma cantidad de {unidad} que te cubre.',
                     status=400, code='validation_error')
 
@@ -524,7 +526,7 @@ class SolicitudOrchestrator:
         )
         if restriccion:
             restriccion['message'] = 'Hay una restricción médica vigente en el rango. Revisa la nota antes de continuar.'
-            return JsonResponse(restriccion, status=400)
+            return ResultadoSolicitud.desde_payload(restriccion, status=400)
 
         # Validar TODAS antes de crear ninguna (todo o nada)
         pendientes = []
@@ -532,7 +534,7 @@ class SolicitudOrchestrator:
             try:
                 receptor = Empleado.objects.get(id=comp_id)
             except Empleado.DoesNotExist:
-                return json_error('Compañero no válido.', status=400, code='validation_error')
+                return ResultadoSolicitud.error('Compañero no válido.', status=400, code='validation_error')
 
             # Sanción del compañero: un sancionado no puede participar en la doblada.
             sancion_receptor_resp = cls.verificar_sancion_receptor(receptor)
@@ -588,7 +590,7 @@ class SolicitudOrchestrator:
                             f"Error creando la solicitud para {receptor.nombre}: {mensaje}")
                     creadas += 1
         except _CreacionAbortada as exc:
-            return json_error(str(exc), status=400, code='creation_failed')
+            return ResultadoSolicitud.error(str(exc), status=400, code='creation_failed')
 
         msg = (
             'Doblada permanente solicitada. Se notificó al compañero y al supervisor.'
@@ -596,14 +598,14 @@ class SolicitudOrchestrator:
             f'Se crearon {creadas} solicitudes de doblada permanente (una por compañero). '
             f'Se notificó a cada uno y al supervisor.'
         )
-        return json_ok({'message': msg, 'solicitudes_creadas': creadas}, status=201)
+        return ResultadoSolicitud.exito({'message': msg, 'solicitudes_creadas': creadas}, status=201)
 
     # ------------------------------------------------------------------
     # Punto de entrada principal
     # ------------------------------------------------------------------
 
     @classmethod
-    def procesar(cls, post, tipo_solicitud: TipoSolicitudCambio, solicitante) -> JsonResponse:
+    def procesar(cls, post, tipo_solicitud: TipoSolicitudCambio, solicitante) -> ResultadoSolicitud:
         """
         Flujo principal de creación de solicitud:
           1. Verificar sanción
@@ -643,7 +645,7 @@ class SolicitudOrchestrator:
             except Exception:
                 logger.exception('Error procesando doblada permanente multi — solicitante=%s',
                                  solicitante.id)
-                return json_error(_MSG_ERROR_INTERNO, status=500,
+                return ResultadoSolicitud.error(_MSG_ERROR_INTERNO, status=500,
                                   code='internal_error')
 
         # 2b. Cierre semanal (programación del fin de semana ya cerrada)
@@ -662,17 +664,17 @@ class SolicitudOrchestrator:
         receptor_ids = {v for c in ['empleado_receptor'] if (v := post.get(c))}
         restriccion = cls.verificar_restriccion(solicitante, receptor_ids, fechas, confirmar)
         if restriccion:
-            return JsonResponse(restriccion, status=400)
+            return ResultadoSolicitud.desde_payload(restriccion, status=400)
 
         # 4. Resolver receptor
         receptor_id = post.get('empleado_receptor')
         if not receptor_id:
-            return json_error('Debe seleccionar un compañero para el intercambio',
+            return ResultadoSolicitud.error('Debe seleccionar un compañero para el intercambio',
                               status=400, code='missing_fields')
         try:
             receptor = Empleado.objects.get(id=receptor_id)
         except Empleado.DoesNotExist:
-            return json_error('El compañero seleccionado no existe.', status=400, code='validation_error')
+            return ResultadoSolicitud.error('El compañero seleccionado no existe.', status=400, code='validation_error')
 
         # 4b. Sanción del receptor: un sancionado no puede participar ni como compañero.
         sancion_receptor_resp = cls.verificar_sancion_receptor(receptor)
@@ -695,14 +697,14 @@ class SolicitudOrchestrator:
 
             solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos)
             if solicitud is None:
-                return json_error(mensaje, status=400, code='creation_failed')
+                return ResultadoSolicitud.error(mensaje, status=400, code='creation_failed')
             logger.info("Solicitud %d creada — tipo=%s solicitante=%s receptor=%s",
                         solicitud.id, tipo_nombre, solicitante.id, receptor.id)
-            return json_ok({
+            return ResultadoSolicitud.exito({
                 'message': 'Solicitud enviada correctamente. Se han enviado notificaciones al supervisor y al compañero.',
                 'solicitud_id': solicitud.id,
             }, status=201)
         except Exception:
             logger.exception("Error validando o creando solicitud — tipo=%s solicitante=%s",
                              tipo_nombre, solicitante.id)
-            return json_error(_MSG_ERROR_INTERNO, status=500, code='internal_error')
+            return ResultadoSolicitud.error(_MSG_ERROR_INTERNO, status=500, code='internal_error')

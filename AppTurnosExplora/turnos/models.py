@@ -54,7 +54,13 @@ class Turno(models.Model):
     explorador= models.ForeignKey(Empleado, on_delete=models.CASCADE)
     fecha= models.DateField()
     jornada= models.ForeignKey(Jornada, on_delete=models.PROTECT)
-    sala= models.ForeignKey(Sala, on_delete=models.CASCADE)
+    # La sala es INFORMATIVA: dice en qué espacio tiene competencia el explorador, no
+    # condiciona el turno. Por eso admite NULL: un explorador sin competencia cargada
+    # (p. ej. alguien que acaba de pasar de supervisor a explorador) debe poder recibir
+    # turnos igual, y la UI muestra 'Por asignar'. Antes era NOT NULL y
+    # `obtener_sala_explorador_fecha` lanzaba ValidationError, lo que hacía fallar la
+    # aprobación de solicitudes por un dato que no cambia la operación.
+    sala= models.ForeignKey(Sala, on_delete=models.CASCADE, null=True, blank=True)
     # De dónde viene este turno. NULL = turno normal, sin cambio de por medio.
     # Los `choices` documentan y validan en formularios/admin, pero Django solo los
     # comprueba en `full_clean()`: la garantía real de que no entre un valor inventado
@@ -228,7 +234,8 @@ class TurnoArchivo(models.Model):
     explorador = models.ForeignKey(Empleado, on_delete=models.CASCADE)
     fecha = models.DateField()
     jornada = models.ForeignKey(Jornada, on_delete=models.PROTECT)
-    sala = models.ForeignKey(Sala, on_delete=models.CASCADE)
+    # Informativa y opcional, igual que en `Turno` (ver comentario allí).
+    sala = models.ForeignKey(Sala, on_delete=models.CASCADE, null=True, blank=True)
     # Espejo del campo en `Turno` (ver allí). Sin CheckConstraint a propósito: esta tabla es
     # historial y solo recibe copias de filas que ya pasaron la validación del original.
     tipo_cambio = models.CharField(max_length=50, null=True, blank=True,

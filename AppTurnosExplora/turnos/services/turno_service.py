@@ -162,8 +162,9 @@ class TurnoService(ITurnoService):
                 return {
                     'id': turno.id,
                     'jornada': jornada_display,  # JornadaDisplay: DOBLADA | AM | PM
-                    'sala': turno.sala.nombre,
-                    'sala_id': turno.sala.id,
+                    # La sala es opcional (informativa): puede no estar cargada.
+                    'sala': turno.sala.nombre if turno.sala else 'Por asignar',
+                    'sala_id': turno.sala.id if turno.sala else None,
                     'hora_inicio': hora_inicio,
                     'hora_fin': hora_fin,
                     'es_turno_virtual': False,

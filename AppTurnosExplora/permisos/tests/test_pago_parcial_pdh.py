@@ -32,14 +32,40 @@ class PagoParcialBase(TestCase):
         self.client = Client()
         self.client.force_login(jefe)
 
-    def _permiso_mes(self, horas='2', anio=2026, mes=8):
-        """Un permiso puntual de `horas` en el mes indicado, ya con su deuda mensual."""
+    def _permiso_mes(self, horas='2', anio=None, mes=None):
+        """Un permiso puntual de `horas` en el mes indicado, ya con su deuda mensual.
+
+        Por defecto, el mes EN CURSO — y no puede volver a fijarse a un mes concreto.
+        Este archivo se escribió con `2026-08` escrito a mano porque entonces era el mes
+        abierto, y al llegar septiembre esos meses pasaron a estar vencidos: solo se puede
+        pagar el mes en curso (ver `pago_horas_service`), así que 15 pruebas de PAGO PARCIAL
+        empezaron a fallar por una regla que ninguna de ellas estaba probando.
+        Quien sí prueba el vencimiento es `test_los_meses_ya_cerrados_se_marcan_como_vencidos`,
+        que calcula el mes pasado a partir de hoy y por eso nunca caducó.
+        """
+        hoy = date.today()
+        anio = hoy.year if anio is None else anio
+        mes = hoy.month if mes is None else mes
         dia = date(anio, mes, 10)
         permiso = PermisoEspecial.objects.create(
             empleado=self.explorador, tipo='PERSONAL', fecha_inicio=dia, fecha_fin=dia,
             tiempo=Decimal(horas), motivo='x', estado='APROBADO', supervisor=self.supervisor)
         sincronizar(permiso)
         return permiso, permiso.deudas_mes.get()
+
+    @staticmethod
+    def _mes(desplazamiento):
+        """Día 10 del mes de hoy desplazado `n` meses. Sin dependencias, y sin saltos raros
+        por longitud de mes: el día 10 existe en todos."""
+        hoy = date.today()
+        total = (hoy.year * 12 + hoy.month - 1) + desplazamiento
+        return date(total // 12, total % 12 + 1, 10)
+
+    @staticmethod
+    def _etiqueta_mes_actual():
+        from permisos.pago_horas_service import _MESES
+        hoy = date.today()
+        return f'{_MESES[hoy.month - 1]} {hoy.year}'
 
     def _pagar(self, deuda, horas=None):
         importes = {f'permisomes:{deuda.id}': str(horas)} if horas is not None else None
@@ -152,7 +178,7 @@ class PagoParcialTest(PagoParcialBase):
         """
         permiso = PermisoEspecial.objects.create(
             empleado=self.explorador, tipo='PERSONAL', es_permanente=True,
-            fecha_inicio=date(2026, 8, 1), fecha_fin=date(2026, 11, 30),
+            fecha_inicio=self._mes(0).replace(day=1), fecha_fin=self._mes(3),
             dias_semana='0,1,2,3,4', tiempo=Decimal('1'), motivo='x',
             estado='APROBADO', supervisor=self.supervisor)
         sincronizar(permiso)
@@ -225,12 +251,14 @@ class PantallaPorMesTest(PagoParcialBase):
     """Punto 7 del skill: la pantalla debe decir cuánto se debe en CADA mes."""
 
     def test_las_deudas_se_agrupan_por_mes(self):
-        self._permiso_mes(horas='2', mes=8)
-        self._permiso_mes(horas='3', mes=9)
+        actual, siguiente = self._mes(0), self._mes(1)
+        self._permiso_mes(horas='2', anio=actual.year, mes=actual.month)
+        self._permiso_mes(horas='3', anio=siguiente.year, mes=siguiente.month)
 
         meses = PagoHorasService.deudas_pendientes(self.explorador)
 
-        self.assertEqual([m['periodo'] for m in meses], ['2026-08', '2026-09'])
+        self.assertEqual([m['periodo'] for m in meses],
+                         [actual.strftime('%Y-%m'), siguiente.strftime('%Y-%m')])
         self.assertEqual([m['horas_debidas'] for m in meses], [2.0, 3.0])
 
     def test_cada_mes_dice_debido_pagado_y_pendiente(self):
@@ -253,9 +281,54 @@ class PantallaPorMesTest(PagoParcialBase):
 
         self.assertTrue(mes['vencido'])
 
+    def test_el_mes_abierto_avisa_de_cuando_cierra_el_plazo(self):
+        """
+        El hueco que esto cierra: la pantalla solo hablaba del plazo cuando YA se había
+        perdido. El día 1 el mes anterior sale VENCIDO y bloqueado, pero el día 31 nada
+        advertía de que cerraba esa noche — y perderlo no se arregla pagando después: el
+        explorador queda sancionado y ya no puede evitarlo.
+        """
+        actual = self._mes(0)
+        self._permiso_mes(horas='2', anio=actual.year, mes=actual.month)
+        ultimo_dia = self._mes(1).replace(day=1) - timedelta(days=1)
+
+        # A mitad de mes: hay plazo y no urge.
+        (mes,) = PagoHorasService.deudas_pendientes(
+            self.explorador, hoy=actual.replace(day=10))
+        self.assertFalse(mes['vencido'])
+        self.assertEqual(mes['fin_de_plazo'], ultimo_dia.strftime('%d/%m/%Y'))
+        self.assertEqual(mes['dias_restantes'], (ultimo_dia - actual.replace(day=10)).days)
+        self.assertFalse(mes['urgente'], 'a mitad de mes todavía hay margen')
+
+    def test_el_ultimo_dia_del_plazo_avisa_y_todavia_se_puede_pagar(self):
+        """`dias_restantes == 0` es HOY, no «ya pasó»: ese día el pago aún se acepta."""
+        actual = self._mes(0)
+        self._permiso_mes(horas='2', anio=actual.year, mes=actual.month)
+        ultimo_dia = self._mes(1).replace(day=1) - timedelta(days=1)
+
+        (mes,) = PagoHorasService.deudas_pendientes(self.explorador, hoy=ultimo_dia)
+
+        self.assertEqual(mes['dias_restantes'], 0)
+        self.assertTrue(mes['urgente'])
+        self.assertTrue(mes['pagable'], 'el último día del plazo todavía se paga')
+        self.assertFalse(mes['vencido'])
+
+    def test_al_dia_siguiente_ya_esta_vencido_y_no_se_avisa_de_un_plazo_que_no_existe(self):
+        actual = self._mes(0)
+        self._permiso_mes(horas='2', anio=actual.year, mes=actual.month)
+        primer_dia_siguiente = self._mes(1).replace(day=1)
+
+        (mes,) = PagoHorasService.deudas_pendientes(
+            self.explorador, hoy=primer_dia_siguiente)
+
+        self.assertTrue(mes['vencido'])
+        self.assertFalse(mes['pagable'])
+        self.assertFalse(mes['urgente'], 'un mes vencido no es "urgente", es irrecuperable')
+        self.assertLess(mes['dias_restantes'], 0)
+
     def test_caso_10_dos_permisos_del_mismo_mes_se_suman_sin_perder_su_origen(self):
-        self._permiso_mes(horas='2', mes=8)
-        self._permiso_mes(horas='1', mes=8)
+        self._permiso_mes(horas='2')
+        self._permiso_mes(horas='1')
 
         (agosto,) = PagoHorasService.deudas_pendientes(self.explorador)
 
@@ -270,7 +343,7 @@ class PantallaPorMesTest(PagoParcialBase):
 
         datos = r.json()
         self.assertTrue(datos['success'])
-        self.assertEqual(datos['meses'][0]['etiqueta'], 'Agosto 2026')
+        self.assertEqual(datos['meses'][0]['etiqueta'], self._etiqueta_mes_actual())
         self.assertEqual(datos['total_horas'], 2.0)
 
     def test_el_post_registra_un_pago_parcial(self):

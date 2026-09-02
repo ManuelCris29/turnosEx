@@ -6,12 +6,16 @@ Delega la orquestación técnica al SolicitudOrchestrator y la validación al So
 
 Punto de entrada único para las vistas — las vistas no necesitan saber qué servicios
 existen, solo invocan este caso de uso con los datos del request.
+
+Devuelve un `ResultadoSolicitud`, no una respuesta HTTP: quien traduce a JSON es la
+vista (`views/resultado_http.py`). Así este caso de uso se puede invocar igual desde
+un test de integración o un comando de gestión.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.http import HttpResponse
+from solicitudes.services.resultado import ResultadoSolicitud
 
 if TYPE_CHECKING:
     from empleados.models import Empleado
@@ -21,7 +25,7 @@ if TYPE_CHECKING:
 class CrearSolicitudUseCase:
     """
     Entrada: datos crudos del POST + tipo de solicitud + empleado solicitante.
-    Salida:  HttpResponse (JSON) producida por el orquestador.
+    Salida:  ResultadoSolicitud producido por el orquestador.
     """
 
     def execute(
@@ -29,13 +33,12 @@ class CrearSolicitudUseCase:
         post_data: dict,
         tipo_solicitud: "TipoSolicitudCambio",
         solicitante: "Empleado",
-    ) -> HttpResponse:
-        from core.utils.json_responses import json_error
+    ) -> ResultadoSolicitud:
         from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator
         from solicitudes.services.solicitud_request_parser import SolicitudRequestParser
 
         ok, error_msg = SolicitudRequestParser.validate_required(tipo_solicitud.nombre, post_data)
         if not ok:
-            return json_error(error_msg, status=400, code='missing_fields')
+            return ResultadoSolicitud.error(error_msg, status=400, code='missing_fields')
 
         return SolicitudOrchestrator.procesar(post_data, tipo_solicitud, solicitante)

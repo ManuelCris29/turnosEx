@@ -110,7 +110,7 @@ class Command(BaseCommand):
             if turnos_receptor_cesion:
                 for turno in turnos_receptor_cesion:
                     self.stdout.write(
-                        f'     • Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre} | '
+                        f'     • Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre if turno.sala else 'Por asignar'} | '
                         f'Tipo: {turno.tipo_cambio or "N/A"}'
                     )
                 if tiene_doblada_receptor:
@@ -144,7 +144,7 @@ class Command(BaseCommand):
                     self.stdout.write('     • Tiene turnos (cesión parcial):')
                 for turno in turnos_solicitante_cesion:
                     self.stdout.write(
-                        f'       - Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre} | '
+                        f'       - Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre if turno.sala else 'Por asignar'} | '
                         f'Tipo: {turno.tipo_cambio or "N/A"}'
                     )
             else:
@@ -174,7 +174,7 @@ class Command(BaseCommand):
             if turnos_solicitante_pago:
                 for turno in turnos_solicitante_pago:
                     self.stdout.write(
-                        f'     • Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre} | '
+                        f'     • Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre if turno.sala else 'Por asignar'} | '
                         f'Tipo: {turno.tipo_cambio or "N/A"}'
                     )
                 if tiene_doblada_solicitante:
@@ -216,7 +216,7 @@ class Command(BaseCommand):
                     self.stdout.write(self.style.WARNING('     ⚠️  Tiene turnos (debería descansar):'))
                 for turno in turnos_receptor_pago:
                     self.stdout.write(
-                        f'       - Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre} | '
+                        f'       - Jornada: {turno.jornada.nombre} | Sala: {turno.sala.nombre if turno.sala else 'Por asignar'} | '
                         f'Tipo: {turno.tipo_cambio or "N/A"}'
                     )
             else:

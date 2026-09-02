@@ -25,6 +25,21 @@ Lo necesario para contenedor **ya se hizo**; solo repásalo:
 > Explica qué vale cada variable, **qué se rompe si falta**, y las trampas del ALB.
 > Este checklist es el "cómo"; ese documento es el "por qué".
 
+**Comprobación opcional antes de empaquetar (10 min, en local):**
+```bash
+cd AppTurnosExplora
+pytest -n auto                       # la suite normal: debe estar en verde
+pytest -n auto --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de mes y medio?
+```
+- [ ] La segunda corrida sale en verde. **Si sale algo en rojo, eso es el hallazgo, no un
+      error de la corrida:** ese test va a fallar solo dentro de unas semanas, sin que nadie
+      toque el código. Se decide si se arregla ahora o se anota, pero no se despliega sin
+      saber qué es.
+- [ ] Por qué aquí: la suite normal siempre corre con el reloj de hoy, así que de esto solo
+      se entera el día que ya es tarde. Pasó el 2026-09-02 con 17 tests en rojo de golpe y
+      nada tocado. **Contexto, cómo leerlo y la decisión de si esto debe ir al CI:
+      [MANUAL_TESTS_QUE_CADUCAN.md](./MANUAL_TESTS_QUE_CADUCAN.md).**
+
 ---
 
 ## FASE 1 — Base de datos RDS
@@ -200,6 +215,27 @@ aws ecs run-task --cluster swalp-cluster --task-definition swalp-web --launch-ty
 - [ ] **Alarma de que la tarea dejó de correr.** Crear un *metric filter* sobre el log group del contenedor con el patrón **`REVISION_SANCIONES_NO_EJECUTADA`** y una alarma que notifique a un SNS. El comando emite esa cadena en nivel `CRITICAL` cuando detecta que lleva días sin ejecutarse. **Es la única forma de enterarse sin mirar:** una tarea programada que deja de dispararse no da ningún error, simplemente deja de ocurrir.
 - [ ] Probada la alarma: lanzar la tarea a mano con la base sin ninguna fila en `RevisionSancionesDeuda` (o esperar 3 días) y comprobar que **llega la notificación**. Un aviso sin probar no es un aviso.
 - [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](./MANUAL_SANCIONES_DEUDA.md)**.
+
+**Comprobar que las dos tareas de arriba existen de verdad — ⚠️ paso obligatorio:**
+```bash
+# Dentro de la tarea, con ECS Exec. Termina con codigo 1 si algo va mal.
+aws ecs execute-command --cluster swalp-cluster --task <task-id>   --container web --interactive --command "python manage.py verificar_crons"
+```
+- [ ] Sale **`[ok]`** en las dos líneas.
+- [ ] **Por qué hace falta si ya está la alarma de arriba:** esa alarma la emite el propio
+      comando de sanciones, así que solo puede sonar **cuando alguien lo ejecuta**. Contra el
+      fallo que de verdad ocurre —que la Scheduled Rule nunca se llegó a crear— un proceso no
+      puede avisar de su propia ausencia. `verificar_crons` mira desde fuera lo que las dos
+      tareas dejan en la base: la espera del correo pendiente más antiguo y el día de la
+      última revisión. Antes, la única defensa contra "nadie programó el cron" era que una
+      persona leyera esta lista.
+- [ ] **Vuelve a lanzarlo 24 h después del despliegue.** El día 1 la revisión de sanciones
+      puede no haber corrido todavía y el aviso de "NUNCA se ha ejecutado" es esperable; lo que
+      no es normal es que siga saliendo al día siguiente.
+- [ ] Recomendado: la **misma** Scheduled Rule diaria puede lanzar `verificar_crons` con
+      `--json`; su código de salida 1 marca la ejecución como fallida y eso ya es visible en
+      EventBridge sin montar nada más. El marcador para un *metric filter* propio es
+      **`CRON_NO_EJECUTADO`**.
 
 ---
 

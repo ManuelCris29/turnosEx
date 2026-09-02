@@ -7,6 +7,7 @@ from core.utils.json_responses import json_error
 
 from ..models import TipoSolicitudCambio
 from ..use_cases.crear_solicitud import CrearSolicitudUseCase
+from .resultado_http import json_desde_resultado
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,9 @@ class ProcesarSolicitudView(LoginRequiredMixin, View):
             except TipoSolicitudCambio.DoesNotExist:
                 return json_error('Tipo de solicitud no válido', status=400, code='invalid_type')
 
-            return CrearSolicitudUseCase().execute(request.POST, tipo_solicitud, request.user.empleado)
+            resultado = CrearSolicitudUseCase().execute(
+                request.POST, tipo_solicitud, request.user.empleado)
+            return json_desde_resultado(resultado)
 
         except Exception:
             logger.exception("Error inesperado en ProcesarSolicitudView")

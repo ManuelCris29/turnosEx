@@ -448,8 +448,6 @@ document.addEventListener('DOMContentLoaded', function() {
                         title: esErrorMantenimiento ? 'Día de Mantenimiento' : 'Error al enviar solicitud',
                         text: mensajeError,
                         confirmButtonText: 'Entendido',
-                        timer: esErrorMantenimiento ? 6000 : 4000,
-                        timerProgressBar: true,
                         showConfirmButton: true,
                         position: 'center',
                         customClass: {
@@ -466,8 +464,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 title: 'Error de conexión',
                 text: 'No se pudo enviar la solicitud. Inténtalo de nuevo.',
                 confirmButtonText: 'Reintentar',
-                timer: 5000,
-                timerProgressBar: true,
                 showConfirmButton: true,
                 position: 'center',
                 customClass: {

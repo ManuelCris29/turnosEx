@@ -10,3 +10,9 @@ pytest-django==4.9.0
 # simultáneas se pisen la misma base `test_*`. Ver la clave TEST en config/settings.py.
 pytest-xdist==3.8.0
 pytest-cov==7.1.0
+
+# Viaje en el tiempo para la suite: `pytest --dias-en-el-futuro=90` (ver conftest.py).
+# Descubre los tests que caducan solos —los que fijan una fecha que solo vale "por ahora"—,
+# una clase de fallo que el CI no puede ver porque pasa en verde hasta el día que revienta.
+# El conftest lo importa solo si se pide el viaje: la suite normal no lo necesita.
+freezegun==1.5.1

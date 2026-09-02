@@ -303,6 +303,24 @@ class DFDSHuecosCorregidosTest(DFDSBaseTest):
         ))
         self.assertTrue(ok, f'El día de cobertura del compañero sí sirve como devolución: {msg}')
 
+    def _dia_de_compensacion(self, fecha_cesion):
+        """Día en que se devuelve el favor de la solicitud de fondo, SIN pisar `self.ces` ni
+        `self.pago`.
+
+        Antes era `fecha_cesion + 7 días` a ojo. `self.ces` y `self.pago` son dos findes del
+        mismo mes y del mismo día de la semana, y NO están ordenados: cuando el calendario
+        pone el pago primero (7-nov) y la cesión después (14-nov), ese `+7` caía exactamente
+        sobre `self.ces`. La solicitud de fondo le quitaba entonces al solicitante el turno
+        que el test iba a ceder, y la validación lo rechazaba —con razón— por un motivo que
+        el test no estaba probando. Como las fechas se calculan a partir de hoy, el choque
+        aparecía y desaparecía según el mes.
+        """
+        candidatos = [f for f, _g in _findes_de_mes(fecha_cesion.year, fecha_cesion.month)
+                      if f.weekday() == fecha_cesion.weekday()
+                      and f not in (self.ces, self.pago, fecha_cesion)]
+        self.assertTrue(candidatos, 'no hay un día libre de choques para la solicitud de fondo')
+        return candidatos[-1]
+
     def _solicitud_aprobada_de_otro_tipo(self, nombre_tipo, fecha_cesion, solicitante=None):
         """Solicitud aprobada de otro tipo que deja al solicitante DESCANSANDO en `fecha_cesion`."""
         tipo = TipoSolicitudCambio.objects.create(nombre=nombre_tipo)
@@ -312,7 +330,7 @@ class DFDSHuecosCorregidosTest(DFDSBaseTest):
             tipo_cambio=tipo, comentario='previa', fecha_cambio_turno=fecha_cesion,
             estado='aprobada', fecha_resolucion=timezone.now())
         DobladaDetalle.objects.create(
-            solicitud=s, fecha_pago=fecha_cesion + timedelta(days=7),
+            solicitud=s, fecha_pago=self._dia_de_compensacion(fecha_cesion),
             minutos_deuda=0, tipo_cesion='cesion_completa', empleado_receptor=self.receptor)
         return s
 

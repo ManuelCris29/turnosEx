@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 from django.utils import timezone
 
 from core.utils.date_utils import DateUtils
+from core.utils.mensajes_error import texto_de_error
 from empleados.models import Empleado
 from solicitudes.models import DobladaPermanenteDetalle, SolicitudCambio
 
@@ -461,7 +462,7 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
         except Exception as e:
             import logging
             logging.getLogger(__name__).exception("Error aplicando doblada permanente")
-            return False, f"Error aplicando doblada permanente: {str(e)}"
+            return False, f"Error aplicando doblada permanente: {texto_de_error(e)}"
 
     # --------------------------------------------------- empleados disponibles
     def get_empleados_disponibles(self, fecha: str, usuario_actual: Empleado, **kwargs) -> list:
