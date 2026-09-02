@@ -1740,9 +1740,7 @@ function enviarSolicitudCTPermanente() {
                 title: 'Error al enviar solicitud',
                 text: data.error,
                 confirmButtonText: 'Entendido',
-                timer: 4000,
-                timerProgressBar: true,
-                showConfirmButton: false,
+                showConfirmButton: true,
                 position: 'center',
                 customClass: {
                     popup: 'swal2-error-popup'
@@ -1757,8 +1755,6 @@ function enviarSolicitudCTPermanente() {
             title: 'Error de conexión',
             text: 'No se pudo enviar la solicitud. Inténtalo de nuevo.',
             confirmButtonText: 'Reintentar',
-            timer: 5000,
-            timerProgressBar: true,
             showConfirmButton: true,
             position: 'center',
             customClass: {

@@ -31,9 +31,10 @@ function mostrarErrorCancelacion(data, textoPorDefecto) {
         icon: esGuardia ? 'warning' : 'error',
         title: esGuardia ? 'No se puede cancelar' : 'Error',
         text: data.error || data.message || textoPorDefecto,
-        timer: esGuardia ? undefined : 4000,
-        timerProgressBar: !esGuardia,
-        showConfirmButton: true
+        // Ningún motivo de fallo se autocierra: explican qué pasó y qué hacer, y a los 4 s
+        // desaparecían antes de que diera tiempo a leerlos. Lo cierra quien lo lee.
+        showConfirmButton: true,
+        confirmButtonText: 'Entendido'
     });
 }
 
@@ -113,9 +114,8 @@ function aprobarSolicitudAmbos(solicitudId) {
                         icon: 'error',
                         title: 'Error',
                         text: data.message || 'No se pudo aprobar en ambos roles',
-                        timer: 4000,
-                        timerProgressBar: true,
-                        showConfirmButton: false
+                        showConfirmButton: true,
+                        confirmButtonText: 'Entendido'
                     });
                 }
             })
@@ -249,8 +249,6 @@ function cancelarSolicitud(solicitudId) {
                     icon: 'error',
                     title: 'Error de conexión',
                     text: 'No se pudo cancelar la solicitud. Inténtalo de nuevo.',
-                    timer: 5000,
-                    timerProgressBar: true,
                     showConfirmButton: true,
                     confirmButtonText: 'Reintentar'
                 });
@@ -813,9 +811,8 @@ $('#confirmarAccion').click(function() {
                 icon: 'error',
                 title: 'Error',
                 text: data.message,
-                timer: 4000,
-                timerProgressBar: true,
-                showConfirmButton: false
+                showConfirmButton: true,
+                confirmButtonText: 'Entendido'
             });
         }
     })
@@ -826,8 +823,6 @@ $('#confirmarAccion').click(function() {
             icon: 'error',
             title: 'Error de conexión',
             text: 'No se pudo completar la acción. Inténtalo de nuevo.',
-            timer: 5000,
-            timerProgressBar: true,
             showConfirmButton: true,
             confirmButtonText: 'Reintentar'
         });

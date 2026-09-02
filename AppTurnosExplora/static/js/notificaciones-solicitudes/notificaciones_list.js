@@ -47,9 +47,8 @@ function marcarComoLeida(notificacionId) {
                 icon: 'error',
                 title: 'Error',
                 text: data.message || 'Error al marcar como leída',
-                timer: 3000,
-                timerProgressBar: true,
-                showConfirmButton: false
+                showConfirmButton: true,
+                confirmButtonText: 'Entendido'
             });
         }
     })
@@ -59,9 +58,8 @@ function marcarComoLeida(notificacionId) {
             icon: 'error',
             title: 'Error',
             text: 'Error al marcar como leída',
-            timer: 3000,
-            timerProgressBar: true,
-            showConfirmButton: false
+            showConfirmButton: true,
+            confirmButtonText: 'Entendido'
         });
     });
 }
