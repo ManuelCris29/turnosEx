@@ -35,11 +35,12 @@ from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio
 
 from .base_strategy import SolicitudStrategy
+from .estrategia_fin_de_semana import EstrategiaFinDeSemana
 
 logger = logging.getLogger(__name__)
 
 
-class DFDSStrategy(SolicitudStrategy):
+class DFDSStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
     """Strategy para "D FDS" (Doblada de Fin de Semana)."""
 
     def __init__(self):
