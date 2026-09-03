@@ -1,5 +1,5 @@
 """
-`DobladaStrategy._validar_pago_en_sabado`: las reglas del pago en sábado.
+`DobladaFlujoValidator.validar_pago_en_sabado`: las reglas del pago en sábado.
 
 POR QUÉ ESTE ARCHIVO
 --------------------
@@ -32,7 +32,7 @@ from django.utils import timezone
 
 from empleados.models import Empleado, Jornada
 from solicitudes.services.errores_validacion import RequiereCambioTurnoPrevio
-from solicitudes.services.strategies.doblada_strategy import DobladaStrategy
+from solicitudes.services.validators.doblada_flujo_validator import DobladaFlujoValidator
 from turnos.models import AsignarJornadaExplorador, Sala
 from turnos.services.asignacion_especial_service import AsignacionEspecialService
 
@@ -104,7 +104,7 @@ class PagoEnSabadoBase(TestCase):
             'fecha_pago_semana': None,
         }
         args.update(cambios)
-        return DobladaStrategy._validar_pago_en_sabado(**args)
+        return DobladaFlujoValidator.validar_pago_en_sabado(**args)
 
 
 class JornadaDelSabadoTest(PagoEnSabadoBase):
