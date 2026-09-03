@@ -939,7 +939,17 @@ class DobladaStrategy(SolicitudStrategy):
             if not fecha_pago_semana:
                 return False, ("Al cubrir ambas jornadas el sábado, debes elegir el día de la semana "
                                "en que el compañero te devolverá la jornada.")
-            fps_obj = DateUtils.parse_date(fecha_pago_semana)
+            # Misma guarda que arriba para la cesión y el pago: `DateUtils.parse_date`
+            # LANZA con basura ('31/02/2027', 'abc'), no devuelve None. Sin el try, el
+            # `if not fps_obj` de aquí abajo era inalcanzable y una fecha malformada en
+            # este campo subía hasta el manejador genérico y salía como 500, en vez de
+            # como el mensaje de negocio que ya estaba escrito para ella. Es la tercera
+            # fecha de la solicitud y fue la que se quedó sin la guarda que sí tienen las
+            # otras dos.
+            try:
+                fps_obj = DateUtils.parse_date(fecha_pago_semana)
+            except (ValueError, TypeError):
+                fps_obj = None
             if not fps_obj:
                 return False, "El día de pago en semana no es una fecha válida."
             if fps_obj.weekday() >= 5:
