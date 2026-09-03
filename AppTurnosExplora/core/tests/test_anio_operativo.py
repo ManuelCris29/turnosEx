@@ -56,3 +56,16 @@ class AnioOperativoTest(TestCase):
         self.assertIn('04/01/2027', msg)
         self.assertNotIn('30/12/2026', msg)
         self.assertIn('apertura de año', msg)
+
+    def test_el_mensaje_dice_cuando_se_podra_no_una_accion_que_no_sirve(self):
+        """
+        El cierre decía «el año siguiente se habilita con la apertura de año», y eso manda a
+        completar el checklist esperando que desbloquee la fecha. No lo hace: la apertura
+        prepara el calendario del año siguiente, pero quien habilita operar sobre él es el 1
+        de enero. El supervisor que seguía esa pista completaba los cinco ítems y se
+        encontraba el mismo rechazo, sin nada más que intentar.
+        """
+        msg = mensaje_fuera_del_anio_operativo([date(2027, 1, 4)], HOY)
+
+        self.assertIn('1 de enero', msg)
+        self.assertNotIn('se habilita con la apertura', msg)

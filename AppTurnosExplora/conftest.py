@@ -60,6 +60,8 @@ el diciembre real, +90 y leerlo sabiendo lo de arriba.
 """
 import datetime
 
+import pytest
+
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -67,6 +69,49 @@ def pytest_addoption(parser):
         help='Corre la suite como si hoy fuese dentro de N días, para descubrir tests '
              'que caducan solos. Ver el docstring de conftest.py.',
     )
+    parser.addoption(
+        '--anio-planificado', action='store_true',
+        help='Corre como si el año siguiente ya estuviera planificado. Se usa junto con '
+             '--dias-en-el-futuro=90 para el ensayo de diciembre. Ver conftest.py.',
+    )
+
+
+@pytest.fixture(autouse=True, scope='session')
+def _anio_planificado(request):
+    """El ensayo de diciembre con los deberes hechos.
+
+    A +90 días la suite cae en el 1 de diciembre y se ponen rojos ~149 tests de vistas
+    de administración: `AperturaAnioMiddleware` redirige a la pantalla de apertura
+    mientras el año siguiente no esté planificado. Correcto, pero deja una pregunta sin
+    responder — ¿son TODOS por la puerta, o hay algo más escondido detrás?
+
+    Para contestarla hay que correr esa misma fecha con el año ya planificado. Sembrar
+    los datos reales del checklist en cada test no es viable: `Jornada.nombre` es único
+    y casi todos los tests crean AM/PM en su `setUp`, así que las filas globales
+    chocarían y añadirían cientos de fallos nuevos, justo el ruido que se quiere evitar.
+
+    Se simula entonces la CONDICIÓN, que es lo único que el middleware consulta:
+    `situacion()` devuelve 'nada' en cuanto `completo(anio)` es cierto, sin mirar la
+    fecha. Que completar el checklist de verdad —con sus cinco ítems y sus filas en la
+    base— haga que `completo()` sea cierto y la puerta se abra, lo prueba con datos
+    reales `turnos/tests/test_apertura_anio_puerta_se_abre.py`. Este atajo mide; aquel
+    test demuestra.
+
+    Efecto secundario esperado: los tests de `test_apertura_anio` que comprueban que la
+    puerta CIERRA fallan bajo esta bandera. Es coherente —se les está diciendo que el
+    año está listo— y sirve de control de que la bandera hace algo.
+    """
+    if not request.config.getoption('--anio-planificado'):
+        yield
+        return
+
+    from unittest import mock
+
+    from turnos.services.apertura_anio_service import AperturaAnioService
+
+    with mock.patch.object(AperturaAnioService, 'completo',
+                           staticmethod(lambda anio: True)):
+        yield
 
 
 def pytest_configure(config):

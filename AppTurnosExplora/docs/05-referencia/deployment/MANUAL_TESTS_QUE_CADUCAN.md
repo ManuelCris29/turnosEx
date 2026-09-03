@@ -55,6 +55,13 @@ cd AppTurnosExplora
 pytest -n auto --dias-en-el-futuro=45
 ```
 
+Para el ensayo de diciembre —ver cómo se comportará la aplicación el 1-dic con los
+deberes hechos— se combina con `--anio-planificado`:
+
+```bash
+pytest -n auto --dias-en-el-futuro=90 --anio-planificado
+```
+
 Corre la suite entera como si hoy fuese dentro de 45 días. Tarda lo mismo que la suite
 normal (~10 min). Requiere `freezegun`, que ya está en `requirements-dev.txt`.
 
@@ -92,10 +99,38 @@ Es un ensayo valioso de lo que le pasará a la operación en diciembre — **per
 todo lo demás**. Para cazar tests caducos, usa un desfase que no cruce el 1 de
 diciembre.
 
-> **Media historia sin probar.** Hoy sabemos que esa puerta **se cierra** el 1-dic.
-> Nadie ha comprobado nunca que **se abra sola** una vez planificado el año siguiente.
-> Correr `--dias-en-el-futuro=90` con el año ya abierto responde esa pregunta, y es la
-> que va a importar cuando toque planificar el año.
+### El ensayo de diciembre, ya hecho (2026-09-03)
+
+Quedaba una pregunta abierta: de esos 149, ¿eran **todos** la puerta o había algo más
+detrás? Se corrió la misma fecha con el año dado por planificado
+(`--dias-en-el-futuro=90 --anio-planificado`):
+
+| Corrida al 1 de diciembre | Fallos |
+|---|---|
+| Sin planificar | 149 |
+| Con el año planificado | **25** |
+| — control esperado (tests que afirman que la puerta CIERRA) | 8 |
+| — la regla del año operativo | 17 |
+
+**Ninguno de los 25 es un bug.** Los 8 son el control de que la bandera hace algo: se
+les está diciendo que el año está listo, así que dejan de ver el bloqueo que afirman.
+Los 17 son tests que eligen fechas a un mes vista; con el reloj en el 1-dic aterrizan
+en enero, y **operar sobre el año siguiente no se puede** — ni con la apertura hecha.
+Es la regla de `core/utils/anio_operativo.py` funcionando. En la corrida normal pasan,
+porque sus fechas no cruzan el año.
+
+**Que la puerta se abre sola está probado con datos reales** en
+`turnos/tests/test_apertura_anio_puerta_se_abre.py`: reloj congelado en un 1 de
+diciembre, configuración por defecto sin tocar, los cinco ítems del checklist
+completados de verdad, y el administrador navega con normalidad. Incluye el control
+(sin planificar, cierra), que no se abre a medias, que no hace falta apagar
+`bloqueo_duro`, y la frontera del 30 de noviembre.
+
+> **No confundir las dos reglas.** La APERTURA construye el calendario del año
+> siguiente por adelantado; el AÑO OPERATIVO impide pisarlo hasta que llegue. Planificar
+> 2027 en noviembre es lo deseable —y hace que la puerta del 1-dic ni siquiera llegue a
+> cerrarse—, pero no permite pedir en diciembre un cambio que se pague en enero. Eso lo
+> habilita el calendario el 1 de enero.
 
 ---
 

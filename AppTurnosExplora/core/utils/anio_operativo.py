@@ -54,8 +54,15 @@ def mensaje_fuera_del_anio_operativo(fechas, hoy: date | None = None) -> str | N
 
     anio = anio_operativo(hoy)
     listado = ', '.join(f.strftime('%d/%m/%Y') for f in fuera)
+    # El cierre dice CUÁNDO se podrá, no qué hacer para adelantarlo. Antes decía «el año
+    # siguiente se habilita con la apertura de año», y eso mandaba al supervisor a completar
+    # el checklist esperando que le desbloqueara la fecha: la apertura PREPARA el terreno del
+    # año siguiente, pero no adelanta el momento de pisarlo. Lo habilita el calendario, el 1
+    # de enero. Quien seguía esa pista completaba los cinco ítems y se encontraba el mismo
+    # rechazo, sin nada más que probar.
     return (
         f'Solo se puede operar sobre el año {anio}. '
         f'Estas fechas son de otro año: {listado}. '
-        f'El año siguiente se habilita con la apertura de año.'
+        f'El año siguiente se podrá trabajar a partir del 1 de enero, '
+        f'sobre el calendario que deja publicado la apertura de año.'
     )
