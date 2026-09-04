@@ -133,6 +133,27 @@ class TipoSolicitudCambio(models.Model):
     def __str__(self):
         return self.nombre
 
+class SolicitudCambioQuerySet(models.QuerySet):
+    """Consultas de negocio de SolicitudCambio.
+
+    Sustituye a `SolicitudRepository`, que era una capa paralela para hacer lo que
+    Django ya resuelve con Managers y QuerySets —el camino que la documentación llama
+    preferente para las operaciones sobre la tabla— y que el proyecto ya usaba en
+    `EmpleadoQuerySet` y `TurnoActivoManager`. De sus 14 métodos solo 2 tenían llamadas
+    reales; tener dos idiomas para consultar era peor que cualquiera de los dos.
+
+    Se conserva lo que tenía valor: el paquete de `select_related` con nombre. Repetirlo
+    a mano en cada vista es como se cuelan las N+1.
+    """
+
+    def con_relaciones(self):
+        """Precarga las relaciones que la pantalla de detalle y las notificaciones leen
+        siempre: quién solicita, quién recibe y el supervisor de quien solicita."""
+        return self.select_related(
+            'explorador_solicitante', 'explorador_receptor',
+            'explorador_solicitante__supervisor')
+
+
 class SolicitudCambio(models.Model):
     explorador_solicitante = models.ForeignKey(
         Empleado, related_name='solicitudes_enviadas', on_delete=models.CASCADE
@@ -231,6 +252,8 @@ class SolicitudCambio(models.Model):
         )
     )
     historial = HistoricalRecords()
+
+    objects = SolicitudCambioQuerySet.as_manager()
 
     class Meta:
         # FASE 1.10: Índices críticos para rendimiento con 100+ solicitudes/día
