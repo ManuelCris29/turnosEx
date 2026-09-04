@@ -22,6 +22,11 @@ from datetime import date as _date
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, DiaEspecial, Turno
+from turnos.services.reporte_dia_empleado import (  # noqa: F401  (reexportado)  # noqa: F401  (reexportado)
+    MOTIVO_SIN_PLANIFICAR,
+    ContextoDia,
+    clasifica,
+)
 
 
 def _nombre(emp):
@@ -172,7 +177,6 @@ class ReporteDiaService:
             (es_finde and grupo_trabaja_finde is None)
             or (es_festivo and fecha.weekday() < 5 and grupo_dobla_festivo is None)
         )
-        MOTIVO_SIN_PLANIFICAR = 'sin alternancia publicada'
 
         # ── Descanso de semana manual (temporada) por jornada ───────────────
         jornadas_descanso_temporada = set()
@@ -284,140 +288,26 @@ class ReporteDiaService:
         trabajando = []
         descansando = []
 
+        _ctx = ContextoDia(
+            fecha=fecha,
+            es_festivo=es_festivo,
+            es_finde=es_finde,
+            es_mantenimiento=es_mantenimiento,
+            grupo_dobla_festivo=grupo_dobla_festivo,
+            grupo_trabaja_finde=grupo_trabaja_finde,
+            jornadas_descanso_temporada=jornadas_descanso_temporada,
+            jornada_base_por_emp=jornada_base_por_emp,
+            turnos_por_emp=turnos_por_emp,
+            descanso_l2=descanso_l2,
+            dobla_cubre=dobla_cubre,
+            permisos_por_emp=permisos_por_emp,
+            restricciones_por_emp=restricciones_por_emp,
+            sanciones_por_emp=sanciones_por_emp,
+            deudas_por_emp=deudas_por_emp,
+        )
+
         for emp in empleados:
-            jb = jornada_base_por_emp.get(emp.id)
-            turnos = turnos_por_emp.get(emp.id, [])
-            permiso = permisos_por_emp.get(emp.id)
-
-            # Determinar jornada del día y si trabaja
-            jornada_dia = None
-            trabaja = False
-            tipo = 'oficial'
-            cubre_a = None
-            motivo_descanso = None
-            companero_descanso = None
-
-            # El ORDEN de estas ramas replica exactamente el de `TurnoService.estado_dia`
-            # (L5 festivo → L1 turno real → L2 solicitud → base → L6 finde → L4 temporada →
-            # L3 mantenimiento → L4 lado que dobla → base). Cualquier reordenamiento aquí hace
-            # que el reporte del supervisor y Mis Turnos digan cosas distintas del mismo día;
-            # el test de paridad (`test_reporte_dia_paridad.py`) lo detecta.
-            l2 = descanso_l2.get(emp.id)
-
-            def _jornada_de(ts):
-                js = {t.jornada.nombre.upper() for t in ts if t.jornada}
-                return ('DOBLADA' if {'AM', 'PM'} <= js
-                        else ('AM' if 'AM' in js else 'PM' if 'PM' in js else None))
-
-            # — L5 FESTIVO entre semana: la regla del festivo manda sobre el horario base;
-            #   solo un cambio EXPLÍCITO (turno con tipo_cambio) se respeta por encima. —
-            if es_festivo and fecha.weekday() < 5:
-                explicitos = [t for t in turnos if t.tipo_cambio]
-                if explicitos:
-                    jornada_dia = _jornada_de(explicitos)
-                    trabaja = True
-                    tipo = 'cambio'
-                    cubre_a = dobla_cubre.get(emp.id)
-                    if cubre_a:
-                        tipo = 'doblada'
-                elif l2:
-                    # Cedió el festivo por una solicitud aprobada: la rotación no puede
-                    # ponerlo a trabajar igualmente.
-                    trabaja = False
-                    motivo_descanso = l2['motivo']
-                    companero_descanso = l2.get('companero')
-                elif grupo_dobla_festivo is None:
-                    trabaja = False
-                    motivo_descanso = MOTIVO_SIN_PLANIFICAR
-                elif jb and jb == grupo_dobla_festivo:
-                    jornada_dia = 'DOBLADA'
-                    trabaja = True
-                    tipo = 'oficial'
-                else:
-                    trabaja = False
-                    motivo_descanso = 'festivo: descansa el grupo contrario'
-
-            # — L1: turno real (máxima prioridad el resto de días) —
-            elif turnos:
-                jornada_dia = _jornada_de(turnos)
-                trabaja = True
-                tipo = 'cambio' if any(t.tipo_cambio for t in turnos) else 'oficial'
-                cubre_a = dobla_cubre.get(emp.id)
-                if cubre_a:
-                    tipo = 'doblada'
-
-            # — L2: descanso por solicitud aprobada —
-            elif l2:
-                trabaja = False
-                motivo_descanso = l2['motivo']
-                companero_descanso = l2.get('companero')
-
-            # — Sin jornada base —
-            elif not jb:
-                trabaja = False
-                motivo_descanso = 'sin jornada asignada'
-
-            # — L6: fin de semana —
-            elif es_finde:
-                if grupo_trabaja_finde is None:
-                    trabaja = False
-                    motivo_descanso = MOTIVO_SIN_PLANIFICAR
-                elif jb == grupo_trabaja_finde:
-                    jornada_dia = 'DOBLADA'
-                    trabaja = True
-                    tipo = 'oficial'
-                else:
-                    trabaja = False
-                    motivo_descanso = 'descanso de fin de semana'
-
-            # — L4: temporada (descanso semana manual) —
-            elif jb in jornadas_descanso_temporada:
-                trabaja = False
-                motivo_descanso = 'descanso de temporada'
-
-            # — L3: mantenimiento —
-            elif es_mantenimiento:
-                trabaja = False
-                motivo_descanso = 'lunes de mantenimiento'
-
-            # — L4 (lado que TRABAJA): si el grupo contrario descansa hoy por temporada,
-            #   este grupo cubre el DÍA COMPLETO (AM+PM). Faltaba, y por eso el reporte
-            #   mostraba media jornada a gente que en Mis Turnos figura doblada. —
-            elif ('PM' if jb == 'AM' else 'AM') in jornadas_descanso_temporada:
-                jornada_dia = 'DOBLADA'
-                trabaja = True
-                tipo = 'oficial'
-
-            # — Base: trabaja su jornada —
-            else:
-                jornada_dia = jb
-                trabaja = True
-                tipo = 'oficial'
-
-            base_info = {
-                'id': emp.id,
-                'nombre': emp.nombre,
-                'apellido': emp.apellido,
-                'jornada_base': jb,
-                'permiso': permiso,
-                'restriccion': restricciones_por_emp.get(emp.id),
-                'sancion': sanciones_por_emp.get(emp.id),
-                'deuda_reprogramacion': deudas_por_emp.get(emp.id),
-            }
-
-            if trabaja:
-                trabajando.append({
-                    **base_info,
-                    'jornada_dia': jornada_dia,
-                    'tipo': tipo,
-                    'cubre_a': cubre_a,
-                })
-            else:
-                descansando.append({
-                    **base_info,
-                    'motivo': motivo_descanso,
-                    'companero': companero_descanso,
-                })
+            clasifica(emp, _ctx, trabajando, descansando)
 
         return {
             'trabajando': trabajando,
