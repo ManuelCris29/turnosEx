@@ -40,10 +40,12 @@ class AprobarAmbosRolesUseCase:
     """Aprueba como receptor Y supervisor en una sola acción (cuando el usuario ocupa ambos roles)."""
 
     def execute(self, solicitud_id: int, empleado: "Empleado", comentario: str) -> Tuple[bool, str]:
-        from solicitudes.repositories.solicitud_repository import SolicitudRepository
+        from solicitudes.models import SolicitudCambio
         from solicitudes.services.solicitud_aprobacion_service import SolicitudAprobacionService
 
-        solicitud = SolicitudRepository.get_by_id(solicitud_id)
+        # `.first()` devuelve None si no existe: es lo que hacia `get_by_id` del
+        # repositorio, sin necesidad de un envoltorio propio.
+        solicitud = SolicitudCambio.objects.filter(id=solicitud_id).first()
         if solicitud is None:
             return False, 'Solicitud no encontrada'
 

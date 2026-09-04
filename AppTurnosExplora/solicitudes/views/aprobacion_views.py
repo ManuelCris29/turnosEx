@@ -3,7 +3,7 @@ import logging
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views import View
 
-from ..repositories.solicitud_repository import SolicitudRepository
+from ..models import SolicitudCambio
 from ..use_cases.aprobar_solicitud import (
     AprobarAmbosRolesUseCase,
     AprobarComoReceptorUseCase,
@@ -100,7 +100,7 @@ class CancelarSolicitudView(LoginRequiredMixin, View):
                     return json_error(msg, status=400, code='cancelacion_cerrada')
                 return json_error(msg, status=400, code='invalid_state')
 
-            solicitud = SolicitudRepository.get_by_id_con_relaciones(solicitud_id)
+            solicitud = SolicitudCambio.objects.con_relaciones().filter(id=solicitud_id).first()
             _invalidar_contadores(solicitud)
 
             from ..services.notificacion_service import NotificacionService
@@ -155,7 +155,7 @@ class ResponderCancelacionView(LoginRequiredMixin, View):
                     return json_error(msg, status=400, code='plazo_vencido')
                 return json_error(msg, status=400, code='invalid_state')
 
-            solicitud = SolicitudRepository.get_by_id_con_relaciones(solicitud_id)
+            solicitud = SolicitudCambio.objects.con_relaciones().filter(id=solicitud_id).first()
             _invalidar_contadores(solicitud)
 
             from ..services.notificacion_service import NotificacionService
