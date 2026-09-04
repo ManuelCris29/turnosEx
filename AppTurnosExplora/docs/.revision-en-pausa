@@ -1,5 +1,0 @@
-# Pausado el 2026-08-19 21:07 en la rama main
-# Motivo: refactorizacion grande en curso; la documentacion se rehace al terminar
-#
-# Mientras exista este archivo, .claude/hooks/docs-desactualizados.sh no avisa.
-# Reanudar:  bash .claude/hooks/pausar-docs.sh --off

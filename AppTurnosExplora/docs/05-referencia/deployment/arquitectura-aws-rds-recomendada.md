@@ -155,7 +155,11 @@
    - ✅ **Hecho** — **Async** de correo (`transaction.on_commit` + hilo, `EMAIL_TIMEOUT`) → arregla los 20 s; controlado por `EMAIL_SEND_ASYNC`.
    - ⏳ Al montar AWS: `EMAIL_BACKEND=django_ses.SESBackend` + IAM role.
    - ⏳ **Cachear consultas del dashboard** (read-heavy) con `LocMemCache` → menos carga a RDS.
-4. **Django prod:** `.env` con `ENVIRONMENT=production`, `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY`, `CSRF_TRUSTED_ORIGINS`, conexión a RDS.
+4. **Archivado anual (pendiente, sin fecha):** dump anual a S3 cada diciembre. Se
+   analizó purgar los años pasados y se **descartó**: el almacenamiento sobra para
+   >150 años sobre el mínimo de 20 GB ya pagado. Ver
+   [MANUAL_ARCHIVADO_ANUAL.md](./MANUAL_ARCHIVADO_ANUAL.md).
+5. **Django prod:** `.env` con `ENVIRONMENT=production`, `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY`, `CSRF_TRUSTED_ORIGINS`, conexión a RDS.
 
 ---
 
