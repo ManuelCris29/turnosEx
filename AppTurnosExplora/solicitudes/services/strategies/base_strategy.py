@@ -129,55 +129,7 @@ class SolicitudStrategy(ABC):
         service = get_empleado_disponibilidad_service()
         return service.get_empleados_disponibles(fecha, usuario_actual)
 
-    def disponibilidad_companero(self, candidato: Empleado, fecha_cesion) -> Tuple[bool, Optional[str]]:
-        """
-        ¿Puede este compañero participar en un cambio de FIN DE SEMANA sobre `fecha_cesion`?
 
-        Devuelve (disponible, motivo) — el motivo se muestra en el formulario cuando no lo está.
-        Cada tipo de cambio tiene su regla, por eso es un punto de extensión: el intercambio
-        (CAMBIO DESCANSO) necesita que el compañero trabaje el OTRO día del finde para poder
-        canjearlo, mientras que una cesión (D FDS) solo necesita que tenga libre el día que recibe.
-        Antes esta regla vivía dentro de la vista compartida por ambos formularios, así que no
-        se podía cambiar para uno sin alterar el otro.
-
-        Por defecto se aplica la regla del INTERCAMBIO, que es la histórica.
-        """
-        from datetime import timedelta
-
-        from turnos.services.turno_service import TurnoService
-
-        otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5
-                else fecha_cesion - timedelta(days=1))
-        dia_otro = 'sábado' if otro.weekday() == 5 else 'domingo'
-
-        trabaja_otro = TurnoService.estado_dia(candidato, otro)['trabaja']
-        libre_cesion = not TurnoService.estado_dia(candidato, fecha_cesion)['trabaja']
-        if trabaja_otro and libre_cesion:
-            return True, None
-        if not libre_cesion:
-            return False, 'ya trabaja los dos días ese finde (doblada)'
-        if not trabaja_otro:
-            return False, f'no trabaja el {dia_otro} de ese finde'
-        return False, 'no disponible ese finde'
-
-    def etiqueta_companero(self, candidato: Empleado, fecha_cesion) -> str:
-        """
-        Texto que describe a un compañero DISPONIBLE en el selector del formulario.
-
-        Va junto a `disponibilidad_companero`: debe decir POR QUÉ ese compañero sirve, y por eso
-        también depende del tipo de cambio. Antes el texto se armaba en la vista a partir del
-        calendario ("trabaja <el otro día del finde>"), igual para todos; con el intercambio era
-        cierto por construcción, pero al abrir la cesión a cualquiera que descanse ese día pasó a
-        afirmar cosas falsas —p. ej. "trabaja sábado 08/08" de alguien que ese sábado descansa—.
-
-        Por defecto, la regla del INTERCAMBIO: lo que lo habilita es trabajar el otro día.
-        """
-        from datetime import timedelta
-
-        otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5
-                else fecha_cesion - timedelta(days=1))
-        dia_otro = 'sábado' if otro.weekday() == 5 else 'domingo'
-        return f'trabaja {dia_otro} {otro.strftime("%d/%m")}'
 
 
     def get_turno_explorador(self, explorador_id: int, fecha: str) -> Optional[Dict[str, Any]]:

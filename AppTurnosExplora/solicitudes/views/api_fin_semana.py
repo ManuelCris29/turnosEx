@@ -31,6 +31,9 @@ class DFDSCompanerosView(LoginRequiredMixin, View):
 
         from solicitudes.models import TipoSolicitudCambio
         from solicitudes.services.solicitud_factory import SolicitudFactory
+        from solicitudes.services.strategies.estrategia_fin_de_semana import (
+            EstrategiaFinDeSemana,
+        )
 
         emp = getattr(request.user, 'empleado', None)
         if not emp:
@@ -52,6 +55,19 @@ class DFDSCompanerosView(LoginRequiredMixin, View):
         if not tipo:
             tipo = TipoSolicitudCambio.objects.filter(nombre='D FDS').first()
         strat = SolicitudFactory.get_strategy(tipo) if tipo else None
+
+        # `tipo_solicitud_id` viene del cliente y admite CUALQUIER tipo. Solo los dos
+        # formularios de fin de semana saben contestar quién puede participar en un
+        # sábado o un domingo; antes la regla vivía en la base de las SEIS estrategias,
+        # así que pedir esto con el id de DOBLADA devolvía una lista verosímil calculada
+        # con la regla del intercambio, sin fallar y sin avisar. Ahora se comprueba el
+        # contrato: quien no lo implementa no contesta.
+        if strat is not None and not isinstance(strat, EstrategiaFinDeSemana):
+            return json_error(
+                f'El tipo de solicitud «{tipo.nombre}» no tiene selector de compañeros de fin '
+                f'de semana. Solo lo tienen CAMBIO DESCANSO y D FDS.',
+                status=400, code='tipo_sin_selector_finde')
+
         lista = strat.get_empleados_disponibles(fecha.isoformat(), emp) if strat else []
 
         companeros = []
