@@ -371,72 +371,18 @@ class SolicitudOrchestrator:
         if not comentario or not comentario.strip():
             return ResultadoSolicitud.error('Ingresa un comentario.', status=400, code='missing_fields')
 
-        from datetime import datetime as _dt
+        from .doblada_permanente_plan import construir_plan, error_de_balance
 
         fecha_inicio = post.get('fecha_inicio')
         fecha_fin = post.get('fecha_fin')
 
-        # NUEVO flujo: fechas ESPECÍFICAS por compañero (listas paralelas). Tienen prioridad sobre
-        # los weekdays; permiten balancear cuando los días de la semana tienen distinto número de
-        # ocurrencias. Si no vienen, se usa el flujo antiguo por weekday (retrocompatible).
-        ces_fechas = post.getlist('cesion_fecha')
-        ces_fcomps = post.getlist('cesion_fecha_companero')
-        dev_fechas = post.getlist('devolucion_fecha')
-        dev_fcomps = post.getlist('devolucion_fecha_companero')
-        usa_fechas = bool(ces_fechas)
-
-        cesion_fechas_por_comp, devol_fechas_por_comp = {}, {}
-        for f, comp in zip(ces_fechas, ces_fcomps):
-            if comp and f:
-                cesion_fechas_por_comp.setdefault(comp, set()).add(f)
-        for f, comp in zip(dev_fechas, dev_fcomps):
-            if comp and f:
-                devol_fechas_por_comp.setdefault(comp, set()).add(f)
-
-        # UNA fecha = UN solo compañero: una fecha no puede estar asignada a dos compañeros (ni en
-        # cesión ni en devolución). Dos personas no pueden cubrir la misma jornada el mismo día, ni
-        # se puede pagar la misma jornada dos veces ese día. (Cada solicitud se valida por separado,
-        # así que este cruce entre compañeros hay que detectarlo aquí.)
-        def _fecha_repetida(por_comp):
-            vistas = set()
-            for _c, _fset in por_comp.items():
-                for _f in _fset:
-                    if _f in vistas:
-                        return _f
-                    vistas.add(_f)
-            return None
-        _dup_c = _fecha_repetida(cesion_fechas_por_comp)
-        _dup_d = _fecha_repetida(devol_fechas_por_comp)
-        if _dup_c or _dup_d:
-            _f = _dup_c or _dup_d
-            try:
-                _fmt = _dt.strptime(_f, '%Y-%m-%d').strftime('%d/%m/%Y')
-            except (ValueError, TypeError):
-                _fmt = _f
-            _accion = 'cubrirla' if _dup_c else 'pagarla'
-            return ResultadoSolicitud.error(
-                f'La fecha {_fmt} está asignada a dos compañeros; una fecha solo puede {_accion} un '
-                f'compañero (no puedes cubrir ni pagar la misma jornada el mismo día con dos personas).',
-                status=400, code='validation_error')
-
-        # UNA fecha no puede ser CESIÓN de un compañero y DEVOLUCIÓN de otro: ese día no puedes
-        # descansar (te cubre uno) y doblarte (le pagas al otro) a la vez. Cada solicitud se valida
-        # por separado —y ahí la regla sí está—, así que el cruce ENTRE compañeros hay que verlo
-        # aquí. Lo bloqueaba solo el formulario; si se colaba, al aplicar la segunda el día se
-        # descartaba en silencio y la devolución pedida desaparecía sin avisar.
-        _todas_ces = {f for _c, _fs in cesion_fechas_por_comp.items() for f in _fs}
-        _todas_dev = {f for _c, _fs in devol_fechas_por_comp.items() for f in _fs}
-        _cruce = sorted(_todas_ces & _todas_dev)
-        if _cruce:
-            try:
-                _fmt = _dt.strptime(_cruce[0], '%Y-%m-%d').strftime('%d/%m/%Y')
-            except (ValueError, TypeError):
-                _fmt = _cruce[0]
-            return ResultadoSolicitud.error(
-                f'El {_fmt} lo tienes como día que cedes y como día que devuelves a la vez. '
-                f'Ese día no puedes descansar y doblarte al mismo tiempo, aunque sean compañeros '
-                f'distintos.',
-                status=400, code='validation_error')
+        # Parseo del formulario y choques ENTRE companeros (una fecha en dos manos, o el
+        # mismo dia como cesion y como devolucion). Vive en `doblada_permanente_plan`
+        # porque es aritmetica sobre listas: no toca la base de datos y se prueba sola.
+        plan, error = construir_plan(post)
+        if error:
+            return error
+        usa_fechas = plan.usa_fechas
 
         # Cierre semanal: ninguna fecha de cesión/devolución puede caer en una ventana cerrada.
         # Si la solicitud llega por el flujo antiguo (solo días de la semana, sin fechas), hay que
@@ -455,7 +401,7 @@ class SolicitudOrchestrator:
         # se descartaba y se recalculaba, así que parsear allí era trabajo tirado.
         _cierre_fechas = []
         if usa_fechas:
-            for _s in list(ces_fechas) + list(dev_fechas):
+            for _s in plan.fechas_iso:
                 try:
                     _cierre_fechas.append(DateUtils.parse_date(_s))
                 except (ValueError, TypeError):
@@ -472,48 +418,16 @@ class SolicitudOrchestrator:
         if cierre_resp:
             return cierre_resp
 
-        def _wd(iso):
-            try:
-                return str(DateUtils.parse_date(iso).weekday())
-            except (ValueError, TypeError):
-                return ''
-
-        # Weekdays por compañero (derivados de las fechas si usa_fechas; del POST si back-compat).
-        cesion_por_comp, devol_por_comp = {}, {}
-        if usa_fechas:
-            for comp, fset in cesion_fechas_por_comp.items():
-                cesion_por_comp[comp] = {_wd(f) for f in fset if _wd(f)}
-            for comp, fset in devol_fechas_por_comp.items():
-                devol_por_comp[comp] = {_wd(f) for f in fset if _wd(f)}
-        else:
-            for dia, comp in zip(post.getlist('cesion_dia'), post.getlist('cesion_companero')):
-                if comp and str(dia) != '':
-                    cesion_por_comp.setdefault(comp, set()).add(str(dia))
-            for dia, comp in zip(post.getlist('devolucion_dia'), post.getlist('devolucion_companero')):
-                if comp and str(dia) != '':
-                    devol_por_comp.setdefault(comp, set()).add(str(dia))
-
-        base_ces = cesion_fechas_por_comp if usa_fechas else cesion_por_comp
-        base_dev = devol_fechas_por_comp if usa_fechas else devol_por_comp
-        if not base_ces:
-            return ResultadoSolicitud.error('Agrega al menos un día de cesión con su compañero',
-                              status=400, code='missing_fields')
-        for comp in base_dev:
-            if comp not in base_ces:
-                return ResultadoSolicitud.error('Solo puedes devolverle a un compañero que te cubra.',
-                                  status=400, code='validation_error')
-        # BALANCE (bloqueo): por compañero, nº de FECHAS de cesión == nº de FECHAS de devolución.
-        unidad = 'fechas' if usa_fechas else 'días'
-        for comp, cset in base_ces.items():
-            if len(base_dev.get(comp, set())) != len(cset):
-                return ResultadoSolicitud.error(
-                    f'A cada compañero debes devolverle la misma cantidad de {unidad} que te cubre.',
-                    status=400, code='validation_error')
+        # Las cuentas del acuerdo. Va DESPUES del cierre, igual que antes de la
+        # extraccion: adelantarlo cambiaria que error ve quien tiene las dos cosas mal.
+        error = error_de_balance(plan)
+        if error:
+            return error
+        cesion_por_comp = plan.cesion_por_comp
 
         # Verificar restricción médica sobre el rango completo
         confirmar = str(post.get('confirmar_restriccion', '')).lower() in ('1', 'true', 'si', 'sí')
         try:
-            from datetime import datetime as _dt
             fechas_rango = [
                 DateUtils.parse_date(fecha_inicio),
                 DateUtils.parse_date(fecha_fin),
@@ -549,9 +463,9 @@ class SolicitudOrchestrator:
                 'fecha_inicio': fecha_inicio,
                 'fecha_fin': fecha_fin,
                 'dias_cesion': sorted(dias_c),
-                'dias_devolucion': sorted(devol_por_comp.get(comp_id, set())),
-                'fechas_cesion': sorted(cesion_fechas_por_comp.get(comp_id, set())) if usa_fechas else [],
-                'fechas_devolucion': sorted(devol_fechas_por_comp.get(comp_id, set())) if usa_fechas else [],
+                'dias_devolucion': sorted(plan.devol_por_comp.get(comp_id, set())),
+                'fechas_cesion': sorted(plan.cesion_fechas_por_comp.get(comp_id, set())) if usa_fechas else [],
+                'fechas_devolucion': sorted(plan.devol_fechas_por_comp.get(comp_id, set())) if usa_fechas else [],
                 'fecha_creacion_solicitud': timezone.localdate(),
             }
             es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)
