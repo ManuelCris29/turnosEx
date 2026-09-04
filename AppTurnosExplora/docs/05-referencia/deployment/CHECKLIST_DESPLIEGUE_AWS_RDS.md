@@ -37,6 +37,25 @@ CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
 ```
 > Sin esto, el login, el admin y los formularios AJAX dan error 403 CSRF en producción.
 
+### 0.4 Correr la suite, y correrla tambien con el reloj adelantado
+
+```bash
+cd AppTurnosExplora
+pytest -n auto                          # debe estar en verde
+pytest -n auto --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de mes y medio?
+```
+- [ ] Las dos corridas salen en verde.
+- [ ] **Si la segunda sale roja, eso es el hallazgo, no un error de la corrida:** ese test va a
+      fallar solo dentro de unas semanas, sin que nadie toque el código. Decide si lo arreglas
+      ahora o lo anotas, pero no despliegues sin saber qué es.
+- [ ] **Por qué el segundo comando:** la suite normal siempre corre con el reloj de hoy, así que
+      de esta clase de fallo solo se entera el día que ya es tarde. El 2026-09-02 aparecieron 17
+      tests en rojo de golpe, sin que nadie hubiera tocado nada, y costó una hora de auditoría
+      averiguar que no era un bug sino tres fechas que habían caducado. Esta comprobación lo
+      habría dicho semanas antes, en diez minutos y sin nada a medias por en medio.
+- [ ] Contexto completo, cómo leer el resultado y la decisión pendiente de si esto debe ir al CI:
+      **[MANUAL_TESTS_QUE_CADUCAN.md](./MANUAL_TESTS_QUE_CADUCAN.md)**.
+
 **Al terminar la Fase 0:** `git add -A && git commit -m "prod: completar requirements + proxy SSL + CSRF origins" && git push`
 
 ---
