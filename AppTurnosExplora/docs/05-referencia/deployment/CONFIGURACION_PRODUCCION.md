@@ -4,7 +4,13 @@
 **Ámbito:** qué tiene que valer cada variable de entorno al desplegar, **qué se rompe si no**, y cómo comprobarlo **antes** de que lo descubran los usuarios.
 
 > Este documento explica el **porqué**. Los pasos de infraestructura están en los checklists:
-> [ECS Fargate](./CHECKLIST_DESPLIEGUE_FARGATE.md) · [EC2 + RDS](./CHECKLIST_DESPLIEGUE_AWS_RDS.md).
+> [EC2 + RDS](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) — **el camino elegido** (2026-09-04).
+>
+> ⚠️ Este documento se escribió cuando Fargate seguía sobre la mesa, así que menciona el **ALB** en
+> varias trampas. **Fargate quedó descartada** ([arquitectura §8](./arquitectura-aws-rds-recomendada.md));
+> en el plan EC2 el intermediario es **Nginx en la propia instancia**, no un ALB. Las trampas siguen
+> aplicando —Nginx también es un proxy que reescribe cabeceras— pero donde leas "ALB", entiende
+> "Nginx".
 > Si solo quieres la receta, ve allí; si algo falla y no entiendes por qué, vuelve aquí.
 
 ---
@@ -43,7 +49,7 @@ problema aparece después, en forma de datos incorrectos o caídas intermitentes
 
 | Variable | Valor en producción | Si falta |
 |---|---|---|
-| `CACHE_URL` | `redis://<endpoint>:6379/1` o `db://cache_appturnos` | 🔴 **Trampa nº 1.** Los usuarios ven turnos desactualizados. `check --deploy` lo bloquea (`core.E001`). |
+| `CACHE_URL` | **`db://cache_appturnos`** (decidido 2026-09-04) | 🔴 **Trampa nº 1.** Los usuarios ven turnos desactualizados. `check --deploy` lo bloquea (`core.E001`). Exige `createcachetable` una vez (FASE 5). |
 | `CSRF_TRUSTED_ORIGINS` | `https://swalp.parqueexplora.org` | Todos los formularios y llamadas AJAX fallan con **403 CSRF** tras el ALB. |
 | `SITE_URL` | `https://swalp.parqueexplora.org` | Los enlaces de los correos apuntan a `127.0.0.1:8000` y no sirven a nadie. |
 | `DB_SSL_CA` | `/app/certs/rds-ca-global.pem` | Credenciales y datos personales viajan **sin cifrar** por la VPC. Avisa `core.W002`. |
@@ -81,12 +87,17 @@ varios procesos, esa invalidación **solo limpia el worker que atendió la
 petición**; los otros dos siguen sirviendo el mes viejo. Con varias tareas ECS,
 peor todavía.
 
-**Solución:** define `CACHE_URL`. Dos caminos válidos:
+**Solución:** define `CACHE_URL`. **Decidido el 2026-09-04: `db://cache_appturnos`.**
 
 | Opción | `CACHE_URL` | Coste | Requisito extra |
 |---|---|---|---|
-| **ElastiCache Redis** (recomendada) | `redis://<endpoint>:6379/1` | ~$12/mes | Crear el clúster y abrir el puerto 6379 desde el SG de los tasks |
-| **Tabla en RDS** (sin infra nueva) | `db://cache_appturnos` | $0 | Ejecutar **una vez**: `python manage.py createcachetable` |
+| ✅ **Tabla en RDS** — **ELEGIDA** | `db://cache_appturnos` | **$0** | Ejecutar **una vez**: `python manage.py createcachetable` |
+| ❌ ElastiCache Redis — descartada | `redis://<endpoint>:6379/1` | ~$12/mes | Se sale del presupuesto de 150.000 COP/mes |
+
+> **Por qué la tabla basta aquí:** la caché guarda el mes de turnos por empleado, se invalida al
+> aprobar solicitudes y la BD entera son 7,4 MB —cabe en el buffer pool de la RDS, así que las
+> lecturas no tocan disco. Redis resolvería un problema de latencia que a esta escala no existe.
+> Se reconsidera solo al pasar a ≥2 instancias web.
 
 > Si el presupuesto manda, `db://` es perfectamente aceptable para este volumen
 > (~300 usuarios). Lo inaceptable es dejarlo sin configurar.
@@ -279,8 +290,7 @@ DB_PORT=3306
 DB_SSL_CA=/app/certs/rds-ca-global.pem       # TLS verificado
 
 # --- Caché: OBLIGATORIA, elige una ---
-CACHE_URL=redis://<endpoint-elasticache>:6379/1
-# CACHE_URL=db://cache_appturnos             # alternativa sin infra nueva
+CACHE_URL=db://cache_appturnos             # requiere: manage.py createcachetable
 
 # --- Correo (SES) ---
 EMAIL_HOST=email-smtp.us-east-1.amazonaws.com   # endpoint SMTP de SES
@@ -294,7 +304,8 @@ PASSWORD_RESET_TIMEOUT=1800                  # 30 min; el defecto de Django son 
 
 **Las cuatro cosas que no puedes olvidar:**
 
-1. `CACHE_URL` definida (si no, los usuarios verán turnos incorrectos).
+1. `CACHE_URL=db://cache_appturnos` definida **y** `createcachetable` ejecutado
+   (sin la variable, los usuarios verán turnos incorrectos; sin la tabla, la app peta).
 2. Health check del ALB apuntando a **`/health/`** (si no, no arranca nunca).
 3. Decidir la trampa nº 3 (`ALLOWED_HOSTS` frente al ALB).
 4. **SES fuera del sandbox** (se pide con 24 h hábiles de antelación). Si no,

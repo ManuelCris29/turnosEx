@@ -1,6 +1,14 @@
 # syntax=docker/dockerfile:1
 # Imagen de la app SWALP/AppTurnos para contenedores (ECS Fargate, App Runner
 # o pruebas locales). Sirve estáticos con WhiteNoise (no hay Nginx dentro).
+# Python 3.12 es DELIBERADO, no un descuido (revisado 2026-09-04):
+#   · Es la version que trae Ubuntu 24.04 LTS, el SO de la EC2 de produccion.
+#     Subir aqui sin subir alli crearia divergencia justo en lo que este
+#     contenedor sirve para probar: la configuracion de produccion.
+#   · Tiene soporte hasta octubre de 2028.
+#   · Django 5.2 requiere 3.10+; 3.12 esta holgadamente dentro.
+#   · Debe seguir coincidiendo con `python-version` de .github/workflows/ci.yml.
+# Si algun dia se sube, se suben las TRES a la vez: Dockerfile, ci.yml y la EC2.
 FROM python:3.12-slim
 
 # Sin .pyc y salida sin buffer (logs inmediatos en CloudWatch).

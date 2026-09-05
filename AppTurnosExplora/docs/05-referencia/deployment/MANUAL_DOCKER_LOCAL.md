@@ -246,7 +246,8 @@ docker compose -f docker-compose.hostdb.yml exec web sh
 ## 6. Relación con el despliegue en AWS
 
 La **misma imagen** que probaste en local es la que se despliega en **ECS Fargate**
-(ver [CHECKLIST_DESPLIEGUE_FARGATE.md](./CHECKLIST_DESPLIEGUE_FARGATE.md)). La única
+(el checklist de Fargate se borró al descartarse esa variante; ver
+[arquitectura §7.1](./arquitectura-aws-rds-recomendada.md) para el papel que conserva Docker). La única
 diferencia es de dónde salen las variables de entorno (aquí del compose; en AWS del
 task definition + Secrets Manager) y que en producción `SECURE_HTTPS` queda activo
 detrás del ALB. Dockerizar bien en local = casi todo el camino a Fargate hecho.

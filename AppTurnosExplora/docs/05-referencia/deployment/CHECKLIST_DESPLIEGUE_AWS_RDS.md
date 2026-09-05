@@ -9,33 +9,30 @@
 
 ---
 
-## FASE 0 — Ajustes de código previos (obligatorios, hacer ANTES de desplegar)
+## FASE 0 — Ajustes de código previos
 
-Sin estos tres puntos el despliegue **falla o entra en bucle de redirección**. Son cambios locales, se commitean y se despliegan con `git pull`.
+> ✅ **Auditado el 2026-09-04: los puntos 0.1, 0.2 y 0.3 YA ESTÁN HECHOS en el código.**
+> Se conservan como registro de por qué cada uno importa, pero **no hay nada que cambiar**.
+> Solo queda pendiente **0.4** (correr la suite), que es una verificación, no una edición.
 
-### 0.1 Completar `requirements.txt` (faltan 2 paquetes instalados y en uso)
-En `AppTurnosExplora/requirements.txt` **agregar**:
-```
-django-axes==7.0.1
-django-cors-headers==4.9.0
-gunicorn==23.0.0
-```
-> Sin `django-axes` y `django-cors-headers` Django no arranca (están en `INSTALLED_APPS`). `gunicorn` es el servidor de producción.
+### 0.1 Paquetes de producción — ✅ HECHO
+Ya están en `requirements.txt`: `django-axes[ipware]==7.0.1`, `django-cors-headers==4.9.0`,
+`gunicorn==23.0.0`.
 
-### 0.2 Evitar el bucle de redirección tras Nginx (TLS termina en Nginx)
-En `config/settings.py`, dentro del bloque `if IS_PRODUCTION:` **agregar**:
-```python
-    # Nginx termina el TLS y reenvía por HTTP; sin esto, SECURE_SSL_REDIRECT
-    # provoca un bucle de redirección infinito.
-    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-```
+> 🔴 **La versión anterior de este checklist pedía instalar `django-axes==7.0.1`, SIN el extra
+> `[ipware]`. Seguirla al pie de la letra ROMPERÍA el despliegue de forma silenciosa.**
+> Sin `django-ipware`, axes ignora los ajustes `AXES_IPWARE_*` y resuelve siempre `REMOTE_ADDR`
+> —la IP de Nginx— para todo el mundo: al quinto fallo de cualquier empleado quedaría bloqueada la
+> plantilla entera. El propio `requirements.txt` lo avisa en un comentario. **No toques esa línea.**
 
-### 0.3 Declarar `CSRF_TRUSTED_ORIGINS` (Django 5 lo exige para POST/AJAX por HTTPS)
-En `config/settings.py`, cerca de `ALLOWED_HOSTS` **agregar**:
-```python
-CSRF_TRUSTED_ORIGINS = env.list('CSRF_TRUSTED_ORIGINS', default=[])
-```
-> Sin esto, el login, el admin y los formularios AJAX dan error 403 CSRF en producción.
+### 0.2 Bucle de redirección tras Nginx — ✅ HECHO
+`SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')` ya está en `config/settings.py:512`,
+dentro del bloque `if SECURE_HTTPS:`. Sin esto, Nginx termina el TLS y reenvía por HTTP, con lo que
+`SECURE_SSL_REDIRECT` redirige en bucle infinito.
+
+### 0.3 `CSRF_TRUSTED_ORIGINS` — ✅ HECHO
+Ya está en `config/settings.py:39`, leído del entorno. **Lo que sí falta es darle valor en el `.env`**
+(FASE 4): la variable existe pero por defecto es una lista vacía, y sin valor el login da 403 CSRF.
 
 ### 0.4 Correr la suite, y correrla tambien con el reloj adelantado
 
@@ -79,16 +76,47 @@ pytest -n auto --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de 
 ## FASE 2 — Instancia EC2
 
 - [ ] **Lanzar EC2:**
-  - AMI: **Ubuntu Server 22.04 LTS (ARM64)** · Arquitectura **64-bit (Arm)**
-  - Tipo: **`t4g.small`** (en pruebas puedes usar `t4g.micro`)
-  - Storage: 20 GB gp3
+  - AMI: **Ubuntu Server 24.04 LTS (ARM64)** · Arquitectura **64-bit (Arm)**
+    (24.04 tiene soporte hasta 2029; 22.04 se acaba en 2027. Trae **Python 3.12**,
+    la misma versión que fija el CI)
+  - ⚠️ **ARM64 no es opcional:** `t4g` es Graviton; una AMI x86 ni siquiera arranca
+  - Tipo: **`t4g.micro`** ← decidido el 2026-09-04 por presupuesto
+    ([arquitectura §5.1](./arquitectura-aws-rds-recomendada.md)). `t4g.small` es el escalón
+    siguiente, necesario hacia los 1.000 usuarios; subir es 1 clic
+  - Storage: 20 GB gp3 (**~$1,60/mes**, aparte de los 20 GB de RDS)
   - Key pair: crear/usar uno para SSH
 - [ ] **Security Group de EC2:**
   - `22` (SSH) → **solo tu IP**
   - `80` (HTTP) → `0.0.0.0/0`
   - `443` (HTTPS) → `0.0.0.0/0`  ← esto es lo que la hace pública desde cualquier parte
 - [ ] **Elastic IP:** asignar y asociar a la EC2 (IP pública fija).
+      ⚠️ Se cobra ($3,65/mes) **aunque esté sin asociar**: no la reserves antes de necesitarla.
+      Anótala: es lo que hay que darle a IT para el registro DNS (FASE 8).
 - [ ] Confirmar que el SG de la **RDS** referencia al SG de esta EC2 en el 3306 (Fase 1).
+
+- [ ] 🔴 **Poner la instancia en modo `standard` (control de costo, no opcional):**
+
+      ```bash
+      aws ec2 modify-instance-credit-specification \
+          --instance-credit-specification "InstanceId=i-XXXX,CpuCredits=standard"
+      ```
+
+      Las clases T arrancan en modo **`unlimited`**, que **no frena la instancia al agotar los
+      créditos de CPU: factura el excedente** por vCPU-hora. Con un techo de 150.000 COP/mes eso es
+      un costo sin límite superior. En `standard` la instancia se limita en vez de cobrar.
+
+- [ ] **Añadir 1-2 GB de swap.** Con 1 GB de RAM y 2-3 workers de Gunicorn el margen es estrecho;
+      el swap evita que el OOM killer mate la app en un pico.
+
+      ```bash
+      sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+      sudo mkswap /swapfile && sudo swapon /swapfile
+      echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+      ```
+
+- [ ] **Alarma de costo:** crear un **AWS Budget con alerta a $30/mes**, y una alarma de CloudWatch
+      sobre **`CPUSurplusCreditsCharged` > 0** de la RDS — en RDS el modo `unlimited` **no se puede
+      desactivar**, así que esa métrica es el único aviso de que la BD empezó a cobrar excedente.
 
 ---
 
@@ -148,12 +176,28 @@ DB_PORT=3306
 #     https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
 DB_SSL_CA=/etc/ssl/rds/global-bundle.pem
 
-# Caché — OBLIGATORIA. Gunicorn corre con varios workers y con la caché en
-# memoria cada uno tendría la suya: los exploradores verían turnos
-# desactualizados de forma intermitente. Sin Redis, la tabla en RDS sirve
-# (crearla una vez con: python manage.py createcachetable).
+# Caché — OBLIGATORIA, y para este presupuesto la opción es db://
+#
+# Gunicorn corre con varios workers y con LocMemCache cada uno tendría la suya.
+# Como la caché guarda el estado de Mis Turnos (turnos_mes_<emp>_<año>_<mes>, 1 h)
+# y se invalida al aprobar solicitudes, con varios procesos la invalidación solo
+# limpiaría el worker que atendió esa petición: el explorador vería su turno
+# corregido o sin corregir según a qué worker caiga, y al refrescar cambiaría.
+#
+# ⚠️ ElastiCache/Redis cuesta ~$12/mes y SE SALE DEL PRESUPUESTO (150.000 COP).
+# La tabla en la propia RDS cuesta $0 y es suficiente a esta escala. Crearla una
+# vez con: python manage.py createcachetable
+#
+# `manage.py check --deploy` FALLA con core.E001 si esto queda vacío en
+# producción, así que el CI ya impide desplegar sin caché compartida.
 CACHE_URL=db://cache_appturnos
-# CACHE_URL=redis://127.0.0.1:6379/1   # si instalas Redis en la propia EC2
+#
+# Redis queda DESCARTADO, no pendiente:
+#   · ElastiCache          ~$12/mes → fuera de presupuesto.
+#   · Redis en la propia EC2 → gratis en dinero, pero se come 200-400 MB del
+#     único GB de RAM de la t4g.micro, compitiendo con los workers de Gunicorn.
+#     Cambiar un problema de presupuesto por uno de memoria no es un arreglo.
+# Se reconsidera solo si se pasa a >=2 instancias web (ver §3 de la arquitectura).
 
 # Correo — Fase 1: SES por SMTP (solo variables, sin cambio de código)
 EMAIL_HOST=email-smtp.us-east-1.amazonaws.com
@@ -183,10 +227,21 @@ cd /home/appuser/appTurnos/AppTurnosExplora
 source venv/bin/activate
 
 python manage.py migrate
+
+# 🔴 OBLIGATORIO con CACHE_URL=db:// — crea la tabla que usa la caché.
+# Sin esto la app arranca, pero PETA en la primera lectura o escritura de caché
+# (que es cada carga de Mis Turnos): la tabla cache_appturnos no existe.
+# `migrate` NO la crea: no sale de ninguna migración, es un comando aparte.
+python manage.py createcachetable
+
 python manage.py collectstatic --noinput     # genera staticfiles/ (los sirve Nginx)
 python manage.py createsuperuser              # tu usuario admin
 ```
 
+- [ ] `createcachetable` ejecutado (o la app fallará al cargar Mis Turnos).
+- [ ] Comprobar que la tabla existe:
+      `python manage.py shell -c "from django.core.cache import cache; cache.set('x',1); print(cache.get('x'))"`
+      debe imprimir `1`. Si lanza `ProgrammingError`, falta el `createcachetable`.
 - [ ] Prueba rápida: `python manage.py check --deploy` (revisa avisos de seguridad).
 
 ---
@@ -281,7 +336,26 @@ sudo systemctl status certbot.timer     # renovación automática
 
 ## FASE 10 — Correo (Amazon SES)
 
+> 🔴 **El sandbox de SES bloquea el proyecto entero.** Una cuenta nueva arranca con
+> `Max24HourSend = 200` correos/día y **solo puede escribir a direcciones verificadas una a una**.
+> El flujo real son **~180 correos/día** (30 solicitudes × ~6): entra en la cuota por los pelos, pero
+> es inservible igual, porque los 300 empleados no están verificados. **Pídelo el primer día:**
+> la aprobación suele tardar ~24 h. Ver [arquitectura §11.7](./arquitectura-aws-rds-recomendada.md).
+>
+> ```bash
+> aws ses get-send-quota          # ver la cuota actual
+> aws sesv2 put-account-details \
+>     --production-access-enabled \
+>     --mail-type TRANSACTIONAL \
+>     --website-url https://swalp.parqueexplora.org \
+>     --contact-language ES
+> ```
+>
+> ⚠️ **El sandbox es por región:** salir en una no aplica a las demás. Pídelo en la **misma región
+> del despliegue** (`us-east-1`).
+
 **Fase 1 (ahora, sin cambio de código) — SES por SMTP:**
+- [ ] **Solicitar la salida del sandbox** (comando de arriba) — hacerlo YA, tarda ~24 h.
 - [ ] En SES: **verificar el dominio** `parqueexplora.org` (IT agrega los registros DKIM/SPF en DNS).
 - [ ] **Solicitar acceso a producción** (salir del sandbox) para enviar a cualquier destinatario.
 - [ ] Crear **credenciales SMTP de SES** → ponerlas en `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` (Fase 4).

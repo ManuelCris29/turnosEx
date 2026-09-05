@@ -71,7 +71,7 @@ y conviene decidir cuál antes de tocar nada, porque **los pasos no son los mism
 
 **`django-ses` y `boto3` NO están hoy en `requirements.txt`**, así que el camino API exige
 un cambio de dependencias y una imagen nueva. Los otros manuales
-([CHECKLIST_DESPLIEGUE_FARGATE.md](./CHECKLIST_DESPLIEGUE_FARGATE.md) §"Correo",
+([CHECKLIST_DESPLIEGUE_AWS_RDS.md](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) FASE 10 "Correo",
 [arquitectura-aws-rds-recomendada.md](./arquitectura-aws-rds-recomendada.md)) lo
 recomiendan como **mejora posterior**, no como punto de partida.
 
@@ -240,7 +240,7 @@ Lambda, cola ni base de datos.
 
 ## 9. Documentos relacionados
 
-- [CHECKLIST_DESPLIEGUE_FARGATE.md](./CHECKLIST_DESPLIEGUE_FARGATE.md) — FASE 9 (SES) y FASE 10 (verificación).
+- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 10 (SES) y FASE 11 (verificación).
 - [CONFIGURACION_PRODUCCION.md](./CONFIGURACION_PRODUCCION.md) — tabla de variables y las cuatro trampas.
 - [MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md) — por dónde sale el aviso de "contraseña cambiada".
   **Ojo:** el enlace de recuperación NO pasa por el outbox, y es deliberado (ver el

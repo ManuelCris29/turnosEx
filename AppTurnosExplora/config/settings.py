@@ -300,11 +300,14 @@ APPROVAL_LINK_MAX_AGE_DAYS = env.int('APPROVAL_LINK_MAX_AGE_DAYS', default=30)
 #
 # Valores de CACHE_URL:
 #   (vacío)                     → LocMemCache. Solo desarrollo (runserver, 1 proceso).
-#   redis://host:6379/1         → ElastiCache/Redis. Opción recomendada en AWS.
-#   rediss://host:6379/1        → igual, con TLS (ElastiCache con cifrado en tránsito).
-#   db://cache_appturnos        → tabla en la propia MySQL/RDS. Sin infraestructura
-#                                 extra, pero exige crear la tabla una vez:
+#   db://cache_appturnos        → tabla en la propia MySQL/RDS. ← ELEGIDA en
+#                                 producción (2026-09-04). Cuesta $0 y exige
+#                                 crear la tabla una vez:
 #                                     python manage.py createcachetable
+#   redis://host:6379/1         → ElastiCache/Redis. Descartado: ~$12/mes se sale
+#                                 del presupuesto del proyecto. Se reconsidera
+#                                 solo con >=2 instancias web.
+#   rediss://host:6379/1        → igual, con TLS (cifrado en tránsito).
 #
 # El backend de Redis es el nativo de Django 5 (no hace falta django-redis),
 # pero sí el cliente `redis` — ya está en requirements.txt.
