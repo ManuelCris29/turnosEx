@@ -8,7 +8,8 @@ import logging
 from datetime import date, timedelta
 from typing import Optional
 
-from django.db.models import F, QuerySet, Sum
+from django.db import transaction
+from django.db.models import F, Q, QuerySet, Sum
 from django.utils import timezone
 
 from core.constants import JornadaDisplay
@@ -54,6 +55,19 @@ class DeudaCorporativaService:
     # Marca para identificar las sanciones generadas automáticamente por deuda vencida
     AUTO_SANCION_PREFIJO = '[AUTO-DEUDA]'
 
+    # Criterio ÚNICO de "esta sanción la creó el sistema por una deuda vencida". Es el
+    # PERIODO, no el prefijo del motivo: el motivo es texto libre que el supervisor puede
+    # reescribir desde la pantalla de edición, y el periodo es un dato del ledger que nadie
+    # edita. Con el criterio anterior, retocar la redacción de una sanción automática la
+    # volvía invisible para TODAS estas consultas a la vez, con dos efectos: su deuda no se
+    # consumía al cumplirse el castigo, y su mes dejaba de contar como juzgado, así que el
+    # sistema podía sancionar por segunda vez un mes ya castigado.
+    #
+    # El prefijo se sigue escribiendo en el motivo (`_texto_motivo`), pero solo como
+    # etiqueta para quien lo lee. Ninguna decisión depende ya de él.
+    ES_AUTOMATICA = Q(periodo_anio__isnull=False)
+    ES_MANUAL = Q(periodo_anio__isnull=True)
+
     @staticmethod
     def _periodos_con_deuda(explorador: Empleado, solo_cerrados: bool = True):
         """
@@ -66,8 +80,9 @@ class DeudaCorporativaService:
         Con `solo_cerrados` se descartan los meses que aún no han terminado: mientras el mes
         corre todavía se está en plazo, y sancionar ahí sería castigar antes del vencimiento.
 
-        Quedan fuera 'pagada', 'cancelada' y 'consumida_por_sancion'. La última es la que
-        garantiza que una deuda ya saldada por una sanción cumplida no vuelva a sancionar.
+        Quedan fuera 'pagada', 'cancelada' y los dos estados de extinción por sanción,
+        'consumida_por_sancion' (cumplida) y 'condonada' (levantada). Esos dos son los que
+        garantizan que una deuda ya resuelta por una sanción no vuelva a sancionar.
         """
         from permisos.models import DeudaPermisoMes
 
@@ -103,9 +118,12 @@ class DeudaCorporativaService:
         Sin esto, el explorador terminaría de cumplir sus 15 días y su deuda seguiría viva,
         lista para sancionarlo otra vez por lo mismo — un bucle del que no se sale.
 
-        Solo consumen las cumplidas de verdad. Una sanción LEVANTADA a mano no consume nada:
-        el supervisor perdonó el castigo, no la deuda, y el explorador sigue debiendo esas
-        horas. Confundir ambas cosas convertiría cada levantamiento en una condonación.
+        Solo consumen las cumplidas de verdad: aquí se trata el castigo que se pagó
+        cumpliéndolo. Una sanción LEVANTADA también extingue su deuda, pero por otra vía
+        —`condonar_deudas_por_levantamiento`, disparada en el propio levantamiento— y
+        dejándola en un estado distinto ('condonada'). No se atienden las dos aquí a
+        propósito: son decisiones distintas, con responsable distinto y momento distinto,
+        y un informe tiene que poder separar lo cumplido de lo perdonado.
 
         Idempotente: solo toca lo que sigue 'activa', así que repetirla no hace nada. Por eso
         puede llamarse desde los cinco disparadores sin coordinarlos.
@@ -116,11 +134,10 @@ class DeudaCorporativaService:
         hoy = timezone.localdate()
         cumplidas = (
             SancionEmpleado.objects
-            .filter(explorador=explorador,
-                    motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
+            .filter(DeudaCorporativaService.ES_AUTOMATICA,
+                    explorador=explorador,
                     levantada_en__isnull=True,
-                    fecha_fin__lt=hoy,
-                    periodo_anio__isnull=False)
+                    fecha_fin__lt=hoy)
         )
 
         consumidas = 0
@@ -160,6 +177,166 @@ class DeudaCorporativaService:
         return consumidas
 
     @staticmethod
+    @transaction.atomic
+    def condonar_deudas_por_levantamiento(sancion, hoy=None) -> int:
+        """
+        Levantar una auto-sanción CONDONA la deuda del mes que la originó.
+
+        Sin esto la deuda quedaba en un limbo del que no salía nunca: su mes ya venció, así
+        que no se puede pagar (`Periodo.esta_vencido` cierra el PDH); la sanción no la va a
+        consumir al llegar a su fin, porque el consumo exige `levantada_en IS NULL`; y no
+        nace otra sanción que la consuma, porque `_periodos_ya_evaluados` cuenta las
+        levantadas como mes ya juzgado. Resultado: horas activas para siempre, ni cobrables
+        ni saldables, engordando el saldo del explorador sin ninguna forma de bajarlo.
+
+        La regla que cierra ese hueco es que levantar perdona el hecho entero, no solo el
+        castigo: si el motivo era una excusa certificable, no hay falta que cobrar. Lo que
+        NO se borra es el antecedente —`_periodos_ya_evaluados` y `_antecedente` siguen
+        viendo esta sanción—, así que la reincidencia se mide igual. Se perdona la deuda,
+        no el expediente.
+
+        Solo actúa sobre auto-sanciones por deuda, y las reconoce por `periodo_anio/mes`, no
+        por el prefijo del motivo. El periodo existe justamente para esto: es un dato del
+        ledger, mientras que el motivo es texto libre y editable desde la pantalla de
+        edición. Mirando el texto, retocar la redacción de una sanción automática la
+        convertiría en irreconocible y sus horas volverían al limbo que esto cierra. Una
+        sanción manual no tiene periodo —no nació de un mes impagado— y no condona nada.
+
+        Idempotente: toca solo lo que sigue 'activa'. Llamarla dos veces —doble clic,
+        reintento— no condona nada nuevo ni reescribe quién lo hizo.
+
+        Devuelve cuántas deudas se condonaron.
+        """
+        from permisos.models import DeudaPermisoMes
+
+        if not sancion or not sancion.levantada_en:
+            return 0
+        if not sancion.periodo_anio or not sancion.periodo_mes:
+            return 0
+
+        fecha = hoy or sancion.levantada_en
+        marca = {'estado': 'condonada',
+                 'sancion_consumidora': sancion,
+                 'fecha_consumo': fecha}
+
+        condonadas = (
+            DeudaCorporativa.objects
+            .filter(explorador_id=sancion.explorador_id, estado='activa',
+                    fecha_doblada__year=sancion.periodo_anio,
+                    fecha_doblada__month=sancion.periodo_mes)
+            .update(**marca)
+        )
+
+        pendientes = (
+            DeudaPermisoMes.objects
+            .filter(explorador_id=sancion.explorador_id, estado='activa',
+                    anio=sancion.periodo_anio, mes=sancion.periodo_mes)
+        )
+        permisos_tocados = set(pendientes.values_list('permiso_id', flat=True))
+        condonadas += pendientes.update(**marca)
+
+        # El permiso guarda un `pagado` agregado que se calcula desde sus meses. Sin
+        # rehacerlo, un permiso con todos sus meses ya extinguidos seguiría figurando como
+        # impagado en las pantallas que leen el agregado y no el detalle.
+        if permisos_tocados:
+            from permisos.deuda_permiso_service import recalcular_roll_up
+            from permisos.models import PermisoEspecial
+            for permiso in PermisoEspecial.objects.filter(id__in=permisos_tocados):
+                try:
+                    recalcular_roll_up(permiso)
+                except Exception:
+                    logger.warning('Error recalculando el permiso %s tras condonar su deuda',
+                                   permiso.id, exc_info=True)
+
+        if condonadas:
+            logger.info('Condonadas %s deuda(s) de %s (%s-%s) al levantar la sanción %s.',
+                        condonadas, sancion.explorador_id, sancion.periodo_anio,
+                        sancion.periodo_mes, sancion.id)
+        return condonadas
+
+    @staticmethod
+    def horas_condonadas_por(sancion) -> float:
+        """
+        Horas que esta sanción llegó a condonar REALMENTE, leídas de lo ya escrito.
+
+        Es la fuente de verdad para todo lo que se cuenta después del hecho: el mensaje al
+        supervisor y el aviso al explorador. Antes, el mensaje repetía la estimación
+        calculada para el aviso previo, y entre una y otra podía entrar un pago; se
+        anunciaba una cifra y se perdonaba otra. Leyendo lo escrito eso no puede pasar.
+        """
+        from permisos.models import DeudaPermisoMes
+
+        if not sancion or not sancion.pk:
+            return 0.0
+        minutos = sum(
+            DeudaCorporativa.objects
+            .filter(sancion_consumidora=sancion, estado='condonada')
+            .values_list('minutos', flat=True))
+        minutos += sum(
+            DeudaPermisoMes.objects
+            .filter(sancion_consumidora=sancion, estado='condonada')
+            .values_list('minutos_generados', flat=True))
+        return round(minutos / 60, 2)
+
+    @staticmethod
+    def notificar_condonacion(sancion, horas: float) -> None:
+        """
+        Avisa al explorador de que le levantaron la sanción y, si las hubo, le perdonaron
+        las horas de ese mes.
+
+        Se le avisa a él y no solo al supervisor porque es un hecho irreversible que le
+        cambia el saldo: sin esto, el afectado solo podía enterarse entrando por su cuenta
+        al Consolidado de Horas. Va por la campana y no por correo, como el aviso de la
+        propia sanción, para que las dos mitades de la misma historia lleguen por el mismo
+        sitio.
+
+        Es pública —sin guion bajo— porque la llama `SancionEmpleado.levantar()`, que vive
+        en otra aplicación. Marcarla como privada invitaría a moverla o renombrarla
+        creyéndola interna, y el aviso desaparecería sin que nada fallara.
+
+        Nunca lanza, igual que `_notificar_sancion`: un fallo avisando no puede tumbar un
+        levantamiento ya decidido. Ese `try` es además lo que hace seguro llamarla DENTRO
+        de la transacción del levantamiento —quitarlo haría que un error creando la
+        notificación revirtiera el levantamiento entero—, así que no se retira sin mover
+        antes la llamada fuera de la transacción.
+        """
+        try:
+            from solicitudes.models import Notificacion
+
+            desde = sancion.levantada_en.strftime('%d/%m/%Y')
+            if horas:
+                titulo = f'✅ Sanción levantada y {horas} h condonadas'
+                cuerpo = (
+                    f'Tu supervisor levantó la sanción el {desde}. Ya puedes volver a '
+                    f'realizar solicitudes de cambio de turno y permisos.\n\n'
+                    f'Además se te condonaron las {horas} h que debías de ese mes: dejan '
+                    f'de figurar como pendientes en tu Consolidado de Horas y nadie te las '
+                    f'va a reclamar.\n\n'
+                    f'La sanción sigue en tu historial y cuenta como antecedente: si '
+                    f'vuelves a cerrar un mes debiendo, la siguiente será más larga.'
+                )
+            else:
+                titulo = '✅ Sanción levantada'
+                cuerpo = (
+                    f'Tu supervisor levantó la sanción el {desde}. Ya puedes volver a '
+                    f'realizar solicitudes de cambio de turno y permisos.\n\n'
+                    f'La sanción sigue en tu historial y cuenta como antecedente.'
+                )
+            if sancion.levantada_motivo:
+                cuerpo += f'\n\nMotivo indicado: {sancion.levantada_motivo}'
+
+            Notificacion.objects.create(
+                destinatario=sancion.explorador,
+                tipo='sancion_levantada',
+                titulo=titulo,
+                mensaje=cuerpo,
+                solicitud=None,
+            )
+        except Exception:
+            logger.warning('Error creando la notificación de levantamiento de la sanción %s',
+                           getattr(sancion, 'id', '?'), exc_info=True)
+
+    @staticmethod
     def _antecedente(explorador: Empleado):
         """
         La última sanción que ya tuvo efecto sobre esta persona, para medir la reincidencia.
@@ -169,8 +346,14 @@ class DeudaCorporativaService:
         un castigo por otro motivo no está estrenando expediente.
 
         También cuentan las levantadas a mano, y la ventana se mide desde el día en que
-        dejaron de aplicar (`fecha_fin_efectiva`). Levantar perdona ESE castigo; no borra
-        que ocurrió, igual que tampoco condona la deuda que lo originó.
+        dejaron de aplicar (`fecha_fin_efectiva`). Levantar perdona ESE castigo y la deuda
+        de su mes (`condonar_deudas_por_levantamiento`), pero no borra que ocurrió: se
+        perdona la deuda, no el expediente.
+
+        Es la ÚNICA consulta del subsistema que no filtra por `ES_AUTOMATICA`, y es
+        deliberado: aquí se mide el expediente completo, no solo lo automático. Nadie debe
+        "completar" la migración al criterio por periodo en este punto por simetría —lo
+        haría, dejaría de contar las sanciones manuales y la reincidencia se abarataría.
 
         Devuelve None si no hay ninguna, o si la más reciente es indefinida (sin fecha de
         fin): de una sanción que aún no ha terminado no se puede medir ninguna ventana.
@@ -206,9 +389,7 @@ class DeudaCorporativaService:
 
         return set(
             SancionEmpleado.objects
-            .filter(explorador=explorador,
-                    motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
-                    periodo_anio__isnull=False)
+            .filter(DeudaCorporativaService.ES_AUTOMATICA, explorador=explorador)
             .values_list('periodo_anio', 'periodo_mes')
         )
 
@@ -240,7 +421,7 @@ class DeudaCorporativaService:
           cero y la siguiente es otra vez de 15 días.
 
         Las sanciones MANUALES siguen siendo una vía paralela en cuanto a su gestión: este
-        proceso solo CREA y TOCA las que llevan `AUTO_SANCION_PREFIJO`, no las levanta, y
+        proceso solo CREA y TOCA las automáticas (`ES_AUTOMATICA`), no las levanta, y
         que exista una manual no impide crear la automática —son hechos disciplinarios
         distintos, con fechas distintas—.
 
@@ -396,9 +577,8 @@ class DeudaCorporativaService:
         # al moroso del aviso mientras durase el castigo manual.
         juzgados = set(
             SancionEmpleado.objects
-            .filter(explorador_id__in={p[0] for p in periodos},
-                    motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
-                    periodo_anio__isnull=False)
+            .filter(DeudaCorporativaService.ES_AUTOMATICA,
+                    explorador_id__in={p[0] for p in periodos})
             .values_list('explorador_id', 'periodo_anio', 'periodo_mes')
         )
         return len({p[0] for p in periodos - juzgados})
@@ -414,8 +594,9 @@ class DeudaCorporativaService:
         en que avisar sirve de algo. Parametrizar `auditar_morosos` con una fecha habría hecho
         que 'sancionado' y 'en plazo' significaran cosas distintas según el filtro.
 
-        No se arrastra deuda de meses anteriores porque a estas alturas ya no existe: o se pagó
-        o la consumió la sanción del mes vencido ('consumida_por_sancion').
+        No se arrastra deuda de meses anteriores porque a estas alturas ya no existe: o se
+        pagó, o la extinguió la sanción de ese mes —cumpliéndola ('consumida_por_sancion') o
+        al levantarla el supervisor ('condonada').
 
         Devuelve una fila por explorador con saldo > 0, la mayor deuda arriba:
         {explorador, minutos, minutos_dobladas, minutos_permisos, dias, deuda_mas_antigua}.
@@ -553,8 +734,8 @@ class DeudaCorporativaService:
             # contáramos aquí el moroso desaparecería de la lista mientras dure el castigo manual.
             sancion = (
                 SancionEmpleado.objects
-                .filter(vigentes_en(hoy), explorador=explorador,
-                        motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO)
+                .filter(vigentes_en(hoy), DeudaCorporativaService.ES_AUTOMATICA,
+                        explorador=explorador)
                 .order_by('-fecha_inicio')
                 .first()
             )
@@ -562,8 +743,8 @@ class DeudaCorporativaService:
             # persona ya está bloqueada por otra razón antes de decidir nada.
             sancion_manual = (
                 SancionEmpleado.objects
-                .filter(vigentes_en(hoy), explorador=explorador)
-                .exclude(motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO)
+                .filter(vigentes_en(hoy), DeudaCorporativaService.ES_MANUAL,
+                        explorador=explorador)
                 .order_by('-fecha_inicio')
                 .first()
             )
@@ -586,17 +767,21 @@ class DeudaCorporativaService:
             elif sancion:
                 estado = 'sancionado'
             else:
-                # Se evaluó, se sancionó, y el supervisor levantó el castigo. La deuda sigue
-                # viva —levantar no la condona— pero el sistema no va a recrear la sanción,
-                # así que esta fila no es un pendiente: es una decisión tomada. Mezclarla con
-                # los pendientes dejaba un aviso encendido para siempre que ninguna acción
-                # apagaba, y con el texto exactamente al revés de lo ocurrido.
+                # Se evaluó, se sancionó, y el supervisor levantó el castigo: una decisión
+                # tomada, no un pendiente. Mezclarla con los pendientes dejaba un aviso
+                # encendido para siempre que ninguna acción apagaba, y con el texto
+                # exactamente al revés de lo ocurrido.
+                #
+                # Desde que levantar CONDONA la deuda del mes, esta rama solo la alcanzan
+                # las levantadas anteriores a ese cambio (cuya deuda quedó activa) o una
+                # deuda de otro mes que aún no ha vencido. Se conserva por eso: retirarla
+                # devolvería esas filas al montón de 'pendiente', con un botón de aplicar
+                # que no puede hacer nada.
                 estado = 'levantada'
                 sancion = (
                     SancionEmpleado.objects
-                    .filter(explorador=explorador,
-                            motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
-                            levantada_en__isnull=False)
+                    .filter(DeudaCorporativaService.ES_AUTOMATICA,
+                            explorador=explorador, levantada_en__isnull=False)
                     .order_by('-levantada_en', '-fecha_inicio')
                     .first()
                 )
@@ -646,8 +831,7 @@ class DeudaCorporativaService:
         # por vigencia: son justamente las sanciones ya terminadas las que interesan.
         ids |= set(
             SancionEmpleado.objects
-            .filter(motivo__startswith=DeudaCorporativaService.AUTO_SANCION_PREFIJO,
-                    periodo_anio__isnull=False)
+            .filter(DeudaCorporativaService.ES_AUTOMATICA)
             .values_list('explorador_id', flat=True)
         )
 

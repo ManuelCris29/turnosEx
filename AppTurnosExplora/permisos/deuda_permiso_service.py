@@ -43,12 +43,16 @@ def desglose_mensual(permiso: PermisoEspecial) -> list[dict]:
 
 def _tiene_historia(deuda: DeudaPermisoMes) -> bool:
     """
-    Si ya se pagó algo a cuenta o una sanción la consumió, la fila es un hecho ocurrido.
+    Si ya se pagó algo a cuenta, o una sanción la extinguió, la fila es un hecho ocurrido.
 
     Se usa para decidir si una obligación puede recalcularse o hay que respetarla: cambiar
-    los minutos de un mes que alguien ya pagó descuadraría el pago registrado.
+    los minutos de un mes que alguien ya pagó descuadraría el pago registrado. Lo mismo vale
+    para la que perdonó un supervisor al levantar la sanción ('condonada'): recalcularla
+    reabriría por la puerta de atrás una deuda que alguien decidió cerrar, y con ella la
+    posibilidad de volver a sancionar por lo ya perdonado.
     """
-    return deuda.minutos_pagados > 0 or deuda.estado in ('pagada', 'consumida_por_sancion')
+    return deuda.minutos_pagados > 0 or deuda.estado in ('pagada', 'consumida_por_sancion',
+                                                         'condonada')
 
 
 @transaction.atomic

@@ -54,7 +54,7 @@
                     <div class="ch-historico-desglose">
                         <span><b>{{ consolidado.total_horas }}</b> pendiente</span>
                         <span>+ <b>{{ consolidado.total_pagado }}</b> pagado</span>
-                        <span>+ <b>{{ consolidado.total_saldado_sancion }}</b> saldado por sanción</span>
+                        <span>+ <b>{{ consolidado.total_extinguido_sancion }}</b> extinguido por sanción</span>
                     </div>
                 </div>
             </div>
@@ -215,18 +215,21 @@
             {% endif %}
         </div>
 
-        {# --- Saldado por sanción cumplida: no se cobró, se cumplió --- #}
-        {% if consolidado.saldadas_sancion %}
+        {# --- Extinguido por una sanción: cumplida (el castigo fue el pago) o levantada
+               (el supervisor perdonó el hecho y con él la deuda). Misma sección porque el
+               efecto sobre el saldo es el mismo; distinguidas fila a fila porque el motivo
+               no lo es. --- #}
+        {% if consolidado.extinguidas_sancion %}
         <div class="ch-section">
             <div class="ch-section-title" style="background:#f5f3ff;color:#5b21b6;">
-                <span><i class="fas fa-gavel mr-2"></i>Saldado por sanción cumplida</span>
-                <span class="badge badge-horas">− {{ consolidado.total_saldado_sancion }} h</span>
+                <span><i class="fas fa-gavel mr-2"></i>Extinguido por sanción</span>
+                <span class="badge badge-horas">− {{ consolidado.total_extinguido_sancion }} h</span>
             </div>
             <div class="table-responsive">
                 <table class="table table-sm table-striped mb-0">
-                    <thead><tr><th>Mes debido</th><th>Horas</th><th>Deudas extinguidas</th><th>Sanción cumplida</th></tr></thead>
+                    <thead><tr><th>Mes debido</th><th>Horas</th><th>Deudas extinguidas</th><th>Motivo</th><th>Sanción</th></tr></thead>
                     <tbody>
-                    {% for f in consolidado.saldadas_sancion %}
+                    {% for f in consolidado.extinguidas_sancion %}
                         <tr>
                             <td>{{ f.periodo_str }}</td>
                             <td class="text-danger">−{{ f.horas }}</td>
@@ -244,6 +247,13 @@
                                     </div>
                                 </details>
                             </td>
+                            <td>
+                                {% if f.condonada %}
+                                    <span class="badge badge-warning" title="El supervisor levantó la sanción antes de que terminara: se perdonó el castigo y con él estas horas.">Condonada al levantar</span>
+                                {% else %}
+                                    <span class="badge badge-secondary" title="La sanción se cumplió entera: el castigo fue el pago de estas horas.">Sanción cumplida</span>
+                                {% endif %}
+                            </td>
                             <td>Del {{ f.inicio_str }} al {{ f.fin_str }}</td>
                         </tr>
                     {% endfor %}
@@ -257,8 +267,9 @@
             <i class="fas fa-info-circle mr-1"></i>
             El <strong>saldo</strong> = horas acumuladas (dobladas + permisos especiales aprobados) menos los
             <strong>pagos de horas</strong> (PDH) autorizados por un supervisor y lo que se
-            <strong>saldó cumpliendo una sanción</strong>. Un mes que vence sin pagarse ya no se cobra:
-            se extingue cuando el explorador termina de cumplir la sanción que generó.
+            <strong>extinguió por una sanción</strong>. Un mes que vence sin pagarse ya no se cobra:
+            se extingue cuando el explorador termina de cumplir la sanción que generó, o antes si
+            el supervisor la levanta —levantar una sanción condona también la deuda de ese mes—.
         </div>
 
     {% elif es_supervisor %}

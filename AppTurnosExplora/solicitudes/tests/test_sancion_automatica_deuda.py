@@ -254,22 +254,28 @@ class SancionAutomaticaPorDeudaTest(TestCase):
         self.assertEqual(SancionEmpleado.objects.filter(explorador=self.exp).count(), 1)
         self.assertIsNone(sancion_activa(self.exp))
 
-    def test_una_sancion_levantada_a_mano_no_condona_la_deuda(self):
+    def test_una_sancion_levantada_condona_la_deuda_y_no_renace(self):
         """
-        Levantar perdona el CASTIGO, no la deuda. Confundirlas convertiría cada
-        levantamiento en una condonación silenciosa de horas.
+        Levantar perdona el hecho entero: el castigo y las horas de ese mes.
+
+        Lo que se prueba aquí es el efecto sobre el ciclo de sanciones, no el estado de la
+        deuda (eso vive en `test_consumo_deuda_por_sancion`): sin deuda activa el mes deja
+        de tener saldo, y con el mes ya juzgado tampoco se recrea la sanción. Antes esas dos
+        cosas se contradecían y la deuda quedaba viva sin ninguna forma de extinguirla.
         """
         deuda = self._deuda_vencida()
         DeudaCorporativaService.gestionar_sancion_por_deuda(self.exp)
         sancion = self._sancion()
-        sancion.levantar(motivo='Acuerdo', supervisor=self.sup)
+        sancion.levantar(motivo='Excusa certificable', supervisor=self.sup)
         SancionEmpleado.objects.filter(id=sancion.id).update(
             fecha_fin=self.hoy - timedelta(days=1))
+        antes = SancionEmpleado.objects.filter(explorador=self.exp).count()
 
         DeudaCorporativaService.gestionar_sancion_por_deuda(self.exp)
 
         deuda.refresh_from_db()
-        self.assertEqual(deuda.estado, 'activa', 'sigue debiendo esas horas')
+        self.assertEqual(deuda.estado, 'condonada')
+        self.assertEqual(SancionEmpleado.objects.filter(explorador=self.exp).count(), antes)
 
     def test_una_sancion_manual_no_impide_crear_la_automatica(self):
         """Son hechos disciplinarios distintos, con fechas distintas."""

@@ -72,9 +72,16 @@ class ConsolidadoHorasService:
         return Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
 
     @staticmethod
-    def _saldadas_por_sancion(empleado) -> list:
+    def _extinguidas_por_sancion(empleado) -> list:
         """
-        Deudas que extinguió una sanción ya cumplida, agrupadas por la sanción que las saldó.
+        Deudas que extinguió una sanción, agrupadas por la sanción responsable.
+
+        Son dos casos con el mismo efecto sobre el saldo y motivos distintos: la sanción se
+        CUMPLIÓ (el castigo fue el pago) o el supervisor la LEVANTÓ (perdonó el hecho y con
+        él la deuda). Van juntos porque el explorador pregunta lo mismo en ambos —"¿por qué
+        dejé de deber estas horas?"— y separados por la marca `condonada`, porque la
+        respuesta no es la misma y confundirlas haría creer que basta con que te levanten
+        una sanción para no cumplir ninguna.
 
         Estas horas no están pendientes (ya no se pueden cobrar) ni pagadas (no hubo PDH),
         así que sin esta sección desaparecían del consolidado sin dejar rastro y el
@@ -124,7 +131,10 @@ class ConsolidadoHorasService:
                                 if sancion.periodo_anio and sancion.periodo_mes else '—'),
                 'horas': round(minutos / 60, 2),
                 'inicio_str': _fecha_es(sancion.fecha_inicio),
-                'fin_str': _fecha_es(sancion.fecha_fin),
+                # El fin EFECTIVO, no el planeado: en una levantada el planeado nunca
+                # llegó a ocurrir y enseñarlo sugeriría un castigo que no se cumplió.
+                'fin_str': _fecha_es(sancion.fecha_fin_efectiva),
+                'condonada': sancion.esta_levantada,
                 'motivo': sancion.motivo,
                 'detalle_deudas': detalle,
             })
@@ -275,13 +285,13 @@ class ConsolidadoHorasService:
         total_pagado = round(sum(p['horas'] for p in pagos), 2)
 
         # --- Saldado por sanción cumplida: ni pendiente ni pagado, pero tampoco invisible ---
-        sanciones = ConsolidadoHorasService._saldadas_por_sancion(empleado)
-        total_saldado_sancion = round(float(sum(x['horas'] for x in sanciones)), 2)
+        sanciones = ConsolidadoHorasService._extinguidas_por_sancion(empleado)
+        total_extinguido_sancion = round(float(sum(x['horas'] for x in sanciones)), 2)
 
         # Histórico = lo que aún debe + lo que pagó + lo que extinguió cumpliendo sanciones.
         # Sin el tercer sumando, el acumulado de una persona ENCOGÍA al cumplir el castigo,
         # como si esas horas no hubieran existido nunca.
-        total_acumulado = round(saldo + total_pagado + total_saldado_sancion, 2)
+        total_acumulado = round(saldo + total_pagado + total_extinguido_sancion, 2)
 
         return {
             'solicitante': solicitante,
@@ -289,8 +299,8 @@ class ConsolidadoHorasService:
             'otras': otras,
             'permisos': permisos,
             'pagos': pagos,
-            'saldadas_sancion': sanciones,
-            'total_saldado_sancion': total_saldado_sancion,
+            'extinguidas_sancion': sanciones,
+            'total_extinguido_sancion': total_extinguido_sancion,
             'total_solicitante': _suma(solicitante),
             'total_reemplazante': _suma(reemplazante),
             'total_otras': _suma(otras),

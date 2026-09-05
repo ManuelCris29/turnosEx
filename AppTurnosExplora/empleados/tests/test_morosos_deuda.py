@@ -278,23 +278,48 @@ class SancionLevantadaTest(MorososTestBase):
 
         self.assertEqual(DeudaCorporativaService.contar_pendientes_de_sancion(), 0)
 
-    def test_su_fila_no_dice_que_nadie_la_ha_evaluado(self):
+    def test_al_levantarla_desaparece_del_listado_de_morosos(self):
+        """
+        Levantar condona la deuda del mes, así que ya no hay nada que reclamar y la fila
+        se va del listado. Es el mismo objetivo que perseguía el estado 'levantada' —que
+        el aviso no quedara encendido para siempre— resuelto ahora en el origen: sin deuda
+        viva no hay moroso.
+        """
         self._sancionar_y_levantar()
+
+        self.assertFalse(any(f['explorador'] == self.moroso
+                             for f in DeudaCorporativaService.auditar_morosos()))
+
+    def test_la_deuda_queda_condonada_al_levantar(self):
+        """Levantar perdona el hecho entero: el castigo y las horas de ese mes."""
+        self._sancionar_y_levantar()
+
+        self.assertEqual(
+            DeudaCorporativa.objects.filter(explorador=self.moroso, estado='activa').count(), 0)
+        self.assertEqual(
+            DeudaCorporativa.objects.filter(explorador=self.moroso, estado='condonada').count(), 1)
+
+    def test_una_levantada_antigua_con_deuda_viva_sigue_saliendo_como_levantada(self):
+        """
+        El estado 'levantada' sobrevive para los datos anteriores a la condonación.
+
+        Desde que levantar condona, ninguna sanción nueva llega a este estado. Pero las
+        levantadas de antes dejaron su deuda activa, y esas filas tienen que seguir
+        contándose como decisión tomada: devolverlas al montón de 'pendiente' reviviría
+        justo el aviso que no se podía apagar.
+        """
+        sancion = self._sancionar_y_levantar()
+        # Se rehace a mano el estado que dejaba el código anterior: deuda viva bajo una
+        # sanción levantada.
+        DeudaCorporativa.objects.filter(explorador=self.moroso, estado='condonada').update(
+            estado='activa', sancion_consumidora=None, fecha_consumo=None)
 
         fila = next(f for f in DeudaCorporativaService.auditar_morosos()
                     if f['explorador'] == self.moroso)
 
         self.assertEqual(fila['estado'], 'levantada')
+        self.assertEqual(fila['sancion'].id, sancion.id)
         self.assertIsNotNone(fila['sancion'].levantada_en)
-
-    def test_la_deuda_sigue_viva_pese_a_levantar(self):
-        """Levantar perdona el castigo, no la deuda: sigue en la tabla debiendo."""
-        self._sancionar_y_levantar()
-
-        fila = next(f for f in DeudaCorporativaService.auditar_morosos()
-                    if f['explorador'] == self.moroso)
-
-        self.assertEqual(fila['minutos'], 30)
 
     def test_volver_a_pulsar_aplicar_no_la_resucita(self):
         """La decisión del supervisor manda; el botón no puede deshacerla por accidente."""

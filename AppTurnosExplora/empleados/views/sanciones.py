@@ -146,6 +146,48 @@ class SancionListView(LoginRequiredMixin, ListView):
 
         return context
 
+def _horas_que_se_condonan(sancion) -> float:
+    """
+    Horas que se perdonarían si esta sanción se levantase ahora mismo. ESTIMACIÓN.
+
+    Es una LECTURA que replica el alcance de
+    `DeudaCorporativaService.condonar_deudas_por_levantamiento` sin ejecutar nada, y sirve
+    solo para avisar ANTES de confirmar. Lo que se cuenta DESPUÉS no sale de aquí sino de
+    `horas_condonadas_por`, que lee lo realmente escrito: entre que se pinta el aviso y se
+    envía el formulario puede entrar un pago, y anunciar una cifra para acabar perdonando
+    otra destruye la confianza en el número.
+
+    Devuelve 0 para una sanción manual (no nació de un mes impagado) o ya levantada (no
+    queda nada activo). Nunca lanza: un fallo contando no puede impedir levantar una
+    sanción.
+    """
+    try:
+        from permisos.models import DeudaPermisoMes
+        from solicitudes.models import DeudaCorporativa
+
+        # El mismo criterio que la condonación real: el periodo, no el texto del motivo.
+        # Si divergieran, el aviso prometería unas horas y se perdonarían otras.
+        if sancion.levantada_en or not sancion.periodo_anio or not sancion.periodo_mes:
+            return 0.0
+
+        minutos = sum(
+            DeudaCorporativa.objects
+            .filter(explorador_id=sancion.explorador_id, estado='activa',
+                    fecha_doblada__year=sancion.periodo_anio,
+                    fecha_doblada__month=sancion.periodo_mes)
+            .values_list('minutos', flat=True))
+        minutos += sum(
+            d.minutos_pendientes
+            for d in DeudaPermisoMes.objects.filter(
+                explorador_id=sancion.explorador_id, estado='activa',
+                anio=sancion.periodo_anio, mes=sancion.periodo_mes))
+        return round(minutos / 60, 2)
+    except Exception:
+        logger.warning('Error calculando las horas a condonar de la sanción %s',
+                       getattr(sancion, 'id', '?'), exc_info=True)
+        return 0.0
+
+
 def _invalidar_turnos_cache_sancion(sancion):
     """Refresca Mis Turnos del explorador para que la sanción se vea al instante."""
     try:
@@ -239,8 +281,12 @@ class SancionLevantarView(LoginRequiredMixin, AdminRequiredMixin, FormView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context['sancion'] = self.get_sancion()
+        sancion = self.get_sancion()
+        context['sancion'] = sancion
         context['hoy'] = timezone.localdate()
+        # Se anuncia antes de confirmar: levantar condona la deuda del mes, y eso no se
+        # deshace. El supervisor tiene que decidirlo sabiéndolo, no descubrirlo después.
+        context['horas_a_condonar'] = _horas_que_se_condonan(sancion)
         return context
 
     def form_valid(self, form):
@@ -263,11 +309,17 @@ class SancionLevantarView(LoginRequiredMixin, AdminRequiredMixin, FormView):
         _invalidar_turnos_cache_sancion(sancion)
         logger.info('Sanción %s de %s levantada por %s', sancion.id,
                     sancion.explorador_id, getattr(self.request.user, 'username', '?'))
-        messages.success(
-            self.request,
-            f'Sanción de {sancion.explorador.nombre} {sancion.explorador.apellido} levantada. '
-            'Ya puede volver a realizar solicitudes.'
-        )
+        # Lo REALMENTE condonado, leído de lo que quedó escrito, no la estimación que se
+        # enseñó antes de confirmar: si entre el aviso y el envío entró un pago, la cifra
+        # que se anuncia aquí sigue siendo la verdadera.
+        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        horas_condonadas = DeudaCorporativaService.horas_condonadas_por(sancion)
+        aviso = (f'Sanción de {sancion.explorador.nombre} {sancion.explorador.apellido} levantada. '
+                 'Ya puede volver a realizar solicitudes.')
+        if horas_condonadas:
+            aviso += (f' Se condonaron también las {horas_condonadas} h que debía de ese mes: '
+                      'ya no figuran como pendientes. Se le avisó por la campana.')
+        messages.success(self.request, aviso)
         return redirect(self.success_url)
 
 

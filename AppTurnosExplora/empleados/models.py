@@ -408,17 +408,39 @@ class SancionEmpleado(models.Model):
 
     def levantar(self, motivo: str, supervisor=None, fecha=None):
         """
-        Termina la sanción a partir de `fecha` (hoy por defecto) dejando constancia.
+        Termina la sanción a partir de `fecha` (hoy por defecto) dejando constancia, y
+        CONDONA la deuda del mes que la originó si era una auto-sanción por deuda.
+
+        Levantar perdona el hecho entero, no solo el castigo. La condonación va aquí y no
+        en la vista porque es parte de lo que significa levantar: si viviera en el llamador,
+        cada nueva forma de levantar (un proceso automático, un comando, el admin) tendría
+        que acordarse de repetirla, y la que se olvidara dejaría la deuda en el limbo que
+        esto viene a cerrar —ni cobrable, ni pagable, ni extinguible—. Ver
+        `DeudaCorporativaService.condonar_deudas_por_levantamiento`.
+
+        Todo o nada: si la condonación falla, el levantamiento tampoco se guarda. Media
+        operación aquí es exactamente el estado incoherente que se quiere evitar.
+
         Idempotente: levantar una ya levantada no cambia nada, para que un doble clic
         o un reintento del proceso automático no reescriba quién la levantó.
         """
+        from django.db import transaction
         from django.utils import timezone
         if self.levantada_en:
             return self
-        self.levantada_en = fecha or timezone.localdate()
-        self.levantada_por = supervisor
-        self.levantada_motivo = (motivo or '').strip()
-        self.save(update_fields=['levantada_en', 'levantada_por', 'levantada_motivo', 'actualizado_en'])
+        with transaction.atomic():
+            self.levantada_en = fecha or timezone.localdate()
+            self.levantada_por = supervisor
+            self.levantada_motivo = (motivo or '').strip()
+            self.save(update_fields=['levantada_en', 'levantada_por', 'levantada_motivo',
+                                     'actualizado_en'])
+            from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+            DeudaCorporativaService.condonar_deudas_por_levantamiento(self)
+            # El explorador se entera por la campana, igual que se enteró de la sanción.
+            # Va dentro de la transacción a propósito: si el levantamiento no llega a
+            # guardarse, tampoco puede quedar un aviso diciendo que sí.
+            DeudaCorporativaService.notificar_condonacion(
+                self, DeudaCorporativaService.horas_condonadas_por(self))
         return self
 
     def __str__(self):

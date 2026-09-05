@@ -97,6 +97,8 @@ aprobaciones de una vez con la **Acción combinada**.
 | **Alternancia** | El reparto publicado de quién trabaja sábado y quién domingo. |
 | **Cobertura** | Que un compañero trabaje una jornada tuya sin que tú dejes de existir en el calendario. |
 | **Deuda** | Jornada que te cubrieron y todavía no has devuelto. |
+| **Condonar** | Perdonar unas horas debidas: dejan de figurar como pendientes y ya no se pueden volver a cobrar. Ocurre cuando un supervisor levanta una sanción por deuda de horas. <!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento) --> |
+| **Antecedente** | El registro de una sanción anterior. Se conserva aunque la sanción se levante, y es lo que hace que la siguiente sea más larga. <!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento, docstring) --> |
 | **Solicitante** | Quien envía la solicitud. |
 | **Receptor** | El compañero al que le pides el cambio y que tiene que aceptarlo. Sus turnos también se mueven. |
 | **Petición de cancelación** | Ruego de deshacer un cambio **ya aprobado**. No lo cancela: lo decide el receptor (o, en un permiso, tu supervisor). Mientras tanto el cambio sigue vigente. <!-- fuente: core/constants.py (EstadoCancelacion) --> |
@@ -1798,6 +1800,107 @@ sus casillas quedan bloqueadas.
 Si tienes una deuda, no esperes al final: acuerda el pago con tu supervisor dentro del mismo
 mes en que se generó.
 
+### 6.9 Sobre cómo dejan de deberse las horas de un mes cerrado
+
+Un mes que cerró debiendo ya no se paga. Esas horas se extinguen por una de dos vías, y
+ambas terminan igual: dejan de estar pendientes.
+<!-- fuente: turnos/services/consolidado_horas_service.py (_saldadas_por_sancion, docstring) -->
+
+| Vía | Qué pasó | Quién lo decide |
+|---|---|---|
+| **Sanción cumplida** | La sanción llegó a su fecha de fin. El castigo fue el pago de esas horas | Nadie: ocurre solo al terminar el plazo <!-- fuente: solicitudes/services/deuda_corporativa_service.py (consumir_deudas_por_sancion_cumplida) --> |
+| **Condonada al levantar** | Un supervisor levantó la sanción antes de que terminara y perdonó también las horas | El supervisor que la levanta <!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento) --> |
+
+Levantar una sanción perdona el hecho entero, no solo el bloqueo. Antes se quitaba el
+bloqueo pero las horas seguían figurando como pendientes para siempre, sin manera de
+pagarlas ni de quitarlas.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento, docstring) -->
+
+Solo se condonan las horas del mes que originó esa sanción. Una sanción puesta a mano, que
+no nació de un mes impagado, no tiene horas que perdonar y no cambia ningún saldo.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py:186-188; empleados/views/sanciones.py (_horas_que_se_condonan) -->
+
+**Levantar y condonar son la misma decisión.** No existe forma de quitar el bloqueo
+conservando la deuda. Un supervisor que quiera que la persona siga debiendo esas horas
+simplemente no debe levantar la sanción; la propia pantalla lo advierte: *"No hay forma de
+levantar el bloqueo conservando la deuda: son la misma decisión. Si lo que quieres es que
+siga debiendo esas horas, no levantes la sanción."*
+<!-- fuente: templates/empleados/sanciones_levantar.html:48-51 -->
+
+**Lo que no se perdona es el antecedente.** Si vuelves a cerrar un mes debiendo, la sanción
+siguiente será más larga igual, porque la levantada sigue contando como sanción anterior.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento, docstring: "Se perdona la deuda, no el expediente") -->
+
+#### Si eres supervisor: levantar una sanción
+
+1. Entra en **Sanciones** y abre la sanción que quieres levantar.
+2. Pulsa **Levantar sanción**. Verás el inicio, el fin previsto y el motivo original.
+3. Si esa sanción nació de un mes impagado, aparece un aviso en ámbar antes de confirmar:
+   *"Al levantarla también se condonan las N h que … debía de ese mes: dejarán de figurar
+   como pendientes y no se podrán volver a cobrar. Levantar perdona el hecho entero, no
+   solo el castigo. El antecedente sí se conserva para la reincidencia."*
+   <!-- fuente: templates/empleados/sanciones_levantar.html (bloque horas_a_condonar) -->
+4. Escribe el **Motivo** (obligatorio) y pulsa **Levantar sanción**.
+5. El aviso de confirmación dice *"Sanción de … levantada. Ya puede volver a realizar
+   solicitudes."* y, cuando hubo horas, añade *"Se condonaron también las N h que debía de
+   ese mes: ya no figuran como pendientes. Se le avisó por la campana."*
+   <!-- fuente: empleados/views/sanciones.py (SancionLevantarView.form_valid) -->
+
+La cifra del paso 3 es una estimación del momento en que se abre la pantalla; la del paso 5
+es lo realmente perdonado. Si entre una y otra entra un pago, manda la segunda.
+<!-- fuente: empleados/views/sanciones.py (_horas_que_se_condonan, docstring; form_valid) -->
+
+#### Si eres explorador: el aviso que recibes
+
+Cuando te levantan una sanción te llega un aviso a la **campana** de la aplicación. No es un
+correo.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (_notificar_condonacion); empleados/models.py (SancionEmpleado.levantar) -->
+
+Si además se te condonaron horas, el título es **"✅ Sanción levantada y N h condonadas"** y
+el texto te dice tres cosas: que ya puedes volver a realizar solicitudes de cambio de turno
+y permisos; que *"se te condonaron las N h que debías de ese mes: dejan de figurar como
+pendientes en tu Consolidado de Horas y nadie te las va a reclamar"*; y que *"la sanción
+sigue en tu historial y cuenta como antecedente: si vuelves a cerrar un mes debiendo, la
+siguiente será más larga"*.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (_notificar_condonacion) -->
+
+Si no había horas que condonar, el título es **"✅ Sanción levantada"** y el aviso solo te
+dice que recuperas el derecho a solicitar, y que la sanción sigue como antecedente.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (_notificar_condonacion) -->
+
+Si tu supervisor escribió un motivo al levantarla, aparece al final como *"Motivo indicado:
+…"*.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (_notificar_condonacion) -->
+
+La condonación no se deshace: el mes ya venció y esas horas no se pueden volver a reclamar.
+Decídelo antes de confirmar.
+<!-- fuente: templates/empleados/sanciones_levantar.html (comentario del bloque de aviso) -->
+
+Si la sanción ya estaba levantada cuando envías el formulario, no se hace ningún cambio y
+verás *"La sanción de … ya estaba levantada (dd/mm/aaaa). No se hizo ningún cambio."*
+<!-- fuente: empleados/views/sanciones.py (SancionLevantarView.form_valid) -->
+
+#### Dónde lo ves después: Consolidado de Horas
+
+En **Consolidado de Horas**, esas horas salen de la sección de pendientes y pasan a
+**Extinguido por sanción**, con el mes debido, las horas, el detalle de cada deuda y las
+fechas de la sanción.
+<!-- fuente: templates/turnos/consolidado_horas.html:222-262 -->
+
+Cada fila lleva una etiqueta que dice por qué se extinguió: **Sanción cumplida** o
+**Condonada al levantar**. El resumen de la cabecera las suma como *"extinguido por
+sanción"*.
+<!-- fuente: templates/turnos/consolidado_horas.html:57,251-255 -->
+
+Además dejan de llevar la marca **En sanción · no cobrable**, que solo acompaña a lo que
+sigue pendiente de un mes ya vencido.
+<!-- fuente: templates/turnos/_badge_no_cobrable.html -->
+
+La nota al pie de la pantalla lo resume: *"Un mes que vence sin pagarse ya no se cobra: se
+extingue cuando el explorador termina de cumplir la sanción que generó, o antes si el
+supervisor la levanta —levantar una sanción condona también la deuda de ese mes—."*
+<!-- fuente: templates/turnos/consolidado_horas.html:265-273 -->
+
 ---
 
 ## 7. Mensajes de error y qué hacer
@@ -2172,6 +2275,23 @@ En **Mis Favores**, con las columnas *Te cubrieron*, *Se lo devolviste*, *Cubris
 Horas**.
 <!-- fuente: templates/solicitudes/mis_favores.html -->
 
+**Me levantaron la sanción. ¿Sigo debiendo las horas de ese mes?**
+No. Al levantarla también se condonan: dejan de figurar como pendientes y ya no se pueden
+cobrar. Te llega un aviso a la campana con el título **"✅ Sanción levantada y N h
+condonadas"**, y las verás en **Consolidado de Horas**, dentro de **Extinguido por
+sanción**, con la etiqueta **Condonada al levantar**. Ver el apartado 6.9.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento); templates/turnos/consolidado_horas.html:251-253 -->
+
+**Si me levantaron una sanción, ¿cuenta si vuelvo a cerrar un mes debiendo?**
+Sí. El antecedente se conserva y la siguiente sanción será más larga. Se perdona la deuda,
+no el expediente.
+<!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento, docstring) -->
+
+**Soy supervisor y quiero quitarle el bloqueo pero que siga debiendo las horas. ¿Puedo?**
+No. Levantar y condonar son la misma decisión: no hay forma de separarlas. Si quieres que
+siga debiendo esas horas, no levantes la sanción.
+<!-- fuente: templates/empleados/sanciones_levantar.html:48-51 -->
+
 **Me salió una pantalla de error. ¿Qué apunto para reportarla?**
 El **Código de referencia** que aparece al pie, de 12 caracteres. Púlsalo con el botón
 **Copiar** y pégalo en tu reporte. Es lo único que el equipo necesita para encontrar tu
@@ -2324,6 +2444,12 @@ Cambios recientes que afectan a lo que ves en pantalla.
 | **Un turno sin sala se muestra como "Por asignar"** | Si todavía no tienes sala asignada, el turno se crea igual y en el detalle del día ves **Por asignar**. Antes, esa falta dejaba el dato en blanco o impedía aplicar el cambio <!-- fuente: turnos/models.py:60; turnos/services/doblada_turno_service.py:39,76 --> |
 | **Pedir compañeros de fin de semana con un trámite que no es de finde da un error claro** | Afecta a **Cambio de Día de Descanso** y **Doblada de Fin de Semana**, los únicos con selector de fin de semana. Antes la lista se calculaba con el criterio equivocado y salía verosímil pero sin sentido, sin aviso alguno <!-- fuente: solicitudes/views/api_fin_semana.py (tipo_sin_selector_finde) --> |
 | **Ya puedes recuperar y cambiar tu contraseña tú mismo** | En la pantalla de entrada hay **¿Olvidaste tu contraseña?** y dentro de la aplicación, **Cambiar mi contraseña**. El enlace del correo caduca en 30 minutos y se usa una sola vez; recuperarla también levanta el bloqueo por intentos fallidos. Ver el apartado 2.3 <!-- fuente: core/login/urls.py; core/login/views.py (_resetear_axes); config/settings.py:243 --> |
+| **Levantar una sanción por deuda perdona también las horas de ese mes** | Antes se quitaba el bloqueo pero las horas seguían pendientes para siempre, sin forma de pagarlas ni de quitarlas. Ahora se condonan: salen del saldo pendiente y pierden la marca **En sanción · no cobrable**. La reincidencia no cambia: el antecedente se conserva. Ver el apartado 6.9 <!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento) --> |
+| **Al explorador le llega un aviso a la campana cuando le levantan la sanción** | Antes solo lo veía el supervisor en su pantalla y el afectado tenía que entrar por su cuenta al Consolidado de Horas. El aviso dice que recupera el derecho a solicitar, cuántas horas se le condonaron y que la sanción sigue como antecedente. Es campana, no correo <!-- fuente: solicitudes/services/deuda_corporativa_service.py (_notificar_condonacion); empleados/models.py (SancionEmpleado.levantar) --> |
+| **La pantalla de levantar sanción dice que no se puede separar** | Bajo el aviso de las horas se lee "No hay forma de levantar el bloqueo conservando la deuda: son la misma decisión". Un supervisor que quiera mantener la deuda simplemente no debe levantar <!-- fuente: templates/empleados/sanciones_levantar.html:48-51 --> |
+| **El mensaje tras levantar dice la cifra realmente condonada** | Antes se recalculaba y podía discrepar de la que anunciaba el aviso previo. Ahora se lee de lo que quedó escrito, y el mensaje añade "Se le avisó por la campana." <!-- fuente: empleados/views/sanciones.py (SancionLevantarView.form_valid) --> |
+| **La pantalla de levantar sanción avisa antes de confirmar** | Un recuadro en ámbar dice cuántas horas se condonan y que no se podrán volver a cobrar. También recuerda que el antecedente se conserva. El mensaje posterior indica cuántas horas se condonaron <!-- fuente: templates/empleados/sanciones_levantar.html; empleados/views/sanciones.py (SancionLevantarView.form_valid) --> |
+| **En Consolidado de Horas, "Saldado por sanción cumplida" pasó a llamarse "Extinguido por sanción"** | Cada fila lleva ahora una etiqueta que distingue **Sanción cumplida** (el castigo fue el pago) de **Condonada al levantar** (el supervisor la perdonó). El resumen de arriba dice "extinguido por sanción" y la nota al pie explica las dos vías. Ver el apartado 6.9 <!-- fuente: templates/turnos/consolidado_horas.html:57,225,251-255,265-273 --> |
 | En **PDH**, la fecha de pago la decide el supervisor | Se retiró una validación que rechazaba fechas legítimas <!-- fuente: commit 9bf81f8 --> |
 
 <!-- fuente: git log del repositorio, commits 0e541c1 … 40a7ed8 -->
@@ -2341,7 +2467,9 @@ incluyeron como hechos en el manual.
 | Cuánto tarda en llegar el correo de aviso al compañero | Servicio de correo y su cola de envío | El envío es diferido y depende de una tarea programada del servidor; no hay un plazo garantizado escrito en el código |
 | Texto exacto de los correos de aprobación y rechazo | Plantillas de correo del módulo de solicitudes (14 archivos) | No se abrieron una por una en esta revisión; el manual solo cita los mensajes de pantalla |
 | Qué muestra exactamente el **Dashboard** al entrar | Plantilla del panel de inicio | No se revisó su contenido en esta revisión; el recorrido del apartado 2.2 se limita al menú |
-| Contenido y reglas de **Consolidado de Horas**, **Indicadores** y **Beneficios Utilizados** | Módulos de turnos y personas | Quedan fuera del alcance de esta revisión, centrada en los seis formularios de solicitud |
+| Contenido y reglas completas de **Consolidado de Horas**, **Indicadores** y **Beneficios Utilizados** | Módulos de turnos y personas | Del consolidado solo se documentó la sección **Extinguido por sanción** (apartado 6.9); el resto de la pantalla y las otras dos secciones siguen fuera del alcance |
+| Cuántos días exactos dura la sanción en cada reincidencia más allá de la segunda | Cálculo de la sanción por deuda | Se comprobó que la primera son 15 días y que crece con cada reincidencia; no se verificó si existe un tope máximo |
+| Qué ve el explorador en **Consolidado de Horas** si su sanción se levantó pero no había horas que condonar | Pantalla de consolidado | La sección solo aparece cuando hay deudas extinguidas; no se pudo comprobar con datos reales ese caso |
 | Reglas del módulo de **Permisos Especiales** y **PDH** | Módulo de permisos | El inventario documental lo marca como área sin documentación funcional; no se abordó aquí |
 | Reglas de **Salas**, **Competencias** y asignación de sala | Módulo de personas | Igual que el anterior: marcado como pendiente en el inventario documental |
 | Si el mensaje de bloqueo tras 5 intentos fallidos se muestra al usuario y con qué texto | Pantalla de inicio de sesión y configuración de bloqueo | El límite y la hora de espera sí están configurados, pero no se localizó una pantalla propia con el texto del bloqueo |
