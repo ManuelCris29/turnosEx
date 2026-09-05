@@ -63,17 +63,17 @@ contabiliza deuda, no asistencia.
 
 | Componente | Versión / elección | Evidencia |
 |---|---|---|
-| Python | 3.12 | `Dockerfile` |
-| Django | 5.2.16 — **sin Django REST Framework** | `requirements.txt:4` |
-| Base de datos | MySQL 8.0; driver `PyMySQL` 1.1.2 instalado como `MySQLdb` si falta el nativo | `config/settings.py:115-119`, `requirements.txt:14` |
-| Servidor de aplicación | Gunicorn 23.0.0, 3 workers | `requirements.txt:11`, `docker-compose.hostdb.yml` |
-| Estáticos | WhiteNoise 6.8.2 (sin Nginx en el contenedor) | `config/settings.py:73` |
+| Python | 3.12 — **deliberado**: es la versión de Ubuntu 24.04 LTS (el SO de la EC2) y tiene soporte hasta 2028 | `Dockerfile`, `.github/workflows/ci.yml` |
+| Django | 5.2.17 — **sin Django REST Framework** | `requirements.txt:4` |
+| Base de datos | MySQL (8.4 en la plantilla de RDS); driver `PyMySQL` 1.1.2 instalado como `MySQLdb` si falta el nativo | `config/settings.py:123-124` (el `install_as_MySQLdb`), `requirements.txt:16` |
+| Servidor de aplicación | Gunicorn 23.0.0, 3 workers | `requirements.txt:13` |
+| Estáticos | **Nginx desde disco en producción** (143 MB); WhiteNoise 6.8.2 los sirve en el contenedor de pruebas, donde no hay Nginx | `config/settings.py:75`, § 13.1 |
 | Frontend | AdminLTE 3.2 + JavaScript vanilla, **sin paso de build** | `docs/03-arquitectura/TECNOLOGIAS_FRONTEND.md` |
-| Historial | `django-simple-history` 3.8.0 | `config/settings.py:53` |
-| Seguridad | `django-axes` 7.0.1, `django-csp` 4.0, `django-cors-headers` 4.9.0 | `config/settings.py:51-52,74` |
-| Configuración | `django-environ` 0.14.0 | `config/settings.py:20-24` |
-| Caché | LocMem / Redis / tabla MySQL, según `CACHE_URL` | `config/settings.py:285-316` |
-| Exportación | `openpyxl` 3.1.5 | `requirements.txt:12` |
+| Historial | `django-simple-history` 3.8.0 | `config/settings.py:54`, `requirements.txt:11` |
+| Seguridad | `django-axes[ipware]` 7.0.1 (**el extra `[ipware]` no es opcional**: sin él axes ignora `AXES_IPWARE_*` y ve la IP de Nginx para todos), `django-csp` 4.0, `django-cors-headers` 4.9.0 | `config/settings.py:52-53,73,76,84`, `requirements.txt:7-9` |
+| Configuración | `django-environ` 0.14.0 | `config/settings.py:11,21-25`, `requirements.txt:10` |
+| Caché | LocMem en desarrollo; **tabla MySQL (`db://cache_appturnos`) en producción**, según `CACHE_URL` | `config/settings.py:285-345` |
+| Exportación | `openpyxl` 3.1.5 | `requirements.txt:14` |
 | Zona horaria | `America/Bogota`, `USE_TZ=True`, idioma `es-co` | `config/settings.py:214-217` |
 
 No hay API REST pública: los endpoints JSON existen para el propio frontend.
@@ -1066,9 +1066,9 @@ la primera dice quién manda sobre un día, la segunda quién puede deshacer lo 
 | `Turno.tipo_cambio` solo acepta los ocho valores de `TipoCambioTurno` | `turnos/models.py:90-94` | Un typo entra en silencio y el turno deja de contarse en los filtros de texto exacto |
 | **Un día ya usado en un cambio de descanso vuelve a estar libre de inmediato.** `dia_bloqueado_para_nuevo_cambio` bloquea la fecha **solo** si hay un turno con `tipo_cambio` distinto de `CAMBIO DESCANSO` (DOBLADA, D FDS, CT…): ese bloqueo es permanente y sin ventana. Un CAMBIO DESCANSO previo **no** bloquea — coherente con P1, "la última aprobada gana por día". Es la **fuente única** que comparten el selector de findes y la validación | Regla: `solicitudes/services/cambio_descanso_aplicacion_service.py:228-232`, motivo en el docstring `:201-224`; llamadas en `solicitudes/services/strategies/cambio_descanso_strategy.py:111` y `solicitudes/views/api_fin_semana.py:358`. Tests: `solicitudes/tests/test_cambio_descanso.py:254` (`CDReintercambioDiaTest`), centinela en `:312`. Motivo completo: [ADR 010](./03-arquitectura/adr/010-dia-de-descanso-libre-tras-el-intercambio.md) | Si se **reintroduce** el bloqueo, un día intercambiado queda congelado para toda la plantilla mientras dure la ventana de cancelación (hoy 24 h). Si se **quita** el bloqueo por otro tipo de cambio, se cede un día que ya está comprometido por una doblada o un CT |
 | La temporada manda sobre el mantenimiento | `turnos/models.py:186-200` (`es_mantenimiento_efectivo`) | Un lunes de temporada se trata como descanso |
-| Una fecha sin `AsignacionEspecialManual` es "sin planificar" y así se reporta; nunca se infiere un grupo | `turnos/models.py:305-296` | El pasado se recalcula solo |
+| Una fecha sin `AsignacionEspecialManual` es "sin planificar" y así se reporta; nunca se infiere un grupo | `turnos/models.py:305-315` | El pasado se recalcula solo |
 | Un turno anulado no cuenta como falta ni genera deuda | `turnos/models.py:41-51,73` | Se penaliza un día que se anuló |
-| Una sanción no se borra: se levanta, dejando quién, cuándo y por qué | `empleados/models.py:299,323-330,286-299` | Se pierde el hecho disciplinario |
+| Una sanción no se borra: se levanta, dejando quién, cuándo y por qué | `empleados/models.py:299,323-330` | Se pierde el hecho disciplinario |
 | Los roles `Supervisor` y `Explorador` se comparan **exacto** y están protegidos de renombrado y borrado | `empleados/models.py:73-85,98-107` | Escalada de privilegios; ya ocurrió con la búsqueda `icontains` |
 | Las jornadas `AM` y `PM` no se pueden eliminar | `empleados/models.py:19-23,38-41` | El motor de turnos deja de resolver la jornada contraria |
 | El cierre semanal bloquea las solicitudes cuyo objetivo caiga en la ventana; con `habilitado=False` no hay restricción | `solicitudes/models.py:792-803`, `solicitudes/services/cierre_solicitudes_service.py:140,148` | Se reprograma el fin de semana después de publicarlo |
@@ -1699,58 +1699,92 @@ Ver § 13 y los checklists de [05-referencia/deployment/](./05-referencia/deploy
 
 ### 13.1 Topología
 
+> **Decidido el 2026-09-04: EC2 `t4g.micro` + RDS `db.t4g.micro` Single-AZ.** ECS Fargate quedó
+> **descartada por presupuesto** (~$64/mes con IVA frente a ~$32) y su checklist se borró. El
+> razonamiento completo, con precios verificados, está en
+> [arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md)
+> §5 y §8.
+
 ```mermaid
 flowchart TB
     USER["Navegador<br/>explorador / supervisor"]
-    subgraph AWS["AWS"]
-        ALB["ALB — termina TLS<br/>health check /health/"]
-        subgraph COMPUTE["Computo (EC2 o Fargate)"]
-            GUNI["Gunicorn 3 workers<br/>+ WhiteNoise (estaticos)"]
-            CRONJ["cron:<br/>procesar_email_outbox"]
+    DNS["swalp.parqueexplora.org<br/>registro A (lo agrega IT)"]
+    subgraph AWS["AWS — us-east-1"]
+        EIP["Elastic IP<br/>(IP publica fija)"]
+        subgraph EC2BOX["EC2 t4g.micro (Ubuntu 24.04 ARM)"]
+            NGINX["Nginx — termina TLS (Let's Encrypt)<br/>sirve /static/ desde disco"]
+            GUNI["Gunicorn 3 workers<br/>Django"]
+            CRONJ["crontab:<br/>procesar_email_outbox (5 min)<br/>revisar_sanciones_por_deuda (diario)"]
         end
-        RDS[("RDS / Aurora MySQL 8.0<br/>TLS con DB_SSL_CA")]
-        CACHEBOX[("ElastiCache Redis<br/>o tabla cache_appturnos")]
+        RDS[("RDS MySQL db.t4g.micro<br/>Single-AZ, TLS con DB_SSL_CA<br/>+ tabla cache_appturnos")]
         LOGS["CloudWatch Logs"]
     end
-    SES["SES / SMTP"]
+    SES["Amazon SES"]
 
-    USER -->|HTTPS| ALB
-    ALB -->|HTTP + X-Forwarded-Proto| GUNI
+    USER -->|HTTPS| DNS
+    DNS --> EIP
+    EIP --> NGINX
+    NGINX -->|socket Unix + X-Forwarded-Proto/For| GUNI
     GUNI --> RDS
-    GUNI --> CACHEBOX
     GUNI --> LOGS
     CRONJ --> RDS
     CRONJ --> SES
     SES -.->|enlace firmado| USER
 ```
 
-**Qué muestra.** Un solo proceso de aplicación detrás de un balanceador. El ALB termina el TLS
-y reenvía por HTTP con `X-Forwarded-Proto`; sin `SECURE_PROXY_SSL_HEADER`,
-`SECURE_SSL_REDIRECT` provocaría un bucle infinito de redirecciones
-(`config/settings.py:439-441`). Los estáticos los sirve WhiteNoise dentro del propio proceso
-(`config/settings.py:73`): no hay Nginx en el contenedor. Gunicorn corre con 3 workers, y de
-ahí que la caché **tenga que ser compartida** —Redis o tabla— y nunca `LocMemCache`
-(`config/settings.py:279-296`). El envío de correo no lo hace la petición web: lo hace un cron
-independiente que vacía `EmailOutbox`. La base es MySQL 8.0 gestionada, con TLS si `DB_SSL_CA`
-apunta al certificado (`config/settings.py:152`).
+**Qué muestra.** Un solo proceso de aplicación detrás de **Nginx en la propia instancia** — sin
+balanceador, que a esta escala solo añadiría ~$18/mes. Nginx termina el TLS y reenvía por HTTP
+con `X-Forwarded-Proto`; sin `SECURE_PROXY_SSL_HEADER`, `SECURE_SSL_REDIRECT` provocaría un bucle
+infinito de redirecciones (`config/settings.py:512`).
 
-Dos variantes documentadas: EC2 + RDS
-([MANUAL_DESPLIEGUE_EC2.md](./05-referencia/deployment/MANUAL_DESPLIEGUE_EC2.md),
-[arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md))
-y Fargate
-([CHECKLIST_DESPLIEGUE_AWS_RDS.md](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md)).
+**Los estáticos los sirve Nginx desde disco**, no WhiteNoise: son 143 MB y pasarlos por los
+workers de Gunicorn desperdiciaría los 2-3 que caben en 1 GB de RAM. El middleware de WhiteNoise
+sigue en la lista (`config/settings.py:75`) porque es quien los sirve **en el contenedor** de
+pruebas locales (§ 2.7), donde no hay Nginx.
+
+Gunicorn corre con 3 workers, y de ahí que la caché **tenga que ser compartida** y nunca
+`LocMemCache` (`config/settings.py:285-345`). En producción es
+**`CACHE_URL=db://cache_appturnos`**, la tabla dentro de la propia RDS: ElastiCache (~$12/mes) se
+sale del presupuesto. Exige `python manage.py createcachetable` una vez.
+
+El envío de correo no lo hace la petición web: lo hace un **cron** independiente que vacía
+`EmailOutbox`. En EC2 son líneas de `crontab`, que cuestan $0 — en Fargate habrían necesitado
+EventBridge y ~8.640 lanzamientos de tarea al mes.
+
+La base es MySQL gestionada, con TLS si `DB_SSL_CA` apunta al certificado
+(`config/settings.py:157-160`).
+
+**Infraestructura como código:** los recursos AWS del diagrama (security groups, EC2, Elastic IP,
+RDS, alarmas de costo) están en
+[`infra/cloudformation/swalp-infra.yaml`](../infra/cloudformation/swalp-infra.yaml). La
+configuración *dentro* del servidor (Nginx, certbot, systemd, crontab, `.env`) es manual a
+propósito: ver arquitectura §12.1.
+
+**Paso a paso:** [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md)
+(FASES 0-11) y [MANUAL_DESPLIEGUE_EC2.md](./05-referencia/deployment/MANUAL_DESPLIEGUE_EC2.md).
+Cómo encajan la URL, la IP y las variables está en arquitectura §11.
 
 ### 13.2 Pipeline y pasos
 
-No hay CI/CD automatizado en el repositorio. El despliegue es manual y sigue esta secuencia:
+**CI: sí existe** (`.github/workflows/ci.yml`, en la raíz del repositorio, no dentro de
+`AppTurnosExplora/`). Corre en cualquier rama, con dos jobs: `test` (bloqueante) levanta MySQL 8.0,
+carga las tablas de zona horaria, ejecuta `check`, `check --deploy` con entorno de producción
+simulado —así `core.E001` impide desplegar sin caché compartida— y la suite con gate de cobertura;
+y `lint` (informativo) con ruff, bandit y pip-audit.
 
-1. Construir la imagen desde `AppTurnosExplora/Dockerfile` (Python 3.12).
-2. Publicarla en el registro.
+**CD: pendiente a propósito.** Un `deploy.yml` que entre por SSH necesita que la EC2 exista para
+tener `SSH_HOST`, `SSH_USER` y `SSH_KEY`; se creará justo después de la FASE 6 del checklist.
+Hasta entonces el despliegue es manual:
+
+1. Desplegar la pila: `aws cloudformation deploy --template-file infra/cloudformation/swalp-infra.yaml`.
+2. Por SSH: `git pull` y `pip install -r requirements.txt`.
 3. Aplicar migraciones: `python manage.py migrate`.
-4. `python manage.py collectstatic --noinput` — WhiteNoise sirve desde `STATIC_ROOT`
-   (`config/settings.py:219`).
-5. Arrancar Gunicorn con 3 workers.
-6. Verificar `/health/` y `/health/ready/`.
+4. **`python manage.py createcachetable`** — solo la primera vez, pero **obligatorio**: sin la
+   tabla la app arranca y falla en la primera carga de Mis Turnos.
+5. `python manage.py collectstatic --noinput` → `STATIC_ROOT` (`config/settings.py:224`), de donde
+   los sirve Nginx.
+6. `sudo systemctl restart appturnosex` (Gunicorn con 3 workers).
+7. Verificar `/health/` y `/health/ready/`.
 
 Ojo: `docker-compose.hostdb.yml` **sobrescribe el `command`** para arrancar solo Gunicorn sin
 `migrate` (§ 2.7). En producción el `migrate` es un paso explícito, no implícito.
@@ -1786,7 +1820,8 @@ Ojo: `docker-compose.hostdb.yml` **sobrescribe el `command`** para arrancar solo
 - [ ] `CACHE_URL` apuntando a Redis o a tabla. **Nunca vacío con más de un worker.**
 - [ ] Si es tabla: `python manage.py createcachetable` ejecutado una vez.
 - [ ] `DB_SSL_CA` con el bundle de RDS.
-- [ ] `SECURE_HTTPS=True` y el ALB reenviando `X-Forwarded-Proto`.
+- [ ] `SECURE_HTTPS=True` y **Nginx** reenviando `X-Forwarded-Proto` **y `X-Forwarded-For`**
+      (el segundo lo necesita axes; ver arquitectura §11.5 y `manage.py verificar_ip_cliente`).
 - [ ] Cron de `procesar_email_outbox` activo.
 - [ ] **Alarma del cierre semanal creada** (§ 13.6): metric filter sobre
       `CIERRE SEMANAL INOPERATIVO` + alarma con umbral 1 hacia SNS. Sin esto, el cierre puede
@@ -1826,12 +1861,12 @@ migraciones, snapshot de RDS.
 
 #### Configuración de `LOGGING`
 
-Definida en `config/settings.py:466-576`. Los errores **no** se le muestran al usuario (§ 9.5):
+Definida en `config/settings.py:617-700`, con la elección de destinos en `:582-592`. Los errores **no** se le muestran al usuario (§ 9.5):
 salen por aquí, y solo por aquí. Dos destinos, cada uno por un motivo distinto:
 
 | Handler | Destino | Por qué |
 |---|---|---|
-| `console` | stdout | En ECS/Fargate el log driver `awslogs` recoge stdout y lo publica en CloudWatch Logs **sin dependencias extra**. Si el contenedor muere, el driver ya envió lo que había |
+| `console` | stdout | En EC2, **systemd captura stdout en el journal** y el agente de CloudWatch lo publica; el proceso no depende de ningún fichero propio. (Era también el motivo en contenedores, donde el log driver `awslogs` recoge stdout directamente) |
 | `file` | `logs/appturnos.log`, sin rotación. **Solo en desarrollo** | Comodidad local: poder abrir el log sin depender de la consola donde corre `runserver`. En producción este handler **no se usa** (ver abajo) |
 
 Loggers configurados: `solicitudes` e `turnos` a `INFO`; `django.request` a `ERROR` —**aquí
@@ -1850,17 +1885,18 @@ aws logs filter-log-events --log-group-name /swalp/app --filter-pattern '"A3F91C
 Fuera de una petición el campo vale `-`.
 
 **En producción no se escribe fichero, y es deliberado.** `LOG_A_FICHERO` queda en `False` en
-cuanto `IS_PRODUCTION`, así que `_DESTINOS` se reduce a `['console']`. Tres razones, comprobadas
-sobre este despliegue:
+cuanto `IS_PRODUCTION`, así que `_DESTINOS` se reduce a `['console']`. La razón que se mantiene en
+pie con el plan EC2 es la tercera, y es suficiente por sí sola:
 
-1. **No sobrevive.** No hay ningún volumen montado para logs, ni en el `Dockerfile` ni en los
-   compose: el fichero vive en la capa efímera del contenedor y desaparece cuando ECS reinicia la
-   tarea. Un log que se borra solo justo cuando ha pasado algo interesante no es un log.
-2. **No se puede leer.** El `tail -f` por SSH que justificaba el fichero no existe en Fargate: no
-   hay máquina a la que entrar.
-3. **Y encima corrompe.** Con `--workers 3` hay tres procesos con su propio handler sobre el mismo
-   fichero; al rotar, los tres renombran a la vez. En Linux no da error: se pierden líneas y algún
-   worker sigue escribiendo en un fichero ya desenlazado.
+**Escribir a fichero desde varios workers corrompe el log.** Con `--workers 3` hay tres procesos
+con su propio handler sobre el mismo fichero; al rotar, los tres renombran a la vez. En Linux no da
+error: se pierden líneas y algún worker sigue escribiendo en un fichero ya desenlazado.
+
+> **Matiz que cambió al elegir EC2.** Las otras dos razones que figuraban aquí —que el fichero no
+> sobrevive al reinicio de la tarea y que no hay máquina donde hacer `tail -f`— eran **argumentos
+> de contenedor**, y con una EC2 ya no aplican: el disco persiste y sí se puede entrar por SSH.
+> La decisión **no cambia**, porque la corrupción entre workers basta y porque el journal de systemd
+> ya da lo que daría el fichero, pero conviene no repetir un motivo que dejó de ser cierto.
 
 La aplicación **emite** eventos; dónde se guardan es decisión de la plataforma. En desarrollo, si
 `LOG_DIR` no se puede crear o no es escribible, la aplicación tampoco se cae: renuncia al fichero y
@@ -1893,9 +1929,10 @@ de plazo una a una. Es un fallo silencioso y progresivo, el peor tipo.
 Hoy el único destino de los logs es `console` → stdout (`config/settings.py`, bloque `LOGGING`), y
 `ADMINS` no está definido, así que **no existe ningún envío automático**.
 
-#### Fargate / ECS (recomendado)
+#### EC2 (el despliegue elegido)
 
-El `logConfiguration` ya manda stdout al grupo `/ecs/swalp`. Falta el filtro y la alarma:
+Requiere el **agente de CloudWatch** en la instancia, publicando el journal de systemd al grupo
+`/swalp/app` (FASE 11 del checklist). Con eso, faltan el filtro y la alarma:
 
 ```bash
 # 1. Tema SNS al que suscribir a quien deba enterarse
@@ -1904,7 +1941,7 @@ aws sns subscribe --topic-arn <arn-del-tema> --protocol email --notification-end
 
 # 2. Metric filter: cuenta las apariciones del texto en el log
 aws logs put-metric-filter \
-  --log-group-name /ecs/swalp \
+  --log-group-name /swalp/app \
   --filter-name swalp-cierre-inoperativo \
   --filter-pattern '"CIERRE SEMANAL INOPERATIVO"' \
   --metric-transformations \
@@ -2196,14 +2233,18 @@ verdad" del árbol documental. Ver § 18.
 
 ### 16.3 Bugs y riesgos abiertos
 
+> **Revisado contra el código el 2026-09-04.** Dos entradas que figuraban aquí ya estaban
+> resueltas y se movieron a § 16.4 (B3, recuperación de contraseña; B8, CSP report-only).
+> Además, **B6 y B7 estaban duplicados**: el mismo identificador nombraba un bug abierto y otro
+> cerrado, con contenidos distintos. Los abiertos se renumeraron a **B15** y **B16**; los cerrados
+> conservan su número original para no romper referencias externas.
+
 | # | Síntoma | Causa | Evidencia |
 |---|---|---|---|
-| B3 | **No hay recuperación de contraseña.** Tras 5 intentos fallidos el usuario queda bloqueado una hora y su única salida es un administrador | `core/login/urls.py` declara solo `login` y `logout`; ninguna vista de reseteo está enrutada. `AXES_FAILURE_LIMIT=5`, `AXES_COOLOFF_TIME=1` | `core/login/urls.py:4-7`, `config/settings.py:330-331` |
-| B4 | **El cierre semanal falla abierto.** Si la comprobación revienta, la solicitud se acepta y solo queda un `CRITICAL` en el log | Decisión deliberada y documentada: romper el formulario a todos los exploradores es peor que colar una solicitud fuera de plazo, que el supervisor aún puede rechazar. El riesgo era que nadie vigilara ese log. **Mitigado con procedimiento**: la alarma sobre `CIERRE SEMANAL INOPERATIVO` es ahora un ítem obligatorio del despliegue (§ 13.6 y § 13.3, y los checklists de Fargate y EC2). El código no cambia: fallar abierto sigue siendo lo correcto; lo que faltaba era el aviso. **Queda abierto hasta que la alarma exista de verdad en AWS** — créala y pruébala | `solicitudes/services/solicitud_orchestrator.py:144-161`, § 13.6 |
+| B4 | **El cierre semanal falla abierto.** Si la comprobación revienta, la solicitud se acepta y solo queda un `CRITICAL` en el log | Decisión deliberada y documentada: romper el formulario a todos los exploradores es peor que colar una solicitud fuera de plazo, que el supervisor aún puede rechazar. El riesgo era que nadie vigilara ese log. **Mitigado con procedimiento**: la alarma sobre `CIERRE SEMANAL INOPERATIVO` es ahora un ítem obligatorio del despliegue (§ 13.6, § 13.3 y el checklist EC2+RDS FASE 11). El código no cambia: fallar abierto sigue siendo lo correcto; lo que faltaba era el aviso. **Queda abierto hasta que la alarma exista de verdad en AWS** — créala y pruébala | `solicitudes/services/solicitud_orchestrator.py:144-161`, § 13.6 |
 | B5 | **Cobertura con dos compañeros: correo posiblemente irretirable.** Si la segunda creación falla, `transaction.atomic()` borra las dos filas, pero un correo ya enviado no se puede desenviar | El outbox garantiza *como máximo una vez por clave*, no la retirada; el propio docstring de `EmailOutbox` lo dice | `solicitudes/services/solicitud_orchestrator.py:265-280`, `solicitudes/models.py:61-64`. **Alcance sin verificar**: depende de si `crear_solicitud` encola dentro de la misma `atomic()` y de si el worker ya reclamó la fila. Ver § 18 |
-| B6 | **Comandos de diagnóstico con nombre de incidencia en el árbol de producción**: `test_verificar_doblada_jeison`, `validar_fix_doblada_jeison`, `validar_dobladas_junio`, `test_factory` | Scripts puntuales que nunca se retiraron. Confunden a quien llega nuevo y ensucian `manage.py help` | `solicitudes/management/commands/` |
-| B7 | **Rutas comentadas en `urls.py`.** El bloque `permisos-detalle/` está comentado con la nota "COMENTADO TEMPORALMENTE", igual que sus imports. Una de las líneas comentadas apunta además a `PermisoDetalleUpdateView` donde debería ir la de borrado | Deuda: o se restauran o se borran | `solicitudes/urls.py`, bloque de imports y bloque "ADMINISTRACIÓN" |
-| B8 | **CSP estricta en modo report-only indefinido.** La política activa sigue permitiendo cuatro CDN que ninguna plantilla usa ya | Falta confirmar que no hay violaciones para promoverla | `config/settings.py:349-361,399-418` |
+| B15 | **Comandos de diagnóstico con nombre de incidencia en el árbol de producción**: `test_verificar_doblada_jeison`, `validar_fix_doblada_jeison`, `validar_dobladas_junio`, `test_factory` | Scripts puntuales que nunca se retiraron. Confunden a quien llega nuevo y ensucian `manage.py help` | `solicitudes/management/commands/` |
+| B16 | **Rutas comentadas en `urls.py`.** El bloque `permisos-detalle/` está comentado con la nota "COMENTADO TEMPORALMENTE", igual que sus imports. Una de las líneas comentadas apunta además a `PermisoDetalleUpdateView` donde debería ir la de borrado | Deuda: o se restauran o se borran | `solicitudes/urls.py:11` (imports) y `:142-145` (rutas). El error del borrado está en `:145` |
 
 ### 16.4 Resueltos que conviene recordar
 
@@ -2218,6 +2259,8 @@ verdad" del árbol documental. Ver § 18.
 | B11 (cerrado) | `PermisoMediaJornadaCancelResponderView` solo comprobaba `_es_supervisor(request.user)`: cualquier supervisor decidía sobre el permiso de cualquier explorador, aunque el aviso se mandara solo al suyo. Control por **rol** en vez de por **relación** | Dos helpers de módulo en `permisos/views.py`: `_supervisor_del_permiso` (`:561`), fuente única de quién responde por el permiso —`permiso.supervisor or permiso.empleado.supervisor`—, usada por la autorización (`:588`) y por el aviso (`:611`) para que decida y avise la misma persona; y `_puede_responder_cancelacion` (`:569`), con tres reglas: rol de supervisor (`:583`), el dueño no se responde a sí mismo (`:585`) y hay que ser **el** supervisor concreto (`:588-591`), **salvo que el permiso no tenga ninguno resoluble**, en cuyo caso vale cualquiera —matiz deliberado: si no, la petición sería incontestable y caducaría siempre—. La vista carga con `select_related('empleado', 'empleado__supervisor', 'supervisor')` (`:534`). Tests `:158` y `:169` |
 | B13 (cerrado) | **`VENTANA_CANCELACION_MINUTOS = 30` existía dos veces con significados distintos**: legado sin uso en `solicitudes/use_cases/cancelar_solicitud.py` y regla viva en `cambio_descanso_aplicacion_service.py`, donde sostenía el bloqueo temporal del día. Quien leyera una creería haber entendido la otra | **Cerrado por eliminación, no por el renombrado que se anticipaba.** Se retiró el bloqueo temporal —la premisa que lo sostenía murió con la cancelación consensuada, ver [ADR 010](./03-arquitectura/adr/010-dia-de-descanso-libre-tras-el-intercambio.md)— y con él la constante en **los dos** archivos: la del `use_case` era código muerto sin ningún uso. `VENTANA_CANCELACION_MINUTOS` **ya no existe en el proyecto**; los plazos vivos son `VENTANA_PEDIR_CANCELACION_HORAS` y `VENTANA_RESPONDER_CANCELACION_HORAS` (`core/constants.py:201,206`). Suite en verde: **959 tests** |
 | B14 (cerrado) | El modal de aprobación/rechazo de solicitudes enviaba el texto en el campo `comentario`, pero todas las vistas de `aprobacion_views.py` leen `comentario_respuesta`. El comentario del supervisor **nunca se guardaba**: se escribía, se enviaba y se perdía en el camino, sin error visible | El front envía ya `comentario_respuesta` (`static/js/solicitudes/solicitudes_pendientes_list.js`, con el motivo comentado en el propio código para que no se “corrija” de vuelta). Al hacerse obligatorio el comentario (P6) el fallo habría salido igualmente: el backend rechazaría con `comentario_requerido` un formulario aparentemente relleno |
+| B3 (cerrado) | **No había recuperación de contraseña.** Tras 5 intentos fallidos el usuario quedaba bloqueado una hora y su única salida era un administrador | Implementada y enrutada: `core/login/urls.py` declara las **seis** rutas del ciclo completo — `password_change`, `password_change_done`, `password_reset`, `password_reset_done`, `password_reset_confirm` y `password_reset_complete` (`core/login/urls.py:19-35`). Se declaran una a una en vez de con `include('django.contrib.auth.urls')` porque ese include trae su propio `login`/`logout`, que chocarían con las vistas propias; los **nombres** sí son los estándar de Django, así que `{% url 'password_reset' %}` y los enlaces que genera `PasswordResetForm` funcionan sin configuración extra. El correo de reseteo **no pasa por `EmailOutbox`** a propósito (`core/login/views.py:135-137`). Los límites de axes siguen vigentes (`config/settings.py:362-363`). Manual completo: [MANUAL_RECUPERAR_CONTRASENA.md](./05-referencia/deployment/MANUAL_RECUPERAR_CONTRASENA.md) |
+| B8 (cerrado) | **CSP estricta en modo report-only indefinido.** La política activa permitía cuatro CDN que ninguna plantilla usaba ya | **La migración a estáticos locales terminó.** jsDelivr (flatpickr, chart.js, sweetalert2, fullcalendar), cdnjs (Font Awesome) e ionicons se autohospedan en `static/plugins/` y ya no los referencia ninguna plantilla. Barridas las **116** plantillas, el único origen externo que queda es Google Fonts; confirmado eso, la segunda cabecera REPORT-ONLY **se borró** y sus valores son ahora los que se aplican de verdad (`config/settings.py:424-433`). Sigue abierto por decisión —no por olvido— el `'unsafe-inline'` en `script-src`, razonado en el propio `settings.py` |
 | B12 (cerrado) | Los dos mensajes de bloqueo de `cambio_descanso_strategy.py` aconsejaban "cancela ese cambio dentro de los 30 min de aprobado": desde el acuerdo de cancelación consensuada (ADR 009) ni el plazo son 30 minutos ni la cancelación depende de quien lee el mensaje. Un consejo inejecutable | Reescritos (`solicitudes/services/strategies/cambio_descanso_strategy.py:120-128`): ahora dicen esperar a que pase la ventana o pedírselo al supervisor. En esa pasada **solo** cambió el consejo. Después, el bloqueo temporal en sí se **retiró** (ADR 010) y el segundo mensaje, el de "cambio de descanso reciente", quedó **inalcanzable** y se eliminó: hoy queda **uno solo**, el de otro tipo de cambio aplicado (`solicitudes/services/strategies/cambio_descanso_strategy.py:117-120`). Ver B13 |
 
 Los dos primeros están generalizados como **patrón 38** de `PROTECTION_PATTERNS.md` (una credencial
@@ -2234,6 +2277,38 @@ hash corto: el trabajo de la rama `fix/cambio-descanso-temporada` está confirma
 `main`. Varias filas comparten hash porque un mismo commit cierra código, tests y notas de un
 mismo hallazgo; las filas puramente documentales apuntan al commit de documentación que las
 introdujo (`9dc4af1`).
+
+### Despliegue en AWS: se elige EC2 `t4g.micro` y se descarta Fargate
+
+Commit `dd4228c`. Cierra la decisión de infraestructura con un techo de **150.000 COP/mes**
+(~$37 USD) y la escala real de la primera producción: **300 usuarios / 30 solicitudes-día**, un
+tercio de lo que asumía la documentación anterior.
+
+| Qué | Resultado |
+|---|---|
+| **Cómputo** | EC2 `t4g.micro` + RDS `db.t4g.micro` Single-AZ ≈ **$27/mes + IVA** (~130.000 COP) |
+| **Fargate** | **Descartada.** Contando los crons por EventBridge —8.640 lanzamientos/mes que la tabla de costes original no incluía— sale en ~$64/mes con IVA. Su checklist se borró; sigue en el historial en `e0e4388` |
+| **Caché** | `CACHE_URL=db://cache_appturnos`. ElastiCache (~$12/mes) se sale del presupuesto, y Redis en la propia EC2 se comería 200-400 MB del único GB de RAM |
+| **IaC** | `infra/cloudformation/swalp-infra.yaml`, 11 recursos. Ubuntu 24.04 LTS y MySQL 8.4 |
+| **Python** | **Se mantiene 3.12** en `Dockerfile` y CI: es la versión de Ubuntu 24.04 LTS, tiene soporte hasta 2028, y subir solo el contenedor crearía divergencia con producción |
+
+**Errores de documentación corregidos en esa pasada** (los cuatro estaban en documentos que se
+daban por buenos):
+
+1. La arquitectura afirmaba que el burst de CPU estaba *"cubierto por los créditos"*. **Es falso:**
+   RDS fuerza modo *Unlimited* y **no se puede desactivar**, así que factura el excedente. En EC2 sí
+   se puede, y la plantilla lo fija con `CreditSpecification: CPUCredits: standard`.
+2. El presupuesto omitía el **disco EBS de la EC2** ($1,60/mes) y el **IVA colombiano del 19 %**,
+   que es lo que decide si `t4g.small` cabe (no cabe en on-demand).
+3. **FASE 0 del checklist estaba obsoleta**: sus tres puntos ya estaban en el código, y el 0.1 pedía
+   instalar `django-axes` **sin el extra `[ipware]`** — seguirlo habría roto en silencio la
+   detección de IP y bloqueado a los 300 usuarios al quinto fallo de login de cualquiera.
+4. **FASE 5 nunca ejecutaba `createcachetable`**, pese a que el `.env` ya fijaba `CACHE_URL=db://`.
+   La app arrancaba, `check --deploy` pasaba, y petaba en la primera carga de Mis Turnos.
+
+Secciones nuevas en [arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md):
+**§11** (la URL, la IP y las variables paso a paso, con el orden que impone certbot) y **§12**
+(qué va en YAML y qué no, más el orden completo de despliegue).
 
 ### Refactorización SOLID de los cuatro puntos calientes
 
@@ -2481,8 +2556,11 @@ configuración de SonarQube, la cobertura y las correcciones del triaje.
 | 6 | Contenido de `04-guias/manuales/*.docx` ("requisito doblada", "Proceso completo doblada", "estrucutra sql") y de `PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA.docx` | `docs/04-guias/manuales/`, `docs/05-referencia/deployment/` | Ídem |
 | 7 | Si existe integración con Google Apps Script | Búsqueda en `AppTurnosExplora/` | No se encontró referencia en el código; puede vivir fuera del repositorio |
 | 8 | Qué vistas concretas de `turnos/`, `empleados/` y `permisos/` exigen rol supervisor | `core/mixins.py`, `*/urls.py` | Se verificó el mecanismo (`AdminRequiredMixin`, `SupervisorApiRequiredMixin`), no la lista vista por vista |
-| 9 | Si la CSP report-only ha generado violaciones desde su publicación | `config/settings.py:399-418` | Requiere leer los informes del navegador en un entorno desplegado |
-| 10 | Contenido exacto del `Dockerfile` (imagen base, usuario, `HEALTHCHECK`, `ENTRYPOINT`) | `AppTurnosExplora/Dockerfile` | Solo se verificó la versión de Python; el resto se cita desde documentación previa |
+| ~~9~~ | ~~Si la CSP report-only ha generado violaciones desde su publicación~~ | **YA NO APLICA** (2026-09-04) | La cabecera report-only **se borró**: barridas las 116 plantillas, el único origen externo que queda es Google Fonts, y sus valores son ahora los que se aplican de verdad (`config/settings.py:424-433`). Ver B8 en § 16.4 |
+| ~~10~~ | ~~Contenido exacto del `Dockerfile`~~ | **RESUELTO** (2026-09-04) | Leído completo: `python:3.12-slim`, usuario `appuser` sin privilegios, `HEALTHCHECK` que acepta cualquier respuesta `< 500` sobre `/health/` —porque en producción `ALLOWED_HOSTS` hace que `127.0.0.1` responda 400 y exigir 200 mataría el contenedor en bucle—, y `CMD` con `migrate` + Gunicorn a `GUNICORN_WORKERS` (3 por defecto; no se calcula con `nproc` porque dentro de un contenedor devuelve los núcleos del anfitrión) |
+| 11 | Que la plantilla `infra/cloudformation/swalp-infra.yaml` despliega sin errores en AWS | La plantilla | **Solo se validó la sintaxis YAML y los tipos de recurso; no se ha ejecutado contra una cuenta real.** Probarla primero con `--stack-name swalp-test` y borrarla después, comprobando que `delete-stack` no deja recursos huérfanos cobrando |
+| 12 | Las fechas de fin de soporte estándar de MySQL 8.0 y 8.4 en RDS | Documentación de AWS vía Context7 | La documentación describe el **mecanismo** (Extended Support se cobra por vCPU-hora) pero sus fechas concretas dependen de la región y del momento. Verificar antes de desplegar con `aws rds describe-db-major-engine-versions --engine mysql` |
+| 13 | Los precios unitarios de AWS citados en la arquitectura (§5) | Páginas de precios de terceros (Vantage, Holori) y de AWS | Contrastados entre varias fuentes y coherentes entre sí, pero **no verificados contra la factura real ni contra la Pricing Calculator con la cuenta del proyecto**. El IVA colombiano del 19 % está confirmado como tarifa general, no como trato fiscal concreto de esta entidad |
 | 11 | Frecuencia real del cron de `procesar_email_outbox` en producción | [MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md) | No está en el código: es configuración de infraestructura |
 | 12 | Si la sección "deuda conocida pendiente de decisión" de `PROTECTION_PATTERNS.md:2180` sigue vigente | `PROTECTION_PATTERNS.md` | Se leyó el índice, no el contenido completo de esa sección |
 | 13 | Si `CierreSolicitudesConfig.habilitado` está activo en el entorno real | `solicitudes/models.py:802` | El valor por defecto es `False`; el estado real es un dato de producción |
