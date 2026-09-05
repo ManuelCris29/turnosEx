@@ -3,6 +3,9 @@ from django.urls import path
 from .views import (
     AsignarRolesSalasView,
     ChangePasswordView,
+    CreditoHorasAnularView,
+    CreditoHorasCreateView,
+    CreditoHorasListView,
     DeudasPendientesExploradorView,
     EmpleadoBajaView,
     EmpleadoDetailView,
@@ -87,6 +90,11 @@ urlpatterns = [
     path('pdh/deudas-pendientes/', DeudasPendientesExploradorView.as_view(), name='pdh_deudas_pendientes'),
     path('pdh/edit/<int:pk>/', PDHUpdateView.as_view(), name='pdh_edit'),
     path('pdh/delete/<int:pk>/', PDHDeleteView.as_view(), name='pdh_delete'),
+    # Horas a favor: lo que la corporación le debe al explorador y se descuenta de su deuda.
+    path('credito-horas/', CreditoHorasListView.as_view(), name='credito_list'),
+    path('credito-horas/create/', CreditoHorasCreateView.as_view(), name='credito_create'),
+    # Sin ruta de borrado a propósito: un crédito no se elimina, se anula (deja rastro).
+    path('credito-horas/anular/<int:pk>/', CreditoHorasAnularView.as_view(), name='credito_anular'),
     path('sanciones/visualizar/', SancionVisualizarListView.as_view(), name='sanciones_visualizar'),
     path('restricciones/visualizar/', RestriccionVisualizarListView.as_view(), name='restricciones_visualizar'),
     path('change-password/<int:user_id>/', ChangePasswordView.as_view(), name='change_password'),

@@ -4,6 +4,11 @@ Este paquete reemplaza el antiguo módulo empleados/views.py (961 líneas). El
 __init__ re-exporta todas las vistas para que `from .views import X` (en
 empleados/urls.py) siga funcionando sin cambios.
 """
+from .credito import (
+    CreditoHorasAnularView,
+    CreditoHorasCreateView,
+    CreditoHorasListView,
+)
 from .empleado import (
     AsignarRolesSalasForm,
     AsignarRolesSalasView,
@@ -65,6 +70,9 @@ from .sanciones import (
 )
 
 __all__ = [
+    'CreditoHorasAnularView',
+    'CreditoHorasCreateView',
+    'CreditoHorasListView',
     # empleado
     'EmpleadoListView', 'EmpleadoDetailView', 'EmpleadoEditForm', 'EmpleadoEditView',
     'EmpleadoBajaView',

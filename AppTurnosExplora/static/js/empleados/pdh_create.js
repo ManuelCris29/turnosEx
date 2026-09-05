@@ -4,6 +4,10 @@
   const totalBox = document.getElementById('pdh_total_box');
   const btn = document.getElementById('btn_pagar');
   const URL_DEUDAS = cont.dataset.url;
+  const credBloque = document.getElementById('credito_bloque');
+  const credSaldoBox = document.getElementById('credito_saldo');
+  const credInput = document.getElementById('horas_credito');
+  let credDisponible = 0;
 
   // Si el POST volvió con error, el servidor nos devuelve lo que ya estaba marcado.
   let preseleccion = [];
@@ -35,6 +39,19 @@
     });
     totalBox.textContent = redondear(total) + ' h';
     btn.disabled = (n === 0);
+    limitarCredito(total);
+  }
+
+  // El crédito es un MEDIO DE PAGO de este PDH, así que no puede exceder ni el saldo a
+  // favor ni lo que el pago salda. El tope se recalcula con cada cambio de selección
+  // porque el total baila: si no, un importe válido para 2 h quedaría de más al desmarcar
+  // una deuda, y el servidor lo rechazaría tras enviar el formulario.
+  function limitarCredito(total){
+    if (!credInput) return;
+    const tope = redondear(Math.min(credDisponible, total));
+    credInput.max = String(tope);
+    const valor = parseFloat(credInput.value || '0');
+    if (!isNaN(valor) && valor > tope) credInput.value = tope > 0 ? String(tope) : '';
   }
 
   function span(className, texto){
@@ -153,11 +170,22 @@
     mensaje('Cargando deudas…');
     fetch(`${URL_DEUDAS}?explorador_id=${encodeURIComponent(id)}`, {headers:{'X-Requested-With':'XMLHttpRequest'}})
       .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-      .then(data => render(data.meses, marcar))
+      .then(data => { mostrarCredito(data.horas_credito || 0); render(data.meses, marcar); })
       .catch(() => { mensaje('Error al cargar las deudas.', 'text-danger'); recalcular(); });
   }
 
-  sel.addEventListener('change', function(){ cargar(sel.value, []); });
+  // Sin saldo no se enseña el bloque: un campo a cero solo invita a preguntar qué es.
+  function mostrarCredito(horas){
+    credDisponible = parseFloat(horas) || 0;
+    if (!credBloque) return;
+    credBloque.hidden = credDisponible <= 0;
+    if (credSaldoBox) credSaldoBox.textContent = String(credDisponible);
+    if (credBloque.hidden && credInput) credInput.value = '';
+  }
+
+  if (credInput) credInput.addEventListener('input', recalcular);
+
+  sel.addEventListener('change', function(){ mostrarCredito(0); cargar(sel.value, []); });
 
   if (sel.value) {
     cargar(sel.value, preseleccion);

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from django.contrib.auth.models import User
 
@@ -385,6 +387,82 @@ class PDHForm(forms.ModelForm):
         if not comentario:
             raise forms.ValidationError('Escribe una nota explicando el pago.')
         return comentario
+
+
+class CreditoHorasForm(forms.ModelForm):
+    """
+    Registro de horas que la corporación le debe a un explorador.
+
+    El supervisor teclea HORAS (1, 0.5) porque es como se habla del turno, pero el modelo
+    guarda MINUTOS enteros —igual que `DeudaPermisoMes` y `DeudaCorporativa`— para que el
+    saldo no arrastre errores de coma flotante al sumarse y restarse muchas veces.
+    """
+    explorador = forms.ModelChoiceField(
+        queryset=Empleado.objects.none(),
+        label='Explorador',
+        widget=forms.Select(attrs={'class': 'form-select'}),
+    )
+    fecha_hecho = forms.DateField(
+        label='Fecha en que trabajó de más',
+        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+    )
+    # `min_value` DEBE ser el mismo cuarto de hora que el `step`. En HTML5 los pasos se
+    # cuentan DESDE el mínimo, así que con min=0.01 las flechas del campo ofrecían 0.01,
+    # 0.26, 0.51… — valores que después rechazaba `clean_horas` por no ser múltiplos.
+    horas = forms.DecimalField(
+        label='Horas a favor', min_value=Decimal('0.25'), max_value=Decimal('24'),
+        max_digits=5, decimal_places=2,
+        help_text='Por ejemplo 1 = una hora, 0.5 = media hora. Mínimo 0.25 (15 minutos).',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.25'}),
+    )
+
+    class Meta:
+        from permisos.models import CreditoHoras
+        model = CreditoHoras
+        # `minutos_otorgados` no se expone: lo deriva `save()` desde el campo `horas`.
+        fields = ['explorador', 'fecha_hecho', 'motivo']
+        labels = {'motivo': 'Motivo'}
+        widgets = {
+            'motivo': forms.Textarea(attrs={
+                'class': 'form-control', 'rows': 2,
+                'placeholder': 'Ej.: entró a las 07:00 en vez de las 08:00 por indicación del supervisor'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['explorador'].queryset = (
+            Empleado.objects.filter(activo=True).order_by('nombre', 'apellido')
+        )
+        # El motivo es obligatorio: es el único rastro de por qué se le reconocen horas.
+        self.fields['motivo'].required = True
+
+    def clean_motivo(self):
+        motivo = (self.cleaned_data.get('motivo') or '').strip()
+        if not motivo:
+            raise forms.ValidationError('Escribe el motivo por el que se le deben estas horas.')
+        return motivo
+
+    def clean_horas(self):
+        horas = self.cleaned_data['horas']
+        # Los turnos se manejan en cuartos de hora; aceptar 0.37 h daría un crédito que
+        # nadie puede casar con un horario real.
+        if (horas * 4) % 1 != 0:
+            raise forms.ValidationError('Las horas deben ir en múltiplos de 0.25 (15 minutos).')
+        return horas
+
+    def clean(self):
+        # `minutos_otorgados` no es un campo del formulario: lo deriva de `horas`. Se
+        # rellena aquí porque `_post_clean` valida la instancia justo después.
+        cleaned = super().clean()
+        horas = cleaned.get('horas')
+        if horas is not None:
+            self.instance.minutos_otorgados = int(horas * 60)
+        return cleaned
+
+    @property
+    def minutos(self) -> int:
+        """Las horas del formulario en minutos enteros, para el servicio."""
+        return int(self.cleaned_data['horas'] * 60)
 
 
 class EmpleadoUsuarioForm(forms.Form):

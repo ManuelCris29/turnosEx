@@ -54,6 +54,26 @@
             <span id="pdh_total_box">0.0 h</span>
           </div>
 
+          <!-- Horas a favor: solo aparece si el explorador tiene saldo (lo dice el AJAX). -->
+          <div class="form-group" id="credito_bloque" hidden
+               style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px;padding:10px 14px;">
+            <label for="horas_credito" style="margin-bottom:.35rem;">
+              <i class="fas fa-hand-holding-usd"></i> Horas a favor del explorador
+            </label>
+            <div class="d-flex align-items-center gap-2" style="flex-wrap:wrap;">
+              <span class="text-muted">Disponibles: <strong id="credito_saldo">0</strong> h.</span>
+              <span class="text-muted">Aplicar a este pago:</span>
+              <input type="number" name="horas_credito" id="horas_credito" class="form-control"
+                     style="max-width:110px;" step="0.25" min="0" value="{{ datos.horas_credito }}"
+                     title="No puede superar ni el saldo a favor ni el total a pagar">
+              <span class="text-muted">h</span>
+            </div>
+            <small class="text-muted d-block mt-1">
+              Lo que el supervisor o la corporación le deben al explorador. Se descuenta de lo
+              que él debe y el remanente queda disponible para deudas futuras.
+            </small>
+          </div>
+
           <div class="form-group">
             <label for="comentario">Nota <span class="text-danger">*</span></label>
             <textarea name="comentario" id="comentario" class="form-control" rows="2" required maxlength="1000" placeholder="Explica el pago">{{ datos.comentario }}</textarea>

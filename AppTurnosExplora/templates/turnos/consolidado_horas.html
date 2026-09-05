@@ -57,6 +57,24 @@
                         <span>+ <b>{{ consolidado.total_extinguido_sancion }}</b> extinguido por sanción</span>
                     </div>
                 </div>
+                {% if consolidado.total_credito %}
+                {# El neto va aparte del saldo: el saldo es lo que él debe, y las horas a
+                   favor son una deuda de la corporación hacia él. Restarlas dentro del
+                   saldo escondería una de las dos cifras. #}
+                <div class="ch-historico">
+                    <div class="ch-historico-tit">
+                        {% if consolidado.saldo_neto < 0 %}
+                            A su favor: {{ consolidado.saldo_neto|slice:"1:" }} h
+                        {% else %}
+                            Neto tras horas a favor: {{ consolidado.saldo_neto }} h
+                        {% endif %}
+                    </div>
+                    <div class="ch-historico-desglose">
+                        <span><b>{{ consolidado.total_horas }}</b> pendiente</span>
+                        <span>− <b>{{ consolidado.total_credito }}</b> a su favor</span>
+                    </div>
+                </div>
+                {% endif %}
             </div>
         </div>
 
@@ -214,6 +232,35 @@
             <div class="ch-empty">Sin pagos de horas registrados. Los registra un supervisor en la sección PDH.</div>
             {% endif %}
         </div>
+
+        {# --- Horas a favor: la corporación se las debe A ÉL, no al revés. Sección propia
+               y no una fila más de los descuentos, porque un PDH constata lo que él ya
+               debía y esto es un compromiso en sentido contrario. --- #}
+        {% if consolidado.creditos %}
+        <div class="ch-section">
+            <div class="ch-section-title" style="background:#ecfdf5;color:#065f46;">
+                <span><i class="fas fa-hand-holding-usd mr-2"></i>Horas a favor (se las deben)</span>
+                <span class="badge badge-horas">+ {{ consolidado.total_credito }} h</span>
+            </div>
+            <div class="table-responsive">
+                <table class="table table-sm table-striped mb-0">
+                    <thead><tr><th>Fecha del hecho</th><th>Disponibles</th><th>Reconocidas</th><th>Quien reconoce</th><th>Motivo</th></tr></thead>
+                    <tbody>
+                    {% for c in consolidado.creditos %}
+                        <tr>
+                            <td>{{ c.fecha_str }}</td>
+                            <td class="text-success">+{{ c.horas }}</td>
+                            <td class="text-muted">{{ c.horas_otorgadas }}</td>
+                            <td>{{ c.lider }}</td>
+                            <td>{{ c.motivo }}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="ch-empty">Se descuentan al registrar un pago de horas; lo que sobre queda disponible.</div>
+        </div>
+        {% endif %}
 
         {# --- Extinguido por una sanción: cumplida (el castigo fue el pago) o levantada
                (el supervisor perdonó el hecho y con él la deuda). Misma sección porque el

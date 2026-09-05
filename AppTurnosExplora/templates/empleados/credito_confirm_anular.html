@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Anular horas a favor{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content" style="max-width:560px;">
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert {% if 'error' in m.tags %}alert-danger{% else %}alert-success{% endif %} shadow-sm">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head" style="background:linear-gradient(135deg,#ef4444,#f97316);">
+        <h3><i class="fas fa-exclamation-triangle"></i> Anular horas a favor</h3>
+      </div>
+      <div class="pg-card-body">
+        <p>¿Anular las <strong>{{ credito.horas_otorgadas }} h</strong> a favor de
+           <strong>{{ credito.explorador.nombre }} {{ credito.explorador.apellido }}</strong>
+           del {{ credito.fecha_hecho|date:"d/m/Y" }}?</p>
+        <p class="text-muted">
+          No se borra: queda registrado como anulado, con el motivo, para que se pueda
+          explicar más adelante por qué dejaron de deberse esas horas.
+        </p>
+        <form method="post" class="pg-form">
+          {% csrf_token %}
+          <div class="form-group">
+            <label for="motivo">Motivo de la anulación <span class="text-danger">*</span></label>
+            <textarea name="motivo" id="motivo" class="form-control" rows="2" required maxlength="1000"
+                      placeholder="Explica por qué se anula"></textarea>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button type="submit" class="pg-btn pg-btn-danger"><i class="fas fa-ban"></i> Anular</button>
+            <a href="{% url 'credito_list' %}" class="pg-btn pg-btn-secondary">Cancelar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

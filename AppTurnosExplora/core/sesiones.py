@@ -123,6 +123,12 @@ SESIONES = (
     Sesion('pdh', 'PDH (Pago de Horas)', GRUPO_ADMIN,
            ['pdh_list', 'pdh_create', 'pdh_edit', 'pdh_delete'],
            defecto_explorador=False),
+    # Sesión aparte de 'pdh' y no fusionada con ella: reconocer horas a favor es
+    # comprometer a la corporación, mientras que un PDH solo constata lo que el explorador
+    # ya debía. Separarlas permite dar el pago sin dar la potestad de generar crédito.
+    Sesion('credito_horas', 'Horas a favor del explorador', GRUPO_ADMIN,
+           ['credito_list', 'credito_create', 'credito_anular'],
+           defecto_explorador=False),
     # ⚠ 'sanciones_list' NO se lista aquí a propósito: es una pantalla
     # compartida que al explorador le enseña solo SUS sanciones. Bloquearla
     # dejaría al supervisor sin poder ver las propias. Apagar esta sesión lo

@@ -284,6 +284,24 @@ class ConsolidadoHorasService:
             })
         total_pagado = round(sum(p['horas'] for p in pagos), 2)
 
+        # --- Horas a favor: lo que la corporación le debe A ÉL ---
+        # No se restan de `total_horas`: esa clave es la deuda pendiente y la consultan la
+        # vista de morosos y las plantillas. El neto va aparte, en `saldo_neto`.
+        from permisos.credito_horas_service import CreditoHorasService
+        creditos = [
+            {
+                'fecha': c.fecha_hecho,
+                'fecha_str': _fecha_es(c.fecha_hecho),
+                'horas': c.horas_pendientes,
+                'horas_otorgadas': c.horas_otorgadas,
+                'motivo': c.motivo,
+                'lider': (f'{c.otorgado_por.nombre} {c.otorgado_por.apellido}'
+                          if c.otorgado_por else '—'),
+            }
+            for c in CreditoHorasService.creditos_disponibles(empleado).select_related('otorgado_por')
+        ]
+        total_credito = round(sum(c['horas'] for c in creditos), 2)
+
         # --- Saldado por sanción cumplida: ni pendiente ni pagado, pero tampoco invisible ---
         sanciones = ConsolidadoHorasService._extinguidas_por_sancion(empleado)
         total_extinguido_sancion = round(float(sum(x['horas'] for x in sanciones)), 2)
@@ -309,4 +327,8 @@ class ConsolidadoHorasService:
             'total_pagado': total_pagado,
             # total_horas = saldo pendiente (lo que aún debe)
             'total_horas': saldo,
+            'creditos': creditos,
+            'total_credito': total_credito,
+            # Neto tras las horas a favor. NEGATIVO = la corporación le debe a él.
+            'saldo_neto': round(saldo - total_credito, 2),
         }

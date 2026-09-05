@@ -1,0 +1,130 @@
+{% extends 'base.html' %}
+{% load static static_version %}
+
+{% block title %}Horas a favor del explorador{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="pg-container">
+  <div class="pg-content">
+    <div class="pg-header">
+      <h1 class="pg-title"><i class="fas fa-hand-holding-usd"></i> Horas a favor del explorador</h1>
+      <p class="pg-subtitle">Lo que el supervisor o la corporación le deben — se descuenta cuando el explorador tenga horas pendientes por pagar</p>
+    </div>
+
+    {% if messages %}
+      {% for m in messages %}
+        <div class="alert {% if 'error' in m.tags %}alert-danger{% elif 'warning' in m.tags %}alert-warning{% else %}alert-success{% endif %} shadow-sm">{{ m }}</div>
+      {% endfor %}
+    {% endif %}
+
+    <div class="pg-card mb-3">
+      <div class="pg-card-body">
+        <form method="get" class="d-flex flex-wrap align-items-end" style="gap:12px;">
+          <div class="form-group mb-0">
+            <label for="f_explorador">Explorador</label>
+            <select name="explorador" id="f_explorador" class="form-control">
+              <option value="">Todos</option>
+              {% for e in exploradores %}
+                <option value="{{ e.id }}" {% if filtros.explorador == e.id|stringformat:"s" %}selected{% endif %}>{{ e.nombre }} {{ e.apellido }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group mb-0">
+            <label for="f_estado">Estado</label>
+            <select name="estado" id="f_estado" class="form-control">
+              <option value="">Todos</option>
+              {% for valor, etiqueta in estados %}
+                <option value="{{ valor }}" {% if filtros.estado == valor %}selected{% endif %}>{{ etiqueta }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group mb-0">
+            <label for="f_desde">Desde</label>
+            <input type="date" name="desde" id="f_desde" class="form-control" value="{{ filtros.desde }}">
+          </div>
+          <div class="form-group mb-0">
+            <label for="f_hasta">Hasta</label>
+            <input type="date" name="hasta" id="f_hasta" class="form-control" value="{{ filtros.hasta }}">
+          </div>
+          <div class="form-group mb-0">
+            <button type="submit" class="pg-btn pg-btn-primary"><i class="fas fa-filter"></i> Filtrar</button>
+            <a href="{% url 'credito_list' %}" class="pg-btn pg-btn-secondary">Limpiar</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if saldo_horas is not None %}
+      <div class="alert alert-success shadow-sm">
+        Saldo a favor disponible de este explorador: <strong>{{ saldo_horas }} h</strong>.
+        Se puede aplicar al registrar un pago de horas.
+      </div>
+    {% endif %}
+
+    <div class="pg-card">
+      <div class="pg-card-head amber">
+        <h3><i class="fas fa-list-ul"></i> Horas reconocidas</h3>
+        <div class="pg-actions">
+          <a href="{% url 'credito_create' %}" class="pg-btn pg-btn-light"><i class="fas fa-plus"></i> Registrar horas a favor</a>
+        </div>
+      </div>
+      <div class="pg-card-body">
+        <div class="pg-table-wrap">
+          <table class="pg-table">
+            <thead>
+              <tr>
+                <th>Explorador</th>
+                <th>Fecha del hecho</th>
+                <th>Reconocidas</th>
+                <th>Disponibles</th>
+                <th>Estado</th>
+                <th>Quien reconoce</th>
+                <th>Motivo</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for c in creditos %}
+              <tr>
+                <td>{{ c.explorador.nombre }} {{ c.explorador.apellido }}</td>
+                <td>{{ c.fecha_hecho|date:"d/m/Y" }}</td>
+                <td><span class="pg-chip pg-chip-si">+{{ c.horas_otorgadas }} h</span></td>
+                <td>{{ c.horas_pendientes }} h</td>
+                <td>{{ c.get_estado_display }}</td>
+                <td>{{ c.otorgado_por.nombre }} {{ c.otorgado_por.apellido }}</td>
+                <td>{{ c.motivo|default:"—" }}</td>
+                <td style="white-space:nowrap;">
+                  {% if c.estado == 'activo' and c.minutos_consumidos == 0 %}
+                    <a href="{% url 'credito_anular' c.id %}" class="pg-btn pg-btn-danger pg-btn-sm" title="Anular"><i class="fas fa-ban"></i></a>
+                  {% endif %}
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="8"><div class="pg-empty"><i class="fas fa-inbox fa-2x mb-2 d-block"></i>No hay horas a favor registradas.</div></td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {% if is_paginated %}
+        <div class="d-flex align-items-center justify-content-between mt-3" style="gap:12px;">
+          <span class="text-muted">Página {{ page_obj.number }} de {{ paginator.num_pages }} — {{ paginator.count }} registro(s)</span>
+          <div style="white-space:nowrap;">
+            {% if page_obj.has_previous %}
+              <a href="?page={{ page_obj.previous_page_number }}{% if querystring %}&{{ querystring }}{% endif %}" class="pg-btn pg-btn-secondary pg-btn-sm"><i class="fas fa-chevron-left"></i> Anterior</a>
+            {% endif %}
+            {% if page_obj.has_next %}
+              <a href="?page={{ page_obj.next_page_number }}{% if querystring %}&{{ querystring }}{% endif %}" class="pg-btn pg-btn-secondary pg-btn-sm">Siguiente <i class="fas fa-chevron-right"></i></a>
+            {% endif %}
+          </div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

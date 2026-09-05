@@ -277,6 +277,15 @@
                         </li>
                         {% endif %}
 
+                        {% if sesiones.credito_horas %}
+                        <li class="nav-item">
+                            <a href="{% url 'credito_list' %}" class="nav-link">
+                                <i class="nav-icon fas fa-hand-holding-usd"></i>
+                                <p>Horas a favor</p>
+                            </a>
+                        </li>
+                        {% endif %}
+
                         {% if sesiones.sanciones %}
                         <li class="nav-item">
                             <a href="{% url 'sanciones_list' %}" class="nav-link">

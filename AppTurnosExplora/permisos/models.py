@@ -1,3 +1,4 @@
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from simple_history.models import HistoricalRecords
 
@@ -31,6 +32,12 @@ class PDH(models.Model):
     permisos_pagados = models.ManyToManyField('permisos.PermisoEspecial', blank=True,
                                               related_name='pdhs_pago',
                                               help_text='Permisos aprobados que paga este registro.')
+    # Horas a favor aplicadas a este pago. Igual que `deudas_permiso_mes`, va por tabla
+    # intermedia: el crédito se consume a trozos y repartido entre varios créditos.
+    creditos_consumidos = models.ManyToManyField('permisos.CreditoHoras', blank=True,
+                                                 through='permisos.ConsumoCreditoHoras',
+                                                 related_name='pdhs_consumo',
+                                                 help_text='Horas a favor que cubren este pago.')
     historial=HistoricalRecords()
     
     class Meta:
@@ -343,3 +350,108 @@ class PagoDeudaPermisoMes(models.Model):
 
     def __str__(self):
         return f'PDH {self.pdh_id} → deuda {self.deuda_id}: {self.minutos} min'
+
+
+class CreditoHoras(models.Model):
+    """
+    Horas que la corporación le debe AL explorador, disponibles para saldar deuda suya.
+
+    Todo el sistema de horas nace unidireccional: `DeudaPermisoMes.minutos_pendientes`
+    dice literalmente que un exceso no genera crédito. Pero el caso contrario ocurre —al
+    explorador de 08:00 a 14:00 le piden entrar a las 07:00— y sin sitio donde anotarlo
+    esa hora se perdía en cuanto se saldaba la deuda menor que tuviera encima.
+
+    Es una BOLSA, no un ajuste a una deuda concreta: se otorga por el hecho (el día que
+    trabajó de más) y sobrevive a los pagos, así que el remanente queda disponible para
+    deudas futuras. Se consume en orden FIFO —lo más antiguo primero— para que un crédito
+    no se quede indefinidamente al fondo de la cola.
+
+    NO interviene en la sanción. Un mes vencido sigue sancionando aunque se salde con
+    crédito: el crédito reduce lo adeudado, no borra el haber dejado vencer el plazo.
+    Ver `DeudaCorporativaService.gestionar_sancion_por_deuda`, que no lo consulta.
+    """
+    ESTADO_CHOICES = [
+        ('activo', 'Activo'),
+        ('consumido', 'Consumido'),
+        ('anulado', 'Anulado'),
+    ]
+
+    explorador = models.ForeignKey(
+        Empleado, on_delete=models.CASCADE, related_name='creditos_horas',
+        help_text='Explorador a quien se le deben las horas.')
+    fecha_hecho = models.DateField(
+        help_text='Día en que trabajó de más y se generó el crédito.')
+    # Los topes van como validadores DEL CAMPO y no en `clean()`: un ModelForm que no
+    # expone `minutos_otorgados` lo excluye de la validación, mientras que `clean()` corre
+    # siempre. Estando en `clean()`, un error en el campo `horas` del formulario dejaba
+    # `minutos_otorgados` en None y añadía un segundo error contradictorio («deben ser
+    # mayores a cero») encima del real. `full_clean()` del servicio sí los aplica.
+    minutos_otorgados = models.PositiveIntegerField(
+        validators=[MinValueValidator(1, 'Las horas a favor deben ser mayores a cero.'),
+                    MaxValueValidator(24 * 60, 'Las horas a favor no pueden ser mayores a 24.')],
+        help_text='Minutos que se le reconocen.')
+    minutos_consumidos = models.PositiveIntegerField(
+        default=0, help_text='Lo ya aplicado a pagos. Permite el consumo parcial.')
+    motivo = models.TextField(help_text='Por qué se le deben estas horas.')
+    otorgado_por = models.ForeignKey(
+        Empleado, on_delete=models.CASCADE, related_name='creditos_otorgados',
+        help_text='Supervisor/admin que reconoce las horas.')
+    estado = models.CharField(max_length=15, choices=ESTADO_CHOICES, default='activo')
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+    historial = HistoricalRecords()
+
+    class Meta:
+        verbose_name = 'Crédito de horas'
+        verbose_name_plural = 'Créditos de horas'
+        # FIFO: el consumo recorre en este orden, así que el más antiguo se gasta primero.
+        ordering = ['fecha_hecho', 'id']
+        indexes = [
+            models.Index(fields=['explorador', 'estado'], name='credito_exp_estado_idx'),
+        ]
+
+    @property
+    def minutos_pendientes(self) -> int:
+        """Crédito todavía disponible. Nunca negativo."""
+        return max(0, self.minutos_otorgados - self.minutos_consumidos)
+
+    @property
+    def horas_otorgadas(self) -> float:
+        return round(self.minutos_otorgados / 60, 2)
+
+    @property
+    def horas_consumidas(self) -> float:
+        return round(self.minutos_consumidos / 60, 2)
+
+    @property
+    def horas_pendientes(self) -> float:
+        return round(self.minutos_pendientes / 60, 2)
+
+    def __str__(self):
+        return (f'{self.explorador} — {self.fecha_hecho}: '
+                f'{self.horas_pendientes} h a favor de {self.horas_otorgadas} h')
+
+
+class ConsumoCreditoHoras(models.Model):
+    """
+    Cuántos minutos de crédito aplica un PDH concreto.
+
+    Mismo motivo que `PagoDeudaPermisoMes`: el consumo puede ser PARCIAL y repartirse
+    entre varios créditos, así que sin el importe por fila borrar el PDH no sabría cuánto
+    devolver a cada uno.
+    """
+    pdh = models.ForeignKey(PDH, on_delete=models.CASCADE, related_name='detalles_credito')
+    # PROTECT, como en `PagoDeudaPermisoMes`: un crédito con consumos encima no se borra
+    # dejando el PDH cuadrando contra la nada. Primero se revierte, después se toca.
+    credito = models.ForeignKey(CreditoHoras, on_delete=models.PROTECT, related_name='consumos')
+    minutos = models.PositiveIntegerField(help_text='Minutos de ese crédito que aplica este pago.')
+
+    class Meta:
+        verbose_name = 'Detalle de consumo de crédito'
+        verbose_name_plural = 'Detalles de consumo de crédito'
+        constraints = [
+            models.UniqueConstraint(fields=['pdh', 'credito'], name='consumo_credito_horas_unico'),
+        ]
+
+    def __str__(self):
+        return f'PDH {self.pdh_id} → crédito {self.credito_id}: {self.minutos} min'

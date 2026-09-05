@@ -70,6 +70,7 @@ class DeudasPendientesExploradorView(LoginRequiredMixin, AdminRequiredMixin, Vie
             emp = Empleado.objects.get(id=int(explorador_id))
         except Empleado.DoesNotExist:
             return JsonResponse({'success': False, 'deudas': [], 'total_horas': 0})
+        from permisos.credito_horas_service import CreditoHorasService
         grupos = PagoHorasService.deudas_pendientes(emp)
         # `fecha` es un objeto date y no viaja a JSON; la pantalla usa `fecha_str`.
         data = [
@@ -78,7 +79,13 @@ class DeudasPendientesExploradorView(LoginRequiredMixin, AdminRequiredMixin, Vie
             for g in grupos
         ]
         total = round(sum(g['horas_pendientes'] for g in grupos), 2)
-        return JsonResponse({'success': True, 'meses': data, 'total_horas': total})
+        # Horas a favor: la pantalla las ofrece como medio de pago junto a las deudas.
+        return JsonResponse({
+            'success': True,
+            'meses': data,
+            'total_horas': total,
+            'horas_credito': CreditoHorasService.horas_disponibles(emp),
+        })
 
 
 class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
@@ -119,8 +126,11 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
             for campo, valor in request.POST.items()
             if campo.startswith('horas_permisomes:')
         }
+        # Horas a favor que el explorador aplica a este pago (opcional).
+        horas_credito_str = (request.POST.get('horas_credito') or '').strip()
         datos = {'explorador': explorador_id, 'fecha': fecha_str,
-                 'comentario': comentario, 'deudas': keys}
+                 'comentario': comentario, 'deudas': keys,
+                 'horas_credito': horas_credito_str}
 
         supervisor = getattr(request.user, 'empleado', None)
         if supervisor is None:
@@ -156,11 +166,37 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         if error:
             return self._error(request, error, datos)
 
+        # El crédito se aplica DESPUÉS de crear el PDH porque se valida contra sus horas:
+        # no puede cubrir más de lo que ese pago salda. Si falla, se deshace el pago entero
+        # —`transaction.atomic` en el bloque— para no dejar un PDH sin el crédito que el
+        # supervisor creía estar usando.
+        if horas_credito_str:
+            from permisos.credito_horas_service import CreditoHorasService
+            try:
+                minutos_credito = round(float(horas_credito_str.replace(',', '.')) * 60)
+            except (TypeError, ValueError):
+                minutos_credito = None
+            if minutos_credito is None or minutos_credito < 0:
+                with transaction.atomic():
+                    PagoHorasService.revertir_pago(pdh)
+                    pdh.delete()
+                return self._error(request, 'Las horas a favor a aplicar no son un número válido.', datos)
+            _, error_credito = CreditoHorasService.consumir(pdh, minutos_credito)
+            if error_credito:
+                with transaction.atomic():
+                    PagoHorasService.revertir_pago(pdh)
+                    pdh.delete()
+                return self._error(request, error_credito, datos)
+
         saldadas = pdh.deudas_pagadas.count() + pdh.detalles_permiso_mes.count()
+        aviso_credito = ''
+        if horas_credito_str:
+            aviso_credito = (f' Se aplicaron {horas_credito_str} h de las que se le debían '
+                             f'al explorador.')
         messages.success(
             request,
             f'Pago de {pdh.horas} h registrado para {explorador.nombre} {explorador.apellido}. '
-            f'Se saldaron {saldadas} deuda(s) y se descuenta de su consolidado.'
+            f'Se saldaron {saldadas} deuda(s) y se descuenta de su consolidado.' + aviso_credito
         )
         # Ya no puede LEVANTAR nada —la sanción se cumple entera—, pero sigue haciendo
         # falta: si el pago fue parcial y el mes sigue con saldo vencido, la sanción que
@@ -199,11 +235,15 @@ class PDHDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
         # Al borrar el pago, reactivar las deudas que saldaba (vuelven a pendientes).
         # Todo en una transacción: si el DELETE falla tras revertir, las deudas quedarían
         # reactivadas con el PDH todavía vivo y se contarían dos veces.
+        from permisos.credito_horas_service import CreditoHorasService
         from permisos.pago_horas_service import PagoHorasService
         from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
         pdh = self.object
         explorador = pdh.explorador
         PagoHorasService.revertir_pago(pdh)
+        # Las horas a favor que cubrían este pago vuelven a la bolsa del explorador: si no,
+        # borrar el pago le haría perder un crédito que nunca llegó a disfrutar.
+        CreditoHorasService.revertir_consumos(pdh)
         resp = super().form_valid(form)
 
         # Fuera de la transacción: un fallo aquí no debe romper el borrado ya confirmado
