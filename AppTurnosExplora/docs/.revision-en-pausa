@@ -1,5 +1,0 @@
-# Pausado el 2026-09-05 10:29 en la rama docs/manuales-tras-refactor-solid
-# Motivo: trabajo de infraestructura: plantilla CloudFormation y despliegue EC2
-#
-# Mientras exista este archivo, .claude/hooks/docs-desactualizados.sh no avisa.
-# Reanudar:  bash .claude/hooks/pausar-docs.sh --off

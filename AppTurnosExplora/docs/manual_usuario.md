@@ -97,6 +97,7 @@ aprobaciones de una vez con la **Acción combinada**.
 | **Alternancia** | El reparto publicado de quién trabaja sábado y quién domingo. |
 | **Cobertura** | Que un compañero trabaje una jornada tuya sin que tú dejes de existir en el calendario. |
 | **Deuda** | Jornada que te cubrieron y todavía no has devuelto. |
+| **Horas a favor** | Lo contrario de la deuda: horas que la corporación o tu supervisor te deben a **ti**, porque trabajaste más de lo que te tocaba. Se guardan en una bolsa y se descuentan cuando tengas horas pendientes por pagar. <!-- fuente: permisos/credito_horas_service.py (docstring del módulo) --> |
 | **Condonar** | Perdonar unas horas debidas: dejan de figurar como pendientes y ya no se pueden volver a cobrar. Ocurre cuando un supervisor levanta una sanción por deuda de horas. <!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento) --> |
 | **Antecedente** | El registro de una sanción anterior. Se conserva aunque la sanción se levante, y es lo que hace que la siguiente sea más larga. <!-- fuente: solicitudes/services/deuda_corporativa_service.py (condonar_deudas_por_levantamiento, docstring) --> |
 | **Solicitante** | Quien envía la solicitud. |
@@ -155,7 +156,7 @@ Como explorador, tu menú tiene estas opciones:
 Si eres supervisor, además ves **Empleados/Exploradores**, **Gestión de Solicitudes**,
 **Reprogramaciones**, **Cierre de solicitudes**, **Apertura de Año**, **Descansos de
 Semana**, **Fines de Semana / Festivos**, **Tipos de Solicitud**, **Salas**, **Turnos**,
-**Jornadas**, **PDH** y **Roles y Permisos**.
+**Jornadas**, **PDH**, **Horas a favor** y **Roles y Permisos**.
 <!-- fuente: templates/base.html (bloque {% if puede_administrar %}) -->
 
 Entra ahora en **Notificaciones / Solicitudes**. Verás cuatro accesos: **Mis
@@ -223,7 +224,7 @@ Vuelve a entrar y continúa: no se pierde nada de lo ya enviado.
 Caso aparte: si dejaste un formulario abierto mucho tiempo y pulsas enviar, puede aparecer
 la pantalla "Tu sesión expiró antes de enviar el formulario". No se guarda nada; se explica
 en el apartado 7.2.
-<!-- fuente: templates/403_csrf.html; core/errors.py:154-164 -->
+<!-- fuente: templates/403_csrf.html; core/errors.py:153-163 -->
 
 ---
 
@@ -249,7 +250,7 @@ en el apartado 7.2.
 | **Reprogramaciones** | Registrar una inasistencia y reasignar el día de doblada | Supervisor |
 | **Cierre de solicitudes** | Configurar a partir de cuándo se cierra el fin de semana | Supervisor |
 | **Apertura de Año**, **Descansos de Semana**, **Fines de Semana / Festivos** | Publicar el calendario anual | Supervisor |
-| **Empleados/Exploradores**, **Salas**, **Jornadas**, **Turnos**, **PDH**, **Roles y Permisos**, **Tipos de Solicitud** | Configuración | Supervisor |
+| **Empleados/Exploradores**, **Salas**, **Jornadas**, **Turnos**, **PDH**, **Horas a favor**, **Roles y Permisos**, **Tipos de Solicitud** | Configuración | Supervisor |
 
 <!-- fuente: templates/base.html; templates/solicitudes/list.html; solicitudes/urls.py -->
 
@@ -457,7 +458,7 @@ haberlo hablado con él: será quien apruebe.
 La solicitud queda **pendiente**. El sistema avisa al compañero y al supervisor dentro de
 la aplicación y por correo. El mensaje de confirmación es: *"Solicitud enviada
 correctamente. Se han enviado notificaciones al supervisor y al compañero."*
-<!-- fuente: solicitudes/services/solicitud_orchestrator.py:674-677 -->
+<!-- fuente: solicitudes/services/solicitud_orchestrator.py:615-620 -->
 
 El turno no cambia hasta que las dos aprobaciones llegan. El tiempo depende de las
 personas: el sistema no fija plazo.
@@ -604,7 +605,7 @@ puede de **lunes a viernes**.
 - Que en al menos una fecha del rango tengáis jornadas contrarias.
   <!-- fuente: solicitudes/services/validators/ct_permanente_validator.py:101 -->
 - Que no exista ya otro cambio permanente solapado entre vosotros dos.
-  <!-- fuente: solicitudes/services/validators/ct_permanente_validator.py:278 -->
+  <!-- fuente: solicitudes/services/validators/ct_permanente_validator.py:277 -->
 - Que ninguna de las fechas caiga en una ventana de cierre semanal activa. El sistema
   calcula las fechas exactas del rango, no el rango entero.
   <!-- fuente: solicitudes/services/solicitud_orchestrator.py:82-111 -->
@@ -1061,7 +1062,7 @@ mitad que repartir.
 **11. Qué pasa después de enviar.**
 Queda **pendiente**, con aviso al compañero y al supervisor: *"Solicitud enviada
 correctamente. Se han enviado notificaciones al supervisor y al compañero."*
-<!-- fuente: solicitudes/services/solicitud_orchestrator.py:674-677 -->
+<!-- fuente: solicitudes/services/solicitud_orchestrator.py:615-620 -->
 
 Al aprobarse, el día de la cesión te queda libre y el de pago queda registrado como tu
 devolución. Las condiciones se vuelven a comprobar en ese momento: si entre el envío y la
@@ -1728,6 +1729,8 @@ campo obligatorio que usa toda la aplicación, también dentro de estas ventanas
 | **Reprogramaciones** | Registrar una inasistencia a un día de doblada | **Motivo \*** <!-- fuente: templates/solicitudes/reprogramacion_registrar.html:48 --> |
 | **PDH** | Registrar un pago de horas | **Nota \*** <!-- fuente: templates/empleados/pdh_create.html:58 --> |
 | **PDH** | Editar un pago ya registrado | **Nota \*** <!-- fuente: templates/empleados/pdh_edit.html:25, el asterisco lo pinta el bucle para todo campo obligatorio --> |
+| **Horas a favor** | Registrar horas que se le deben a un explorador | **Motivo \*** <!-- fuente: templates/empleados/credito_create.html; empleados/forms.py (CreditoHorasForm.clean_motivo) --> |
+| **Horas a favor** | Anular un registro | **Motivo \*** <!-- fuente: templates/empleados/credito_confirm_anular.html --> |
 
 En **Permisos Especiales** las acciones que antes solo preguntaban "¿estás seguro?" ahora
 abren una ventana donde escribes el texto. Si la dejas vacía, el aviso es el mismo que
@@ -1903,6 +1906,44 @@ supervisor la levanta —levantar una sanción condona también la deuda de ese 
 
 ---
 
+### 6.9 Cuando las horas te las deben a ti
+
+No toda la cuenta va en la misma dirección. A veces el que trabaja de más eres tú: tu entrada
+era a las 8:00, tu supervisor te pidió entrar a las 7:00, y esa hora te la deben.
+
+Eso se registra como **horas a favor**. Son una **bolsa** tuya: no van contra una deuda
+concreta, se quedan ahí hasta que haga falta.
+<!-- fuente: permisos/credito_horas_service.py (docstring del módulo) -->
+
+**Cómo se usan.** Cuando tu supervisor registre un pago de horas tuyo, la pantalla le mostrará
+cuántas horas a favor tienes y podrá aplicarlas a ese pago. Si te deben 1 hora y solo tienes
+media hora por pagar, se descuenta esa media hora y **te siguen debiendo la otra media**, que
+queda disponible para la próxima vez.
+<!-- fuente: templates/empleados/pdh_create.html (bloque "Horas a favor"); permisos/credito_horas_service.py (consumir) -->
+
+**En qué orden se gastan.** Siempre primero las más antiguas.
+<!-- fuente: permisos/models.py (CreditoHoras.Meta.ordering) -->
+
+**Dónde las ves.** En **Consolidado de Horas** aparecen en su propia sección, «Horas a favor
+(se las deben)». Si superan lo que debes, el consolidado te muestra el saldo a tu favor.
+<!-- fuente: templates/turnos/consolidado_horas.html -->
+
+**Quién las registra.** Solo un supervisor o un administrador, desde **Horas a favor →
+Registrar horas a favor**. Hay que indicar el día en que trabajaste de más, cuántas horas
+(en múltiplos de 15 minutos) y el motivo, que es obligatorio.
+<!-- fuente: empleados/views/credito.py (CreditoHorasCreateView); empleados/forms.py (CreditoHorasForm) -->
+
+**Ojo con una cosa.** Las horas a favor **no te libran de una sanción**. Si dejaste vencer el
+mes debiendo horas, la sanción llega igual aunque tengas saldo a favor de sobra: lo que se
+sanciona es haber dejado pasar el plazo, no la cantidad. Las horas a favor reducen lo que
+debes, no el hecho de no haber pagado a tiempo.
+<!-- fuente: permisos/tests/test_credito_horas.py (test_el_credito_no_evita_la_sancion_de_un_mes_vencido) -->
+
+**Un registro no se borra, se anula.** Si se apuntó por error, el supervisor lo anula dejando
+el motivo; y si esas horas ya se aplicaron a un pago, primero hay que deshacer ese pago.
+<!-- fuente: empleados/views/credito.py (CreditoHorasAnularView); permisos/credito_horas_service.py (anular) -->
+
+
 ## 7. Mensajes de error y qué hacer
 
 Hay dos cosas distintas que se parecen. Un **aviso dentro de un formulario** aparece sin
@@ -1922,8 +1963,8 @@ pueden aparecer en cualquiera de los seis.
 | "Hay una restricción médica vigente en las fechas. Revisa la nota antes de continuar." | Hay una recomendación médica en esas fechas | Lee la nota y confirma si procede <!-- fuente: solicitudes/services/solicitud_orchestrator.py:332 --> |
 | "Hay una restricción médica vigente en el rango. Revisa la nota antes de continuar." | Lo mismo, en un trámite con rango de fechas | Igual que el anterior <!-- fuente: solicitudes/services/solicitud_orchestrator.py:510 --> |
 | "Ya se está procesando esta solicitud. Espera unos segundos antes de reintentar." | Pulsaste enviar dos veces | Espera unos segundos y revisa **Mis Solicitudes** <!-- fuente: solicitudes/services/solicitud_orchestrator.py:77-79 --> |
-| "Debe seleccionar un compañero para el intercambio" | Falta el compañero | Selecciónalo <!-- fuente: solicitudes/services/solicitud_orchestrator.py:643 --> |
-| "El compañero seleccionado no existe." | La persona ya no está disponible | Recarga la página y vuelve a elegir <!-- fuente: solicitudes/services/solicitud_orchestrator.py:648 --> |
+| "Debe seleccionar un compañero para el intercambio" | Falta el compañero | Selecciónalo <!-- fuente: solicitudes/services/solicitud_orchestrator.py:586 --> |
+| "El compañero seleccionado no existe." | La persona ya no está disponible | Recarga la página y vuelve a elegir <!-- fuente: solicitudes/services/solicitud_orchestrator.py:591 --> |
 | "Ingresa un comentario." | Falta el motivo | Escríbelo <!-- fuente: solicitudes/services/solicitud_orchestrator.py:372 --> |
 | "Debes ingresar un comentario para …" | Lo mismo, con el nombre del trámite | Escríbelo <!-- fuente: solicitudes/services/validators/base_validator.py:190 --> |
 | "Escribe un comentario explicando tu decisión." | Vas a aprobar o rechazar algo y dejaste el comentario en blanco | Escríbelo; sin él la decisión no se registra. Ver el apartado 6.6 <!-- fuente: solicitudes/views/aprobacion_views.py (MSG_COMENTARIO desde core/utils/comentarios.py); permisos/views.py:324,573 --> |
@@ -1999,7 +2040,7 @@ código va escrito dentro del propio mensaje rojo.
 Cuando algo impide seguir, la aplicación ya no te deja en una página en blanco ni te
 enseña una pantalla técnica en inglés. Ves una de estas cinco pantallas, escritas en
 español y con el aspecto de SWALP.
-<!-- fuente: templates/errors/_base_error.html; core/errors.py:114-164 (handlers 400/403/404/500 y csrf_failure) -->
+<!-- fuente: templates/errors/_base_error.html; core/errors.py:114-163 (handlers 400/403/404/500 y csrf_failure) -->
 
 Todas comparten la misma estructura: una etiqueta con el tipo de error, el título en
 grande, un párrafo que explica qué pasó, un recuadro con la recomendación, los botones
@@ -2051,7 +2092,7 @@ permisos asignados a tu rol en **Administración → Roles y Permisos**.
 Etiqueta: *Error 403 · Verificación fallida*. Aparece al enviar un formulario desde una
 pestaña que llevaba demasiado tiempo abierta. Por seguridad, la aplicación comprueba que
 cada envío venga de una sesión activa y de la propia aplicación.
-<!-- fuente: templates/403_csrf.html (heading, lede); core/errors.py:154-164 (csrf_failure) -->
+<!-- fuente: templates/403_csrf.html (heading, lede); core/errors.py:153-163 (csrf_failure) -->
 
 Lo primero que debes saber: **no se guardó nada**. La solicitud no se creó a medias.
 <!-- fuente: templates/403_csrf.html ("Esa comprobación no ha pasado, así que no se guardó nada") -->
@@ -2403,6 +2444,7 @@ Cambios recientes que afectan a lo que ves en pantalla.
 
 | Cambio | Qué significa para ti |
 |---|---|
+| **Nuevo: horas a favor del explorador** | Si tu supervisor o la corporación te deben horas —te pidieron entrar antes de tu turno, por ejemplo—, ahora quedan registradas y se descuentan de lo que tú debas. Lo que sobre no se pierde: sigue a tu favor para la próxima. Ver § 6.9 |
 | **Cancelar un cambio aprobado ya no es cosa tuya sola: se le pide al compañero** | Antes cancelabas de inmediato y él se enteraba después. Ahora pulsas **Pedir cancelación** y él aprueba o rechaza. Aplica a los seis formularios. Ver el apartado 6.3 <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion, responder_cancelacion) --> |
 | **Mientras nadie responde, el cambio sigue vigente** | Pedir la cancelación no mueve ningún turno. Solo la aprobación del compañero los devuelve a como estaban <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
 | **El plazo pasó de 30 minutos a 24 horas** | Tienes 24 horas desde la aprobación para pedir la cancelación, y tu compañero otras 24 para responderte <!-- fuente: core/constants.py (VENTANA_PEDIR_CANCELACION_HORAS, VENTANA_RESPONDER_CANCELACION_HORAS) --> |
@@ -2463,6 +2505,8 @@ incluyeron como hechos en el manual.
 
 | Afirmación pendiente | Dónde se buscó | Por qué no se pudo verificar |
 |---|---|---|
+| Si las horas a favor caducan pasado un tiempo | `permisos/credito_horas_service.py`, `permisos/models.py` | Hoy **no caducan**: se quedan en la bolsa indefinidamente. No se ha encontrado ninguna regla de caducidad, pero tampoco una decisión escrita de que deban durar para siempre |
+| Si un explorador puede consultar por sí mismo sus horas a favor sin pasar por el supervisor | `templates/turnos/consolidado_horas.html`, `core/sesiones.py` | Aparecen en su **Consolidado de Horas**, que él sí ve; la pantalla de gestión (registrar y anular) es solo de supervisor |
 | Duración exacta de la sesión antes de caducar por inactividad | Configuración general del proyecto | No hay un valor explícito configurado; se aplica el comportamiento por defecto del sistema, que no está declarado en el proyecto |
 | Cuánto tarda en llegar el correo de aviso al compañero | Servicio de correo y su cola de envío | El envío es diferido y depende de una tarea programada del servidor; no hay un plazo garantizado escrito en el código |
 | Texto exacto de los correos de aprobación y rechazo | Plantillas de correo del módulo de solicitudes (14 archivos) | No se abrieron una por una en esta revisión; el manual solo cita los mensajes de pantalla |
