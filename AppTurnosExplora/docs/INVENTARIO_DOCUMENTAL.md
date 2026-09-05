@@ -38,7 +38,7 @@ comprobación, el estado es **sin verificar**.
 | Reglas de negocio de solicitudes | parcial | [05-referencia/solicitudes/](./05-referencia/solicitudes/) | Cubre CT sencillo y dobladas a fondo; cambio de descanso, D FDS y CT permanente estaban dispersos |
 | Dobladas | completo | [solicitudes/dobladas/](./05-referencia/solicitudes/dobladas/) (14 archivos) | Muy detallado, pero orientado a incidencias concretas, no a lectura de principio a fin |
 | Turnos (fuente de verdad) | completo | [05-referencia/turnos/](./05-referencia/turnos/) | — |
-| Despliegue | completo | [05-referencia/deployment/](./05-referencia/deployment/) | AWS EC2+RDS, Fargate y Docker local | 
+| Despliegue | completo | [05-referencia/deployment/](./05-referencia/deployment/) | AWS EC2+RDS, Fargate y Docker local. Incluye [MANUAL_ARCHIVADO_ANUAL.md](./05-referencia/deployment/MANUAL_ARCHIVADO_ANUAL.md) (2026-09-03): analiza el borrado anual de datos y lo **descarta**; queda pendiente solo el dump anual a S3 | 
 | Pruebas | completo | [05-referencia/pruebas/INVENTARIO_TESTS.md](./05-referencia/pruebas/INVENTARIO_TESTS.md) | — |
 | Patrones de protección | completo | `PROTECTION_PATTERNS.md` (raíz del repo) | Vive fuera de `docs/`; no está enlazado desde el índice |
 | Mantenimiento anual | completo | [04-guias/mantenimiento-anual/](./04-guias/mantenimiento-anual/) | — |

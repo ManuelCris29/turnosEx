@@ -16,6 +16,10 @@ class Notificacion(models.Model):
         ('aprobacion', 'Aprobación'),
         ('rechazo', 'Rechazo'),
         ('sancion', 'Sanción'),
+        # Levantar una sanción es la noticia CONTRARIA a recibirla, y la campana pinta el
+        # icono según el tipo: compartiendo 'sancion', el aviso de que te levantan el
+        # castigo salía con el mismo triángulo rojo de peligro que el de que te sancionan.
+        ('sancion_levantada', 'Sanción levantada'),
     ]
     
     destinatario = models.ForeignKey(Empleado, on_delete=models.CASCADE, related_name='notificaciones')
@@ -706,6 +710,13 @@ class DeudaCorporativa(models.Model):
         # No se marca 'pagada' para no confundir en los informes lo que alguien abonó con
         # lo que se saldó cumpliendo un castigo.
         ('consumida_por_sancion', 'Consumida por sanción'),
+        # El supervisor levantó la sanción de ese mes: perdonó el castigo Y la deuda.
+        # Es un estado propio y no 'cancelada' porque cancelar es una corrección técnica
+        # (deuda huérfana, fin de semana deshecho) y esto es una decisión disciplinaria
+        # con un responsable detrás. Fundirlas haría ilegible cualquier informe de
+        # condonaciones. Tampoco es 'consumida_por_sancion': aquella la paga el castigo
+        # cumplido; esta no la paga nadie.
+        ('condonada', 'Condonada al levantar la sanción'),
         ('cancelada', 'Cancelada'),
     ]
 
@@ -750,8 +761,10 @@ class DeudaCorporativa(models.Model):
         blank=True,
         help_text='Comentario opcional sobre la deuda'
     )
-    # Si una sanción cumplida extinguió esta deuda, aquí queda cuál. La deuda deja de
-    # cobrarse pero no de explicarse: es la trazabilidad que pide la regla de negocio.
+    # La sanción que extinguió esta deuda, sea porque se cumplió ('consumida_por_sancion')
+    # o porque se levantó ('condonada'). La deuda deja de cobrarse pero no de explicarse:
+    # es la trazabilidad que pide la regla de negocio. El campo es el mismo en ambos casos
+    # —la sanción responsable es una sola— y el `estado` dice cuál de las dos cosas pasó.
     sancion_consumidora = models.ForeignKey(
         'empleados.SancionEmpleado', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='deudas_corporativas_consumidas')

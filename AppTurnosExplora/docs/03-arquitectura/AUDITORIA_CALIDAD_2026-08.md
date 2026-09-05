@@ -332,7 +332,7 @@ auditoría. La decisión **sigue abierta**; lo que sigue es el análisis, no una
 
 ### El dato que suele decidirla mal
 
-| | EC2 ([arquitectura §2](../05-referencia/deployment/arquitectura-aws-rds-recomendada.md)) | Fargate ([§8](../05-referencia/deployment/arquitectura-aws-rds-recomendada.md), [checklist](../05-referencia/deployment/CHECKLIST_DESPLIEGUE_FARGATE.md)) |
+| | EC2 ([arquitectura §2](../05-referencia/deployment/arquitectura-aws-rds-recomendada.md)) — **camino elegido (2026-09-04)** | Fargate ([§8](../05-referencia/deployment/arquitectura-aws-rds-recomendada.md)) — **descartada por presupuesto**; su checklist se borró |
 |---|---|---|
 | CPU / RAM | t4g.small = **2 vCPU / 2 GB** | **0,5 vCPU / 1 GB** |
 | Coste | ~$32/mes | ~$56/mes (1 task) · ~$74 (2 tasks) |
@@ -354,7 +354,7 @@ puede valer bastante más que los ~$24/mes de diferencia. Pero conviene elegirlo
 ### ~~Pieza no planificada en ninguno de los dos caminos~~ — RETIRADO (falso positivo)
 
 Se afirmó que el runner del outbox (`procesar_email_outbox`) no aparecía en el checklist de Fargate. **Es
-falso y estaba documentado en los tres sitios**: `CHECKLIST_DESPLIEGUE_FARGATE.md:190-192` (regla EventBridge
+falso y estaba documentado en los tres sitios**: el checklist de Fargate (ya borrado; regla EventBridge
 `rate(5 minutes)` con override del comando), `CHECKLIST_DESPLIEGUE_AWS_RDS.md:273-275` (cron cada 5 min) y el
 paso a paso completo en `MANUAL_OUTBOX_CORREOS.md` §3, que cubre **ambos** caminos. Los tres lo marcan además
 como "⚠️ paso obligatorio". No hay pieza suelta ni diferencia entre EC2 y Fargate en este punto.

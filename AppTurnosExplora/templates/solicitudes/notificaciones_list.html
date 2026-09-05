@@ -62,6 +62,10 @@
                                         <i class="fas fa-ban text-warning"></i>
                                     {% elif notificacion.tipo == 'sancion' %}
                                         <i class="fas fa-exclamation-triangle text-danger"></i>
+                                    {% elif notificacion.tipo == 'sancion_levantada' %}
+                                        {# Se te levanta el castigo: es la noticia contraria
+                                           a la sanción y no puede llevar su mismo icono. #}
+                                        <i class="fas fa-unlock text-success"></i>
                                     {% else %}
                                         <i class="fas fa-bell text-info"></i>
                                     {% endif %}

@@ -38,7 +38,20 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         args: [--maxkb=2048]
+      # Las plantillas de CloudFormation quedan FUERA de check-yaml, y no es una
+      # dispensa por comodidad: usan la forma corta de las funciones intrinsecas
+      # (!Ref, !Sub, !GetAtt), que son etiquetas propias de CloudFormation y no
+      # YAML estandar. check-yaml las lee como tipos desconocidos y falla, aunque
+      # la plantilla sea perfectamente valida.
+      #
+      # La alternativa habria sido `args: [--unsafe]`, pero eso desactiva la
+      # resolucion de etiquetas en TODOS los YAML del repo —incluidos los
+      # workflows de CI— para arreglar uno solo. Se excluye la ruta concreta.
+      #
+      # Quien valide estas plantillas debe usar la herramienta que las entiende:
+      #     pip install cfn-lint && cfn-lint AppTurnosExplora/infra/cloudformation/*.yaml
       - id: check-yaml
+        exclude: ^AppTurnosExplora/infra/cloudformation/
       - id: check-toml
       #
       # `end-of-file-fixer` y `trailing-whitespace` quedan FUERA a propósito.

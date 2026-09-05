@@ -58,14 +58,14 @@ class ConsolidadoSaldadoPorSancionTest(TestCase):
     def test_sin_sanciones_la_seccion_va_vacia(self):
         datos = ConsolidadoHorasService.get_consolidado(self.explorador)
 
-        self.assertEqual(datos['saldadas_sancion'], [])
-        self.assertEqual(datos['total_saldado_sancion'], 0)
+        self.assertEqual(datos['extinguidas_sancion'], [])
+        self.assertEqual(datos['total_extinguido_sancion'], 0)
 
     def test_la_deuda_consumida_aparece_con_su_sancion(self):
         sancion = self._sancion()
         self._doblada_consumida(sancion)
 
-        (fila,) = ConsolidadoHorasService.get_consolidado(self.explorador)['saldadas_sancion']
+        (fila,) = ConsolidadoHorasService.get_consolidado(self.explorador)['extinguidas_sancion']
 
         self.assertEqual(fila['periodo_str'], 'Junio 2026')
         self.assertEqual(fila['horas'], 0.5)
@@ -78,10 +78,10 @@ class ConsolidadoSaldadoPorSancionTest(TestCase):
 
         datos = ConsolidadoHorasService.get_consolidado(self.explorador)
 
-        (fila,) = datos['saldadas_sancion']
+        (fila,) = datos['extinguidas_sancion']
         self.assertEqual(fila['horas'], 2.5)
         self.assertEqual(len(fila['detalle_deudas']), 2)
-        self.assertEqual(datos['total_saldado_sancion'], 2.5)
+        self.assertEqual(datos['total_extinguido_sancion'], 2.5)
 
     def test_no_cuenta_como_pendiente_ni_como_pagado(self):
         sancion = self._sancion()
@@ -109,7 +109,7 @@ class ConsolidadoSaldadoPorSancionTest(TestCase):
 
         datos = ConsolidadoHorasService.get_consolidado(self.explorador)
 
-        self.assertEqual(datos['saldadas_sancion'], [])
+        self.assertEqual(datos['extinguidas_sancion'], [])
 
 class LineasNoCobrablesTest(TestCase):
     """
@@ -177,7 +177,7 @@ class LineasNoCobrablesTest(TestCase):
         self.assertEqual(
             datos['total_acumulado'],
             round(datos['total_horas'] + datos['total_pagado']
-                  + datos['total_saldado_sancion'], 2))
+                  + datos['total_extinguido_sancion'], 2))
 
 
 class FechaDeLosPermisosTest(TestCase):

@@ -51,7 +51,13 @@ Estado nuevo `consumida_por_sancion`, con FK a la sanción que la extinguió. Si
 explorador terminaría sus 15 días con el mismo saldo vencido que lo metió en ellos y
 volvería a ser sancionado por lo mismo: un bucle sin salida.
 
-Una sanción **levantada a mano no salda nada**. Perdona el castigo, no las horas.
+~~Una sanción **levantada a mano no salda nada**. Perdona el castigo, no las horas.~~
+
+**Enmendado por el [ADR 013](./013-condonacion-al-levantar-la-sancion.md) (2026-09):**
+levantar una auto-sanción **sí** extingue la deuda de su mes, con un estado propio,
+`'condonada'`. La redacción original dejaba esas horas en un limbo permanente —el mes
+vencido no se puede pagar, la sanción levantada no las consume y no nace otra que lo
+haga—. Lo que sigue intacto es el antecedente: se perdona la deuda, no el expediente.
 
 ### 4. El nivel sale de la cadena de sanciones, y prescribe
 
@@ -77,8 +83,9 @@ años seguía encareciendo la sanción de hoy, y el castigo por un tropiezo punt
 siendo de meses.
 
 Cuenta como antecedente **cualquier** sanción, incluidas las manuales del supervisor y las
-levantadas. Levantar perdona ese castigo concreto; no borra que ocurrió, igual que tampoco
-condona la deuda.
+levantadas. Levantar perdona ese castigo concreto; no borra que ocurrió (sí condona
+la deuda de su mes desde el [ADR 013](./013-condonacion-al-levantar-la-sancion.md), pero
+no el antecedente).
 
 El nivel se **guarda** en `SancionEmpleado.nivel_reincidencia` en vez de recalcularse: la
 ventana es configurable, y si cambia mañana lo que ya se comunicó a un explorador no puede

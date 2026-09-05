@@ -380,13 +380,14 @@ class PagoHorasService:
         for detalle in (PagoDeudaPermisoMes.objects
                         .filter(pdh=pdh).select_related('deuda')):
             deuda = DeudaPermisoMes.objects.select_for_update().get(id=detalle.deuda_id)
-            # Una deuda ya extinguida por una sanción cumplida no vuelve a la vida porque se
-            # borre el pago: la sanción la saldó, y resucitarla haría que el explorador
-            # volviera a deber —y a poder ser sancionado— por algo que ya cumplió.
-            if deuda.estado == 'consumida_por_sancion':
+            # Una deuda ya extinguida por una sanción no vuelve a la vida porque se borre el
+            # pago: resucitarla haría que el explorador volviera a deber —y a poder ser
+            # sancionado— por algo que ya cumplió ('consumida_por_sancion') o que un
+            # supervisor le perdonó al levantar la sanción ('condonada').
+            if deuda.estado in ('consumida_por_sancion', 'condonada'):
                 logger.warning(
-                    'El PDH %s pagaba la deuda %s, que ya fue consumida por una sanción: '
-                    'no se revierte.', pdh.id, deuda.id)
+                    'El PDH %s pagaba la deuda %s, ya extinguida por una sanción (%s): '
+                    'no se revierte.', pdh.id, deuda.id, deuda.estado)
                 detalle.delete()
                 continue
             deuda.minutos_pagados = max(0, deuda.minutos_pagados - detalle.minutos)

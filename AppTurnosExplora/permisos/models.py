@@ -236,12 +236,17 @@ class DeudaPermisoMes(models.Model):
     caen en el mismo mes generan VARIAS filas, no una fusionada: la deuda se suma para
     decidir la sanción, pero cada obligación conserva de qué permiso viene.
 
-    No se borra nunca: se paga, se cancela, o la consume una sanción cumplida.
+    No se borra nunca: se paga, se cancela, la consume una sanción cumplida o la condona
+    el supervisor al levantar esa sanción.
     """
     ESTADO_CHOICES = [
         ('activa', 'Activa'),
         ('pagada', 'Pagada'),
         ('consumida_por_sancion', 'Consumida por sanción'),
+        # Sanción del mes levantada: se perdonó el castigo y con él la deuda. Estado
+        # propio, no 'cancelada' —que es una corrección técnica— ni 'pagada'. Ver el
+        # mismo estado en `solicitudes.DeudaCorporativa`.
+        ('condonada', 'Condonada al levantar la sanción'),
         ('cancelada', 'Cancelada'),
     ]
 
@@ -264,8 +269,8 @@ class DeudaPermisoMes(models.Model):
     fecha_pago = models.DateField(
         null=True, blank=True,
         help_text='Fecha del pago que la SALDÓ (no la del primer abono parcial).')
-    # Si una sanción cumplida extinguió esta deuda, aquí queda de cuál se trata. Es la
-    # trazabilidad que exige la regla: la deuda deja de cobrarse, pero no de explicarse.
+    # La sanción que extinguió esta deuda, por cumplirse ('consumida_por_sancion') o por
+    # levantarse ('condonada'). La deuda deja de cobrarse, pero no de explicarse.
     sancion_consumidora = models.ForeignKey(
         'empleados.SancionEmpleado', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='deudas_permiso_consumidas')

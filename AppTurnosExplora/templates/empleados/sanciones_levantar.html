@@ -36,6 +36,22 @@
           Si la sanción se creó por error, indícalo en el motivo.
         </div>
 
+        {% if horas_a_condonar %}
+        {# Se avisa ANTES de confirmar porque la condonación no se deshace: el mes ya
+           venció, así que esas horas no se pueden volver a cobrar ni a reclamar. #}
+        <div class="alert alert-warning">
+          <i class="fas fa-exclamation-triangle mr-2"></i>
+          Al levantarla también se <strong>condonan las {{ horas_a_condonar }} h</strong> que
+          {{ sancion.explorador.nombre }} debía de ese mes: dejarán de figurar como pendientes
+          y <strong>no se podrán volver a cobrar</strong>. Levantar perdona el hecho entero, no
+          solo el castigo. El antecedente sí se conserva para la reincidencia.
+          <div class="mt-2 small">
+            No hay forma de levantar el bloqueo conservando la deuda: son la misma decisión.
+            Si lo que quieres es que siga debiendo esas horas, no levantes la sanción.
+          </div>
+        </div>
+        {% endif %}
+
         <form method="post" novalidate>
           {% csrf_token %}
           {% if form.non_field_errors %}

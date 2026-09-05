@@ -1,0 +1,392 @@
+# NOTA sobre la fecha de la linea siguiente: NO esta desactualizada.
+# '2010-09-09' es el UNICO valor valido de AWSTemplateFormatVersion; no es una
+# version que se suba. Identifica el formato del lenguaje de plantillas, que no
+# ha cambiado desde entonces. Lo que sí se mantiene al dia son los tipos de
+# recurso (AWS::EC2::Instance, etc.), que evolucionan con propiedades nuevas.
+AWSTemplateFormatVersion: '2010-09-09'
+
+# =============================================================================
+# SWALP / AppTurnos — infraestructura base en AWS (plan EC2, decidido 2026-09-04)
+# =============================================================================
+#
+# QUÉ CREA ESTA PLANTILLA (las piezas de "clic en la consola" de las FASES 1 y 2):
+#   · Security Group web  (22/80/443)
+#   · Security Group RDS  (3306, SOLO desde el SG web)
+#   · EC2 t4g.micro Ubuntu 24.04 LTS ARM, en modo `standard` (control de costo)
+#   · Elastic IP asociada a la EC2
+#   · Subnet group + RDS MySQL db.t4g.micro Single-AZ, cifrada, con snapshot al borrar
+#   · Alarma de facturación y alarma de CPUSurplusCreditsCharged
+#
+# QUÉ **NO** HACE (y por qué):
+#   · Nginx, certbot, gunicorn/systemd, crontab, .env  → FASES 3-9 del checklist.
+#     Eso es configuración DENTRO del servidor, no infraestructura. CloudFormation
+#     puede lanzarlo por UserData, pero entonces un error de Nginx se depura
+#     recreando la pila entera. Se hace a mano una vez, siguiendo el checklist.
+#   · El registro DNS: `parqueexplora.org` lo administra IT, no esta cuenta AWS.
+#   · La salida del sandbox de SES: es una solicitud a AWS, no un recurso.
+#
+# CÓMO SE USA
+#   aws cloudformation deploy \
+#       --template-file infra/cloudformation/swalp-infra.yaml \
+#       --stack-name swalp-prod \
+#       --parameter-overrides DBPassword=<LA-QUE-PONGAS> SSHLocation=<TU_IP>/32 \
+#       --capabilities CAPABILITY_IAM \
+#       --region us-east-1
+#
+#   Ver lo que creó (la IP y el endpoint de la BD van al .env de la FASE 4):
+#   aws cloudformation describe-stacks --stack-name swalp-prod \
+#       --query 'Stacks[0].Outputs' --output table
+#
+# ⚠️ LA CONTRASEÑA NO SE ESCRIBE AQUÍ. Se pasa por --parameter-overrides y el
+#    parámetro es NoEcho, así que no aparece en la consola ni en los eventos.
+#    Este fichero SÍ se versiona en git; la contraseña NO.
+# =============================================================================
+
+Description: >
+  SWALP/AppTurnos - EC2 t4g.micro + RDS MySQL db.t4g.micro Single-AZ.
+  Dimensionado para 300 usuarios / 30 solicitudes-dia. Presupuesto ~=$27/mes + IVA.
+
+# -----------------------------------------------------------------------------
+Parameters:
+# -----------------------------------------------------------------------------
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC donde se despliega. Sirve la VPC por defecto de la cuenta.
+
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: >
+      DOS subredes en zonas de disponibilidad distintas (RDS lo exige incluso en
+      Single-AZ). Con la VPC por defecto, elige dos cualesquiera.
+
+  EC2SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: >
+      Subred PUBLICA donde va la EC2 (debe ser una de las de SubnetIds).
+      Publica = sin NAT gateway, que es lo que ahorra ~$32/mes.
+
+  SSHLocation:
+    Type: String
+    Description: Tu IP en formato CIDR para el puerto 22. NUNCA 0.0.0.0/0.
+    MinLength: 9
+    MaxLength: 18
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+    ConstraintDescription: Debe ser un CIDR valido, por ejemplo 190.24.1.5/32
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Key pair existente para entrar por SSH.
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 12
+    Description: Contrasena del usuario maestro de RDS. Minimo 12 caracteres.
+
+  DBUsername:
+    Type: String
+    Default: swalpadmin
+    Description: Usuario maestro de RDS. 'admin' y 'root' estan reservados.
+
+  InstanceType:
+    Type: String
+    Default: t4g.micro
+    AllowedValues: [t4g.micro, t4g.small]
+    Description: >
+      t4g.micro = decision 2026-09-04 (presupuesto). Cambiar a t4g.small aqui y
+      re-desplegar la pila es el "1 clic" de escalado vertical del manual.
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    AllowedValues: [db.t4g.micro, db.t4g.small]
+
+  AlertEmail:
+    Type: String
+    Description: Correo que recibe las alarmas de costo. Hay que confirmar la suscripcion.
+
+  LatestUbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
+    Description: >
+      Ubuntu 24.04 LTS ARM64 mas reciente, resuelto por SSM (24.04 tiene soporte
+      hasta 2029; 22.04 se acaba en 2027). ARM (arm64) NO es opcional: t4g es
+      Graviton y una AMI x86 ni siquiera arranca. Ojo al cambiar la ruta: en
+      24.04 el sufijo es ebs-gp3, en 22.04 era ebs-gp2.
+
+# -----------------------------------------------------------------------------
+Resources:
+# -----------------------------------------------------------------------------
+
+  # --- Red -------------------------------------------------------------------
+  WebSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SWALP web - SSH restringido, HTTP/HTTPS abiertos
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+          Description: SSH solo desde la IP del administrador
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP - lo necesita certbot para validar el dominio
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS - el trafico real de los empleados
+      Tags:
+        - Key: Name
+          Value: swalp-web-sg
+
+  # La BD NO se expone a internet: solo acepta conexiones del SG de la web.
+  # Referenciar el SG (y no un rango de IPs) mantiene la regla correcta aunque
+  # la EC2 cambie de IP.
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SWALP RDS - MySQL solo desde la EC2 web
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WebSecurityGroup
+          Description: MySQL unicamente desde el SG web
+      Tags:
+        - Key: Name
+          Value: swalp-db-sg
+
+  # --- Servidor web ----------------------------------------------------------
+  WebServer:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestUbuntuAmi
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref EC2SubnetId
+      SecurityGroupIds:
+        - !Ref WebSecurityGroup
+      IamInstanceProfile: !Ref WebInstanceProfile
+
+      # ⚠️ CONTROL DE COSTO, NO OPCIONAL.
+      # Las clases T arrancan en modo `unlimited`: al agotar los creditos de CPU
+      # NO frenan, FACTURAN el excedente por vCPU-hora. Con un techo de 150.000
+      # COP/mes eso es un costo sin limite superior. En `standard` la instancia
+      # se limita en vez de cobrar.
+      CreditSpecification:
+        CPUCredits: standard
+
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            Encrypted: true
+            DeleteOnTermination: true
+
+      # Solo deja la maquina lista para las FASES 3-9 del checklist:
+      # paquetes base y swap. La configuracion de la app se hace a mano.
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          apt-get update
+          apt-get install -y python3-pip python3-venv nginx mysql-client git \
+                             certbot python3-certbot-nginx
+
+          # Swap: con 1 GB de RAM y 2-3 workers de gunicorn el margen es estrecho.
+          # Sin esto, un pico de trafico lo resuelve el OOM killer matando la app.
+          if [ ! -f /swapfile ]; then
+            fallocate -l 2G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+
+          # Certificado de RDS, para conectar con TLS verificando identidad.
+          mkdir -p /etc/ssl/rds
+          curl -fsSL -o /etc/ssl/rds/global-bundle.pem \
+            https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+
+          # Usuario sin privilegios que corre la app.
+          id -u appuser >/dev/null 2>&1 || useradd -m -s /bin/bash appuser
+
+      Tags:
+        - Key: Name
+          Value: swalp-web
+
+  # Rol IAM para que la app mande correo por SES sin credenciales escritas
+  # en el .env. Es la razon de "adios al App Password de Gmail que caduca".
+  WebInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: swalp-ses-send
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                  - ses:SendRawEmail
+                Resource: '*'
+      ManagedPolicyArns:
+        # Permite entrar por Session Manager sin abrir el 22 si algun dia
+        # quieres cerrar SSH del todo.
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  WebInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref WebInstanceRole
+
+  # IP publica fija. Es el valor que hay que darle a IT para el registro DNS.
+  # OJO: se cobra ($3,65/mes) aunque quede sin asociar.
+  WebElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      InstanceId: !Ref WebServer
+      Tags:
+        - Key: Name
+          Value: swalp-eip
+
+  # --- Base de datos ---------------------------------------------------------
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subredes para la RDS de SWALP
+      SubnetIds: !Ref SubnetIds
+
+  Database:
+    Type: AWS::RDS::DBInstance
+    # Snapshot al borrar: si alguien tira la pila, los datos sobreviven.
+    # Es la red de seguridad que justifica pagar RDS en vez de MySQL en la EC2.
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: swalp-db
+      DBName: bdturnosex
+      Engine: mysql
+      # 8.4 es la LTS vigente de MySQL. Se elige sobre 8.0 por dinero, no por
+      # novedad: cuando una version llega al fin del soporte estandar, RDS la
+      # pasa a *Extended Support*, que SE COBRA POR vCPU-HORA y en una db.t4g.micro
+      # puede mas que duplicar la factura de la base. MySQL 8.0 esta en el final
+      # de su ventana de soporte estandar.
+      #
+      # VERIFICA LAS FECHAS EN TU CUENTA ANTES DE DESPLEGAR:
+      #   aws rds describe-db-major-engine-versions --engine mysql       #       --query 'DBMajorEngineVersions[].[MajorEngineVersion,SupportedEngineLifeCycles]'
+      #   aws rds describe-db-engine-versions --engine mysql       #       --query 'DBEngineVersions[].EngineVersion' --output text
+      EngineVersion: '8.4'
+      DBInstanceClass: !Ref DBInstanceClass
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+
+      AllocatedStorage: '20'
+      StorageType: gp3
+      StorageEncrypted: true
+
+      MultiAZ: false                  # Multi-AZ = +$12/mes, fuera de presupuesto
+      PubliclyAccessible: false       # solo alcanzable desde el SG web
+      VPCSecurityGroups:
+        - !GetAtt DBSecurityGroup.GroupId
+      DBSubnetGroupName: !Ref DBSubnetGroup
+
+      BackupRetentionPeriod: 7        # gratis hasta el tamano del volumen (20 GB)
+      PreferredBackupWindow: '06:00-07:00'          # UTC = 01:00-02:00 Bogota
+      PreferredMaintenanceWindow: 'sun:07:00-sun:08:00'
+      AutoMinorVersionUpgrade: true
+
+      # America/Bogota se resuelve en Django (USE_TZ), no en el motor.
+      # RDS ya trae las tablas de zona horaria pobladas, a diferencia de un
+      # MySQL local: es justo el error del admin que se vio en desarrollo.
+      Tags:
+        - Key: Name
+          Value: swalp-db
+
+  # --- Alarmas de costo ------------------------------------------------------
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: SWALP alertas
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlertEmail
+
+  # En RDS el modo `unlimited` NO se puede desactivar (a diferencia de EC2).
+  # Esta alarma es el UNICO aviso de que la BD empezo a cobrar excedente.
+  RDSSurplusCreditsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: swalp-rds-creditos-excedente
+      AlarmDescription: >
+        La RDS agoto sus creditos de CPU y esta facturando excedente.
+        Revisar carga; si es sostenido, subir a db.t4g.small.
+      Namespace: AWS/RDS
+      MetricName: CPUSurplusCreditsCharged
+      Dimensions:
+        - Name: DBInstanceIdentifier
+          Value: !Ref Database
+      Statistic: Maximum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+
+  # Techo real del proyecto: 150.000 COP ~= $37 con IVA. Avisa en $30 (sin IVA).
+  # NOTA: la metrica EstimatedCharges SOLO existe en us-east-1.
+  BillingAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: swalp-factura-sobre-30-usd
+      AlarmDescription: El gasto estimado del mes supero los 30 USD.
+      Namespace: AWS/Billing
+      MetricName: EstimatedCharges
+      Dimensions:
+        - Name: Currency
+          Value: USD
+      Statistic: Maximum
+      Period: 21600
+      EvaluationPeriods: 1
+      Threshold: 30
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions:
+        - !Ref AlertTopic
+
+# -----------------------------------------------------------------------------
+Outputs:
+# -----------------------------------------------------------------------------
+  ElasticIP:
+    Description: IP fija. Esto es lo que se le pide a IT para el registro A.
+    Value: !Ref WebElasticIP
+
+  SSHCommand:
+    Description: Comando para entrar al servidor (FASE 3).
+    Value: !Sub 'ssh -i <tu-key>.pem ubuntu@${WebElasticIP}'
+
+  DBEndpoint:
+    Description: Valor de DB_HOST en el .env de la FASE 4.
+    Value: !GetAtt Database.Endpoint.Address
+
+  RecordatorioDNS:
+    Description: Siguiente paso manual.
+    Value: !Sub 'Pedir a IT: registro A swalp.parqueexplora.org -> ${WebElasticIP}'
