@@ -1686,7 +1686,7 @@ function enviarSolicitudCTPermanente() {
     // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
     LoadingUI.mostrar('Enviando solicitud...');
 
-    fetch('/solicitudes/procesar-solicitud/', {
+    LoadingUI.fetchLimitado('/solicitudes/procesar-solicitud/', {
         method: 'POST',
         body: formData,
         headers: {
@@ -1719,7 +1719,7 @@ function enviarSolicitudCTPermanente() {
             RestriccionAdvertencia.mostrar(data.restricciones, function () {
                 LoadingUI.mostrar('Enviando solicitud...');
                 formData.set('confirmar_restriccion', '1');
-                fetch('/solicitudes/procesar-solicitud/', {
+                LoadingUI.fetchLimitado('/solicitudes/procesar-solicitud/', {
                     method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }
                 })
                 .then(r => r.json().catch(() => ({})))
@@ -1731,7 +1731,14 @@ function enviarSolicitudCTPermanente() {
                         Swal.fire({ icon: 'error', title: 'No se pudo enviar', text: (d2 && (d2.error || d2.message)) || 'Error al procesar la solicitud.' });
                     }
                 })
-                .catch(() => Swal.fire({ icon: 'error', title: 'Error', html: CodigoReferencia.htmlMensaje('Ocurrió un error de red.') }));
+                .catch((e) => {
+                    const av = LoadingUI.avisoDeFallo(e, 'Ocurrió un error de red.');
+                    Swal.fire({
+                        icon: av.esTiempoAgotado ? 'warning' : 'error',
+                        title: av.titulo || 'Error',
+                        html: av.esTiempoAgotado ? av.texto : CodigoReferencia.htmlMensaje(av.texto)
+                    });
+                });
             });
         } else {
             // Mostrar error
@@ -1750,11 +1757,15 @@ function enviarSolicitudCTPermanente() {
     })
     .catch(error => {
         console.error('Error:', error);
+        const aviso = LoadingUI.avisoDeFallo(
+            error, 'No se pudo enviar la solicitud. Inténtalo de nuevo.');
         Swal.fire({
-            icon: 'error',
-            title: 'Error de conexión',
-            text: 'No se pudo enviar la solicitud. Inténtalo de nuevo.',
-            confirmButtonText: 'Reintentar',
+            icon: aviso.esTiempoAgotado ? 'warning' : 'error',
+            title: aviso.titulo || 'Error de conexión',
+            text: aviso.texto,
+            // Tras un corte por tiempo la solicitud puede haberse creado: invitar a
+            // "Reintentar" sería empujar al duplicado.
+            confirmButtonText: aviso.esTiempoAgotado ? 'Entendido' : 'Reintentar',
             showConfirmButton: true,
             position: 'center',
             customClass: {

@@ -417,7 +417,9 @@
         btnEnviar.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Enviando…';
         if (window.LoadingUI) LoadingUI.mostrar('Enviando solicitud...');
 
-        fetch(URLs.PROCESAR, {
+        // fetchLimitado: sin límite de espera, una petición colgada dejaría el modal de
+        // carga (inescapable a propósito) bloqueando la pantalla indefinidamente.
+        LoadingUI.fetchLimitado(URLs.PROCESAR, {
             method: 'POST',
             headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' },
             body: fd,
@@ -439,7 +441,13 @@
                     restablecer();
                 }
             })
-            .catch(() => { notificar('error', 'Error', CodigoReferencia.htmlMensaje('Ocurrió un error de red. Intenta de nuevo.')); restablecer(); });
+            .catch((e) => {
+                const av = LoadingUI.avisoDeFallo(e, 'Ocurrió un error de red. Intenta de nuevo.');
+                notificar(av.esTiempoAgotado ? 'warning' : 'error',
+                          av.titulo || 'Error',
+                          av.esTiempoAgotado ? av.texto : CodigoReferencia.htmlMensaje(av.texto));
+                restablecer();
+            });
     }
 
     // ===================== INIT =====================

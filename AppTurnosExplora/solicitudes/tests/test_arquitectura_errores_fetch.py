@@ -31,20 +31,45 @@ from django.conf import settings
 from django.test import SimpleTestCase
 
 JS = Path(settings.BASE_DIR) / 'static' / 'js'
+
+# Ficheros que NO se auditan porque son FONTANERIA DE TRANSPORTE: envuelven `fetch`
+# y devuelven la `Response` intacta, sin leer el cuerpo ni decidir nada con ella.
+# Comprobar `.ok` ahi seria un error de diseño —le robaria al llamador la respuesta
+# que necesita para decidir— y contarlos como deuda ademas subiria el trinquete,
+# tapando las regresiones de verdad. Quien SI debe comprobar el estado es cada
+# llamador, y esos si se escanean.
+#   - `utils/`            : api-client y codigo-referencia (este ultimo reemplaza
+#                           window.fetch entero solo para leer una cabecera).
+#   - `loading-ui.js`     : `fetchLimitado` solo le pone un limite de espera.
+ENVOLTORIOS_DE_TRANSPORTE = ('utils/', 'loading-ui.js')
+
+# Formas de invocar una peticion que hay que auditar. `LoadingUI.fetchLimitado` es
+# `fetch` con limite de espera y devuelve la MISMA `Response`, asi que su llamador
+# tiene exactamente el mismo deber de mirar `.ok`. Sin esta entrada, envolver una
+# llamada bastaria para que desapareciera del escaner sin haber arreglado nada.
+LLAMADAS = ('fetch(', 'fetchLimitado(')
+
 UNIFORME = re.compile(r'\.then\(\s*(\w+)\s*=>\s*\1\.json\(\)\s*\)')
+# Llamadas que leen el cuerpo del error A PROPOSITO para enseñar el mensaje del
+# servidor. Se excluyen de la auditoria porque el arreglo estandar —lanzar ante un
+# !ok— les haria PERDER justo ese mensaje, que es lo unico que le dice al explorador
+# por que se le rechazo la solicitud.
+# `d\d*` cubre tanto `d.error` como el `d2.error` de los reenvios tras confirmar una
+# restriccion medica: con solo `d\.error` esos quedaban clasificados como deuda.
 LEE_ERROR = re.compile(
-    r'data\.error|\.error\s*\)|data\.success\s*===?\s*false|!\s*data\.success|d\.error|res\.error')
+    r'data\.error|\.error\s*\)|data\.success\s*===?\s*false|!\s*data\.success'
+    r'|\bd\d*\.error|res\.error')
 
 
 def _sitios_sin_guarda():
     """Llamadas fetch con manejo de error que NO miran el codigo de estado."""
     uniformes, heterogeneas = [], []
     for fichero in sorted(JS.rglob('*.js')):
-        if 'utils/' in fichero.as_posix():
+        if any(p in fichero.as_posix() for p in ENVOLTORIOS_DE_TRANSPORTE):
             continue
         lineas = fichero.read_text(encoding='utf-8', errors='replace').splitlines()
         for i, linea in enumerate(lineas):
-            if 'fetch(' not in linea:
+            if not any(llamada in linea for llamada in LLAMADAS):
                 continue
             bloque = '\n'.join(lineas[i:i + 45])
             contexto = '\n'.join(lineas[max(0, i - 12):i + 45])
@@ -91,10 +116,14 @@ class ErroresHttpNoSeParseanComoDatosTestCase(SimpleTestCase):
 
         Este numero debe BAJAR con el tiempo. Si sube, es que se añadio codigo
         nuevo con el fallo viejo.
+
+        Historico: 15 al estrenarse el trinquete; 13 desde 2026-09-08, cuando los
+        envios de los seis formularios pasaron por `LoadingUI.fetchLimitado` y los
+        dos que quedaban sueltos (d_fds y doblada permanente) ganaron su guarda.
         """
         _, heterogeneas = _sitios_sin_guarda()
 
         self.assertLessEqual(
-            len(heterogeneas), 15,
+            len(heterogeneas), 13,
             'Han aparecido llamadas nuevas que ignoran el codigo de estado:\n  '
             + '\n  '.join(heterogeneas))

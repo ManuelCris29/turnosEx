@@ -384,7 +384,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
         LoadingUI.mostrar('Enviando solicitud...');
 
-        fetch('/solicitudes/procesar-solicitud/', {
+        LoadingUI.fetchLimitado('/solicitudes/procesar-solicitud/', {
             method: 'POST',
             body: formData,
             headers: {
@@ -459,11 +459,15 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(error => {
             console.error('Error:', error);
+            const aviso = LoadingUI.avisoDeFallo(
+                error, 'No se pudo enviar la solicitud. Inténtalo de nuevo.');
             Swal.fire({
-                icon: 'error',
-                title: 'Error de conexión',
-                text: 'No se pudo enviar la solicitud. Inténtalo de nuevo.',
-                confirmButtonText: 'Reintentar',
+                icon: aviso.esTiempoAgotado ? 'warning' : 'error',
+                title: aviso.titulo || 'Error de conexión',
+                text: aviso.texto,
+                // Tras un corte por tiempo la solicitud puede haberse creado: invitar a
+                // "Reintentar" sería empujar al duplicado.
+                confirmButtonText: aviso.esTiempoAgotado ? 'Entendido' : 'Reintentar',
                 showConfirmButton: true,
                 position: 'center',
                 customClass: {

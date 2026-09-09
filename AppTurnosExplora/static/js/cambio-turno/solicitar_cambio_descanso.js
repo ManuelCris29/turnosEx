@@ -1288,11 +1288,23 @@
     }
 
     function postForm(url, fd, csrf) {
-        return fetch(url, {
+        // fetchLimitado, no fetch: el modal de carga solo se cierra cuando esta promesa
+        // se resuelve o se rompe, así que sin límite una petición colgada deja la pantalla
+        // bloqueada para siempre.
+        return LoadingUI.fetchLimitado(url, {
             method: 'POST',
             headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' },
             body: fd
         }).then(async r => ({ ok: r.ok, data: await r.json().catch(() => ({})) }));
+    }
+
+    /** Aviso del .catch() de un envío: distingue el corte por tiempo del fallo de red. */
+    function avisarFallo(error, textoRed) {
+        const aviso = LoadingUI.avisoDeFallo(error, textoRed);
+        notificar(aviso.esTiempoAgotado ? 'warning' : 'error',
+                  aviso.titulo || 'Error de red',
+                  aviso.esTiempoAgotado ? aviso.texto : CodigoReferencia.htmlMensaje(aviso.texto));
+        rehabilitar();
     }
 
     function irAMisSolicitudes(msg) {
@@ -1325,7 +1337,7 @@
                         rehabilitar();
                     }
                 })
-                .catch(() => { notificar('error', 'Error de red', CodigoReferencia.htmlMensaje('Intenta de nuevo.')); rehabilitar(); });
+                .catch((e) => avisarFallo(e, 'Intenta de nuevo.'));
             return;
         }
 
@@ -1359,7 +1371,7 @@
                         rehabilitar();
                     }
                 })
-                .catch(() => { notificar('error', 'Error de red', CodigoReferencia.htmlMensaje('Intenta de nuevo.')); rehabilitar(); });
+                .catch((e) => avisarFallo(e, 'Intenta de nuevo.'));
             return;
         }
 
@@ -1379,7 +1391,7 @@
                     rehabilitar();
                 }
             })
-            .catch(() => { notificar('error', 'Error de red', CodigoReferencia.htmlMensaje('Intenta de nuevo.')); rehabilitar(); });
+            .catch((e) => avisarFallo(e, 'Intenta de nuevo.'));
     }
 
     function rehabilitar() {

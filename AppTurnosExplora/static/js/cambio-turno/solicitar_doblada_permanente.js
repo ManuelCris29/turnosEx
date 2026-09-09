@@ -710,7 +710,10 @@
         // Loading bloqueante: evita doble envío. Cualquier Swal posterior lo reemplaza.
         LoadingUI.mostrar('Enviando solicitud...');
 
-        fetch(URL_PROCESAR, { method: 'POST', headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
+        // fetchLimitado: este formulario es el más lento de todos (crea una solicitud por
+        // compañero), y sin límite de espera una petición colgada dejaría el modal —que no
+        // se puede cerrar a mano— bloqueando la pantalla indefinidamente.
+        LoadingUI.fetchLimitado(URL_PROCESAR, { method: 'POST', headers: { 'X-CSRFToken': csrf, 'X-Requested-With': 'XMLHttpRequest' }, body: fd })
             .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
             .then(({ ok, data }) => {
                 if (ok && data.success !== false) {
@@ -725,8 +728,11 @@
                     restablecerBoton();
                 }
             })
-            .catch(() => {
-                notificar('error', 'Error', CodigoReferencia.htmlMensaje('Ocurrió un error de red. Intenta de nuevo.'));
+            .catch((e) => {
+                const av = LoadingUI.avisoDeFallo(e, 'Ocurrió un error de red. Intenta de nuevo.');
+                notificar(av.esTiempoAgotado ? 'warning' : 'error',
+                          av.titulo || 'Error',
+                          av.esTiempoAgotado ? av.texto : CodigoReferencia.htmlMensaje(av.texto));
                 restablecerBoton();
             });
     }

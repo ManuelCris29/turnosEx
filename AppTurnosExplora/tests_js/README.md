@@ -45,6 +45,8 @@ jsdom, y ese será el momento de traer una herramienta. Hoy sería adelantarse.
 | `utils/validators.js` | **cubierto** | lógica pura |
 | `utils/api-client.js` | **cubierto** | solo usa `fetch`, `document.cookie` y `querySelector`: dobles fieles, sin jsdom |
 | `utils/dom-utils.js` | **parcial** | `debounce` y `throttle` cubiertos (JS puro). El resto manipula el DOM |
+| `loading-ui.js` | **parcial** | `fetchLimitado` y `avisoDeFallo` cubiertos: solo usan `fetch` y `AbortController`, nativos en Node. `mostrar`/`ocultar` no, son Swal puro |
+| `utils/detalle-dia-mensajes.js` | **cubierto** | los textos de «Detalles del día» de Mis Turnos: lógica pura, se extrajo de `mis_turnos.js` justo para poder probarla |
 | `utils/codigo-referencia.js` | sin cubrir | reemplaza `window.fetch` |
 | `services/datepicker-service.js` | sin cubrir | 25 referencias al navegador y a flatpickr |
 | `cambio-turno/*.js` | sin cubrir | los formularios; requieren DOM completo |
@@ -83,6 +85,7 @@ Medido el 2026-08-22. Las cuatro plantillas de solicitudes cargan `date-utils`,
 | `api-client.js` | **0** (solo aparece en comentarios) |
 | `dom-utils.js` | **1** — `DomUtils.ready()` en `core/app.js` |
 | `codigo-referencia.js` | 8 — este sí se usa |
+| `detalle-dia-mensajes.js` | 5 — `mis_turnos.js` lo llama en cada apertura del detalle del día (añadido el 2026-09-09) |
 
 Dicho sin rodeos: **estos tests cubren código que hoy nadie llama.** Aun así valen —
 encontraron dos bugs reales que habrían mordido al primero que los usara, y montan

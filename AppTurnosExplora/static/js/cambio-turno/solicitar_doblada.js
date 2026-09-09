@@ -2826,7 +2826,7 @@
         // Cualquier Swal.fire posterior (éxito/error) reemplaza este modal.
         LoadingUI.mostrar('Enviando solicitud...');
 
-        fetch('/solicitudes/procesar-solicitud/', {
+        LoadingUI.fetchLimitado('/solicitudes/procesar-solicitud/', {
             method: 'POST',
             body: formData,
             headers: {
@@ -2883,7 +2883,7 @@
                     RestriccionAdvertencia.mostrar(data.restricciones, function () {
                         LoadingUI.mostrar('Enviando solicitud...');
                         formData.set('confirmar_restriccion', '1');
-                        fetch('/solicitudes/procesar-solicitud/', {
+                        LoadingUI.fetchLimitado('/solicitudes/procesar-solicitud/', {
                             method: 'POST', body: formData,
                             headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }
                         })
@@ -2896,7 +2896,14 @@
                                 Swal.fire({ icon: 'error', title: 'No se pudo enviar', text: (d2 && (d2.error || d2.message)) || 'Error al procesar la solicitud.' });
                             }
                         })
-                        .catch(() => Swal.fire({ icon: 'error', title: 'Error', html: CodigoReferencia.htmlMensaje('Ocurrió un error de red.') }));
+                        .catch((e) => {
+                            const av = LoadingUI.avisoDeFallo(e, 'Ocurrió un error de red.');
+                            Swal.fire({
+                                icon: av.esTiempoAgotado ? 'warning' : 'error',
+                                title: av.titulo || 'Error',
+                                html: av.esTiempoAgotado ? av.texto : CodigoReferencia.htmlMensaje(av.texto)
+                            });
+                        });
                     });
                 }
                 return;
@@ -3022,15 +3029,37 @@
         .catch(error => {
             console.error('Error enviando solicitud:', error);
             let mensajeError = 'Error al enviar la solicitud. Por favor, intenta nuevamente.';
-            
+
+            // Corte por tiempo: NO es "no se pudo enviar". Abortar el fetch no cancela nada
+            // en el servidor, así que la doblada puede existir ya y el aviso debe mandar a
+            // comprobarlo, no a reintentar. Se resuelve antes que nada porque el bloque de
+            // abajo lo confundiría con un error de negocio cualquiera.
+            const avisoTiempo = LoadingUI.avisoDeFallo(error, mensajeError);
+            if (avisoTiempo.esTiempoAgotado) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: avisoTiempo.titulo,
+                    text: avisoTiempo.texto,
+                    // 'Entendido' y no el "OK" por defecto de la librería: es el texto que
+                    // usan los demás avisos de este formulario, y sobre todo no invita a
+                    // reintentar, que tras un corte por tiempo es lo que duplicaría.
+                    confirmButtonText: 'Entendido',
+                    width: '600px'
+                });
+                return;
+            }
+
             // Si el error es un objeto (del throw que hicimos arriba)
             if (typeof error === 'object' && error !== null) {
                 // Prioridad: error > message > statusText
                 mensajeError = error.error || error.message || error.statusText || mensajeError;
-                
+
                 // Si tiene código especial, manejarlo
                 if (error.code === 'requiere_cambio_turno_previo') {
-                    // Este caso ya se maneja arriba, pero por si acaso
+                    // Este caso ya se maneja arriba, pero por si acaso. Cerrar el modal a
+                    // mano: es la única salida de esta cadena que no muestra ningún Swal,
+                    // y sin esto dejaría la pantalla bloqueada sin aviso ni escape.
+                    LoadingUI.ocultar();
                     return;
                 }
             } else if (typeof error === 'string') {
