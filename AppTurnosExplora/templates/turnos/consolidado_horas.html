@@ -58,9 +58,11 @@
                     </div>
                 </div>
                 {% if consolidado.total_credito %}
-                {# El neto va aparte del saldo: el saldo es lo que él debe, y las horas a
-                   favor son una deuda de la corporación hacia él. Restarlas dentro del
-                   saldo escondería una de las dos cifras. #}
+                {% comment %}
+                El neto va aparte del saldo: el saldo es lo que él debe, y las horas a
+                favor son una deuda de la corporación hacia él. Restarlas dentro del
+                saldo escondería una de las dos cifras.
+                {% endcomment %}
                 <div class="ch-historico">
                     <div class="ch-historico-tit">
                         {% if consolidado.saldo_neto < 0 %}
@@ -233,9 +235,11 @@
             {% endif %}
         </div>
 
-        {# --- Horas a favor: la corporación se las debe A ÉL, no al revés. Sección propia
-               y no una fila más de los descuentos, porque un PDH constata lo que él ya
-               debía y esto es un compromiso en sentido contrario. --- #}
+        {% comment %}
+        Horas a favor: la corporación se las debe A ÉL, no al revés. Sección propia
+        y no una fila más de los descuentos, porque un PDH constata lo que él ya
+        debía y esto es un compromiso en sentido contrario.
+        {% endcomment %}
         {% if consolidado.creditos %}
         <div class="ch-section">
             <div class="ch-section-title" style="background:#ecfdf5;color:#065f46;">
@@ -262,10 +266,12 @@
         </div>
         {% endif %}
 
-        {# --- Extinguido por una sanción: cumplida (el castigo fue el pago) o levantada
-               (el supervisor perdonó el hecho y con él la deuda). Misma sección porque el
-               efecto sobre el saldo es el mismo; distinguidas fila a fila porque el motivo
-               no lo es. --- #}
+        {% comment %}
+        Extinguido por una sanción: cumplida (el castigo fue el pago) o levantada
+        (el supervisor perdonó el hecho y con él la deuda). Misma sección porque el
+        efecto sobre el saldo es el mismo; distinguidas fila a fila porque el motivo
+        no lo es.
+        {% endcomment %}
         {% if consolidado.extinguidas_sancion %}
         <div class="ch-section">
             <div class="ch-section-title" style="background:#f5f3ff;color:#5b21b6;">

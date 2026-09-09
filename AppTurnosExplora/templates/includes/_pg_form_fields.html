@@ -1,9 +1,9 @@
 {% load widget_tweaks %}
 {% comment %}
-{# Renderiza los campos de un formulario con el look de paginas_gestion.css.
+Renderiza los campos de un formulario con el look de paginas_gestion.css.
 
-   Los checkboxes van aparte: `form-control` sobre un input[type=checkbox] lo
-   estira a lo ancho de la fila y deja de parecer una casilla. #}
+Los checkboxes van aparte: `form-control` sobre un input[type=checkbox] lo
+estira a lo ancho de la fila y deja de parecer una casilla.
 {% endcomment %}
 {% if form.non_field_errors %}
   <div class="alert alert-danger">{{ form.non_field_errors }}</div>

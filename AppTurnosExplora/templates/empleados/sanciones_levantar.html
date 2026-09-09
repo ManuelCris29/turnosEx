@@ -37,8 +37,10 @@
         </div>
 
         {% if horas_a_condonar %}
-        {# Se avisa ANTES de confirmar porque la condonación no se deshace: el mes ya
-           venció, así que esas horas no se pueden volver a cobrar ni a reclamar. #}
+        {% comment %}
+        Se avisa ANTES de confirmar porque la condonación no se deshace: el mes ya
+        venció, así que esas horas no se pueden volver a cobrar ni a reclamar.
+        {% endcomment %}
         <div class="alert alert-warning">
           <i class="fas fa-exclamation-triangle mr-2"></i>
           Al levantarla también se <strong>condonan las {{ horas_a_condonar }} h</strong> que
