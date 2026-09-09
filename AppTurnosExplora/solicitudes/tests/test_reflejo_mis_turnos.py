@@ -6,6 +6,10 @@ Cubre los 6 tipos de solicitud —CT sencillo, Doblada, D FDS, CT Permanente, Do
 Permanente y Cambio de Descanso (en sus DOS modalidades: fin de semana y entre semana)—
 y los permisos especiales.
 
+Desde 2026-09-09 `_crear_y_aplicar` exige ademas que aplicar deje
+`snapshot_turnos_resultantes`: de el sale el «con quien» del detalle del dia, y un aplicador
+que dejara de capturarlo no rompia nada visible salvo esa frase.
+
 Es la unica prueba que recorre el ciclo entero hasta lo que VE el empleado. Afirmar sobre
 `AsignarJornadaExplorador` o sobre el estado de la solicitud no basta: el turno puede
 aplicarse bien y aun asi el calendario mostrar otra cosa, porque entre la BD y la pantalla
@@ -120,7 +124,34 @@ class ReflejoMisTurnosTest(TestCase):
         sol.save()
         ok, msg = SolicitudFactory.aplicar_cambios(sol)
         self.assertTrue(ok, f"aplicar falló: {msg}")
+        self._exige_snapshot_resultante(sol)
         return sol
+
+    def _exige_snapshot_resultante(self, sol):
+        """
+        GUARDIA: aplicar una solicitud tiene que dejar `snapshot_turnos_resultantes`.
+
+        De ese snapshot sale el «con quién» del detalle del día (`AcuerdoPorDiaService`), así
+        que un aplicador que deje de capturarlo no rompe ningún test de turnos —los turnos se
+        aplican igual— pero deja mudos todos los días de ese tipo: el explorador ve que su
+        jornada cambió y no a quién está cubriendo. Es un fallo silencioso, y por eso se
+        comprueba aquí, donde ya se aplican los seis tipos de verdad.
+
+        Sirve el snapshot de la solicitud o el de su detalle, que es donde vive según el tipo.
+        """
+        sol.refresh_from_db()
+        candidatos = [sol]
+        for rel in ('doblada', 'doblada_permanente'):
+            detalle = getattr(sol, rel, None)
+            if detalle is not None:
+                detalle.refresh_from_db()
+                candidatos.append(detalle)
+        tiene = any(getattr(obj, 'snapshot_turnos_resultantes', None) for obj in candidatos)
+        self.assertTrue(
+            tiene,
+            f'{sol.tipo_cambio.nombre}: al aplicar no se guardó snapshot_turnos_resultantes '
+            f'(mirado en {[type(o).__name__ for o in candidatos]}). Sin él, el detalle del día '
+            f'no puede decir con quién es el acuerdo — ver AcuerdoPorDiaService.')
 
     def _cell(self, empleado, fecha):
         cache.clear()
@@ -128,6 +159,37 @@ class ReflejoMisTurnosTest(TestCase):
         resp = self.client.get('/turnos/api/mis-turnos-por-mes/', {'mes': fecha.month, 'anio': fecha.year})
         self.assertEqual(resp.status_code, 200, resp.content)
         return resp.json().get(fecha.strftime('%Y-%m-%d'), {})
+
+    def _con_quien(self, empleado, fecha, companero, rol):
+        """
+        El día TRABAJADO por un acuerdo dice con QUIÉN es y cuándo se aprobó.
+
+        Es lo que la ficha del día necesita para no quedarse en "ahora trabajas DOBLADA".
+        Cada tipo lo resolvía por su cuenta y varios se quedaban sin compañero (la doblada
+        permanente siempre, el CT permanente a partir del segundo día, el cambio de descanso
+        entre semana en varias modalidades), así que se comprueba tipo por tipo.
+        """
+        celda = self._cell(empleado, fecha)
+        info = celda.get('solicitud_info')
+        self.assertIsNotNone(
+            info, f'{fecha}: {empleado.nombre} trabaja por un acuerdo y la ficha no dice con quién')
+        self.assertEqual(info.get('companero_nombre'),
+                         f'{companero.nombre} {companero.apellido}',
+                         f'{fecha}: compañero equivocado ({info})')
+        self.assertEqual(info.get('rol'), rol, f'{fecha}: papel equivocado ({info})')
+        self.assertTrue(info.get('fecha_resolucion'), f'{fecha}: falta la fecha de aprobación')
+        return info
+
+    def _libre_por(self, empleado, fecha, companero, tipo_solicitud):
+        """El día LIBRE por un acuerdo nombra el trámite, al compañero y la aprobación."""
+        celda = self._cell(empleado, fecha)
+        self.assertTrue(celda.get('es_descanso'), f'{fecha}: se esperaba día libre')
+        info = celda.get('descanso_info') or {}
+        self.assertEqual(info.get('companero_nombre'),
+                         f'{companero.nombre} {companero.apellido}', f'{fecha}: {info}')
+        self.assertEqual(info.get('tipo_solicitud'), tipo_solicitud, f'{fecha}: {info}')
+        self.assertTrue(info.get('fecha_aprobacion'), f'{fecha}: falta la fecha de aprobación')
+        return info
 
     # ------------------------------------------------------------------- tests
     def test_ct_sencillo_refleja(self):
@@ -139,6 +201,8 @@ class ReflejoMisTurnosTest(TestCase):
         })
         self.assertEqual(self._cell(self.sol, f).get('jornada'), 'PM')   # AM -> PM
         self.assertEqual(self._cell(self.rec, f).get('jornada'), 'AM')   # PM -> AM
+        self._con_quien(self.sol, f, self.rec, 'solicitante')
+        self._con_quien(self.rec, f, self.sol, 'receptor')
 
     def test_doblada_refleja(self):
         fc = self._dia_semana(0)
@@ -156,6 +220,11 @@ class ReflejoMisTurnosTest(TestCase):
         self.assertEqual(self._cell(self.rec, fc).get('jornada'), 'DOBLADA')  # receptor dobla en cesión
         self.assertEqual(self._cell(self.sol, fp).get('jornada'), 'DOBLADA')  # solicitante dobla en pago
         self.assertTrue(self._cell(self.rec, fp).get('es_descanso'))   # receptor descansa en pago
+        # Quien dobla está CUBRIENDO a alguien; quien descansa sabe QUIÉN lo cubre.
+        self._con_quien(self.rec, fc, self.sol, 'receptor')
+        self._con_quien(self.sol, fp, self.rec, 'solicitante')
+        self._libre_por(self.sol, fc, self.rec, 'DOBLADA')
+        self._libre_por(self.rec, fp, self.sol, 'DOBLADA')
 
     def test_d_fds_refleja(self):
         ces, pago = self._findes_fds()
@@ -169,6 +238,9 @@ class ReflejoMisTurnosTest(TestCase):
         self.assertEqual(self._cell(self.rec, ces).get('jornada'), 'DOBLADA')
         self.assertEqual(self._cell(self.sol, pago).get('jornada'), 'DOBLADA')
         self.assertTrue(self._cell(self.rec, pago).get('es_descanso'))
+        self._con_quien(self.rec, ces, self.sol, 'receptor')
+        self._con_quien(self.sol, pago, self.rec, 'solicitante')
+        self._libre_por(self.sol, ces, self.rec, 'D FDS')
 
     def test_ct_permanente_refleja(self):
         fi = self._dia_semana(0)             # lunes
@@ -181,6 +253,12 @@ class ReflejoMisTurnosTest(TestCase):
         })
         self.assertEqual(self._cell(self.sol, fi).get('jornada'), 'PM')  # AM -> PM en el lunes
         self.assertEqual(self._cell(self.rec, fi).get('jornada'), 'AM')
+        # TODOS los días del rango, no solo el primero: `turno_origen`/`turno_destino` solo
+        # apuntan al primer turno creado, así que del segundo lunes en adelante la ficha se
+        # quedaba sin compañero.
+        for lunes in (fi, fi + timedelta(days=7)):
+            self._con_quien(self.sol, lunes, self.rec, 'solicitante')
+            self._con_quien(self.rec, lunes, self.sol, 'receptor')
 
     def test_doblada_permanente_refleja(self):
         import calendar
@@ -208,6 +286,12 @@ class ReflejoMisTurnosTest(TestCase):
         # Martes (devolución): solicitante dobla, receptor descansa
         self.assertEqual(self._cell(self.sol, martes).get('jornada'), 'DOBLADA')
         self.assertTrue(self._cell(self.rec, martes).get('es_descanso'))
+        # El caso que originó todo esto: el día doblado por una permanente no decía a quién
+        # se está cubriendo, porque ninguna consulta de la vista miraba este tipo.
+        self._con_quien(self.rec, fi, self.sol, 'receptor')
+        self._con_quien(self.sol, martes, self.rec, 'solicitante')
+        self._libre_por(self.sol, fi, self.rec, 'DOBLADA PERMANENTE')
+        self._libre_por(self.rec, martes, self.sol, 'DOBLADA PERMANENTE')
 
     def test_doblada_permanente_multicompanero_atribuye_por_fecha(self):
         """Regresión (caso marco 11/08): cuando el MISMO día de la semana se reparte entre varios
@@ -367,6 +451,12 @@ class ReflejoMisTurnosTest(TestCase):
                         f'{f_sol}: el receptor recibio el descanso del solicitante')
         self.assertFalse(self._cell(self.rec, f_rec).get('es_descanso'),
                          f'{f_rec}: el receptor cedio su descanso, debe verse trabajando')
+        # Y el día que cada uno pasa a trabajar dice con quién fue el intercambio: el mapeo
+        # anterior solo cubría dos de las cuatro combinaciones y este día se quedaba mudo.
+        self._con_quien(self.sol, f_sol, self.rec, 'solicitante')
+        self._con_quien(self.rec, f_rec, self.sol, 'receptor')
+        self._libre_por(self.sol, f_rec, self.rec, 'CAMBIO DESCANSO')
+        self._libre_por(self.rec, f_sol, self.sol, 'CAMBIO DESCANSO')
 
 
 class ReflejoMisTurnosPermisosTest(ReflejoMisTurnosTest):

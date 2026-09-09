@@ -178,6 +178,9 @@ def escribe_en(turnos_mes_dict: dict, fecha: date, ctx: ContextoMes) -> None:
                 "turno_id": None,
                 "descanso_info": {
                     "tipo": _tipo,
+                    # Nombre del TIPO DE SOLICITUD ('DOBLADA', 'CAMBIO DESCANSO'…). Sin él, el
+                    # detalle del día solo podía titular "Día libre" y no de qué acuerdo venía.
+                    "tipo_solicitud": desc.get("tipo_solicitud"),
                     "origen": desc.get("origen"),
                     "companero_nombre": _cmp.get("nombre"),
                     "companero_id": _cmp.get("id"),

@@ -544,28 +544,11 @@ function aplicarEstilosCambios() {
     intentarAplicarEstilos();
 }
 
-// Muestra los detalles del día seleccionado en los contenedores del template
-// Nombre legible del acuerdo que modificó un día, a partir de `Turno.tipo_cambio`
-// (vocabulario `core.constants.TipoCambioTurno`, que NO es el de los tipos de solicitud).
-// El detalle del día decía "Cambio de turno" para TODOS los tipos, así que un intercambio de
-// descanso o una doblada de finde se anunciaban con el nombre de otro trámite.
-const NOMBRE_ACUERDO = {
-    'CAMBIO DESCANSO': 'Cambio de día de descanso',
-    'D FDS': 'Doblada de fin de semana',
-    'DOBLADA': 'Doblada',
-    'DOBLADA PERM': 'Doblada permanente',
-    'CT': 'Cambio de turno',
-    'CT PERMANENTE': 'Cambio de turno permanente',
-};
-
-// `YYYY-MM-DD` → ¿sábado o domingo? Se parte la cadena a mano: `new Date('YYYY-MM-DD')` se
-// interpreta en UTC y en zonas al oeste devuelve el día anterior.
-function esFinDeSemana(fechaStr) {
-    const [a, m, d] = (fechaStr || '').split('-').map(Number);
-    if (!a || !m || !d) return false;
-    const wd = new Date(a, m - 1, d).getDay();
-    return wd === 0 || wd === 6;
-}
+// Muestra los detalles del día seleccionado en los contenedores del template.
+//
+// Los TEXTOS viven en `static/js/utils/detalle-dia-mensajes.js`: son lógica pura y desde ahí
+// se prueban con `node --test tests_js/`. Aquí queda solo el HTML.
+const Mensajes = window.DetalleDiaMensajes;
 
 function mostrarDetallesDia(fechaStr) {
     
@@ -624,57 +607,11 @@ function mostrarDetallesDia(fechaStr) {
 
             // Manejar caso de descanso
             if (info.es_descanso || info.tipo === 'descanso' || (!info.jornada && info.tipo === 'descanso')) {
-                // ✅ MEJORADO: Mensajes sencillos y profesionales
-                const descansoInfo = info.descanso_info || {};
-                const tipoDescanso = descansoInfo.tipo; // 'cedio' | 'pago' | 'descanso_semana'
-                const companeroNombre = descansoInfo.companero_nombre || 'un compañero';
-                const fechaCesion = descansoInfo.fecha_cesion;
-                const fechaPago = descansoInfo.fecha_pago;
-
-                // CAMBIO DE DESCANSO: es un INTERCAMBIO de día de descanso, NO una doblada.
-                // Aunque internamente venga con tipo 'cedio'/'pago', debe verse como DESCANSO
-                // (tu descanso simplemente se movió de día), no como "día libre".
-                const esCambioDescanso = descansoInfo.origen === 'cambio_descanso';
-
-                // Diferenciar DÍA LIBRE (queda libre por una doblada: cesión/pago)
-                // del DESCANSO real (asignado: temporada / mantenimiento / fin de semana / intercambio).
-                // El café/DÍA LIBRE SOLO aplica a doblada (cedio/pago); todo lo demás es DESCANSO.
-                const esDiaLibre = !esCambioDescanso && (tipoDescanso === 'cedio' || tipoDescanso === 'pago');
-                const esDescansoReal = !esDiaLibre;
-                const etiqueta = esDescansoReal ? 'DESCANSO' : 'DÍA LIBRE';
-                const encabezado = esDescansoReal ? 'Día de descanso' : 'Día libre';
-                const icono = esDescansoReal ? 'fa-bed' : 'fa-mug-hot';
-
-                // Construir mensaje principal según el tipo (sencillo y profesional)
-                let mensajeDescanso = '';
-                if (esCambioDescanso) {
-                    mensajeDescanso = `Descanso intercambiado con <strong>${companeroNombre}</strong>.`;
-                } else if (esDescansoReal) {
-                    if (descansoInfo.motivo === 'mantenimiento') {
-                        mensajeDescanso = 'Descanso por día de mantenimiento.';
-                    } else if (descansoInfo.motivo === 'temporada') {
-                        mensajeDescanso = 'Descanso de temporada.';
-                    } else {
-                        mensajeDescanso = 'Día de descanso asignado.';
-                    }
-                } else if (tipoDescanso === 'cedio') {
-                    mensajeDescanso = `El compañero <strong>${companeroNombre}</strong> está trabajando por ti este día.`;
-                    if (fechaPago) {
-                        mensajeDescanso += ` Pagarás el ${fechaPago}.`;
-                    }
-                } else if (tipoDescanso === 'pago') {
-                    mensajeDescanso = `El compañero <strong>${companeroNombre}</strong> está trabajando por ti hoy.`;
-                    if (fechaCesion) {
-                        mensajeDescanso += ` Tú lo cubriste el ${fechaCesion}.`;
-                    }
-                } else {
-                    mensajeDescanso = 'Quedaste libre por una doblada. El compañero que te cubrió está trabajando por ti.';
-                }
-
-                const jornadaHTML = `<span class="jornada-value descanso">${etiqueta}</span>
+                const descanso = Mensajes.mensajeDescanso(info.descanso_info);
+                const jornadaHTML = `<span class="jornada-value descanso">${descanso.etiqueta}</span>
                     <div class="info-descanso" style="margin-top: 8px; padding: 10px; background-color: #e3f2fd; border-left: 3px solid #2196f3; border-radius: 4px; font-size: 0.9rem; color: #1565c0; line-height: 1.5;">
-                        <i class="fas ${icono}" style="margin-right: 6px;"></i>
-                        <strong>${encabezado}:</strong> ${mensajeDescanso}
+                        <i class="fas ${descanso.icono}" style="margin-right: 6px;"></i>
+                        <strong>${descanso.encabezado}:</strong> ${descanso.texto}
                     </div>`;
                 jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
                 return;
@@ -689,88 +626,32 @@ function mostrarDetallesDia(fechaStr) {
                 claseJornada = 'doblada';
             }
             
-            // Construir HTML para la jornada
-            let jornadaTexto = info.jornada;
-            if (info.jornada === 'DOBLADA') {
-                // En FIN DE SEMANA un día trabajado es AM+PM POR DEFINICIÓN: la unidad del finde es
-                // el día completo, no media jornada. Llamarlo "DOBLADA" afirma un esfuerzo extra que
-                // no existe —y en este dominio "doblada" significa algo preciso: cubrir un día de
-                // más por un favor, con contraparte y con 30 min de deuda (solo de lunes a viernes)—.
-                // Quien trabaja su sábado por un cambio de descanso leía "DOBLADA" y parecía que le
-                // debían algo. Mismo vocabulario que el formulario de D FDS: DÍA COMPLETO.
-                jornadaTexto = esFinDeSemana(fechaStr) ? 'DÍA COMPLETO (AM + PM)' : 'DOBLADA (AM + PM)';
-            }
-            let jornadaHTML = `<span class="jornada-value ${claseJornada}">${jornadaTexto}</span>`;
-            
+            // Badge de la jornada
+            const esFinde = Mensajes.esFinDeSemana(fechaStr);
+            let jornadaHTML = `<span class="jornada-value ${claseJornada}">${Mensajes.etiquetaJornada(info.jornada, esFinde)}</span>`;
+
             // Si hay un cambio, mostrar información detallada (sencilla y profesional).
             // Si el día tiene un PERMISO (p. ej. media jornada de temporada), esa nota ya explica
             // por qué cambió la jornada; evitamos la nota genérica de "cambio de turno" duplicada.
-            if (info.tipo_cambio === 'PAGO REPROGRAMADO') {
-                // Doblada por pago reprogramado: la persona no pudo cumplir su día de doblada y
-                // el supervisor le programó este día para pagar (dobla AM+PM).
-                jornadaHTML += `<div class="info-cambio" style="margin-top: 8px; padding: 10px; background-color: #fef3c7; border-left: 3px solid #d97706; border-radius: 4px; font-size: 0.9rem; color: #92400e; line-height: 1.5;">
-                    <i class="fas fa-calendar-check" style="margin-right: 6px;"></i>
-                    <strong>Pago reprogramado:</strong> hoy te doblas (AM + PM) para pagar un día de doblada que no pudiste cumplir. Programado por el supervisor.
-                </div>`;
-                jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
-                return;
-            }
-            if (info.es_cambio && !info.permiso) {
-                const jornadaPredeterminada = info.jornada_predeterminada || 'N/A';
-                const coincidePredeterminada = info.coincide_con_predeterminada ?? false;
-                const solicitudInfo = info.solicitud_info;
-                
-                // Construir mensaje profesional y claro
-                let mensajeCambio = '';
-                const companero = solicitudInfo?.companero_nombre;
-                const fechaAprobacion = solicitudInfo?.fecha_resolucion;
-                const rol = solicitudInfo?.rol;   // 'solicitante' | 'receptor'
-                
-                // Lo que se trabaja ese día, dicho como lo entiende quien lo lee: en finde es un
-                // DÍA COMPLETO, entre semana una DOBLADA (ver el badge, mismo criterio).
-                const finde = esFinDeSemana(fechaStr);
-                const loQueTrabaja = (info.jornada === 'DOBLADA'
-                    ? (finde ? 'el día completo (AM + PM)' : 'DOBLADA (AM + PM)')
-                    : info.jornada);
-                // La comparación era `=== 'DESCANSO'`, pero en FINDE el backend devuelve 'Descanso'
-                // (title case, ver `JornadaUtils.calcular_jornada_dia`). Resultado: la explicación
-                // buena era inalcanzable justo en los findes, y siempre salía la genérica.
-                const descansabaEseDia = String(jornadaPredeterminada).toUpperCase() === 'DESCANSO';
-
-                if (coincidePredeterminada) {
-                    // Cambio que coincide con la predeterminada
-                    mensajeCambio = `Este turno fue modificado por un cambio aprobado. Tu jornada actual (${loQueTrabaja}) coincide con tu jornada predeterminada.`;
-                } else if (descansabaEseDia) {
-                    // Ese día en realidad DESCANSABA (temporada o alternancia del finde) y ahora
-                    // trabaja por un acuerdo: no tenía jornada "predeterminada" que mostrar.
-                    mensajeCambio = `Normalmente <strong>descansabas</strong> este día; por este acuerdo trabajas <strong>${loQueTrabaja}</strong>.`;
-                } else {
-                    mensajeCambio = `Tu jornada predeterminada era <strong>${jornadaPredeterminada}</strong>; ahora trabajas <strong>${loQueTrabaja}</strong>.`;
-                }
-
-                // Con QUIÉN, y qué papel juega cada uno. En una doblada (de semana o de finde) el
-                // día no es propio: se está cubriendo o devolviendo. Decirlo aquí es lo que permite
-                // que el badge no tenga que insinuarlo.
-                if (companero) {
-                    const esFavor = ['DOBLADA', 'D FDS', 'DOBLADA PERM'].includes(info.tipo_cambio);
-                    let conQuien;
-                    if (esFavor && rol === 'receptor') {
-                        conQuien = `Estás <strong>cubriendo a ${companero}</strong> este día.`;
-                    } else if (esFavor) {
-                        conQuien = `Estás <strong>devolviéndole el favor a ${companero}</strong>.`;
-                    } else if (info.tipo_cambio === 'CAMBIO DESCANSO') {
-                        // Trueque: cada uno toma el día del otro, no hay favor ni deuda.
-                        conQuien = `Intercambio con <strong>${companero}</strong>.`;
-                    } else {
-                        conQuien = `Cambio con <strong>${companero}</strong>.`;
-                    }
-                    mensajeCambio += ` ${conQuien}`;
-                    if (fechaAprobacion) mensajeCambio += ` Aprobado el ${fechaAprobacion}.`;
-                }
-
-                jornadaHTML += `<div class="info-cambio" style="margin-top: 8px; padding: 10px; background-color: #d1ecf1; border-left: 3px solid #17a2b8; border-radius: 4px; font-size: 0.9rem; color: #0c5460; line-height: 1.5;">
-                    <i class="fas fa-exchange-alt" style="margin-right: 6px;"></i>
-                    <strong>${NOMBRE_ACUERDO[info.tipo_cambio] || 'Cambio de turno'}:</strong> ${mensajeCambio}
+            const esPagoReprogramado = info.tipo_cambio === 'PAGO REPROGRAMADO';
+            if (esPagoReprogramado || (info.es_cambio && !info.permiso)) {
+                const texto = Mensajes.mensajeCambio({
+                    jornada: info.jornada,
+                    jornadaPredeterminada: info.jornada_predeterminada,
+                    coincidePredeterminada: info.coincide_con_predeterminada ?? false,
+                    esFinde,
+                    tipoCambio: info.tipo_cambio,
+                    solicitudInfo: info.solicitud_info,
+                });
+                // El pago reprogramado se pinta en ámbar (lo programa el supervisor, no es un
+                // acuerdo entre dos) y el resto en el azul de los cambios acordados.
+                const estilo = esPagoReprogramado
+                    ? 'background-color: #fef3c7; border-left: 3px solid #d97706; color: #92400e;'
+                    : 'background-color: #d1ecf1; border-left: 3px solid #17a2b8; color: #0c5460;';
+                const icono = esPagoReprogramado ? 'fa-calendar-check' : 'fa-exchange-alt';
+                jornadaHTML += `<div class="info-cambio" style="margin-top: 8px; padding: 10px; border-radius: 4px; font-size: 0.9rem; line-height: 1.5; ${estilo}">
+                    <i class="fas ${icono}" style="margin-right: 6px;"></i>
+                    <strong>${Mensajes.nombreAcuerdo(info.tipo_cambio)}:</strong> ${texto}
                 </div>`;
             } else if (info.tipo === 'predeterminado' && info.jornada) {
                 // Mostrar información para días predeterminados (sin cambios)
@@ -780,7 +661,6 @@ function mostrarDetallesDia(fechaStr) {
                     ${mensajePredeterminado}
                 </div>`;
             }
-
             jornadaDiv.innerHTML = jornadaHTML + permisoHTML + restriccionHTML + sancionHTML;
         } else {
             // Si no hay datos aún, mostrar "Cargando..." temporalmente

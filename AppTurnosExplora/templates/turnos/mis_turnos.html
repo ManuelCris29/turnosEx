@@ -87,6 +87,9 @@
 <!-- Módulos modernos (cargar primero) -->
 <script src="{% static_v 'js/core/app.js' %}"></script>
 
+<!-- Textos del detalle del día (lógica pura; probada en tests_js/) -->
+<script src="{% static_v 'js/utils/detalle-dia-mensajes.js' %}"></script>
+
 <!-- FullCalendar y script específico -->
 <script src="{% static_v 'plugins/fullcalendar/index.global.min.js' %}"></script>
 <script src="{% static_v 'js/mis_turnos.js' %}"></script>

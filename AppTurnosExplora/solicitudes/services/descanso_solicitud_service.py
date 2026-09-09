@@ -16,6 +16,7 @@ rango de fechas y devuelve, por fecha, un dict con toda la info que consumen las
                                            # 'cambio de día de descanso' | 'doblada permanente'
             'origen': str|None,            # 'cambio_descanso' → es un INTERCAMBIO, no un día libre
             'tipo': str,                   # 'cedio' | 'pago'
+            'tipo_solicitud': str,         # nombre del TIPO ('DOBLADA', 'CAMBIO DESCANSO'…)
             'companero': {'id','nombre'}|None,
             'solicitud_id': int|None,
             'fecha_cesion': 'dd/mm/aaaa'|None,
@@ -128,7 +129,7 @@ class DescansoPorSolicitudService:
         for s in _exc(SolicitudCambio.objects.filter(
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_solicitante_id__in=emp_ids, fecha_cambio_turno__range=(qini, qfin))
-                .select_related('explorador_receptor', 'doblada').order_by('-id')):
+                .select_related('explorador_receptor', 'doblada', 'tipo_cambio').order_by('-id')):
             det = getattr(s, 'doblada', None)
             tc = getattr(det, 'tipo_cesion', None) if det else None
             for d in _dias_descanso(s.fecha_cambio_turno):
@@ -152,6 +153,7 @@ class DescansoPorSolicitudService:
                 det = getattr(s, 'doblada', None)
                 salida[emp_id].setdefault(d, {
                     'motivo': 'cedió su jornada', 'origen': None, 'tipo': 'cedio',
+                    'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
                     'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
                     'fecha_cesion': _fmt(s.fecha_cambio_turno),
                     'fecha_pago': _fmt(det.fecha_pago) if det else None,
@@ -215,6 +217,7 @@ class DescansoPorSolicitudService:
                 det = getattr(s, 'doblada', None)
                 salida[emp_id].setdefault(d, {
                     'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
+                    'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
                     'companero': _comp(s.explorador_solicitante), 'solicitud_id': s.id,
                     'fecha_cesion': _fmt(s.fecha_cambio_turno),
                     'fecha_pago': _fmt(det.fecha_pago) if det else None,
@@ -234,7 +237,7 @@ class DescansoPorSolicitudService:
                 tipo_cambio__nombre__in=['DOBLADA', 'D FDS'], estado='aprobada',
                 explorador_solicitante_id__in=emp_ids,
                 doblada__fecha_pago_semana__range=(qini, qfin))
-                .select_related('explorador_receptor', 'doblada').order_by('-id')):
+                .select_related('explorador_receptor', 'doblada', 'tipo_cambio').order_by('-id')):
             det = getattr(s, 'doblada', None)
             fps = getattr(det, 'fecha_pago_semana', None) if det else None
             emp_id = s.explorador_solicitante_id
@@ -243,6 +246,7 @@ class DescansoPorSolicitudService:
             salida[emp_id].setdefault(fps, {
                 # Misma forma que un pago normal: a esta persona le devuelven la jornada.
                 'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
+                'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
                 'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
                 'fecha_cesion': _fmt(s.fecha_cambio_turno),
                 'fecha_pago': _fmt(fps),
@@ -270,11 +274,20 @@ class DescansoPorSolicitudService:
                 # comprometido") sobre días que la persona trabaja de verdad.
                 if dcd in con_turno_real[emp_id]:
                     continue
+                # El acuerdo viaja dentro del compañero (`_mapa_descanso_multi`), que es quien
+                # ya sabe de qué solicitud sale cada fecha. Antes estos campos iban a None y el
+                # día de intercambio no podía decir de qué trámite venía ni cuándo se aprobó.
+                acuerdo = comp.get('acuerdo') or {} if comp else {}
                 salida[emp_id].setdefault(dcd, {
                     'motivo': 'cambio de día de descanso', 'origen': 'cambio_descanso', 'tipo': 'cedio',
-                    'companero': comp, 'solicitud_id': None,
-                    'fecha_cesion': None, 'fecha_pago': None,
+                    'tipo_solicitud': 'CAMBIO DESCANSO',
+                    'companero': {'id': comp['id'], 'nombre': comp['nombre']} if comp else None,
+                    'solicitud_id': acuerdo.get('solicitud_id'),
+                    'fecha_cesion': acuerdo.get('fecha_cesion'),
+                    'fecha_pago': acuerdo.get('fecha_pago'),
                     'tipo_cesion': None, 'jornada_cedida': None,
+                    'fecha_solicitud': acuerdo.get('fecha_solicitud'),
+                    'fecha_aprobacion': acuerdo.get('fecha_aprobacion'),
                 })
 
         # ---------- DOBLADA PERMANENTE (recurrente; nunca domingo ni festivo) ----------
@@ -301,9 +314,15 @@ class DescansoPorSolicitudService:
                 info = {
                     'motivo': 'doblada permanente', 'origen': None,
                     'tipo': 'cedio' if es_sol else 'pago',
+                    'tipo_solicitud': 'DOBLADA PERMANENTE',
                     'companero': _comp(companero), 'solicitud_id': sp.id,
+                    # Una permanente es un RANGO con varias fechas por lado, no un par
+                    # cesión/pago: no hay "la otra fecha" que enseñar. Lo que sí falta —y aquí
+                    # se añade— es de qué solicitud viene y cuándo se aprobó.
                     'fecha_cesion': None, 'fecha_pago': None,
                     'tipo_cesion': None, 'jornada_cedida': None,
+                    'fecha_solicitud': DateUtils.format_datetime_display(sp.fecha_solicitud),
+                    'fecha_aprobacion': DateUtils.format_datetime_display(sp.fecha_resolucion),
                 }
 
                 def _marca(d, _emp_id=emp_id, _info=info):

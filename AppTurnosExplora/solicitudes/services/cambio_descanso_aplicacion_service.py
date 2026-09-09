@@ -137,7 +137,22 @@ class CambioDescansoAplicacionService:
                 if emp_id not in emp_ids:
                     continue
                 otro = s.explorador_receptor if es_sol else s.explorador_solicitante
-                comp = {'id': otro.id, 'nombre': f'{otro.nombre} {getattr(otro, "apellido", "")}'.strip()}
+                # `acuerdo` viaja junto al compañero para que quien pinta el día pueda decir
+                # de QUÉ intercambio viene y cuándo se aprobó, sin volver a deducir la
+                # geometría (que es justo lo que esta función ya sabe). Los consumidores que
+                # solo leen 'id'/'nombre' no se enteran de que está.
+                comp = {
+                    'id': otro.id,
+                    'nombre': f'{otro.nombre} {getattr(otro, "apellido", "")}'.strip(),
+                    'acuerdo': {
+                        'solicitud_id': s.id,
+                        'tipo_solicitud': 'CAMBIO DESCANSO',
+                        'fecha_cesion': fc.strftime('%d/%m/%Y') if fc else None,
+                        'fecha_pago': fp.strftime('%d/%m/%Y') if fp else None,
+                        'fecha_solicitud': DateUtils.format_datetime_display(s.fecha_solicitud),
+                        'fecha_aprobacion': DateUtils.format_datetime_display(s.fecha_resolucion),
+                    },
+                }
                 es_finde = bool(fc) and fc.weekday() in (5, 6)
                 if es_finde:
                     dias = [fc, fp] if es_sol else [otro_dia(fc), otro_dia(fp)]
