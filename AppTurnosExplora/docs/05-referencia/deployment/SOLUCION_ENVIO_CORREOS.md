@@ -26,20 +26,40 @@ For more information, go to https://support.google.com/mail/?p=BadCredentials')
 4. Generar una nueva contraseña de aplicación para "Correo"
 5. Copiar la contraseña generada (16 caracteres sin espacios)
 
-### Paso 2: Actualizar settings.py
+### Paso 2: Actualizar el `.env` (NO `settings.py`)
 
-Editar `AppTurnosExplora/config/settings.py` y actualizar:
+Editar `AppTurnosExplora/.env`:
 
-```python
-EMAIL_HOST_PASSWORD = 'NUEVA_CONTRASEÑA_AQUI'  # Reemplazar con la nueva contraseña
+```ini
+EMAIL_HOST_PASSWORD=NUEVA_CONTRASEÑA_AQUI
 ```
 
+> Este paso decía antes "editar `config/settings.py`". **No lo hagas**: `settings.py`
+> lee la clave del `.env` (`EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')`) y está
+> bajo control de versiones, así que escribir ahí la contraseña la publicaría en el
+> repositorio. El `.env` está en `.gitignore` justamente para esto.
+>
+> En producción la credencial no vive en ningún fichero del repositorio: ver
+> `CONFIGURACION_PRODUCCION.md`.
+
 ### Paso 3: Verificar Configuración
+
+> ✅ **Corregido (2026-09-08):** el script sí existe, pero en `scripts/maintenance/`, no en la
+> raíz de `scripts/`. El aviso anterior decía que se había perdido. Es justo la herramienta que
+> se usa el día que se cambia el transporte de correo —con el sistema caído—, así que la ruta
+> importa.
 
 Ejecutar el script de diagnóstico:
 
 ```bash
-python scripts/test_envio_correos.py
+python scripts/maintenance/test_envio_correos.py
+```
+
+O, si solo quieres comprobar el SMTP y el estado de la cola:
+
+```bash
+python manage.py shell -c "from django.core.mail import send_mail; send_mail('Prueba SWALP','cuerpo',None,['tu-correo@parqueexplora.org'])"
+python manage.py procesar_email_outbox --resumen
 ```
 
 Si todo está correcto, deberías ver:
@@ -115,9 +135,9 @@ Después de actualizar las credenciales:
 
 Para desarrollo local, se puede usar el backend de consola que muestra los emails en la terminal:
 
-```python
-# En settings.py
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+```ini
+# En el .env (settings.py ya lo lee de ahí; no edites settings.py)
+EMAIL_BACKEND=django.core.mail.backends.console.EmailBackend
 ```
 
 Esto es útil para:

@@ -41,7 +41,9 @@ Aprobar solicitud
       ├─ 1. ENCOLAR ── fila en EmailOutbox, dentro de la transacción
       │                 (esto es lo que garantiza que el correo existe)
       │
-      └─ 2. ENTREGAR ── tras el commit, un hilo intenta enviarlo UNA VEZ
+      └─ 2. ENTREGAR ── tras el commit, un hilo intenta enviar el LOTE UNA VEZ
+                          (todos los correos de la operación por una sola
+                           conexión SMTP; ver `envio_agrupado`)
                           │
                           ├─ éxito → estado='enviado'   ✅ fin
                           │
@@ -86,15 +88,23 @@ En producción el envío debe ir fuera del request, para no bloquear la respuest
 con el handshake SMTP.
 
 ```python
-# config/settings.py:206 — ya está así, solo verificar
+# config/settings.py:271 — ya está así, solo verificar
 EMAIL_SEND_ASYNC = env.bool('EMAIL_SEND_ASYNC', default=IS_PRODUCTION)
 ```
 
 - [ ] Confirmar que `IS_PRODUCTION` es `True` en el servidor (o fijar `EMAIL_SEND_ASYNC=True`
       explícitamente en el `.env`).
 
-> En desarrollo y tests vale `False` a propósito: el envío es síncrono para que
-> `mail.outbox` quede poblado dentro del propio test.
+> En **tests** vale `False` a propósito: el envío es síncrono para que `mail.outbox`
+> quede poblado dentro del propio test, y los que dependen de ello lo fijan con
+> `override_settings`.
+>
+> En **desarrollo** conviene ponerlo a `True` en el `.env` (así está en
+> `.env.example`). Con `False`, cada solicitud espera los handshakes SMTP dentro del
+> request: medidos contra Gmail el 2026-09-07 fueron 6,3 s por solicitud, y los
+> flujos que crean varias (cobertura con 2 compañeros, doblada permanente con N) los
+> pagaban además con la transacción abierta. El explorador veía el modal "Enviando
+> solicitud…" todo ese rato.
 
 ### Paso 3 — Programar el worker ⚠️ **este es el paso que no se puede omitir**
 

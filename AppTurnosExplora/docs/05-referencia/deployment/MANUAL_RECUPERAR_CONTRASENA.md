@@ -191,8 +191,12 @@ Después de desplegar, con una cuenta real (no la de un admin):
 - [ ] `https://swalp.parqueexplora.org/` muestra el enlace **"¿Olvidaste tu contraseña?"**.
 - [ ] Pedir el enlace con el correo de esa cuenta → la pantalla dice "Revisa tu correo".
 - [ ] **El correo llega** en menos de un minuto, desde `no-reply@parqueexplora.org`.
-- [ ] En la cabecera del correo: **DKIM=pass** y **SPF=pass** (en Gmail, "Mostrar
-      original"). Si fallan, acabará en spam para todo el mundo.
+- [ ] En la cabecera del correo (Gmail → "Mostrar original"): **`DKIM: 'PASS' with domain`
+      seguido del mismo dominio que el `From`**, y **DMARC=pass**. Que DKIM diga `PASS` no
+      basta: si el dominio de la firma no es el del `From`, **no hay alineación** y acabará en
+      spam para todo el mundo. `spf=pass` aquí no prueba nada — SES envía con su propio
+      Return-Path y ese SPF pasa siempre. Ver
+      [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 - [ ] El enlace empieza por **`https://swalp.parqueexplora.org/password/recuperar/`**
       (sección 5).
 - [ ] El enlace abre el formulario, la contraseña nueva se guarda, y **se puede entrar
@@ -215,7 +219,7 @@ Después de desplegar, con una cuenta real (no la de un admin):
 | No llega ningún correo | SES en **sandbox** | *Account dashboard* → Production access |
 | No llega, y SES está en producción | La cuenta **no tiene email** | `/admin/auth/user/` → ver el campo email |
 | No llega, y la cuenta sí tiene email | **Puerto 587 cerrado** | Logs: error de timeout SMTP al enviar |
-| Llega a **spam** | DKIM/SPF sin verificar | Cabeceras del correo: `dkim=pass`, `spf=pass` |
+| Llega a **spam** | DKIM **sin alinear** con el dominio del `From` | *Mostrar original*: `DKIM: 'PASS' with domain <el dominio del From>`. **`spf=pass` no prueba nada aquí**: SES envía con su propio Return-Path y ese SPF pasa siempre |
 | No llega nada y en CloudWatch se ve el correo entero escrito en el log | `EMAIL_BACKEND` quedó en `console` | Quitar esa variable del *task definition* (§3.0) |
 | Enlace "caducado" al primer intento | El enlace **ya se usó**, o `PASSWORD_RESET_TIMEOUT` demasiado bajo | Pedir uno nuevo; revisar la variable |
 | Enlace apunta a `http://` o al DNS del ALB | `SECURE_PROXY_SSL_HEADER` / `ALLOWED_HOSTS` | Sección 5 |

@@ -111,11 +111,12 @@
 ### 4.3 Amazon SES — correo transaccional · **~$2/mes**
 - **Qué:** conteo real del flujo (`NotificacionService` → `EmailService`): por solicitud se encolan **1-3** correos al crearla (supervisor, receptor, solicitante — o el combinado `_enviar_email_supervisor_receptor`) y **2-4** al responder receptor y supervisor (`notificacion_service.py:391-512`). Son **~6 correos por solicitud**.
 - **Volumen a 30 solicitudes/día:** 30 × 6 × 30 días = **5.400/mes**, más recuperación de contraseña y avisos de seguridad ≈ **6.000/mes** × $0,10/1.000 ≈ **$0,60/mes**. (A 100 solicitudes/día serían ~18.000/mes ≈ $1,80.)
-- **Por qué SES (opción B del plan de correo):**
-  - **Sin secreto que rotar:** la EC2 usa **IAM role**; adiós al App Password de Gmail que caduca.
-  - **Arregla los 20 s:** 1 llamada HTTPS (~0,3 s) vs handshake SMTP (~5 s); con envío **asíncrono** la respuesta baja a **<1 s percibido**.
-  - **Entregabilidad:** DKIM/SPF/DMARC sobre `parqueexplora.org` → no cae en spam.
-- **Dependencia:** IT verifica el dominio en SES y hay que **salir del sandbox** (§6).
+- **Por qué SES** (razonado en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md)):
+  - **Entregabilidad — el motivo principal.** Hoy se envía como `no-reply@parqueexplora.org` autenticando contra Gmail, así que la firma DKIM es de `gmail.com` y **no alinea** con el remitente: DMARC falla y el correo va a spam para las 300 personas, en silencio. Con Easy DKIM sobre el dominio propio, alinea.
+  - **Credenciales que no caducan:** las SMTP de SES se derivan de una clave IAM y solo cambian si alguien las rota. Adiós al App Password de Gmail, que **ya caducó una vez** y tumbó el envío sin avisar (`SOLUCION_ENVIO_CORREOS.md`).
+  - **Retroalimentación:** rebotes y quejas como métricas de CloudWatch. Gmail no dice qué rebotó.
+- **Se arranca por SMTP, no por la API.** Tres variables de entorno y **cero líneas de código**; la suite de correo (26 pruebas) sigue verde sin tocarla. `django-ses` + IAM role queda como mejora posterior, no como punto de partida — exige `boto3` en `requirements.txt` y mete una segunda variable en la primera salida a producción. La latencia ya la resuelve `EMAIL_SEND_ASYNC` más el lote sobre una conexión ([ADR 015](../../03-arquitectura/adr/015-entrega-de-correo-en-lote.md)).
+- **Dependencia:** IT publica los **3 CNAME de Easy DKIM** (sin tocar el SPF) y hay que **salir del sandbox** (§6).
 
 ### 4.4 Disco de la EC2 (EBS gp3, 20 GB) · **~$1,60/mes**
 - **Qué:** el volumen raíz de la instancia, a $0,08/GB-mes. Es **independiente** de los 20 GB de RDS (§4.2) y **faltaba por completo en la versión anterior de este presupuesto**.
@@ -240,13 +241,28 @@ Ninguno es opcional con un techo de 150.000 COP:
 
 1. **IT de Parque Explora** (controlan DNS y Workspace):
    - Crear `no-reply@parqueexplora.org`.
-   - Agregar registros **DKIM/SPF** de SES (ajustando SPF para no romper Workspace).
+   - Agregar los **3 CNAME de Easy DKIM** que genera SES. **NO se toca el registro SPF**
+     ([ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md), decisión 3):
+     SES envía con su propio Return-Path (`@<región>.amazonses.com`), cuyo SPF publica Amazon y
+     pasa; DMARC exige que **uno** de los dos mecanismos alinee, y Easy DKIM firma con el dominio
+     del From. Pedir que ajusten el SPF del ápice —del que depende **todo** el correo de
+     Workspace— es riesgo real, arrastra el límite de 10 consultas DNS y es lo que convierte un
+     trámite de días en uno de semanas.
    - Crear `swalp.parqueexplora.org` → Elastic IP.
-2. **SES:** verificar dominio y **solicitar salida del sandbox**.
+2. **SES:** verificar **las dos identidades** (`parqueexplora.org` y `swalp.parqueexplora.org`)
+   en el mismo ticket y **solicitar salida del sandbox**. Se usa la que IT conceda primero:
+   `DEFAULT_FROM_EMAIL` es variable de entorno (`config/settings.py:263`), así que elegir una u
+   otra **no cuesta una línea de código** y convierte una dependencia bloqueante en dos caminos
+   paralelos.
 3. **Código:**
    - ✅ **Hecho** — Refactor **From/Reply-To** (envío desde `DEFAULT_FROM_EMAIL`, persona en `Reply-To`).
    - ✅ **Hecho** — **Async** de correo (`transaction.on_commit` + hilo, `EMAIL_TIMEOUT`) → arregla los 20 s; controlado por `EMAIL_SEND_ASYNC`.
-   - ⏳ Al montar AWS: `EMAIL_BACKEND=django_ses.SESBackend` + IAM role.
+   - ⏳ Al montar AWS: **nada de código**. `EMAIL_HOST=email-smtp.us-east-1.amazonaws.com` +
+     las credenciales SMTP de SES en el `.env`. `EMAIL_BACKEND` se deja **sin definir** (usa el
+     SMTP por defecto); ponerlo en `console` escribe los correos en el log y **no los recibe
+     nadie, sin ningún error**. `django_ses.SESBackend` + IAM role es la vía de salida
+     documentada en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md),
+     sin fecha.
    - ⏳ **Cachear consultas del dashboard** (read-heavy) con `LocMemCache` → menos carga a RDS.
 4. **Archivado anual (pendiente, sin fecha):** dump anual a S3 cada diciembre. Se
    analizó purgar los años pasados y se **descartó**: el almacenamiento sobra para
@@ -576,18 +592,36 @@ porque los 300 empleados no están verificados uno a uno.
 aws ses get-send-quota
 
 # Pedir acceso de producción (saca del sandbox)
+# --use-case-description NO es opcional en la práctica: es el ÚNICO campo que lee
+# el revisor humano de AWS. Debe dejar claras las tres cosas que evalúan: que el
+# correo es transaccional, que la audiencia es cerrada y no se autoregistra, y
+# que hay un plan para rebotes y quejas.
 aws sesv2 put-account-details \
     --production-access-enabled \
     --mail-type TRANSACTIONAL \
     --website-url https://swalp.parqueexplora.org \
-    --contact-language ES
+    --contact-language ES \
+    --use-case-description "Aplicación interna de gestión de turnos de Parque \
+Explora (Medellín, Colombia). Los correos son transaccionales y se envían \
+únicamente a los ~300 empleados de la organización, con direcciones \
+corporativas tomadas de la nómina: notificaciones de solicitudes de cambio de \
+turno y enlaces de aprobación para los jefes. No hay marketing, ni listas \
+compradas, ni destinatarios externos, ni autoregistro. Volumen estimado: ~180 \
+correos/día. Los rebotes y quejas se gestionan dando de baja al empleado en el \
+sistema."
 ```
 
-Dos trampas documentadas por AWS:
+Equivale al botón **Request production access** del panel de SES en la consola; ambos abren el mismo
+caso en Support Center. **No hace falta un plan de soporte de pago.**
+
+Tres trampas documentadas por AWS:
 
 1. **El sandbox es por región.** Salir del sandbox en una región **no** aplica a las demás. Pídelo en
    **la misma región del despliegue** (`us-east-1`).
-2. **La aprobación no es inmediata** (suele tardar ~24 h). Es la segunda dependencia externa junto al
+2. **Salir del sandbox no es lo mismo que entregar.** Esto solo levanta el límite de AWS; que el
+   correo llegue a la bandeja y no a spam depende de los **3 CNAME de Easy DKIM** que IT debe
+   crear (§11.8, fila 2). Son trámites independientes: lánzalos a la vez.
+3. **La aprobación no es inmediata** (suele tardar ~24 h). Es la segunda dependencia externa junto al
    DNS: **pídela pronto**, porque sin ella no sale un solo correo a los empleados y el flujo de
    aprobaciones —que es la app entera— no funciona.
 
@@ -598,10 +632,19 @@ Dos cosas no dependen de ti y bloquean el despliegue. **Pídelas el primer día:
 | # | Dependencia | A quién | Bloquea |
 |---|---|---|---|
 | 1 | Registro **A** `swalp.parqueexplora.org` → Elastic IP | IT Parque Explora | HTTPS (FASE 9) y la URL final |
-| 2 | Registros **DKIM/SPF** de SES en `parqueexplora.org` | IT Parque Explora | Entregabilidad del correo |
+| 2 | Los **3 CNAME de Easy DKIM** de SES. **Sin tocar el SPF** | IT Parque Explora | Entregabilidad del correo |
 | 3 | **Salida del sandbox de SES** en us-east-1 | AWS (~24 h) | Todo el flujo de aprobaciones |
 
 Todo lo demás (FASES 1-7) se puede hacer en paralelo mientras esas tres avanzan.
+
+**Cómo redactar la fila 2 para que no se atasque.** Un CNAME nuevo no puede romper el correo
+existente, así que la petición es *"añadir tres alias"*, no *"modificar el DNS del correo
+corporativo"* — que es otra conversación y otro plazo. Pide **las dos identidades a la vez**
+(`parqueexplora.org` y `swalp.parqueexplora.org`, seis CNAME en total) y usa la que concedan
+primero: el subdominio deja todos los registros en algo que IT puede delegar entero y donde un
+error no toca el correo de Workspace. Y **no pidas MAIL FROM personalizado** en la primera
+vuelta: solo sirve para alinear también el SPF, y con DKIM alineado DMARC ya pasa. El porqué
+completo, en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 
 ---
 
@@ -676,7 +719,7 @@ Tres cosas del despliegue **no son recursos de AWS** y ninguna herramienta de Ia
 | Cosa | Por qué no | Quién la hace |
 |---|---|---|
 | El registro DNS `swalp.parqueexplora.org` | El dominio lo administra **IT**, no esta cuenta AWS | IT Parque Explora |
-| Los registros DKIM/SPF de SES | Van en ese mismo DNS ajeno | IT Parque Explora |
+| Los 3 CNAME de Easy DKIM de SES | Van en ese mismo DNS ajeno | IT Parque Explora |
 | La **salida del sandbox de SES** | Es una **solicitud a AWS** que revisa una persona (~24 h), no un recurso | Tú → AWS |
 
 Son las tres dependencias del camino crítico (§11.8). **Pídelas el primer día**, porque el YAML se
@@ -689,7 +732,7 @@ DÍA 1 — lo que depende de otros (pedirlo YA)
   □ Solicitar salida del sandbox de SES en us-east-1        (~24 h)  §11.7
   □ Desplegar la pila YAML → obtienes la Elastic IP                  §12.3
   □ Pedir a IT el registro A hacia esa IP                            §11.2
-  □ Pedir a IT los registros DKIM/SPF de SES                         FASE 10
+  □ Pedir a IT los 3 CNAME de Easy DKIM (sin tocar el SPF)           FASE 10
 
 MIENTRAS ESPERAS — no depende de nadie
   □ FASE 0.4  Correr la suite, también con --dias-en-el-futuro=45

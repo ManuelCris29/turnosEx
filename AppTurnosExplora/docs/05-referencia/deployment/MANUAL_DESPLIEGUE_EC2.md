@@ -113,9 +113,14 @@ DB_HOST=localhost  # o endpoint de RDS
 DB_PORT=3306
 
 # Django
-DJANGO_SECRET_KEY=tu-clave-secreta-muy-larga-y-segura
-DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=tu-dominio.com,IP_PUBLICA_EC2
+# OJO: los nombres van SIN prefijo DJANGO_. settings.py lee env('SECRET_KEY'),
+# env('DEBUG') y env.list('ALLOWED_HOSTS'); una variable mal nombrada no falla
+# con estruendo: SECRET_KEY revienta al arrancar, pero ALLOWED_HOSTS cae
+# silenciosamente a su default (127.0.0.1, localhost) y el sitio responde 400
+# DisallowedHost a todo el mundo.
+SECRET_KEY=tu-clave-secreta-muy-larga-y-segura
+DEBUG=False
+ALLOWED_HOSTS=tu-dominio.com,IP_PUBLICA_EC2
 ```
 
 ### 4.2 Modificar config/db.py para usar variables de entorno
@@ -208,9 +213,13 @@ server {
     listen 80;
     server_name tu-dominio.com IP_PUBLICA_EC2;
 
-    # Archivos estáticos
+    # Archivos estáticos.
+    # Apunta a staticfiles/ (STATIC_ROOT, lo que genera collectstatic), NO a
+    # static/ (las fuentes del repositorio). Con DEBUG=False Django ya no sirve
+    # estáticos: si Nginx mira la carpeta equivocada, la página llega en HTML
+    # pelado, sin CSS ni imágenes.
     location /static/ {
-        alias /home/appuser/appTurnos/AppTurnosExplora/static/;
+        alias /home/appuser/appTurnos/AppTurnosExplora/staticfiles/;
     }
 
     # Archivos media (si aplica)

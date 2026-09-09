@@ -103,16 +103,29 @@ Agregar `REDIS_URL` a SSM Parameter Store.
 
 ---
 
-## 6. Notificaciones asíncronas — SQS (opcional / escalabilidad)
+## 6. Notificaciones asíncronas — SQS ~~(opcional / escalabilidad)~~ · **SUPERADO**
 
-Actualmente las notificaciones de email van con `on_commit()` de forma síncrona.  
-Si el volumen de emails crece o se necesitan reintentos automáticos:
+> ⛔ **No hagas esto.** Este apartado quedó obsoleto dos veces: los reintentos automáticos ya
+> existen (patrón *outbox*, [ADR 015](./015-entrega-de-correo-en-lote.md)), y **SQS quedó
+> descartado con argumento** en el [ADR 016](./016-transporte-de-correo-y-fiabilidad.md).
+>
+> El motivo de fondo: **una cola no sustituye al outbox, sería una capa más**. Publicar a SQS
+> dentro de una transacción tiene exactamente el problema que el outbox resuelve — si hay
+> rollback, el mensaje ya está en la cola y se envía igual. La solución canónica a eso es
+> `on_commit`, es decir, el [ADR 003](./003-on-commit-para-notificaciones.md), sobre el que el
+> outbox es la mejora. Acabarías con outbox **y** SQS.
+>
+> A esto se suma que el destino ya no es ECS/Fargate sino una EC2 `t4g.micro` de 1 GB (commit
+> `dd4228c`), donde un worker más convive con gunicorn, nginx y cron — y una segunda unidad
+> systemd que puede morir en silencio es justo el fallo que `verificar_crons` existe para cazar.
+>
+> Lo que hoy garantiza la entrega es la tabla `EmailOutbox` con su cron de reintentos
+> (`procesar_email_outbox`, cada 5 min). Ver
+> [MANUAL_OUTBOX_CORREOS.md](../../05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md).
 
-1. Agregar `boto3` y configurar una cola SQS
-2. En el `on_commit`, publicar a SQS en lugar de llamar a `NotificacionService` directamente
-3. Un worker (Lambda o ECS task) consume la cola y envía los emails
-
-No es urgente — `on_commit()` funciona bien para el volumen actual.
+*Texto original, conservado para que se entienda qué se descartó:* agregar `boto3` y una cola
+SQS, publicar a SQS desde el `on_commit` en vez de llamar a `NotificacionService`, y un worker
+(Lambda o ECS task) que consuma la cola.
 
 ---
 

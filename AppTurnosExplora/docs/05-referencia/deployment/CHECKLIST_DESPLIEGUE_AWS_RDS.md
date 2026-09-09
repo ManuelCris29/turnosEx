@@ -5,7 +5,7 @@
 **Objetivo:** dejar la app **pública en internet** (acceso desde cualquier parte, con login) sobre:
 `EC2 t4g.small (Nginx + Gunicorn) → RDS MySQL db.t4g.micro → Amazon SES`, HTTPS con Let's Encrypt.
 
-> ⚠️ Este documento **reemplaza** al genérico [MANUAL_DESPLIEGUE_EC2.md](./MANUAL_DESPLIEGUE_EC2.md), que tiene nombres de variables `.env` desactualizados (`DJANGO_SECRET_KEY`, etc.) y asume `mysqlclient`. Este proyecto usa **PyMySQL** (no hay que compilar nada).
+> ⚠️ Este documento **reemplaza** al genérico [MANUAL_DESPLIEGUE_EC2.md](./MANUAL_DESPLIEGUE_EC2.md), que es genérico y asume `mysqlclient`. Este proyecto usa **PyMySQL** (no hay que compilar nada). Los nombres de variables `.env` de aquel manual ya están corregidos (van sin prefijo `DJANGO_`), pero este checklist sigue siendo el documento de referencia.
 
 ---
 
@@ -52,6 +52,46 @@ pytest -n auto --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de 
       habría dicho semanas antes, en diez minutos y sin nada a medias por en medio.
 - [ ] Contexto completo, cómo leer el resultado y la decisión pendiente de si esto debe ir al CI:
       **[MANUAL_TESTS_QUE_CADUCAN.md](./MANUAL_TESTS_QUE_CADUCAN.md)**.
+
+### 0.5 Ensayo en local de los estáticos con `DEBUG=False`
+
+Antes de subir nada, comprueba **en tu máquina** que el sitio se ve bien tal como lo servirá
+producción. Es la única forma barata de descubrir un estático que falta: en el servidor el mismo
+fallo se manifiesta como una página sin estilos y ya con la app publicada.
+
+```bash
+cd AppTurnosExplora
+# 1) En .env, temporalmente:  DEBUG=False
+python manage.py collectstatic --noinput   # genera staticfiles/
+python manage.py runserver
+```
+
+- [ ] Recorre las pantallas principales (login, dashboard, Mis Turnos, los 6 formularios de
+      solicitudes) y confirma que **se ven con estilos**.
+- [ ] Abre la consola del navegador: **ningún 404** de CSS/JS y **ningún bloqueo de CSP**.
+- [ ] Al terminar, **vuelve a dejar `DEBUG=True` en tu `.env`**.
+
+> 🔴 **Por qué esta prueba existe.** Con `DEBUG=True`, `runserver` sirve `static/` él mismo. Al
+> pasar a `False` eso se apaga y el relevo lo toma **WhiteNoise**, que sirve desde `STATIC_ROOT`
+> (`staticfiles/`) — un directorio que **no existe hasta que corres `collectstatic`**. Si no está,
+> todos los CSS y JS dan 404 y sale el HTML crudo. Le pasó a este proyecto en dev el 2026-09-07.
+
+> ⚠️ **Dos trampas mientras dure el ensayo:**
+> 1. **Los cambios en CSS/JS dejan de verse.** WhiteNoise sirve la copia congelada de
+>    `staticfiles/`, no tu original: hay que volver a correr `collectstatic` tras cada edición.
+>    Por eso este modo es una prueba puntual, nunca tu entorno de trabajo.
+> 2. **Pierdes la página de error con el traceback.** Cualquier bug aparece como un
+>    `Server Error (500)` mudo. Si algo se rompe durante el ensayo, vuelve a `DEBUG=True` para
+>    diagnosticarlo.
+
+> 📌 **CSP:** si alguna vez añades un recurso externo nuevo (un CDN, una fuente), tiene que estar
+> en la allowlist CSP de `config/settings.py` o el navegador lo bloqueará **sin error visible en
+> el servidor**. Este ensayo es el momento de detectarlo. Ver también la migración de CDN a
+> estáticos locales en `static/`.
+
+> 📌 **`staticfiles/` no entra al repo.** Es una copia generada que se rehace en cada despliegue.
+> Ya está en `.gitignore` (`AppTurnosExplora/staticfiles/`), así que el `git add -A` con el que
+> cierra esta Fase 0 no se lleva los cientos de archivos del ensayo. No quites esa línea.
 
 **Al terminar la Fase 0:** `git add -A && git commit -m "prod: completar requirements + proxy SSL + CSRF origins" && git push`
 
@@ -235,6 +275,7 @@ python manage.py migrate
 python manage.py createcachetable
 
 python manage.py collectstatic --noinput     # genera staticfiles/ (los sirve Nginx)
+# (el ensayo previo de este mismo paso en local es el 0.5 de la FASE 0)
 python manage.py createsuperuser              # tu usuario admin
 ```
 
@@ -356,12 +397,35 @@ sudo systemctl status certbot.timer     # renovación automática
 
 **Fase 1 (ahora, sin cambio de código) — SES por SMTP:**
 - [ ] **Solicitar la salida del sandbox** (comando de arriba) — hacerlo YA, tarda ~24 h.
-- [ ] En SES: **verificar el dominio** `parqueexplora.org` (IT agrega los registros DKIM/SPF en DNS).
-- [ ] **Solicitar acceso a producción** (salir del sandbox) para enviar a cualquier destinatario.
-- [ ] Crear **credenciales SMTP de SES** → ponerlas en `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` (Fase 4).
-- [ ] Prueba: enviar una solicitud real y revisar cabeceras (`DKIM=pass`, `SPF=pass`) y que no caiga en spam.
+- [ ] En SES: **verificar las dos identidades**, `parqueexplora.org` **y** `swalp.parqueexplora.org`, y activar **Easy DKIM** en ambas.
+- [ ] Pedirle a IT los **3 CNAME de Easy DKIM** de cada identidad (seis en total). **NO se pide tocar el registro SPF** — ver el recuadro de abajo.
+- [ ] Crear **credenciales SMTP de SES** → ponerlas en `EMAIL_HOST_USER`/`EMAIL_HOST_PASSWORD` (Fase 4). No son una access key de IAM.
+- [ ] `EMAIL_HOST=email-smtp.us-east-1.amazonaws.com`, `EMAIL_PORT=587`. **`EMAIL_BACKEND` se deja sin definir**: si queda en `console`, los correos se escriben en el log y no los recibe nadie, sin ningún error.
+- [ ] Prueba: enviar una solicitud real y revisar en *Mostrar original* que diga `DKIM: 'PASS' with domain <el dominio del From>` y `DMARC: 'PASS'`, y que no caiga en spam.
 
-**Fase 2 (posterior, mejora) — SES por API + IAM role:** elimina el secreto y baja la latencia; requiere `pip install django-ses boto3`, `EMAIL_BACKEND=django_ses.SESBackend` y un **IAM role** en la EC2. Ver el [plan de correo](./PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA.docx). Junto con el envío **asíncrono** (outbox + hilo tras el commit) resuelve los ~20 s de latencia.
+> 🟡 **No pidas a IT que ajuste el SPF, y no pidas MAIL FROM personalizado.**
+> SES envía con su propio Return-Path (`@<región>.amazonses.com`), cuyo SPF publica Amazon y pasa.
+> DMARC exige que **uno** de los dos mecanismos alinee y pase, y **Easy DKIM firma con el dominio
+> del From**: alinea, y DMARC pasa. El SPF del ápice es del que depende **todo el correo
+> corporativo de Workspace** — tocarlo tiene riesgo real, arrastra el límite de 10 consultas DNS
+> y convierte un trámite de días en uno de semanas. Un CNAME nuevo, en cambio, no puede romper
+> nada de lo que ya funciona. Razonado en el
+> [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
+>
+> **Ojo con la comprobación:** que DKIM diga `PASS` no basta. Si el dominio de la firma no es el
+> del `From`, **la alineación no existe** y DMARC falla igual. Es el paso que casi todo el mundo
+> se salta.
+
+> 🟡 **Alarmas de reputación — no son opcionales con SES.** AWS pone la cuenta bajo revisión con
+> **rebotes > 5 %** o **quejas > 0,1 %**, y luego pausa el envío **de toda la aplicación**. Con 300
+> empleados y rotación normal, **6 buzones muertos sobre 180 correos diarios ya son un 3,3 %**.
+> Con Gmail eso rebotaba y punto; con SES puede apagar el flujo de aprobaciones entero. SES publica
+> `Reputation.BounceRate` y `Reputation.ComplaintRate` en CloudWatch sin configurar nada: cuelga
+> dos `AWS::CloudWatch::Alarm` del `AlertTopic` que ya existe en
+> [`swalp-infra.yaml`](../../../infra/cloudformation/swalp-infra.yaml), con umbrales **por debajo**
+> de los de AWS (0,02 y 0,0005) para que suenen mientras aún hay margen.
+
+**Fase 2 (posterior, sin fecha) — SES por API + IAM role:** elimina el secreto de la ecuación; requiere `pip install django-ses boto3`, `EMAIL_BACKEND=django_ses.SESBackend` y un **IAM role** en la EC2. **No se hace en la misma ventana que el cambio de transporte**: dos variables a la vez en una primera salida a producción convierten cualquier fallo en un problema de diagnóstico. Y pierde urgencia porque **las credenciales SMTP de SES tampoco caducan**. Los ~20 s de latencia ya los resuelven el envío asíncrono y el lote sobre una conexión ([ADR 015](../../03-arquitectura/adr/015-entrega-de-correo-en-lote.md)); con backend HTTP, de hecho, ese lote deja de comprar nada. Ver [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 
 **Outbox de correos — ⚠️ paso obligatorio:**
 - [ ] Programar el cron `procesar_email_outbox` (cada 5 min). **Sin él, un correo que falle queda guardado pero no se reintenta nunca.**
