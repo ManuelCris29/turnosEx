@@ -1,0 +1,22 @@
+{% comment %}
+Par de botones: rechazar (claro) y aceptar (rojo). Si solo se pasa `url_unico`,
+se pinta un único botón rojo a ancho completo.
+Uso: {% include 'emails/_botones.html' with url_rechazar=.. url_aceptar=.. texto_aceptar="Aceptar cambio" %}
+{% endcomment %}{% if url_unico %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:18px 0 4px;">
+    <tr><td>
+        <a href="{{ url_unico }}" style="display:block;text-align:center;padding:14px 12px;background-color:#e30613;border:1px solid #e30613;border-radius:10px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;">{{ texto_unico|default:"Ver en el sistema" }}</a>
+    </td></tr>
+</table>
+{% else %}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:18px 0 4px;">
+    <tr>
+        <td width="47%" style="width:47%;padding-right:6px;">
+            <a href="{{ url_rechazar }}" style="display:block;text-align:center;padding:14px 12px;background-color:#ffffff;border:1px solid #e5e7eb;border-radius:10px;color:#374151;text-decoration:none;font-size:14px;font-weight:600;">&#10005;&nbsp; {{ texto_rechazar|default:"Rechazar" }}</a>
+        </td>
+        <td width="53%" style="width:53%;padding-left:6px;">
+            <a href="{{ url_aceptar }}" style="display:block;text-align:center;padding:14px 12px;background-color:#e30613;border:1px solid #e30613;border-radius:10px;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;">&#10003;&nbsp; {{ texto_aceptar|default:"Aceptar" }}</a>
+        </td>
+    </tr>
+</table>
+{% endif %}

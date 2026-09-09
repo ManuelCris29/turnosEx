@@ -1,0 +1,40 @@
+{% extends 'emails/base_email.html' %}
+
+{% block titulo_doc %}Nueva solicitud de permiso{% endblock %}
+{% block estado_texto %}PENDIENTE{% endblock %}
+{% block estado_punto %}#ffc107{% endblock %}
+{% block antetitulo %}Notificación de supervisión{% endblock %}
+{% block titulo %}Nueva solicitud de permiso{% endblock %}
+{% block subtitulo %}Requiere tu aprobación como supervisor{% endblock %}
+
+{% block saludo %}
+    <strong style="color:#111827;">{{ empleado.nombre|title }} {{ empleado.apellido|title }}</strong> solicitó un permiso especial.<br>
+    <span style="color:#6b7280;">Necesita tu aprobación para que quede registrado.</span>
+{% endblock %}
+
+{% block contenido %}
+    {% include 'emails/_seccion.html' with texto="Detalles del permiso" %}
+
+    {% include 'emails/_fila.html' with etiqueta="Explorador" valor=empleado.nombre|title|add:" "|add:empleado.apellido|title %}
+    {% include 'emails/_fila.html' with etiqueta="Fecha(s)" valor=fechas %}
+    {% include 'emails/_fila.html' with etiqueta="Tiempo" valor=horas|stringformat:"s"|add:" h" %}
+    {% include 'emails/_fila.html' with etiqueta="Tipo" valor=permiso.get_tipo_display|upper badge="#2563eb" %}
+    {% if permiso.es_permanente %}
+        {% include 'emails/_fila.html' with etiqueta="Vigencia" valor="Permanente" %}
+    {% else %}
+        {% include 'emails/_fila.html' with etiqueta="Vigencia" valor="Puntual" %}
+    {% endif %}
+    {% include 'emails/_fila.html' with etiqueta="Especificación" valor=permiso.especificacion|default:"—" %}
+    {% include 'emails/_fila.html' with etiqueta="Quién cubre" valor=cubre %}
+    {% include 'emails/_fila.html' with etiqueta="Motivo" valor=permiso.motivo cita=1 %}
+
+    {% include 'emails/_botones.html' with url_rechazar=url_rechazar url_aceptar=url_aprobar texto_rechazar="Rechazar" texto_aceptar="Aprobar permiso" %}
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:14px 0 4px;">
+        <tr><td align="center" style="font-size:13px;color:#9ca3af;line-height:1.5;">
+            También puedes resolverlo desde la aplicación, en «Permisos Especiales».
+        </td></tr>
+    </table>
+{% endblock %}
+
+{% block pie %}&#128339;&nbsp; Solicitud de permiso recibida &middot; SWALP &middot; Parque Explora{% endblock %}

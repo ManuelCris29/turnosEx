@@ -1,377 +1,52 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Nueva Solicitud de Cambio de Turno</title>
-    <style>
-        /* Reset y estilos base */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #2c3e50;
-            background-color: #f8f9fa;
-            margin: 0;
-            padding: 0;
-        }
-        
-        /* Contenedor principal */
-        .email-container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        
-        /* Header moderno */
-        .header {
-            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.1)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-            opacity: 0.3;
-        }
-        
-        .header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 8px;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .header p {
-            font-size: 16px;
-            opacity: 0.9;
-            position: relative;
-            z-index: 1;
-        }
-        
-        /* Contenido principal */
-        .content {
-            padding: 40px 30px;
-        }
-        
-        .greeting {
-            font-size: 18px;
-            margin-bottom: 24px;
-            color: #2c3e50;
-        }
-        
-        .greeting strong {
-            color: #34495e;
-            font-weight: 600;
-        }
-        
-        .description {
-            font-size: 16px;
-            color: #5a6c7d;
-            margin-bottom: 32px;
-            line-height: 1.7;
-        }
-        
-        /* Caja de detalles */
-        .details-card {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 12px;
-            padding: 24px;
-            margin: 24px 0;
-            border-left: 4px solid #007bff;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-        }
-        
-        .details-card h3 {
-            color: #2c3e50;
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-        }
-        
-        .details-card h3::before {
-            content: '📋';
-            margin-right: 8px;
-            font-size: 20px;
-        }
-        
-        .details-list {
-            list-style: none;
-        }
-        
-        .details-list li {
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .details-list li:last-child {
-            border-bottom: none;
-        }
-        
-        .details-list strong {
-            color: #34495e;
-            font-weight: 600;
-            min-width: 140px;
-        }
-        
-        .details-list span {
-            color: #5a6c7d;
-            text-align: right;
-        }
-        
-        /* Botones de acción */
-        .action-buttons {
-            text-align: center;
-            margin: 32px 0;
-        }
-        
-        .btn {
-            display: inline-block;
-            padding: 14px 28px;
-            margin: 8px;
-            text-decoration: none;
-            border-radius: 8px;
-            font-weight: 600;
-            font-size: 15px;
-            transition: all 0.3s ease;
-            border: none;
-            cursor: pointer;
-            min-width: 160px;
-        }
-        
-        .btn-approve {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
-        }
-        
-        .btn-approve:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
-        }
-        
-        .btn-reject {
-            background: linear-gradient(135deg, #dc3545 0%, #e74c3c 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
-        }
-        
-        .btn-reject:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
-        }
-        
-        .btn-system {
-            background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
-            color: white;
-            box-shadow: 0 4px 15px rgba(108, 117, 125, 0.3);
-            margin-top: 16px;
-        }
-        
-        .btn-system:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(108, 117, 125, 0.4);
-        }
-        
-        /* Footer */
-        .footer {
-            background-color: #f8f9fa;
-            padding: 24px 30px;
-            text-align: center;
-            border-top: 1px solid #e9ecef;
-        }
-        
-        .footer p {
-            color: #6c757d;
-            font-size: 14px;
-            margin: 4px 0;
-        }
-        
-        /* Responsive */
-        @media only screen and (max-width: 600px) {
-            .email-container {
-                margin: 0;
-                border-radius: 0;
-            }
-            
-            .header {
-                padding: 30px 20px;
-            }
-            
-            .header h1 {
-                font-size: 24px;
-            }
-            
-            .content {
-                padding: 30px 20px;
-            }
-            
-            .details-card {
-                padding: 20px;
-            }
-            
-            .btn {
-                display: block;
-                width: 100%;
-                margin: 8px 0;
-                min-width: auto;
-            }
-            
-            .details-list li {
-                flex-direction: column;
-                align-items: flex-start;
-                text-align: left;
-            }
-            
-            .details-list strong {
-                min-width: auto;
-                margin-bottom: 4px;
-            }
-            
-            .details-list span {
-                text-align: left;
-            }
-        }
-        
-        /* Animaciones */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .content > * {
-            animation: fadeInUp 0.6s ease-out forwards;
-        }
-        
-        .content > *:nth-child(1) { animation-delay: 0.1s; }
-        .content > *:nth-child(2) { animation-delay: 0.2s; }
-        .content > *:nth-child(3) { animation-delay: 0.3s; }
-        .content > *:nth-child(4) { animation-delay: 0.4s; }
-        .content > *:nth-child(5) { animation-delay: 0.5s; }
-    </style>
-</head>
-<body>
-    <div class="email-container">
-        <!-- Header -->
-        <div class="header">
-            <h1>👨‍💼 SUPERVISOR - Nueva Solicitud de Cambio de Turno</h1>
-            <p>Requiere tu aprobación como supervisor del sistema</p>
-        </div>
-        
-        <!-- Contenido principal -->
-        <div class="content">
-            <div class="greeting">
-                Hola <strong>{{ supervisor.nombre|upper }} {{ supervisor.apellido|upper }}</strong>,
-            </div>
-            
-            <div class="description">
-                <strong>SUPERVISOR {{ supervisor.nombre|upper }} {{ supervisor.apellido|upper }}</strong>, se ha recibido una nueva solicitud de cambio de turno que requiere tu aprobación como supervisor del sistema.
-            </div>
-            
-            <!-- Detalles de la solicitud -->
-            <div class="details-card">
-                <h3>Detalles de la Solicitud</h3>
-                <ul class="details-list">
-                    <li>
-                        <strong>Solicitante:</strong>
-                        <span>{{ solicitud.explorador_solicitante.nombre|upper }} {{ solicitud.explorador_solicitante.apellido|upper }}</span>
-                    </li>
-                    <li>
-                        <strong>Compañero Receptor:</strong>
-                        <span>{{ solicitud.explorador_receptor.nombre|upper }} {{ solicitud.explorador_receptor.apellido|upper }}</span>
-                    </li>
-                    <li>
-                        <strong>Tipo de Solicitud:</strong>
-                        <span>{{ solicitud.tipo_cambio.nombre|upper }}</span>
-                    </li>
-                    <li>
-                        <strong>Fecha de Solicitud:</strong>
-                        <span>{{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</span>
-                    </li>
-                    <li>
-                        <strong>Fecha del Cambio:</strong>
-                        <span>
-                            {% if solicitud.tipo_cambio.nombre == "CT PERMANENTE" and solicitud.cambio_permanente %}
-                                {{ solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" }}
-                                {% if solicitud.cambio_permanente.fecha_fin %}
-                                    - {{ solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" }}
-                                {% else %}
-                                    - (sin fecha fin)
-                                {% endif %}
-                            {% elif solicitud.fecha_cambio_turno %}
-                                {{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}
-                            {% else %}
-                                No aplica
-                            {% endif %}
-                        </span>
-                    </li>
-                    {% if solicitud.comentario %}
-                    <li>
-                        <strong>Comentario:</strong>
-                        <span>{{ solicitud.comentario }}</span>
-                    </li>
-                    {% endif %}
-                </ul>
-            </div>
+{% extends 'emails/base_email.html' %}
 
-            <!-- Detalle específico por tipo: qué se cede, qué se paga/devuelve -->
-            {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+{% block titulo_doc %}Nueva solicitud de cambio de turno{% endblock %}
+{% block estado_texto %}PENDIENTE{% endblock %}
+{% block estado_punto %}#ffc107{% endblock %}
+{% block antetitulo %}Notificación de supervisión{% endblock %}
+{% block titulo %}Nueva solicitud de cambio de turno{% endblock %}
+{% block subtitulo %}Requiere tu aprobación como supervisor{% endblock %}
 
-            <!-- Botones de acción -->
-            <div class="action-buttons">
-                <p style="margin-bottom: 20px; color: #5a6c7d; font-size: 15px;">
-                    <strong>SUPERVISOR {{ supervisor.nombre|upper }} {{ supervisor.apellido|upper }}</strong>, puedes aprobar o rechazar esta solicitud directamente desde este email:
-                </p>
-                
-                <a href="{{ enlaces.supervisor.aprobar }}" class="btn btn-approve">
-                    ✅ Aprobar Solicitud
-                </a>
-                
-                <a href="{{ enlaces.supervisor.rechazar }}" class="btn btn-reject">
-                    ❌ Rechazar Solicitud
-                </a>
-                
-                <a href="{{ site_url }}/solicitudes/" class="btn btn-system">
-                    Ver en el Sistema
-                </a>
-            </div>
-        </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-            <p>Este es un mensaje automático del sistema AppTurnos</p>
-            <p>No respondas a este email. Para consultas, contacta al administrador del sistema.</p>
-        </div>
-    </div>
-</body>
-</html> 
+{% block saludo %}
+    Hola <strong style="color:#111827;">{{ supervisor.nombre|title }} {{ supervisor.apellido|title }}</strong>,<br>
+    <span style="color:#6b7280;">{{ solicitud.explorador_solicitante.nombre|title }} registró un cambio de turno y necesita tu aprobación para continuar.</span>
+{% endblock %}
+
+{% block contenido %}
+    {% include 'emails/_seccion.html' with texto="Detalles de la solicitud" %}
+
+    {% include 'emails/_fila.html' with etiqueta="Solicitante" valor=solicitud.explorador_solicitante.nombre|title|add:" "|add:solicitud.explorador_solicitante.apellido|title %}
+    {% include 'emails/_fila.html' with etiqueta="Compañero receptor" valor=solicitud.explorador_receptor.nombre|title|add:" "|add:solicitud.explorador_receptor.apellido|title %}
+    {% include 'emails/_fila.html' with etiqueta="Tipo de solicitud" valor=solicitud.tipo_cambio.nombre|upper badge="#2563eb" %}
+    {% include 'emails/_fila.html' with etiqueta="Fecha de solicitud" valor=solicitud.fecha_solicitud|date:"d/m/Y · H:i" %}
+    {% if solicitud.tipo_cambio.nombre == "CT PERMANENTE" and solicitud.cambio_permanente %}
+        {% comment %}
+        `add` con un objeto date de argumento revienta por dentro (str + date) y devuelve
+        cadena VACÍA sin avisar: el rango salía en blanco. Se formatean antes las dos
+        fechas y `add` solo concatena cadenas.
+        {% endcomment %}
+        {% with ini=solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" fin=solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" %}
+            {% if solicitud.cambio_permanente.fecha_fin %}
+                {% include 'emails/_fila.html' with etiqueta="Fecha del cambio" valor=ini|add:" a "|add:fin %}
+            {% else %}
+                {% include 'emails/_fila.html' with etiqueta="Fecha del cambio" valor=ini|add:" (sin fecha fin)" %}
+            {% endif %}
+        {% endwith %}
+    {% elif solicitud.fecha_cambio_turno %}
+        {% include 'emails/_fila.html' with etiqueta="Fecha del cambio" valor=solicitud.fecha_cambio_turno|date:"DATE_FORMAT"|lower %}
+    {% else %}
+        {% include 'emails/_fila.html' with etiqueta="Fecha del cambio" valor="No aplica" %}
+    {% endif %}
+    {% if solicitud.comentario %}
+        {% include 'emails/_fila.html' with etiqueta="Comentario" valor=solicitud.comentario cita=1 %}
+    {% endif %}
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:22px;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+
+    {# Qué se cede y qué se devuelve, en el bloque punteado con iconos #}
+    {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+
+    {% include 'emails/_botones.html' with url_rechazar=enlaces.supervisor.rechazar url_aceptar=enlaces.supervisor.aprobar texto_rechazar="Rechazar" texto_aceptar="Aprobar solicitud" %}
+{% endblock %}
+
+{% block pie %}&#128339;&nbsp; Solicitud recibida el {{ solicitud.fecha_solicitud|date:"DATE_FORMAT"|lower }}{% endblock %}

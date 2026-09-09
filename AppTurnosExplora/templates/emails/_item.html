@@ -1,0 +1,24 @@
+{% comment %}
+Ítem del bloque punteado: pastilla de icono a la izquierda y tres líneas a la derecha.
+  icono · emoji (los iconos de fuente no cargan en correo)
+  fondo · color de la pastilla (#fde8ec rojo tenue, #e6f7ef verde, #eef2ff azul)
+  etiqueta · rótulo pequeño en mayúsculas
+  titulo   · línea principal en negrita
+  detalle  · línea explicativa (opcional)
+  ultimo   · si viene, no pinta el divisor inferior
+{% endcomment %}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+    <tr>
+        <td width="48" valign="top" style="width:48px;padding-right:12px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;background-color:{{ fondo|default:"#f3f4f6" }};border-radius:10px;">
+                <tr><td align="center" width="36" height="36" style="width:36px;height:36px;font-size:16px;line-height:36px;">{{ icono }}</td></tr>
+            </table>
+        </td>
+        <td valign="top" style="padding-top:1px;">
+            <div style="font-size:10px;font-weight:700;letter-spacing:.6px;color:#9ca3af;text-transform:uppercase;">{{ etiqueta }}</div>
+            <div style="font-size:14px;font-weight:700;color:#111827;padding-top:4px;line-height:1.35;">{{ titulo }}</div>
+            {% if detalle %}<div style="font-size:13px;color:#6b7280;padding-top:4px;line-height:1.45;">{{ detalle }}</div>{% endif %}
+        </td>
+    </tr>
+    {% if not ultimo %}<tr><td colspan="2" style="border-bottom:1px solid #f3f4f6;font-size:0;line-height:0;padding-top:14px;">&nbsp;</td></tr>
+    <tr><td colspan="2" style="font-size:0;line-height:0;height:14px;">&nbsp;</td></tr>{% endif %}
+</table>

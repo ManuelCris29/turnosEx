@@ -1,365 +1,51 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Solicitud Aprobada por Compañero</title>
-    <style>
-        /* Reset y estilos base */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            line-height: 1.6;
-            color: #2c3e50;
-            background-color: #f8f9fa;
-            margin: 0;
-            padding: 0;
-        }
-        
-        /* Contenedor principal */
-        .email-container {
-            max-width: 600px;
-            margin: 0 auto;
-            background-color: #ffffff;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-        
-        /* Header moderno */
-        .header {
-            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-            color: white;
-            padding: 40px 30px;
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .header::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="25" cy="25" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="75" cy="75" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="50" cy="10" r="0.5" fill="rgba(255,255,255,0.1)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>');
-            opacity: 0.3;
-        }
-        
-        .header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            margin-bottom: 8px;
-            position: relative;
-            z-index: 1;
-        }
-        
-        .success-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-            position: relative;
-            z-index: 1;
-        }
-        
-        /* Contenido principal */
-        .content {
-            padding: 40px 30px;
-        }
-        
-        /* Banner de estado */
-        .status-banner {
-            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
-            border: 1px solid #c3e6cb;
-            color: #155724;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            font-weight: 600;
-            margin-bottom: 32px;
-            font-size: 18px;
-            box-shadow: 0 2px 8px rgba(40, 167, 69, 0.1);
-        }
-        
-        /* Cajas de información */
-        .info-card {
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 12px;
-            padding: 24px;
-            margin: 24px 0;
-            border-left: 4px solid #28a745;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-        }
-        
-        .info-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        }
-        
-        .info-card h3 {
-            color: #2c3e50;
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            display: flex;
-            align-items: center;
-        }
-        
-        .details-card h3::before {
-            content: '📋';
-            margin-right: 8px;
-            font-size: 20px;
-        }
-        
-        .status-card h3::before {
-            content: '📊';
-            margin-right: 8px;
-            font-size: 20px;
-        }
-        
-        .steps-card h3::before {
-            content: '🎯';
-            margin-right: 8px;
-            font-size: 20px;
-        }
-        
-        .info-list {
-            list-style: none;
-        }
-        
-        .info-list li {
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        
-        .info-list li:last-child {
-            border-bottom: none;
-        }
-        
-        .info-list strong {
-            color: #34495e;
-            font-weight: 600;
-            min-width: 160px;
-        }
-        
-        .info-list span {
-            color: #5a6c7d;
-            text-align: right;
-        }
-        
-        /* Estado de la solicitud */
-        .status-info {
-            background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-            border: 1px solid #ffeaa7;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: center;
-        }
-        
-        .status-info p {
-            color: #856404;
-            font-size: 16px;
-            margin: 8px 0;
-        }
-        
-        .status-info strong {
-            color: #856404;
-            font-weight: 600;
-        }
-        
-        /* Mensaje de felicitación */
-        .congratulations {
-            background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
-            border: 1px solid #bee5eb;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 20px 0;
-            text-align: center;
-        }
-        
-        .congratulations p {
-            color: #0c5460;
-            font-size: 16px;
-            margin: 8px 0;
-        }
-        
-        .congratulations strong {
-            color: #0c5460;
-            font-weight: 600;
-        }
-        
-        /* Footer */
-        .footer {
-            background-color: #f8f9fa;
-            padding: 24px 30px;
-            text-align: center;
-            border-top: 1px solid #e9ecef;
-        }
-        
-        .footer p {
-            color: #6c757d;
-            font-size: 14px;
-            margin: 4px 0;
-        }
-        
-        /* Responsive */
-        @media only screen and (max-width: 600px) {
-            .email-container {
-                margin: 0;
-                border-radius: 0;
-            }
-            
-            .header {
-                padding: 30px 20px;
-            }
-            
-            .header h1 {
-                font-size: 24px;
-            }
-            
-            .content {
-                padding: 30px 20px;
-            }
-            
-            .info-card {
-                padding: 20px;
-            }
-            
-            .info-list li {
-                flex-direction: column;
-                align-items: flex-start;
-                text-align: left;
-            }
-            
-            .info-list strong {
-                min-width: auto;
-                margin-bottom: 4px;
-            }
-            
-            .info-list span {
-                text-align: left;
-            }
-        }
-        
-        /* Animaciones */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .content > * {
-            animation: fadeInUp 0.6s ease-out forwards;
-        }
-        
-        .content > *:nth-child(1) { animation-delay: 0.1s; }
-        .content > *:nth-child(2) { animation-delay: 0.2s; }
-        .content > *:nth-child(3) { animation-delay: 0.3s; }
-        .content > *:nth-child(4) { animation-delay: 0.4s; }
-        .content > *:nth-child(5) { animation-delay: 0.5s; }
-        .content > *:nth-child(6) { animation-delay: 0.6s; }
-    </style>
-</head>
-<body>
-    <div class="email-container">
-        <!-- Header -->
-        <div class="header">
-            <div class="success-icon">✅</div>
-            <h1>Solicitud Aprobada por Compañero</h1>
-        </div>
-        
-        <!-- Contenido principal -->
-        <div class="content">
-            <!-- Banner de estado -->
-            <div class="status-banner">
-                Tu solicitud ha sido aprobada por tu compañero
-            </div>
-            
-            <!-- Detalles de la solicitud -->
-            <div class="info-card details-card">
-                <h3>Detalles de la Solicitud</h3>
-                <ul class="info-list">
-                    <li>
-                        <strong>Tipo de Solicitud:</strong>
-                        <span>{{ solicitud.tipo_cambio.nombre|upper }}</span>
-                    </li>
-                    <li>
-                        <strong>Fecha de Solicitud:</strong>
-                        <span>{{ solicitud.fecha_solicitud|date:"d/m/Y" }}</span>
-                    </li>
-                    <li>
-                        <strong>Compañero que Aprobó:</strong>
-                        <span>{{ receptor.nombre|upper }} {{ receptor.apellido|upper }}</span>
-                    </li>
-                    <li>
-                        <strong>Fecha de Aprobación:</strong>
-                        <span>{{ solicitud.fecha_aprobacion_receptor|date:"d/m/Y H:i" }}</span>
-                    </li>
-                    {% if comentario_respuesta %}
-                    <li>
-                        <strong>Comentario del Compañero:</strong>
-                        <span>{{ comentario_respuesta }}</span>
-                    </li>
-                    {% endif %}
-                </ul>
-            </div>
+{% extends 'emails/base_email.html' %}
 
-            <!-- Detalle específico por tipo: qué se cede, qué se paga/devuelve -->
-            {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+{% block titulo_doc %}Solicitud aprobada por tu compañero{% endblock %}
+{% block estado_texto %}{% if solicitud.aprobado_supervisor %}APROBADA{% else %}EN CURSO{% endif %}{% endblock %}
+{% block estado_punto %}{% if solicitud.aprobado_supervisor %}#22c55e{% else %}#ffc107{% endif %}{% endblock %}
+{% block antetitulo %}Respuesta de tu compañero{% endblock %}
+{% block titulo %}Solicitud aprobada por tu compañero{% endblock %}
+{% block subtitulo %}{{ receptor.nombre|title }} {{ receptor.apellido|title }} aceptó tu solicitud{% endblock %}
 
-            <!-- Estado actual -->
-            <div class="info-card status-card">
-                <h3>Estado Actual</h3>
-                {% if solicitud.aprobado_supervisor %}
-                    <div class="status-info">
-                        <p>✅ <strong>APROBADA COMPLETAMENTE</strong></p>
-                        <p>Tu solicitud ha sido aprobada tanto por tu supervisor como por tu compañero. El cambio de turno está confirmado.</p>
-                    </div>
-                {% else %}
-                    <div class="status-info">
-                        <p>⏳ <strong>PENDIENTE DE APROBACIÓN DEL SUPERVISOR</strong></p>
-                        <p>Tu solicitud ha sido aprobada por tu compañero. Ahora está pendiente de que tu supervisor también la apruebe.</p>
-                    </div>
-                {% endif %}
-            </div>
-            
-            <!-- Próximos pasos -->
-            <div class="info-card steps-card">
-                <h3>Próximos Pasos</h3>
-                {% if solicitud.aprobado_supervisor %}
-                    <div class="congratulations">
-                        <p>🎉 <strong>¡Felicidades!</strong> Tu solicitud está completamente aprobada.</p>
-                        <p>El cambio de turno se realizará según lo solicitado.</p>
-                    </div>
-                {% else %}
-                    <div class="congratulations">
-                        <p>Espera a que tu supervisor apruebe la solicitud para completar el proceso.</p>
-                    </div>
-                {% endif %}
-            </div>
-        </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-            <p>Este es un mensaje automático del sistema de solicitudes de cambio de turno.</p>
-            <p>Si tienes alguna pregunta, contacta a tu supervisor.</p>
-        </div>
-    </div>
-</body>
-</html> 
+{% block saludo %}
+    {% if solicitud.aprobado_supervisor %}
+    <strong style="color:#111827;">Tu cambio de turno está confirmado.</strong><br>
+    <span style="color:#6b7280;">Lo aprobaron tu supervisor y tu compañero; ya se refleja en «Mis Turnos».</span>
+    {% else %}
+    <strong style="color:#111827;">Tu compañero ya dijo que sí.</strong><br>
+    <span style="color:#6b7280;">Queda pendiente la aprobación de tu supervisor para que el cambio se haga efectivo.</span>
+    {% endif %}
+{% endblock %}
+
+{% block contenido %}
+    {% include 'emails/_seccion.html' with texto="Detalles de la solicitud" %}
+
+    {% include 'emails/_fila.html' with etiqueta="Tipo de solicitud" valor=solicitud.tipo_cambio.nombre|upper badge="#16a34a" %}
+    {% include 'emails/_fila.html' with etiqueta="Fecha de solicitud" valor=solicitud.fecha_solicitud|date:"d/m/Y" %}
+    {% include 'emails/_fila.html' with etiqueta="Compañero que aprobó" valor=receptor.nombre|title|add:" "|add:receptor.apellido|title %}
+    {% include 'emails/_fila.html' with etiqueta="Fecha de aprobación" valor=solicitud.fecha_aprobacion_receptor|date:"d/m/Y · H:i" %}
+    {% if comentario_respuesta %}
+        {% include 'emails/_fila.html' with etiqueta="Comentario del compañero" valor=comentario_respuesta cita=1 %}
+    {% endif %}
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:22px;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+
+    {# Qué se cede y qué se devuelve, en el bloque punteado con iconos #}
+    {% include 'solicitudes/emails/_detalle_solicitud.html' %}
+
+    {% include 'emails/_seccion.html' with texto="Estado actual" %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px dashed #d9dde3;border-radius:12px;">
+        <tr><td style="padding:18px;">
+            {% if solicitud.aprobado_supervisor %}
+                {% include 'emails/_item.html' with icono="✅" fondo="#e6f7ef" etiqueta="Aprobada completamente" titulo="El cambio de turno está confirmado" detalle="Lo aprobaron tu supervisor y tu compañero. Ya se refleja en «Mis Turnos»." ultimo=1 %}
+            {% else %}
+                {% include 'emails/_item.html' with icono="✅" fondo="#e6f7ef" etiqueta="Compañero" titulo="Aprobada" detalle=receptor.nombre|title|add:" aceptó el cambio." %}
+                {% include 'emails/_item.html' with icono="⏳" fondo="#fff4d6" etiqueta="Supervisor" titulo="Pendiente" detalle="Falta la aprobación de tu supervisor para que el cambio se haga efectivo." ultimo=1 %}
+            {% endif %}
+        </td></tr>
+    </table>
+
+    {% include 'emails/_botones.html' with url_unico=site_url|add:"/solicitudes/" texto_unico="Ver en el sistema" %}
+{% endblock %}
+
+{% block pie %}&#128339;&nbsp; Respuesta registrada el {{ solicitud.fecha_aprobacion_receptor|date:"DATE_FORMAT"|lower }}{% endblock %}

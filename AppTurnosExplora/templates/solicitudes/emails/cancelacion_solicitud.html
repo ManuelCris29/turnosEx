@@ -1,71 +1,43 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>Solicitud de Cambio de Turno Cancelada</title>
-    <style>
-        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-        .header { background-color: #dc3545; color: white; padding: 20px; text-align: center; }
-        .content { padding: 20px; background-color: #f8f9fa; }
-        .details { background-color: white; padding: 15px; margin: 15px 0; border-left: 4px solid #dc3545; }
-        .footer { text-align: center; padding: 20px; color: #666; font-size: 12px; }
-        .button { display: inline-block; padding: 10px 20px; background-color: #6c757d; color: white; text-decoration: none; border-radius: 5px; }
-        .alert { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 5px; margin: 15px 0; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>❌ Solicitud Cancelada</h1>
-        </div>
-        
-        <div class="content">
-            <p>Hola <strong>{{ solicitud.explorador_receptor.nombre }} {{ solicitud.explorador_receptor.apellido }}</strong>,</p>
-            
-            <div class="alert">
-                <strong>⚠️ Importante:</strong> Una solicitud de cambio de turno que te fue enviada ha sido cancelada.
-            </div>
-            
-            <p>El solicitante ha cancelado la solicitud de cambio de turno que te envió anteriormente.</p>
-            
-            <div class="details">
-                <h3>Detalles de la Solicitud Cancelada:</h3>
-                <ul>
-                    <li><strong>Solicitante:</strong> {{ solicitud.explorador_solicitante.nombre }} {{ solicitud.explorador_solicitante.apellido }}</li>
-                    <li><strong>Tipo de Solicitud:</strong> {{ solicitud.tipo_cambio.nombre }}</li>
-                    <li><strong>Fecha de Solicitud:</strong> {{ solicitud.fecha_solicitud|date:"d/m/Y H:i" }}</li>
-                    {% comment %}
-                    `fecha_resolucion` es la hora de APROBACIÓN y no se sobrescribe al cancelar:
-                    ponerla aquí informaba una hora hasta 30 minutos anterior a la real.
-                    {% endcomment %}
-                    <li><strong>Fecha de Cancelación:</strong> {{ solicitud.fecha_cancelacion|date:"d/m/Y H:i"|default:"—" }}</li>
-                    {% if solicitud.comentario %}
-                    <li><strong>Comentario Original:</strong> {{ solicitud.comentario }}</li>
-                    {% endif %}
-                </ul>
-            </div>
-            
-            <div class="alert">
-                <h4>📋 ¿Qué significa esto?</h4>
-                <ul>
-                    <li>✅ <strong>Ya no necesitas aprobar o rechazar</strong> esta solicitud</li>
-                    <li>✅ <strong>No se realizará</strong> el cambio de turno</li>
-                    <li>✅ <strong>Tu turno original</strong> se mantiene sin cambios</li>
-                </ul>
-            </div>
-            
-            <p>Si tenías alguna duda sobre esta solicitud, ya no es necesario que tomes ninguna acción.</p>
-            
-            <p style="text-align: center; margin: 30px 0;">
-                <a href="{{ site_url }}/solicitudes/" class="button">Ver Solicitudes</a>
-            </p>
-        </div>
-        
-        <div class="footer">
-            <p>Este es un mensaje automático del sistema AppTurnos.</p>
-            <p>No respondas a este email. Para consultas, contacta al administrador del sistema.</p>
-        </div>
-    </div>
-</body>
-</html> 
+{% extends 'emails/base_email.html' %}
+
+{% block titulo_doc %}Solicitud de cambio de turno cancelada{% endblock %}
+{% block estado_texto %}CANCELADA{% endblock %}
+{% block estado_punto %}#d1d5db{% endblock %}
+{% block antetitulo %}Notificación de equipo{% endblock %}
+{% block titulo %}Solicitud cancelada{% endblock %}
+{% block subtitulo %}Ya no tienes que responder esta solicitud{% endblock %}
+
+{% block saludo %}
+    Hola <strong style="color:#111827;">{{ solicitud.explorador_receptor.nombre|title }} {{ solicitud.explorador_receptor.apellido|title }}</strong>,<br>
+    <span style="color:#6b7280;">{{ solicitud.explorador_solicitante.nombre|title }} canceló la solicitud de cambio de turno que te había enviado.</span>
+{% endblock %}
+
+{% block contenido %}
+    {% include 'emails/_seccion.html' with texto="Detalles de la solicitud cancelada" %}
+
+    {% include 'emails/_fila.html' with etiqueta="Solicitante" valor=solicitud.explorador_solicitante.nombre|title|add:" "|add:solicitud.explorador_solicitante.apellido|title %}
+    {% include 'emails/_fila.html' with etiqueta="Tipo de solicitud" valor=solicitud.tipo_cambio.nombre|upper badge="#6b7280" %}
+    {% include 'emails/_fila.html' with etiqueta="Fecha de solicitud" valor=solicitud.fecha_solicitud|date:"d/m/Y · H:i" %}
+    {% comment %}
+    `fecha_resolucion` es la hora de APROBACIÓN y no se sobrescribe al cancelar:
+    ponerla aquí informaba una hora hasta 30 minutos anterior a la real.
+    {% endcomment %}
+    {% include 'emails/_fila.html' with etiqueta="Fecha de cancelación" valor=solicitud.fecha_cancelacion|date:"d/m/Y · H:i"|default:"—" %}
+    {% if solicitud.comentario %}
+        {% include 'emails/_fila.html' with etiqueta="Comentario original" valor=solicitud.comentario cita=1 %}
+    {% endif %}
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="height:22px;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+
+    {% include 'emails/_seccion.html' with texto="Qué significa esto" %}
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px dashed #d9dde3;border-radius:12px;">
+        <tr><td style="padding:18px;">
+            {% include 'emails/_item.html' with icono="✅" fondo="#e6f7ef" etiqueta="No hay que hacer nada" titulo="No tienes que aprobar ni rechazar" detalle="La solicitud desapareció de tus pendientes." %}
+            {% include 'emails/_item.html' with icono="📅" fondo="#eef2ff" etiqueta="Tu calendario" titulo="Tu turno original se mantiene" detalle="No hay ningún cambio en «Mis Turnos»." ultimo=1 %}
+        </td></tr>
+    </table>
+
+    {% include 'emails/_botones.html' with url_unico=site_url|add:"/solicitudes/" texto_unico="Ver solicitudes" %}
+{% endblock %}
+
+{% block pie %}&#128339;&nbsp; Cancelada el {{ solicitud.fecha_cancelacion|date:"DATE_FORMAT"|lower|default:"—" }}{% endblock %}

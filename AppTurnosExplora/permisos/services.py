@@ -12,6 +12,7 @@ supervisor asignado), por lo que funciona aunque existan varios supervisores.
 import logging
 
 from django.conf import settings
+from django.template.loader import render_to_string
 
 from core.constants import TipoCambioTurno
 from solicitudes.models import Notificacion
@@ -142,31 +143,19 @@ class PermisoNotificacionService:
     # --------------------------------------------------------------- email html
     @staticmethod
     def _email_html(permiso, url_aprobar, url_rechazar):
+        """HTML del correo al supervisor. La plantilla hereda de `emails/base_email.html`,
+        la misma base AdminLTE que usan los correos de solicitudes."""
         emp = permiso.empleado
-        cubre = f"{permiso.cubre.nombre} {permiso.cubre.apellido}" if permiso.cubre else '—'
-        return f"""
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
-          <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:18px 22px">
-            <h2 style="margin:0;font-size:18px">Nueva solicitud de permiso</h2>
-            <p style="margin:4px 0 0;opacity:.9">{emp.nombre} {emp.apellido}</p>
-          </div>
-          <div style="padding:20px 22px;color:#1f2937">
-            <table style="width:100%;font-size:14px;border-collapse:collapse">
-              <tr><td style="padding:4px 0;color:#6b7280">Fecha(s)</td><td><b>{PermisoNotificacionService._fechas(permiso)}</b></td></tr>
-              <tr><td style="padding:4px 0;color:#6b7280">Tiempo</td><td><b>{permiso.horas_totales()} h</b></td></tr>
-              <tr><td style="padding:4px 0;color:#6b7280">Tipo</td><td>{permiso.get_tipo_display()} ({'Permanente' if permiso.es_permanente else 'Puntual'})</td></tr>
-              <tr><td style="padding:4px 0;color:#6b7280">Especificación</td><td>{permiso.especificacion or '—'}</td></tr>
-              <tr><td style="padding:4px 0;color:#6b7280">Quién cubre</td><td>{cubre}</td></tr>
-              <tr><td style="padding:4px 0;color:#6b7280">Motivo</td><td>{permiso.motivo}</td></tr>
-            </table>
-            <div style="margin-top:22px;text-align:center">
-              <a href="{url_aprobar}" style="display:inline-block;background:#16a34a;color:#fff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:600;margin:4px">✓ Aprobar</a>
-              <a href="{url_rechazar}" style="display:inline-block;background:#ef4444;color:#fff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:600;margin:4px">✗ Rechazar</a>
-            </div>
-            <p style="color:#9ca3af;font-size:12px;margin-top:18px">También puedes aprobarlo desde la app, en «Permisos Especiales».</p>
-          </div>
-        </div>
-        """
+        return render_to_string('permisos/emails/solicitud_permiso.html', {
+            'permiso': permiso,
+            'empleado': emp,
+            'fechas': PermisoNotificacionService._fechas(permiso),
+            'horas': permiso.horas_totales(),
+            'cubre': f"{permiso.cubre.nombre} {permiso.cubre.apellido}" if permiso.cubre else '—',
+            'url_aprobar': url_aprobar,
+            'url_rechazar': url_rechazar,
+            'site_url': settings.SITE_URL,
+        })
 
 
 class PermisoMediaJornadaService:

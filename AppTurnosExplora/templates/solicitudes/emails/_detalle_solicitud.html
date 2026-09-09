@@ -2,81 +2,105 @@
 Detalle claro y específico por TIPO de solicitud, para que el receptor y el supervisor
 entiendan exactamente qué se solicita: qué se cede, qué se paga/devuelve y cuándo.
 Requiere `solicitud` en el contexto (con sus relaciones: doblada, cambio_permanente, doblada_permanente).
-Estilos en línea para compatibilidad con clientes de correo (Gmail, etc.).
-{% endcomment %}
-<div style="background:#f0f4ff; border-left:4px solid #667eea; border-radius:10px; padding:18px 20px; margin:18px 0;">
-    <h3 style="color:#2c3e50; font-size:17px; font-weight:700; margin:0 0 12px;">📝 Qué se está solicitando</h3>
-    {% with sol=solicitud.explorador_solicitante rec=solicitud.explorador_receptor tipo=solicitud.tipo_cambio.nombre %}
-    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="font-size:15px; color:#34495e; line-height:1.5;">
 
-        {% if tipo == "DOBLADA" %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">Doblada — {{ rec.nombre }} {{ rec.apellido }} cubre la jornada de {{ sol.nombre }} {{ sol.apellido }}.</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Jornada que cede {{ sol.nombre }}</td>
-                <td style="padding:6px 0;">
-                    {% if solicitud.doblada.jornada_cedida %}Jornada {{ solicitud.doblada.jornada_cedida }}{% if solicitud.doblada.tipo_cesion == "cesion_parcial_am" or solicitud.doblada.tipo_cesion == "cesion_parcial_pm" %} (media jornada de su doblada){% endif %}
-                    {% elif solicitud.doblada.tipo_cesion == "cesion_completa" %}AM + PM (día completo)
-                    {% else %}{{ solicitud.doblada.get_tipo_cesion_display }}{% endif %}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Día que cede (lo cubre {{ rec.nombre }})</td>
-                <td style="padding:6px 0;">{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Día que devuelve (paga {{ sol.nombre }})</td>
-                <td style="padding:6px 0;">{{ solicitud.doblada.fecha_pago|date:"d/m/Y" }}{% if solicitud.doblada.jornada_pago_sabado %} — cubre {{ solicitud.doblada.jornada_pago_sabado }}{% endif %}</td></tr>
+Se pinta como el bloque punteado de la maqueta: cada dato es un ítem con pastilla de
+icono (emails/_item.html). El comentario NO va aquí: ya sale en «Detalles de la solicitud».
 
-        {% elif tipo == "D FDS" %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">Doblada de fin de semana — {{ rec.nombre }} {{ rec.apellido }} cubre el fin de semana de {{ sol.nombre }} {{ sol.apellido }}.</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Fin de semana que cede {{ sol.nombre }}</td>
-                <td style="padding:6px 0;">{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Fin de semana que devuelve {{ sol.nombre }}</td>
-                <td style="padding:6px 0;">{{ solicitud.doblada.fecha_pago|date:"d/m/Y" }}</td></tr>
+CUIDADO con `add`: si el ARGUMENTO es un objeto date, el filtro intenta `str + date`,
+salta el TypeError y devuelve cadena VACÍA sin avisar de nada. Así se quedaron en blanco
+los rangos de vigencia de CT PERMANENTE y DOBLADA PERMANENTE. Por eso las fechas se
+formatean antes con {% with %} y `add` solo ve cadenas.
+{% endcomment %}{% load correo_solicitud %}
+{% include 'emails/_seccion.html' with texto="Qué se está solicitando" %}
 
-        {% elif tipo == "CAMBIO DESCANSO" %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">Cambio de día de descanso entre {{ sol.nombre }} {{ sol.apellido }} y {{ rec.nombre }} {{ rec.apellido }}.</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Día que cambia {{ sol.nombre }}</td>
-                <td style="padding:6px 0;">{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Día de devolución</td>
-                <td style="padding:6px 0;">{{ solicitud.doblada.fecha_pago|date:"d/m/Y" }}</td></tr>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;border:1px dashed #d9dde3;border-radius:12px;margin:0 0 22px;">
+<tr><td style="padding:18px;">
+{% with sol=solicitud.explorador_solicitante rec=solicitud.explorador_receptor tipo=solicitud.tipo_cambio.nombre %}
+{% with soln=solicitud.explorador_solicitante.nombre|title recn=solicitud.explorador_receptor.nombre|title recc=solicitud.explorador_receptor.nombre|title|add:" "|add:solicitud.explorador_receptor.apellido|title %}
 
-        {% elif tipo == "CAMBIO TURNO" %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">Cambio de turno (intercambio de jornada) con {{ rec.nombre }} {{ rec.apellido }}.</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Día del cambio</td>
-                <td style="padding:6px 0;">{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Cómo</td>
-                <td style="padding:6px 0;">Ese día {{ sol.nombre }} y {{ rec.nombre }} intercambian su jornada (uno toma AM y el otro PM).</td></tr>
-
-        {% elif tipo == "CT PERMANENTE" %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">Cambio de turno permanente (intercambio de jornadas) con {{ rec.nombre }} {{ rec.apellido }}.</td></tr>
-            {% if solicitud.cambio_permanente %}
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Rango de vigencia</td>
-                <td style="padding:6px 0;">{{ solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" }}{% if solicitud.cambio_permanente.fecha_fin %} a {{ solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" }}{% else %} (sin fecha fin){% endif %}</td></tr>
+    {% if tipo == "DOBLADA" %}
+        {% if solicitud.doblada.jornada_cedida %}
+            {% if solicitud.doblada.tipo_cesion == "cesion_parcial_am" or solicitud.doblada.tipo_cesion == "cesion_parcial_pm" %}
+                {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Jornada que cede "|add:soln titulo=solicitud.fecha_cambio_turno|date:"d/m/Y"|add:" · Jornada "|add:solicitud.doblada.jornada_cedida|add:" (media jornada de su doblada)" detalle=recn|add:" cubre la jornada de "|add:soln|add:"." %}
+            {% else %}
+                {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Jornada que cede "|add:soln titulo=solicitud.fecha_cambio_turno|date:"d/m/Y"|add:" · Jornada "|add:solicitud.doblada.jornada_cedida detalle=recn|add:" cubre la jornada de "|add:soln|add:"." %}
             {% endif %}
-
-        {% elif tipo == "DOBLADA PERMANENTE" %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">Doblada permanente con {{ rec.nombre }} {{ rec.apellido }}.</td></tr>
-            {% if solicitud.doblada_permanente %}
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Rango de vigencia</td>
-                <td style="padding:6px 0;">{{ solicitud.doblada_permanente.fecha_inicio|date:"d/m/Y" }} a {{ solicitud.doblada_permanente.fecha_fin|date:"d/m/Y" }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Días que cede {{ sol.nombre }} (cubre {{ rec.nombre }})</td>
-                <td style="padding:6px 0;">{{ solicitud.doblada_permanente.dias_cesion_legible }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Días que devuelve {{ sol.nombre }}</td>
-                <td style="padding:6px 0;">{{ solicitud.doblada_permanente.dias_devolucion_legible }}</td></tr>
-            {% endif %}
-
+        {% elif solicitud.doblada.tipo_cesion == "cesion_completa" %}
+            {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Jornada que cede "|add:soln titulo=solicitud.fecha_cambio_turno|date:"d/m/Y"|add:" · AM + PM (día completo)" detalle=recn|add:" cubre la jornada de "|add:soln|add:"." %}
         {% else %}
-            <tr><td style="padding:6px 0; font-weight:700; width:46%; vertical-align:top;">Tipo</td>
-                <td style="padding:6px 0;">{{ tipo }}</td></tr>
-            <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Día del cambio</td>
-                <td style="padding:6px 0;">{% if solicitud.fecha_cambio_turno %}{{ solicitud.fecha_cambio_turno|date:"d/m/Y" }}{% else %}No aplica{% endif %}</td></tr>
+            {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Jornada que cede "|add:soln titulo=solicitud.fecha_cambio_turno|date:"d/m/Y"|add:" · "|add:solicitud.doblada.get_tipo_cesion_display detalle=recn|add:" cubre la jornada de "|add:soln|add:"." %}
+        {% endif %}
+        {% if solicitud.doblada.jornada_pago_sabado %}
+            {% include 'emails/_item.html' with icono="🔁" fondo="#e6f7ef" etiqueta="Día que devuelve" titulo=solicitud.doblada.fecha_pago|date:"d/m/Y"|add:" · cubre "|add:solicitud.doblada.jornada_pago_sabado detalle=soln|add:" devuelve la jornada a "|add:recn|add:"." ultimo=1 %}
+        {% else %}
+            {% include 'emails/_item.html' with icono="🔁" fondo="#e6f7ef" etiqueta="Día que devuelve" titulo=solicitud.doblada.fecha_pago|date:"d/m/Y" detalle=soln|add:" devuelve la jornada a "|add:recn|add:"." ultimo=1 %}
         {% endif %}
 
-        {% if solicitud.comentario %}
-        <tr><td style="padding:6px 0; font-weight:700; vertical-align:top;">Comentario de {{ sol.nombre }}</td>
-            <td style="padding:6px 0; color:#5a6c7d; font-style:italic;">"{{ solicitud.comentario }}"</td></tr>
+    {% elif tipo == "D FDS" %}
+        {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Fin de semana que cede "|add:soln titulo=solicitud.fecha_cambio_turno|date:"d/m/Y" detalle=recn|add:" cubre el fin de semana de "|add:soln|add:"." %}
+        {% include 'emails/_item.html' with icono="🔁" fondo="#e6f7ef" etiqueta="Fin de semana que devuelve" titulo=solicitud.doblada.fecha_pago|date:"d/m/Y" detalle=soln|add:" devuelve el fin de semana a "|add:recn|add:"." ultimo=1 %}
+
+    {% elif tipo == "CAMBIO DESCANSO" %}
+        {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Día que cambia "|add:soln titulo=solicitud.fecha_cambio_turno|date:"d/m/Y" detalle="Cambio de día de descanso entre "|add:soln|add:" y "|add:recn|add:"." %}
+        {% include 'emails/_item.html' with icono="🔁" fondo="#e6f7ef" etiqueta="Día de devolución" titulo=solicitud.doblada.fecha_pago|date:"d/m/Y" detalle=soln|add:" devuelve el descanso a "|add:recn|add:"." ultimo=1 %}
+
+    {% elif tipo == "CAMBIO TURNO" %}
+        {% include 'emails/_item.html' with icono="🔄" fondo="#eef2ff" etiqueta="Día del cambio" titulo=solicitud.fecha_cambio_turno|date:"d/m/Y" detalle="Intercambio de jornada con "|add:recc|add:"." %}
+        {% include 'emails/_item.html' with icono="🕑" fondo="#e6f7ef" etiqueta="Cómo funciona" titulo="Intercambio de jornada" detalle="Ese día "|add:soln|add:" y "|add:recn|add:" intercambian su jornada (uno toma AM y el otro PM)." ultimo=1 %}
+
+    {% elif tipo == "CT PERMANENTE" %}
+        {% if solicitud.cambio_permanente %}
+            {% with ini=solicitud.cambio_permanente.fecha_inicio|date:"d/m/Y" fin=solicitud.cambio_permanente.fecha_fin|date:"d/m/Y" %}
+            {% if solicitud.cambio_permanente.fecha_fin %}
+                {% include 'emails/_item.html' with icono="🗓️" fondo="#eef2ff" etiqueta="Rango de vigencia" titulo=ini|add:" a "|add:fin detalle="Cambio de turno permanente con "|add:recc|add:"." %}
+            {% else %}
+                {% include 'emails/_item.html' with icono="🗓️" fondo="#eef2ff" etiqueta="Rango de vigencia" titulo=ini|add:" (sin fecha fin)" detalle="Cambio de turno permanente con "|add:recc|add:"." %}
+            {% endif %}
+            {% endwith %}
+
+            {% comment %}
+            Las jornadas NO están guardadas: se resuelven contra el estado real. El tag las
+            trae del primer día aplicable; si no puede, todo viene en None y se cae a la
+            explicación genérica de abajo.
+            {% endcomment %}
+            {% resumen_ct_permanente solicitud as ct %}
+
+            {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Días del cambio" titulo=ct.dias|default:"Todos los días hábiles" detalle=ct.total|stringformat:"s"|add:" días entran en el rango." %}
+
+            {% if ct.jornada_solicitante and ct.jornada_receptor %}
+                {% include 'emails/_item.html' with icono="🔄" fondo="#e6f7ef" etiqueta="Cómo queda la jornada" titulo=soln|add:" pasa a "|add:ct.jornada_receptor|add:" y "|add:recn|add:" pasa a "|add:ct.jornada_solicitante detalle="Esos días cada uno toma la jornada del otro: hoy "|add:soln|add:" tiene "|add:ct.jornada_solicitante|add:" y "|add:recn|add:" tiene "|add:ct.jornada_receptor|add:"." ultimo=1 %}
+            {% else %}
+                {% include 'emails/_item.html' with icono="🔄" fondo="#e6f7ef" etiqueta="Cómo queda la jornada" titulo="Cada uno toma la jornada del otro" detalle="Esos días "|add:soln|add:" y "|add:recn|add:" intercambian su jornada: quien tiene AM pasa a PM y al revés." ultimo=1 %}
+            {% endif %}
+        {% else %}
+            {% include 'emails/_item.html' with icono="🔄" fondo="#eef2ff" etiqueta="Tipo de cambio" titulo="Cambio de turno permanente" detalle="Intercambio de jornadas con "|add:recc|add:"." ultimo=1 %}
         {% endif %}
-    </table>
-    {% endwith %}
-</div>
+
+    {% elif tipo == "DOBLADA PERMANENTE" %}
+        {% if solicitud.doblada_permanente %}
+            {% with ini=solicitud.doblada_permanente.fecha_inicio|date:"d/m/Y" fin=solicitud.doblada_permanente.fecha_fin|date:"d/m/Y" %}
+            {% include 'emails/_item.html' with icono="🗓️" fondo="#eef2ff" etiqueta="Rango de vigencia" titulo=ini|add:" a "|add:fin detalle="Doblada permanente con "|add:recc|add:"." %}
+            {% endwith %}
+            {% comment %}
+            Quién dobla y quién descansa cada día: decir solo «cede miércoles, devuelve
+            martes» no le contaba a nadie qué tiene que hacer.
+            {% endcomment %}
+            {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Días que cede "|add:soln titulo=solicitud.doblada_permanente.dias_cesion_legible detalle="Esos días, dentro del rango, "|add:recn|add:" dobla AM + PM y "|add:soln|add:" descansa." %}
+            {% include 'emails/_item.html' with icono="🔁" fondo="#e6f7ef" etiqueta="Días que devuelve "|add:soln titulo=solicitud.doblada_permanente.dias_devolucion_legible detalle="Esos días, dentro del rango, "|add:soln|add:" dobla AM + PM y "|add:recn|add:" descansa." ultimo=1 %}
+        {% else %}
+            {% include 'emails/_item.html' with icono="🔄" fondo="#eef2ff" etiqueta="Tipo de cambio" titulo="Doblada permanente" detalle="Con "|add:recc|add:"." ultimo=1 %}
+        {% endif %}
+
+    {% else %}
+        {% include 'emails/_item.html' with icono="🔄" fondo="#eef2ff" etiqueta="Tipo de cambio" titulo=tipo %}
+        {% if solicitud.fecha_cambio_turno %}
+            {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Día del cambio" titulo=solicitud.fecha_cambio_turno|date:"d/m/Y" ultimo=1 %}
+        {% else %}
+            {% include 'emails/_item.html' with icono="📅" fondo="#fde8ec" etiqueta="Día del cambio" titulo="No aplica" ultimo=1 %}
+        {% endif %}
+    {% endif %}
+
+{% endwith %}
+{% endwith %}
+</td></tr>
+</table>
