@@ -159,7 +159,7 @@ Grafo de dependencias del módulo, medido con AST: `jornada_doblada_perm` y
 `motivo_no_doblada_perm` **no traen lógica propia**. De sus 8 dependencias
 transitivas, **5 son compartidas con CT permanente** (`estado_ct`,
 `dia_libre_por_solicitud`, `es_festivo`, `es_mantenimiento`, `es_temporada`) y
-las otras son `_dia_calendario_no_apto` —infraestructura que citan como canónica
+las otras son `dia_calendario_no_apto` —infraestructura que citan como canónica
 hasta `turnos/services/turno_service.py` y `descanso_semana_service.py`— y
 `_jornada_unica_real`, que tiene un hermano BATCH usado por la strategy.
 

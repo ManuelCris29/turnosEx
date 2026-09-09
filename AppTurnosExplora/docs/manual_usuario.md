@@ -92,7 +92,7 @@ aprobaciones de una vez con la **Acción combinada**.
 | **Cesión** | El día que tú no trabajas porque un compañero te cubre. |
 | **Pago o devolución** | El día en que le devuelves el favor a ese compañero. |
 | **Descanso** | Día que no trabajas por programación (temporada, alternancia de fin de semana o mantenimiento). Se marca con 😴. <!-- fuente: static/js/mis_turnos.js:459 --> |
-| **Día libre** | Día que te queda libre porque cediste tu jornada en una doblada. Se marca con ☕. <!-- fuente: static/js/mis_turnos.js:459 --> |
+| **Día libre** | Día que te queda libre porque un compañero trabaja por ti en una doblada: el que cediste o el que él te devuelve. Se marca con ☕. <!-- fuente: static/js/mis_turnos.js:413-421,818-824 --> |
 | **Temporada** | Semana de alta operación en la que el supervisor fija días de descanso concretos entre semana. |
 | **Alternancia** | El reparto publicado de quién trabaja sábado y quién domingo. |
 | **Cobertura** | Que un compañero trabaje una jornada tuya sin que tú dejes de existir en el calendario. |
@@ -273,7 +273,7 @@ Los símbolos de las casillas del calendario:
 | Símbolo | Significado |
 |---|---|
 | 😴 | Día de descanso: temporada, mantenimiento, fin de semana o intercambio de descanso |
-| ☕ | Día libre porque cediste tu jornada en una doblada |
+| ☕ | Día libre por una doblada: un compañero trabaja por ti, sea el día que cediste o el que te devuelven |
 | 📋 | Permiso aprobado |
 | ⏳ | Permiso pendiente |
 | 🚫 | Restricción médica en esa fecha |
@@ -281,10 +281,73 @@ Los símbolos de las casillas del calendario:
 
 <!-- fuente: static/js/mis_turnos.js:455-560 -->
 
-En el detalle del día, el nombre del acuerdo que modificó la jornada se muestra con su
-nombre real: *Cambio de turno*, *Cambio de turno permanente*, *Cambio de día de
-descanso*, *Doblada*, *Doblada permanente* o *Doblada de fin de semana*.
-<!-- fuente: static/js/mis_turnos.js:590-597 -->
+#### Detalles del día: qué dice **Mi Jornada**
+
+Cada día que una solicitud aprobada modificó te cuenta cuatro cosas: qué trabajas, de qué
+acuerdo viene, con quién es y cuándo se aprobó. Así se lee un día trabajado por una doblada
+permanente:
+
+> **DOBLADA (AM + PM)**
+>
+> **Doblada permanente:** Tu jornada predeterminada era AM; ahora trabajas DOBLADA (AM +
+> PM). Estás cubriendo a Arley Ramírez este día. Aprobado el 27/08/2026 14:29.
+
+<!-- fuente: static/js/utils/detalle-dia-mensajes.js (mensajeCambio); static/js/mis_turnos.js (mostrarDetallesDia) -->
+
+El acuerdo se nombra siempre por el trámite real: *Cambio de turno*, *Cambio de turno
+permanente*, *Cambio de día de descanso*, *Doblada*, *Doblada permanente*, *Doblada de fin
+de semana* o *Pago reprogramado*.
+<!-- fuente: static/js/utils/detalle-dia-mensajes.js (NOMBRE_ACUERDO) -->
+
+La primera frase dice qué cambió, en una de estas tres formas:
+
+1. *"Tu jornada predeterminada era AM; ahora trabajas DOBLADA (AM + PM)."* — lo habitual.
+2. *"Normalmente descansabas este día; por este acuerdo trabajas PM."* — cuando ese día
+   descansabas y el acuerdo te pone a trabajar.
+3. *"Este turno fue modificado por un cambio aprobado. Tu jornada actual (AM) coincide con
+   tu jornada predeterminada."* — cuando el acuerdo te deja la misma jornada que ya tenías.
+
+<!-- fuente: static/js/utils/detalle-dia-mensajes.js (mensajeCambio) -->
+
+Después viene con quién. El compañero aparece con nombre y apellido, y la frase que lo
+acompaña cambia según el trámite, porque no todos significan lo mismo.
+<!-- fuente: solicitudes/services/acuerdo_por_dia_service.py (companero_nombre: nombre y apellido) -->
+
+| Acuerdo | Frase que ves | Qué quiere decir |
+|---|---|---|
+| **Doblada**, **Doblada de fin de semana**, **Doblada permanente** | "Estás **cubriendo a** Arley Ramírez este día." | El favor lo haces tú: trabajas el día que él cedió |
+| Los mismos tres | "Estás **devolviéndole el favor a** Arley Ramírez." | Estás pagando el día que él trabajó por ti |
+| **Cambio de día de descanso** | "**Intercambio con** Jessika Cardona." | Es un trueque: cada uno toma el día del otro y nadie queda debiendo |
+| **Cambio de turno**, **Cambio de turno permanente** | "**Cambio con** Jessika Cardona." | Os intercambiasteis la jornada |
+| **Pago reprogramado** | "Es la doblada que quedó pendiente con Arley Ramírez." | El día que tu supervisor programó para pagar una doblada que no pudiste cumplir; el texto añade *"Programado por el supervisor."* |
+
+<!-- fuente: static/js/utils/detalle-dia-mensajes.js (conQuien; rama PAGO REPROGRAMADO de mensajeCambio) -->
+
+Cierra la fecha de aprobación, con día y hora: *"Aprobado el 27/08/2026 14:29."*
+<!-- fuente: core/utils/date_utils.py (format_datetime_display: DD/MM/YYYY HH:MM en hora local) -->
+
+Los días en los que **no** trabajas siguen la misma regla.
+
+| Lo que ves | Cuándo aparece | Ejemplo del texto |
+|---|---|---|
+| Etiqueta **DÍA LIBRE**, encabezada por el nombre del acuerdo | Quedaste libre porque un compañero cubre tu jornada | *"**Doblada permanente:** El compañero Arley Ramírez está trabajando por ti este día. Aprobado el 27/08/2026 14:29."* |
+| Etiqueta **DESCANSO**, encabezada por **Cambio de día de descanso** | Tu descanso se movió de día por un intercambio | *"**Cambio de día de descanso:** Descanso intercambiado con Jessika Cardona. Aprobado el 08/09/2026 16:18."* |
+| Etiqueta **DESCANSO**, encabezada por **Día de descanso** | Descanso de tu programación: mantenimiento, temporada o fin de semana | *"**Día de descanso:** Descanso por día de mantenimiento."* |
+
+<!-- fuente: static/js/utils/detalle-dia-mensajes.js (mensajeDescanso) -->
+<!-- fuente: turnos/services/mis_turnos_dia.py (descanso_info); solicitudes/services/descanso_solicitud_service.py -->
+
+Un descanso que viene de tu programación no lo pactó nadie contigo: por eso no nombra a
+ningún compañero ni lleva fecha de aprobación. Si un día de descanso no menciona a nadie,
+es tuyo por calendario y no hay nada que revisar.
+<!-- fuente: turnos/services/mis_turnos_dia.py (descanso de temporada y mantenimiento, sin compañero ni fecha) -->
+
+Cuando el acuerdo tiene sus dos fechas —el día que cediste y el día en que se paga—, el
+texto añade la otra: *"Pagarás el 15/09/2026."* en el día que cediste y *"Tú lo cubriste el
+01/09/2026."* en el día que te devuelven. Los acuerdos permanentes no la llevan, porque son
+un rango de fechas y no un par.
+<!-- fuente: static/js/utils/detalle-dia-mensajes.js (mensajeDescanso: fecha_pago y fecha_cesion) -->
+<!-- fuente: solicitudes/services/descanso_solicitud_service.py (DOBLADA PERMANENTE deja ambas fechas vacías) -->
 
 Si en el detalle del día la sala aparece como **Por asignar**, no es un fallo ni te
 falta nada: significa que ese turno todavía no tiene sala asignada. El turno es válido y
@@ -346,6 +409,11 @@ Antes de las fichas, cuatro cosas que valen para todos:
 - **Cancelar un cambio ya aprobado no depende solo de ti.** Se le pide al compañero, que
   decide. Está explicado una sola vez, para los seis, en el apartado 6.3.
   <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) -->
+- **El aviso de "Enviando solicitud..." nunca se queda para siempre.** Si pasan
+  **45 segundos** sin respuesta, la pantalla deja de esperar y te avisa. Ese aviso no
+  quiere decir que el envío haya fallado: antes de reenviar hay que comprobar
+  **Mis Solicitudes**. Está explicado una sola vez, para los seis, en el apartado 7.1.
+  <!-- fuente: static/js/loading-ui.js:43 (LIMITE_ENVIO_MS = 45000), :50-52, :101-131 (fetchLimitado) -->
 
 ---
 
@@ -466,8 +534,9 @@ personas: el sistema no fija plazo.
 **12. Cómo confirmar que quedó bien.**
 Entra en **Mis Solicitudes**: debe aparecer la fila con estado **Pendiente**. Cuando pase
 a **Aprobada**, ve a **Mis Turnos**: ese día mostrará la jornada nueva con la etiqueta
-*Asignado* y, al tocarlo, el detalle dirá *Cambio de turno*.
-<!-- fuente: templates/solicitudes/mis_solicitudes_list.html; static/js/mis_turnos.js:590-597 -->
+*Asignado* y, al tocarlo, el detalle dirá *Cambio de turno*, con quién fue el cambio y
+cuándo se aprobó. Ver el apartado 3.2
+<!-- fuente: templates/solicitudes/mis_solicitudes_list.html; static/js/utils/detalle-dia-mensajes.js -->
 
 **13. Cómo cancelar o deshacer.**
 Mientras esté **Pendiente**, botón **Cancelar** en **Mis Solicitudes**, sin plazo y en el
@@ -501,6 +570,11 @@ motivo de la cancelación."*
 | "El empleado no está activo" | Tú o el compañero estáis inactivos | Habla con tu supervisor |
 
 <!-- fuente: solicitudes/services/validators/ct_validator.py; base_validator.py; strategies/cambio_turno_strategy.py -->
+
+Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
+solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
+**Mis Solicitudes** antes de reenviar. Ver el apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:43, :50-52, :133-152 -->
 
 **Ejemplo.**
 María trabaja AM el martes 14/03 y necesita la tarde libre por una cita. Juan trabaja PM
@@ -620,7 +694,10 @@ aplica día a día sobre las fechas válidas y el sistema informa de cuántas pr
 **12. Cómo confirmar que quedó bien.**
 En **Mis Solicitudes** verás una sola fila para todo el rango. Cuando esté **Aprobada**,
 recorre **Mis Turnos** por los meses del rango: los días marcados mostrarán la jornada
-nueva.
+nueva. Al tocar cualquiera de ellos, el detalle dice *Cambio de turno permanente*, con quién
+es y cuándo se aprobó; antes ese dato solo salía en el primer día del rango. Ver el
+apartado 3.2
+<!-- fuente: solicitudes/services/acuerdo_por_dia_service.py (todos los días del rango, no solo el primero) -->
 
 **13. Cómo cancelar o deshacer.**
 Pendiente: **Cancelar** sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
@@ -652,6 +729,11 @@ motivo de la cancelación."*
 | "No queda ningún día válido para aplicar el cambio permanente." | Igual que el anterior, detectado al aplicar | Vuelve a solicitarlo con otras fechas |
 
 <!-- fuente: solicitudes/services/validators/ct_permanente_validator.py; strategies/ct_permanente_strategy.py; views/api_disponibles_ct_preview.py:331 -->
+
+Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
+solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
+**Mis Solicitudes** antes de reenviar. Ver el apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:43, :50-52, :133-152 -->
 
 **Ejemplo.**
 Carlos (AM) estudia los martes y jueves por la mañana entre el 01/04 y el 30/06. Elige ese
@@ -834,8 +916,10 @@ cobertura (AM y PM). Cada compañero la aprueba por separado."*
 En **Mis Solicitudes**, la fila aparece con estado **Pendiente**. Con las dos aprobaciones,
 en **Mis Turnos** los dos días afectados cambian y el detalle del día dice *Cambio de día
 de descanso*. El día que pasa a ser descanso se marca con 😴, no con ☕: es un intercambio,
-no una doblada.
-<!-- fuente: static/js/mis_turnos.js:455,675-682 -->
+no una doblada. El detalle nombra además al compañero —*Intercambio con* él en el día que
+trabajas, *Descanso intercambiado con* él en el que descansas— y la fecha de aprobación.
+Ver el apartado 3.2
+<!-- fuente: static/js/mis_turnos.js:455; static/js/utils/detalle-dia-mensajes.js (conQuien, mensajeDescanso) -->
 
 **13. Cómo cancelar o deshacer.**
 Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
@@ -907,6 +991,11 @@ cambiar de nuevo, se cancela el anterior.
 | "No se pudo crear la cobertura completa, no se creó ninguna solicitud." | Una de las dos coberturas falló la validación | Corrige y vuelve a enviar; no quedó nada a medias |
 
 <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py; solicitud_orchestrator.py:190-290 -->
+
+Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
+solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
+**Mis Solicitudes** antes de reenviar. Ver el apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:43, :50-52, :133-152 -->
 
 **Ejemplo.**
 Ana trabaja el sábado 07/03 y descansa el domingo. Pedro, del grupo contrario, trabaja el
@@ -1088,8 +1177,10 @@ envío y la aprobación, o cuando un administrador rehace una doblada por su cue
 **12. Cómo confirmar que quedó bien.**
 En **Mis Solicitudes**, estado **Pendiente** y luego **Aprobada**. En **Mis Turnos**, el
 día de la cesión aparece con ☕ (día libre) y el de pago como **DOBLADA (AM + PM)** entre
-semana o **DÍA COMPLETO (AM + PM)** en fin de semana.
-<!-- fuente: static/js/mis_turnos.js:459,742 -->
+semana o **DÍA COMPLETO (AM + PM)** en fin de semana. Al tocarlos, el día que cediste dice
+qué compañero está trabajando por ti, y el de pago, a quién estás cubriendo o a quién le
+devuelves el favor, con la fecha de aprobación. Ver el apartado 3.2
+<!-- fuente: static/js/mis_turnos.js:459; static/js/utils/detalle-dia-mensajes.js -->
 
 **13. Cómo cancelar o deshacer.**
 Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
@@ -1131,6 +1222,11 @@ motivo de la cancelación."*
 | "El compañero ya tiene una solicitud pendiente que afecta el … Debe esperar a que sea aprobada o cancelada antes de enviar una nueva que use ese día." | Solapamiento del compañero | Espera o elige a otro |
 
 <!-- fuente: solicitudes/services/validators/doblada_validator.py; base_validator.py; strategies/doblada_strategy.py -->
+
+Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
+solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
+**Mis Solicitudes** antes de reenviar. Ver el apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:43, :50-52, :133-152 -->
 
 **Ejemplo.**
 Diego (AM) necesita el jueves 12/03 libre. Sofía trabaja PM ese día. Diego abre
@@ -1261,7 +1357,9 @@ Cada solicitud se aprueba por separado, con sus dos aprobaciones.
 **12. Cómo confirmar que quedó bien.**
 En **Mis Solicitudes** verás una fila por compañero. Al aprobarse, recorre **Mis Turnos**
 por el rango: los días cedidos aparecen con ☕ y los de devolución como **DOBLADA (AM +
-PM)**.
+PM)**. El detalle de cada uno nombra al compañero y la fecha de aprobación; en este trámite
+antes no se decía con quién era el acuerdo. Ver el apartado 3.2
+<!-- fuente: solicitudes/services/acuerdo_por_dia_service.py; solicitudes/services/descanso_solicitud_service.py (rama DOBLADA PERMANENTE) -->
 
 **13. Cómo cancelar o deshacer.**
 Pendiente: **Cancelar**, sin plazo y en el acto. Aprobada: **Pedir cancelación** dentro de
@@ -1301,6 +1399,11 @@ independientes.
 | "Compañero no válido." | El compañero seleccionado ya no existe | Recarga y vuelve a elegir |
 
 <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py; solicitud_orchestrator.py -->
+
+Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
+solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
+**Mis Solicitudes** antes de reenviar. Ver el apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:43, :50-52, :133-152 -->
 
 **Ejemplo.**
 Laura necesita libres los lunes y miércoles de mayo. Pone **Desde** 04/05 y **Hasta**
@@ -1402,7 +1505,8 @@ de doblada de fin de semana enviada correctamente."*
 
 **12. Cómo confirmar que quedó bien.**
 En **Mis Solicitudes**, la fila cambia a **Aprobada**. En **Mis Turnos**, el día cedido
-aparece libre y el de pago como **DÍA COMPLETO (AM + PM)**. Además, este trámite se refleja
+aparece libre y el de pago como **DÍA COMPLETO (AM + PM)**; el detalle de cada uno nombra al
+compañero y la fecha de aprobación. Ver el apartado 3.2. Además, este trámite se refleja
 en **Mis Favores**, que lleva la cuenta de los días de fin de semana que te cubrieron y los
 que cubriste tú.
 <!-- fuente: templates/solicitudes/mis_favores.html; static/js/mis_turnos.js:742 -->
@@ -1438,6 +1542,11 @@ motivo de la cancelación."*
 
 <!-- fuente: solicitudes/services/strategies/d_fds_strategy.py -->
 
+Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
+solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
+**Mis Solicitudes** antes de reenviar. Ver el apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:43, :50-52, :133-152 -->
+
 **Ejemplo.**
 Marta trabaja el sábado 07/03 y quiere ese día libre. Raúl descansa ese sábado. Marta abre
 **Doblada de Fin de Semana**, elige marzo, toca el sábado 07, selecciona a *Raúl* y como
@@ -1458,7 +1567,7 @@ Referencia rápida de los valores que aparecen en los formularios.
 | Jornada mostrada en el calendario | **DOBLADA** | Trabajas AM y PM el mismo día entre semana |
 | Jornada mostrada en el calendario | **DÍA COMPLETO (AM + PM)** | Lo mismo, pero en sábado o domingo |
 | Jornada mostrada en el calendario | **DESCANSO** | No trabajas por programación |
-| Jornada mostrada en el calendario | **DÍA LIBRE** | No trabajas porque cediste tu jornada en una doblada |
+| Jornada mostrada en el calendario | **DÍA LIBRE** | No trabajas porque un compañero cubre tu jornada en una doblada. El detalle del día dice cuál es y con quién (apartado 3.2) |
 | Etiqueta bajo la jornada | **Asignado** | La jornada viene de un acuerdo aprobado |
 | Etiqueta bajo la jornada | **Predeterminado** | Es tu programación normal |
 | Modalidad de cambio de descanso | **Fin de semana** | Intercambias el día del fin de semana que trabajas, con devolución en otro fin de semana del mismo mes |
@@ -1906,7 +2015,7 @@ supervisor la levanta —levantar una sanción condona también la deuda de ese 
 
 ---
 
-### 6.9 Cuando las horas te las deben a ti
+### 6.10 Cuando las horas te las deben a ti
 
 No toda la cuenta va en la misma dirección. A veces el que trabaja de más eres tú: tu entrada
 era a las 8:00, tu supervisor te pidió entrar a las 7:00, y esa hora te la deben.
@@ -1955,6 +2064,42 @@ todo lo que había: solo se ve un título grande, una explicación y dos botones
 Los mensajes propios de cada formulario están en su ficha, punto 14. Aquí van los que
 pueden aparecer en cualquiera de los seis.
 
+#### Cuando el envío tarda demasiado: comprueba antes de reenviar
+
+Al pulsar el botón de envío aparece *"Enviando solicitud..."*. Si pasan **45 segundos**
+sin que llegue la respuesta, la pantalla deja de esperar y muestra un aviso de
+advertencia. Ocurre en los seis formularios.
+<!-- fuente: static/js/loading-ui.js:43 (LIMITE_ENVIO_MS = 45000) y :101-131 (fetchLimitado); mostrar('Enviando solicitud...') en solicitar_cambio_turno.js:385, solicitar_ct_permanente.js:1687,1720, solicitar_doblada.js:2827,2884, solicitar_doblada_permanente.js:711, solicitar_d_fds.js:418, solicitar_cambio_descanso.js:1287; fetchLimitado en :387, :1689,:1722, :2829,:2886, :716, :422, :1294 -->
+
+El título es *"La solicitud está tardando demasiado"* y el texto, *"Dejamos de esperar la
+respuesta del servidor. Es posible que la solicitud SÍ se haya enviado: revisa "Mis
+Solicitudes" antes de volver a intentarlo."*
+<!-- fuente: static/js/loading-ui.js:50-52 (TITULO_TIEMPO, TEXTO_TIEMPO) -->
+
+**Este aviso no dice que el envío haya fallado.** Dice que se dejó de esperar la
+respuesta. La solicitud puede haberse creado igualmente: reenviar a ciegas puede dejarte
+el mismo acuerdo por duplicado. Haz esto, en este orden:
+
+1. Cierra el aviso con su botón de confirmación.
+2. Entra en **Mis Solicitudes**.
+3. Si la solicitud aparece, ya está enviada: no hagas nada más.
+4. Si no aparece, vuelve al formulario y envíala de nuevo.
+
+<!-- fuente: static/js/loading-ui.js:45-52 y :133-152 (avisoDeFallo); tests_js/loading-ui.test.cjs ("el corte por tiempo trae titulo propio y manda a comprobar") -->
+
+Es el caso contrario al de *"Ocurrió un error de red. Intenta de nuevo."*: ahí la
+solicitud no salió y reintentar es lo correcto. Por eso, en **Cambio de Turno** y en
+**Cambio de Turno Permanente**, el aviso de tiempo se cierra con **Entendido** mientras
+que el de red te ofrece **Reintentar**. En **Doblada de Fin de Semana** y en **Doblada
+Permanente** el botón es siempre **Entendido**.
+<!-- fuente: static/js/cambio-turno/solicitar_cambio_turno.js:462-470 y solicitar_ct_permanente.js:1760-1768 (confirmButtonText: 'Entendido' si el corte fue por tiempo, 'Reintentar' si no); solicitar_d_fds.js:47-51 y solicitar_doblada_permanente.js:42-46 (notificar fija 'Entendido') -->
+
+Este aviso concreto **no** trae **Código de referencia**, y no hace falta: no hay ningún
+fallo que reportar, solo una respuesta que no llegó a tiempo.
+<!-- fuente: static/js/cambio-turno/solicitar_ct_permanente.js:1739, solicitar_doblada.js:2904, solicitar_doblada_permanente.js:735, solicitar_d_fds.js:448, solicitar_cambio_descanso.js:1306 (CodigoReferencia.htmlMensaje solo se aplica cuando NO es corte por tiempo); solicitar_cambio_turno.js:464-467 (el aviso del .catch nunca lo lleva) -->
+
+#### Los demás avisos comunes a los seis formularios
+
 | Mensaje literal | Qué significa | Qué hacer |
 |---|---|---|
 | "Estás sancionado del dd/mm/aaaa al dd/mm/aaaa. Durante la sanción no puedes realizar solicitudes de cambio de turno ni de permisos." | Tienes una sanción vigente | Habla con tu supervisor <!-- fuente: empleados/sancion_utils.py (mensaje_sancion) --> |
@@ -1975,10 +2120,12 @@ pueden aparecer en cualquiera de los seis.
 | "El tipo de solicitud «NOMBRE» no tiene selector de compañeros de fin de semana. Solo lo tienen CAMBIO DESCANSO y D FDS." | La pantalla pidió la lista de compañeros de un sábado o un domingo con un trámite que no es de fin de semana | Recarga la página y entra al formulario desde el menú; si vuelve a salir, avisa a tu supervisor <!-- fuente: solicitudes/views/api_fin_semana.py (json_error, code='tipo_sin_selector_finde') --> |
 | "No se puede pagar la deuda de MES: ese plazo ya venció. Un mes cerrado se salda cumpliendo la sanción, no pagándolo." | El supervisor intentó registrar el pago de un mes ya cerrado | Nada que hacer con el pago; ese mes se salda con la sanción. Ver el apartado 6.8 <!-- fuente: permisos/pago_horas_service.py:248 --> |
 | "Error al procesar la solicitud" | Fallo interno; no es culpa de tus datos | Reinténtalo; si persiste, avisa a tu supervisor <!-- fuente: solicitudes/services/solicitud_orchestrator.py:25 --> |
-| "Ocurrió un error de red. Intenta de nuevo." | El envío no llegó a completarse | Comprueba **Mis Solicitudes** antes de reenviar. Si el aviso incluye un **Código de referencia**, apúntalo: ver el apartado 7.3 <!-- fuente: static/js/cambio-turno/solicitar_d_fds.js:442; solicitar_doblada_permanente.js:705 --> |
-| "Intenta de nuevo." bajo el título *Error de red* | Lo mismo, en **Cambio de Día de Descanso** | Igual que el anterior <!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js:1328,1362,1382 --> |
-| "Ocurrió un error de red." | Lo mismo, en **Cambio de Turno Permanente** y en **Doblada** | Igual que el anterior <!-- fuente: static/js/cambio-turno/solicitar_ct_permanente.js:1748; solicitar_doblada.js:2862 --> |
+| "La solicitud está tardando demasiado" — "Dejamos de esperar la respuesta del servidor. Es posible que la solicitud SÍ se haya enviado: revisa "Mis Solicitudes" antes de volver a intentarlo." | Pasaron 45 segundos sin respuesta y la pantalla dejó de esperar. **No** significa que el envío haya fallado | Comprueba **Mis Solicitudes**; solo si no aparece nada, envíala de nuevo. Ver el bloque justo encima de esta tabla <!-- fuente: static/js/loading-ui.js:50-52, :43, :147-152 --> |
+| "Ocurrió un error de red. Intenta de nuevo." | El envío no llegó a completarse | Comprueba **Mis Solicitudes** antes de reenviar. Si el aviso incluye un **Código de referencia**, apúntalo: ver el apartado 7.3 <!-- fuente: static/js/cambio-turno/solicitar_d_fds.js:445; solicitar_doblada_permanente.js:732 --> |
+| "Intenta de nuevo." bajo el título *Error de red* | Lo mismo, en **Cambio de Día de Descanso** | Igual que el anterior <!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js:1302 (avisarFallo), usada desde :1340, :1374 y :1394 --> |
+| "Ocurrió un error de red." | Lo mismo, en **Cambio de Turno Permanente** y en **Doblada** | Igual que el anterior <!-- fuente: static/js/cambio-turno/solicitar_ct_permanente.js:1735; solicitar_doblada.js:2900 --> |
 | "Ocurrió un error al procesar la solicitud" | El envío de **Cambio de Turno** falló y el sistema no devolvió un motivo concreto | Comprueba **Mis Solicitudes** antes de reenviar <!-- fuente: static/js/cambio-turno/solicitar_cambio_turno.js:421 --> |
+| "No se pudo enviar la solicitud. Inténtalo de nuevo." bajo el título *Error de conexión* | El envío de **Cambio de Turno** o de **Cambio de Turno Permanente** no llegó a salir | Pulsa **Reintentar** <!-- fuente: static/js/cambio-turno/solicitar_cambio_turno.js:463; solicitar_ct_permanente.js:1761 --> |
 | "Ya no es posible cancelar esta solicitud. Solo se puede pedir la cancelación dentro de las 24 horas posteriores a su aprobación (han pasado N horas). Pídele a tu supervisor que la cancele desde Gestión." | Se acabó tu plazo para pedirla | Habla con tu supervisor <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
 | "Plazo de cancelación expirado" — "Solo puedes pedir la cancelación dentro de las 24 horas posteriores a la aprobación. Pídele a tu supervisor que la cancele." | Lo mismo, avisado por la propia pantalla antes de enviar nada | Habla con tu supervisor <!-- fuente: static/js/solicitudes/mis_solicitudes_list.js (cancelarSolicitudAprobada) --> |
 | "Ya pediste cancelar esta solicitud. Está esperando la respuesta de …" | Ya hay una petición en curso | Espera la respuesta <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
@@ -2174,13 +2321,18 @@ incidencia."
 
 Es el mismo tipo de código que el de las pantallas completas: 12 caracteres, distinto en
 cada caso. Vale para los seis formularios de solicitud de cambio de turno.
-<!-- fuente: static/js/utils/codigo-referencia.js:73 (filtro [A-Za-z0-9]); core/errors.py:68; static/js/cambio-turno/solicitar_cambio_turno.js:421, solicitar_ct_permanente.js:1748, solicitar_doblada.js:2862, solicitar_doblada_permanente.js:705, solicitar_d_fds.js:442, solicitar_cambio_descanso.js:1328,1362,1382 -->
+<!-- fuente: static/js/utils/codigo-referencia.js:73 (filtro [A-Za-z0-9]); core/errors.py:68; static/js/cambio-turno/solicitar_cambio_turno.js:421, solicitar_ct_permanente.js:1739, solicitar_doblada.js:2904, solicitar_doblada_permanente.js:735, solicitar_d_fds.js:448, solicitar_cambio_descanso.js:1306 -->
 
 **No siempre habrá código, y eso es normal.** El código solo existe si el servidor llegó a
 responder. Si se te cayó la conexión del todo y la petición nunca llegó, el aviso sale
 igual que antes, sin recuadro: no hay nada registrado que el equipo pueda buscar. En ese
 caso, reporta simplemente qué estabas haciendo y a qué hora.
 <!-- fuente: static/js/utils/codigo-referencia.js:71-72 (sin código se devuelve el aviso tal cual) y :103-106 (un fallo de red no deja cabecera que leer) -->
+
+Tampoco lo lleva el aviso *"La solicitud está tardando demasiado"*, y ahí es a propósito:
+no hay ningún fallo registrado, solo una respuesta que no llegó a tiempo. Lo que toca
+hacer con ese aviso está en el apartado 7.1.
+<!-- fuente: static/js/cambio-turno/solicitar_d_fds.js:448 y las otras cinco pantallas de envío: CodigoReferencia solo se aplica cuando el fallo NO es un corte por tiempo -->
 
 El código de un aviso caduca al minuto: pasado ese tiempo, un fallo posterior no reutiliza
 el código del anterior. Por eso, si vas a reportarlo, apúntalo en el momento.
@@ -2339,6 +2491,14 @@ El **Código de referencia** que aparece al pie, de 12 caracteres. Púlsalo con 
 caso; el detalle técnico les llega solo.
 <!-- fuente: templates/errors/_base_error.html (bloque meta); core/errors.py:18-29 -->
 
+**Salió "La solicitud está tardando demasiado". ¿La envío otra vez?**
+Todavía no. Ese aviso significa que la pantalla dejó de esperar la respuesta, no que el
+envío haya fallado: la solicitud puede haberse creado igualmente. Entra primero en **Mis
+Solicitudes**. Si está ahí, ya no hay nada que hacer; si no está, vuelve al formulario y
+envíala. Reenviar sin comprobar puede dejar el mismo acuerdo por duplicado. Ver el
+apartado 7.1.
+<!-- fuente: static/js/loading-ui.js:45-52 y :133-152 (avisoDeFallo) -->
+
 **Me falló el envío de una solicitud y salió un aviso, no una pantalla completa. ¿Qué apunto?**
 Ese aviso también trae el **Código de referencia** cuando el servidor alcanzó a responder:
 está en el recuadro del final. Apúntalo tal cual. Si no aparece ninguno, es que la conexión
@@ -2444,7 +2604,10 @@ Cambios recientes que afectan a lo que ves en pantalla.
 
 | Cambio | Qué significa para ti |
 |---|---|
-| **Nuevo: horas a favor del explorador** | Si tu supervisor o la corporación te deben horas —te pidieron entrar antes de tu turno, por ejemplo—, ahora quedan registradas y se descuentan de lo que tú debas. Lo que sobre no se pierde: sigue a tu favor para la próxima. Ver § 6.9 |
+| **El detalle del día dice ahora con quién es el acuerdo** | En **Mis Turnos**, cualquier día que cambió por una solicitud aprobada nombra el trámite, al compañero con nombre y apellido, el papel de cada uno y la fecha de aprobación. Antes faltaba el compañero en la doblada permanente, en el cambio de turno permanente salvo el primer día del rango, y en parte de los cambios de día de descanso. Ver el apartado 3.2 <!-- fuente: solicitudes/services/acuerdo_por_dia_service.py; static/js/utils/detalle-dia-mensajes.js --> |
+| **Los días de descanso dicen de qué trámite vienen** | Un día libre o un descanso que sale de una solicitud aprobada muestra el nombre del acuerdo —*Doblada permanente*, por ejemplo, en lugar del genérico *Día libre*— y cuándo se aprobó. Un descanso de tu programación (mantenimiento, temporada o fin de semana) sigue sin compañero ni fecha, porque no lo pactó nadie contigo <!-- fuente: solicitudes/services/descanso_solicitud_service.py; static/js/utils/detalle-dia-mensajes.js (mensajeDescanso) --> |
+| **El pago reprogramado nombra la doblada que quedó pendiente** | El día que tu supervisor programa para pagar una doblada que no cumpliste dice ahora con qué compañero era esa doblada, además de indicar que lo programó el supervisor <!-- fuente: solicitudes/services/acuerdo_por_dia_service.py (_agregar_pagos_reprogramados) --> |
+| **Nuevo: horas a favor del explorador** | Si tu supervisor o la corporación te deben horas —te pidieron entrar antes de tu turno, por ejemplo—, ahora quedan registradas y se descuentan de lo que tú debas. Lo que sobre no se pierde: sigue a tu favor para la próxima. Ver § 6.10 |
 | **Cancelar un cambio aprobado ya no es cosa tuya sola: se le pide al compañero** | Antes cancelabas de inmediato y él se enteraba después. Ahora pulsas **Pedir cancelación** y él aprueba o rechaza. Aplica a los seis formularios. Ver el apartado 6.3 <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion, responder_cancelacion) --> |
 | **Mientras nadie responde, el cambio sigue vigente** | Pedir la cancelación no mueve ningún turno. Solo la aprobación del compañero los devuelve a como estaban <!-- fuente: solicitudes/use_cases/cancelar_solicitud.py (_pedir_cancelacion) --> |
 | **El plazo pasó de 30 minutos a 24 horas** | Tienes 24 horas desde la aprobación para pedir la cancelación, y tu compañero otras 24 para responderte <!-- fuente: core/constants.py (VENTANA_PEDIR_CANCELACION_HORAS, VENTANA_RESPONDER_CANCELACION_HORAS) --> |
@@ -2458,6 +2621,9 @@ Cambios recientes que afectan a lo que ves en pantalla.
 | **Un intercambio de descanso ya no reserva el día durante 30 minutos** | Antes, tras aprobarse un intercambio, sus días quedaban bloqueados media hora: no se podían elegir en el selector de fines de semana ni al enviar el formulario. Ahora el día queda libre desde que se aplica el intercambio. A cambio, si alguien lo reutiliza antes de que se resuelva tu petición de cancelación, ya no podrás deshacer tu cambio <!-- fuente: solicitudes/services/cambio_descanso_aplicacion_service.py (dia_bloqueado_para_nuevo_cambio) --> |
 | **El aviso de día bloqueado en el cambio de descanso dice qué hacer** | Solo aparece cuando el día tiene aplicado otro tipo de cambio, y te indica que hay que deshacerlo primero, pidiéndoselo a tu compañero si aún está en plazo o a tu supervisor <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py (_trabaja_dia) --> |
 | **Tres avisos nuevos en la campana** | "Te piden cancelar un cambio ya aprobado", "Cancelación aprobada" y "Cancelación rechazada". Solo dentro de la aplicación; no se envían por correo <!-- fuente: solicitudes/services/notificacion_service.py --> |
+| **Nuevo: el envío de una solicitud ya no se queda esperando sin fin** | Antes, si el envío se colgaba, el aviso *"Enviando solicitud..."* podía quedarse en pantalla de forma indefinida, sin botón ni forma de cerrarlo salvo recargar la página, que es justo lo que ese aviso pide no hacer. Ahora, a los 45 segundos sin respuesta, la pantalla deja de esperar y siempre te da una salida. Afecta a los seis formularios <!-- fuente: static/js/loading-ui.js:27-35, :43, :101-131 --> |
+| **Aviso nuevo: "La solicitud está tardando demasiado"** | Es el aviso de ese corte por tiempo, y no dice que el envío haya fallado: te manda a comprobar **Mis Solicitudes** antes de reenviar, porque la solicitud puede haberse creado igualmente. Por eso, donde el aviso de error de red ofrece **Reintentar**, este se cierra con **Entendido**. Ver el apartado 7.1 <!-- fuente: static/js/loading-ui.js:50-52, :133-152; solicitar_cambio_turno.js:470; solicitar_ct_permanente.js:1768 --> |
+| **El envío es más rápido** | Los correos de aviso al supervisor y al compañero ya no se mandan mientras esperas: salen por su cuenta en cuanto la solicitud queda guardada. No cambia ninguna regla ni ningún paso; solo que *"Enviando solicitud..."* dura mucho menos. Los correos siguen llegando a las mismas personas <!-- fuente: solicitudes/services/email_outbox_service.py:303-325 (enviar_tras_commit) y :327-359 (envio_agrupado); config/settings.py:271 (EMAIL_SEND_ASYNC) --> |
 | Cinco pantallas de error propias, en español | Cuando algo falla ya no ves una pantalla técnica en inglés ni una página en blanco, sino una explicación clara con botones **Ir al inicio** y **Volver atrás**. Ver el apartado 7.2 <!-- fuente: templates/400.html, 403.html, 403_csrf.html, 404.html, 500.html; core/errors.py --> |
 | Cada pantalla de error muestra un **Código de referencia** con botón **Copiar** | Es lo único que tienes que incluir al reportar una incidencia; el detalle técnico llega solo al equipo. Ver el apartado 7.3 <!-- fuente: templates/errors/_base_error.html (bloque meta); core/errors.py:51-76 --> |
 | Los avisos de fallo al enviar una solicitud también muestran el **Código de referencia** | Antes el código solo salía en las pantallas de error a página completa. Ahora, si el envío falla y el servidor alcanzó a responder, el propio aviso trae el código en un recuadro. Afecta a los seis formularios. Ver el apartado 7.3 <!-- fuente: static/js/utils/codigo-referencia.js; templates/base.html:297 --> |
@@ -2505,6 +2671,8 @@ incluyeron como hechos en el manual.
 
 | Afirmación pendiente | Dónde se buscó | Por qué no se pudo verificar |
 |---|---|---|
+| Si los acuerdos aprobados hace tiempo también nombran al compañero en el detalle del día | Servicio que resuelve qué acuerdo cambió cada día y el registro que deja cada trámite al aplicarse | El compañero sale del registro que escribe el trámite en el momento de aplicarse. Los seis lo escriben hoy; no se pudo comprobar con datos reales qué muestran los acuerdos aprobados antes de que ese registro existiera |
+| Qué compañero se nombra en un día que dos acuerdos aprobados tocaron | Servicio que resuelve el acuerdo de cada día | Manda el último aprobado (apartado 6.1); no se pudo reproducir en pantalla un día con dos acuerdos para confirmar qué nombre aparece |
 | Si las horas a favor caducan pasado un tiempo | `permisos/credito_horas_service.py`, `permisos/models.py` | Hoy **no caducan**: se quedan en la bolsa indefinidamente. No se ha encontrado ninguna regla de caducidad, pero tampoco una decisión escrita de que deban durar para siempre |
 | Si un explorador puede consultar por sí mismo sus horas a favor sin pasar por el supervisor | `templates/turnos/consolidado_horas.html`, `core/sesiones.py` | Aparecen en su **Consolidado de Horas**, que él sí ve; la pantalla de gestión (registrar y anular) es solo de supervisor |
 | Duración exacta de la sesión antes de caducar por inactividad | Configuración general del proyecto | No hay un valor explícito configurado; se aplica el comportamiento por defecto del sistema, que no está declarado en el proyecto |
@@ -2526,6 +2694,8 @@ incluyeron como hechos en el manual.
 | Cuándo y cómo se completa la sala de un turno que salió como **Por asignar** | Módulo de personas y de turnos | Se comprobó que la falta de sala ya no bloquea el turno y que la pantalla muestra "Por asignar"; no se localizó un procedimiento escrito para asignarla después |
 | Si el explorador ve en alguna pantalla propia la fecha límite para pagar su deuda | Pantallas de consulta del explorador | El aviso de plazo se comprobó en la pantalla de registro de pagos, que es del supervisor; no se revisó si alguna vista del explorador lo repite |
 | Si el aviso de "otro año" aparece también antes de enviar, dentro del formulario | Formularios de los seis trámites | Se comprobó la validación al enviar, común a los seis; no se localizó un aviso equivalente en la propia pantalla |
+| Qué texto lleva el botón del aviso "La solicitud está tardando demasiado" en **Cambio de Día de Descanso** y en **Doblada** | Pantallas de envío de esos dos formularios | Los otros cuatro fijan **Entendido** de forma explícita; estos dos no lo indican y muestran el botón por defecto del componente de avisos. No se comprobó en pantalla qué palabra aparece ahí |
+| Si el aviso de tiempo puede salir cuando la solicitud ya se guardó y el compañero ya recibió el correo | Envío de solicitudes y cola de correo | Es posible en teoría, porque el corte solo detiene la espera y no cancela nada en el servidor; no se pudo reproducir para confirmar qué avisos llegan en ese caso |
 | Qué ve exactamente un supervisor que tiene permisos aprobados antes de esta versión, sin fecha de aprobación guardada | Vista de cancelación de permisos | Para esos permisos antiguos el plazo se sigue midiendo desde la última modificación; no se pudo comprobar con datos reales cuántos quedan en esa situación |
 
 ---
