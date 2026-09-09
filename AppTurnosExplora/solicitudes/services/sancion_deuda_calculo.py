@@ -235,6 +235,3 @@ def primer_dia_vencida(fecha: date) -> date:
     return Periodo.de_fecha(fecha).primer_dia_vencida()
 
 
-def nombre_mes(fecha: date) -> str:
-    """Nombre del mes en minúsculas, sin año, para redactar los avisos."""
-    return _MESES[fecha.month - 1]

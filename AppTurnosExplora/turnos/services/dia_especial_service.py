@@ -277,35 +277,6 @@ class DiaEspecialService:
         return eliminados
 
     @staticmethod
-    def validar_fechas_dia_especial(tipo: str, anio: int, dias_seleccionados: Dict[int, List[int]]) -> tuple[bool, str]:
-        """
-        Valida que las fechas de días especiales sean válidas.
-        
-        Args:
-            tipo: Tipo de día especial ('festivo' o 'mantenimiento')
-            anio: Año a validar
-            dias_seleccionados: Diccionario con mes como clave y lista de días como valor
-            
-        Returns:
-            Tupla (válido, mensaje_error)
-        """
-        if tipo not in ['festivo', 'mantenimiento']:
-            return False, f"Tipo inválido: {tipo}. Debe ser 'festivo' o 'mantenimiento'."
-        
-        if anio < DiaEspecial.ANIO_MIN or anio > DiaEspecial.ANIO_MAX:
-            return False, f"Año inválido: {anio}. Debe estar entre {DiaEspecial.ANIO_MIN} y {DiaEspecial.ANIO_MAX}."
-
-        for mes, dias in dias_seleccionados.items():
-            if mes < 1 or mes > 12:
-                return False, f"Mes inválido: {mes}. Debe estar entre 1 y 12."
-            
-            for dia in dias:
-                if not DiaEspecialService._validar_dia_mes(anio, mes, dia):
-                    return False, f"Día inválido: {dia} para el mes {mes} del año {anio}."
-        
-        return True, ""
-
-    @staticmethod
     def _validar_dia_mes(anio: int, mes: int, dia: int) -> bool:
         """
         Valida que un día sea válido para un mes y año específicos.

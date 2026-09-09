@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from django.db import transaction
-from django.db.models import F, Q, QuerySet, Sum
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 
 from core.constants import JornadaDisplay
@@ -1108,22 +1108,6 @@ class DeudaCorporativaService:
         return total or 0
     
     @staticmethod
-    def obtener_deudas_activas(explorador: Empleado) -> QuerySet[DeudaCorporativa]:
-        """
-        Obtener todas las deudas corporativas activas de un explorador.
-        
-        Args:
-            explorador: Explorador para el cual obtener las deudas
-        
-        Returns:
-            QuerySet de deudas activas ordenadas por fecha de generación
-        """
-        return DeudaCorporativa.objects.filter(
-            explorador=explorador,
-            estado='activa'
-        ).select_related('solicitud_origen').order_by('-fecha_generacion')
-    
-    @staticmethod
     def cancelar_deuda(deuda: DeudaCorporativa, comentario: Optional[str] = None) -> DeudaCorporativa:
         """
         Cancelar una deuda corporativa (marcar como cancelada).
@@ -1143,19 +1127,4 @@ class DeudaCorporativaService:
         
         logger.info(f"Deuda corporativa cancelada: {deuda.explorador.nombre} - {deuda.minutos} min")
         return deuda
-    
-    @staticmethod
-    def obtener_deudas_por_solicitud(solicitud: SolicitudCambio) -> QuerySet[DeudaCorporativa]:
-        """
-        Obtener todas las deudas corporativas generadas por una solicitud.
-        
-        Args:
-            solicitud: Solicitud de doblada
-        
-        Returns:
-            QuerySet de deudas corporativas
-        """
-        return DeudaCorporativa.objects.filter(
-            solicitud_origen=solicitud
-        ).select_related('explorador')
     

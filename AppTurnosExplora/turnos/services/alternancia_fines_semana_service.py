@@ -172,20 +172,3 @@ class AlternanciaFinesSemanaService:
             return None
         return "PM" if trabaja == "AM" else "AM"
 
-    @staticmethod
-    def jornada_descansa_fin_semana(fecha: date) -> Optional[str]:
-        """
-        Retorna la jornada que DESCANSA en la fecha si es sábado o domingo.
-        Si no es fin de semana, retorna None.
-        """
-        if AlternanciaFinesSemanaService._es_sabado(fecha):
-            return AlternanciaFinesSemanaService.jornada_descansa_sabado(fecha)
-        if AlternanciaFinesSemanaService._es_domingo(fecha):
-            return AlternanciaFinesSemanaService.jornada_descansa_domingo(fecha)
-        return None
-
-
-
-
-
-

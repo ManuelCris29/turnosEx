@@ -24,12 +24,6 @@ class TurnoContextService:
     """
 
     @staticmethod
-    def _calcular_jornada_dia(j_base, fecha):
-        """Calcula la jornada para un día específico considerando descansos."""
-        from core.utils.jornada_utils import JornadaUtils
-        return JornadaUtils.calcular_jornada_dia(j_base, fecha)
-
-    @staticmethod
     def get_context_data_for_mis_turnos_view(empleado: Empleado) -> dict:
         """
         Prepara el contexto para MisTurnosView.

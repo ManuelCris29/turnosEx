@@ -543,16 +543,6 @@ class SolicitudFactory:
         return strategy.get_turno_explorador(explorador_id, fecha)
     
     @classmethod
-    def get_available_types(cls) -> list:
-        """
-        Get list of available solicitud types.
-        
-        Returns:
-            List of registered strategy names
-        """
-        return list(cls._strategies.keys())
-    
-    @classmethod
     def get_registered_codes(cls) -> set:
         """
         Get set of registered strategy codes.

@@ -32,11 +32,11 @@ class ItemChecklist:
     detalle: str
     url: str
     # Ítems que deben estar completos antes de poder trabajar en este.
+    # Quien los resuelve es la vista: `turnos/views/apertura_anio.py` calcula `item.esperando`
+    # con los que aún no están completos. Aquí hubo una `bloqueado_por_dependencia` que siempre
+    # devolvía False y que nadie leía — y que además, siendo `@property`, ningún servicio podía
+    # rellenar por asignación, pese a que su comentario decía lo contrario.
     depende_de: tuple = field(default_factory=tuple)
-
-    @property
-    def bloqueado_por_dependencia(self):
-        return False  # lo resuelve el servicio al construir la lista
 
 
 class AperturaAnioService:

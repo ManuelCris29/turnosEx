@@ -92,15 +92,6 @@ def obtener_jornada_base(empleado, fecha):
     return asignacion.jornada if asignacion else None
 
 
-def obtener_jornada_contraria(jornada):
-    """La otra jornada del par AM/PM. Devuelve None si no se puede determinar."""
-    if not jornada:
-        return None
-    jornadas = obtener_jornadas_am_pm()
-    nombre = (jornada.nombre or '').upper()
-    return jornadas.get('PM' if nombre == 'AM' else 'AM')
-
-
 def obtener_jornadas_am_pm() -> Dict[str, object]:
     """
     Retorna {'AM': Jornada, 'PM': Jornada} en UNA sola consulta.

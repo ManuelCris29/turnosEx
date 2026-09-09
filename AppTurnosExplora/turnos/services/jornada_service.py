@@ -90,22 +90,3 @@ class JornadaService:
             logger.warning(f"Error obteniendo jornada: {e}")
             return None
     
-    @staticmethod
-    def get_jornada_predeterminada(explorador):
-        """
-        Obtiene la jornada predeterminada más reciente de un explorador.
-        
-        Args:
-            explorador: Objeto Empleado
-        
-        Returns:
-            AsignarJornadaExplorador más reciente o None
-        """
-        return (
-            AsignarJornadaExplorador.objects
-            .filter(explorador=explorador)
-            .select_related('jornada')
-            .order_by('-fecha_inicio')
-            .first()
-        )
-
