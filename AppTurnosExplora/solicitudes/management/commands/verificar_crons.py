@@ -28,11 +28,35 @@ USO
 Termina con código de salida 1 si algo va mal, para que el paso de un despliegue o el
 propio cron que lo envuelve falle de forma visible en vez de imprimir y seguir.
 
-Cada problema se anuncia con el marcador `CRON_NO_EJECUTADO` al principio de la línea:
-en mayúsculas, sin acentos y sin texto variable, porque es lo que engancha la alarma
-(metric filter de CloudWatch, grep en un cron.daily). Misma convención y mismo motivo
-que `REVISION_SANCIONES_NO_EJECUTADA`: si el enganche dependiera de la redacción en
-español, cualquier retoque del mensaje apagaría la alerta sin que se note.
+Cada problema se anuncia con un marcador al principio de la línea: en mayúsculas, sin
+acentos y sin texto variable, porque es lo que engancha la alarma (metric filter de
+CloudWatch, grep en un cron.daily). Misma convención y mismo motivo que
+`REVISION_SANCIONES_NO_EJECUTADA`: si el enganche dependiera de la redacción en español,
+cualquier retoque del mensaje apagaría la alerta sin que se note.
+
+DOS MARCADORES, PORQUE SON DOS PROBLEMAS DISTINTOS
+--------------------------------------------------
+  - `CRON_NO_EJECUTADO`  → nadie está pasando a recoger. Se arregla programando la tarea.
+  - `CORREOS_FALLIDOS`   → hay correos que agotaron los cinco reintentos. El cron puede
+                           estar perfectamente sano; esto lo arregla UNA PERSONA, desde
+                           el admin, y ninguna cantidad de cron lo va a resolver.
+
+Mezclarlos sería el error fácil: un `fallido` NO significa que el worker esté muerto, y
+si ensuciara `CRON_NO_EJECUTADO` la alarma de "nadie ejecuta la tarea" empezaría a sonar
+por un motivo que no es el suyo — y una alarma que suena por dos causas distintas deja de
+decirte qué hacer. Por eso `_revisar_outbox` sigue ignorando los agotados para su `ok`.
+
+VENTANA DE LOS AGOTADOS
+-----------------------
+`CORREOS_FALLIDOS` solo mira los que agotaron los reintentos en las últimas
+`VENTANA_FALLIDOS_HORAS`. Es deliberado: una alarma que no se puede apagar arreglando la
+causa se acaba ignorando, y un buzón muerto de verdad (empleado que se fue) volvería a
+fallar en cada reintento manual, dejando el check en rojo para siempre. Con la ventana, la
+alarma se apaga sola cuando dejan de producirse fallos nuevos, y de inmediato si alguien
+los reintenta desde el admin. El recuento TOTAL de agotados no se pierde: sigue saliendo
+en el detalle del check del outbox, que es donde se consulta sin prisa.
+
+El aviso, entonces, es «está pasando algo ahora», no «hay pendientes históricos».
 """
 import json as _json
 
@@ -41,13 +65,22 @@ from django.utils import timezone
 
 from solicitudes.models import EmailOutbox, RevisionSancionesDeuda
 
-# Ver el docstring: no se traduce, no se adorna y no cambia.
+# Ver el docstring: no se traducen, no se adornan y no cambian.
 MARCADOR_ALERTA = 'CRON_NO_EJECUTADO'
+MARCADOR_CORREOS_FALLIDOS = 'CORREOS_FALLIDOS'
 
 # Cuánto puede llevar esperando el correo pendiente más antiguo antes de que la cola
 # delate al worker. El cron va cada 5 minutos; una hora son doce pasadas perdidas, lo
 # bastante como para descartar un pico de SMTP lento o un reintento con backoff.
 UMBRAL_OUTBOX_MINUTOS = 60
+
+# Cuántos correos pueden agotar los reintentos dentro de la ventana antes de dar la alarma.
+# Por defecto 1: un correo perdido ya es una solicitud que alguien nunca vio, y el volumen
+# normal de este sistema (~180 al día) no produce fallos definitivos de forma rutinaria.
+UMBRAL_FALLIDOS = 1
+
+# Ver el docstring: la alarma mira lo que se rompió HACE POCO, para que se pueda apagar.
+VENTANA_FALLIDOS_HORAS = 24
 
 
 class Command(BaseCommand):
@@ -58,12 +91,18 @@ class Command(BaseCommand):
             '--umbral-outbox', type=int, default=UMBRAL_OUTBOX_MINUTOS, metavar='MINUTOS',
             help=f'Minutos que puede llevar esperando el correo pendiente más antiguo '
                  f'antes de dar la alarma (default: {UMBRAL_OUTBOX_MINUTOS}).')
+        parser.add_argument(
+            '--umbral-fallidos', type=int, default=UMBRAL_FALLIDOS, metavar='N',
+            help=f'Correos que pueden agotar los reintentos en las últimas '
+                 f'{VENTANA_FALLIDOS_HORAS} h antes de dar la alarma '
+                 f'(default: {UMBRAL_FALLIDOS}).')
         parser.add_argument('--json', action='store_true',
                             help='Salida en JSON, para consumo automático.')
 
     def handle(self, *args, **options):
         checks = [
             self._revisar_outbox(options['umbral_outbox']),
+            self._revisar_correos_fallidos(options['umbral_fallidos']),
             self._revisar_sanciones(),
         ]
         problemas = [c for c in checks if not c['ok']]
@@ -76,8 +115,11 @@ class Command(BaseCommand):
                 if c['ok']:
                     self.stdout.write(self.style.SUCCESS(f"[ok] {c['cron']}: {c['detalle']}"))
                 else:
+                    # El marcador lo elige cada check: son alarmas distintas con respuestas
+                    # distintas (ver el docstring). `MARCADOR_ALERTA` es solo el default.
+                    marcador = c.get('marcador', MARCADOR_ALERTA)
                     self.stderr.write(self.style.ERROR(
-                        f"{MARCADOR_ALERTA} {c['cron']}: {c['detalle']}"))
+                        f"{marcador} {c['cron']}: {c['detalle']}"))
 
         if problemas:
             # Código de salida != 0: lo que convierte esto en un check y no en un informe
@@ -130,6 +172,48 @@ class Command(BaseCommand):
         return {'cron': 'procesar_email_outbox', 'ok': ok,
                 'espera_minutos': espera, 'agotados': agotados,
                 'detalle': detalle + extra}
+
+    @staticmethod
+    def _revisar_correos_fallidos(umbral: int) -> dict:
+        """
+        Correos que agotaron los cinco reintentos: nadie los va a volver a tocar.
+
+        Es la otra mitad del hueco que dejaba `_revisar_outbox`. Aquel mide si ALGUIEN está
+        vaciando la cola; este mide si algo se perdió del todo. Un worker impecable puede
+        producir correos definitivamente perdidos —un destinatario que ya no existe, unas
+        credenciales SMTP mal puestas— y hasta ahora eso solo se veía entrando al admin.
+
+        Entrada distinta y marcador distinto a propósito: el arreglo no es programar un
+        cron, es que una persona entre a `/admin/solicitudes/emailoutbox/`, filtre por
+        `fallido` y decida (reintentar, o corregir la dirección en la ficha del empleado).
+
+        No es un cron, pero viaja en la misma lista que los que sí lo son: una sola
+        ejecución y un solo código de salida cubren "las tareas de fondo están sanas".
+        """
+        desde = timezone.now() - timezone.timedelta(hours=VENTANA_FALLIDOS_HORAS)
+
+        recientes = EmailOutbox.objects.filter(
+            estado=EmailOutbox.ESTADO_FALLIDO, creado_en__gte=desde).count()
+        total = EmailOutbox.objects.filter(estado=EmailOutbox.ESTADO_FALLIDO).count()
+
+        ok = recientes < umbral
+        if not ok:
+            detalle = (f'{recientes} correo(s) agotaron los reintentos en las últimas '
+                       f'{VENTANA_FALLIDOS_HORAS} h (umbral {umbral}). No se reintentan '
+                       f'solos: revisa /admin/solicitudes/emailoutbox/ filtrando por '
+                       f'«fallido».')
+            if total > recientes:
+                detalle += f' En total hay {total} sin resolver.'
+        elif total:
+            detalle = (f'ninguno agotó los reintentos en las últimas '
+                       f'{VENTANA_FALLIDOS_HORAS} h; quedan {total} antiguo(s) sin '
+                       f'resolver, para revisar sin prisa.')
+        else:
+            detalle = 'ningún correo ha agotado los reintentos.'
+
+        return {'cron': 'correos_fallidos', 'ok': ok,
+                'marcador': MARCADOR_CORREOS_FALLIDOS,
+                'recientes': recientes, 'total': total, 'detalle': detalle}
 
     @staticmethod
     def _revisar_sanciones() -> dict:
