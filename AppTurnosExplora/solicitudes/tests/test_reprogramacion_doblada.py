@@ -11,6 +11,7 @@ from datetime import date, timedelta
 
 from django.utils import timezone
 
+from core.constants import TipoCambioTurno
 from empleados.models import CompetenciaEmpleado
 from solicitudes.models import DeudaCorporativa, ReprogramacionDiaDoblada, SolicitudCambio
 from solicitudes.services.reprogramacion_doblada_service import ReprogramacionDobladaService as RS
@@ -494,3 +495,191 @@ class ReprogramacionDFDSTest(DFDSBaseTest):
         self.assertEqual(reprog.estado, 'pendiente')
         self.assertEqual(Turno.objects.filter(explorador=self.solicitante, fecha=nueva).count(), 0,
                          'al deshacer el pago no debe quedar ningún turno activo ese día')
+
+
+class MotivoDiaNoAptoTest(MatrizDobladasTestCase):
+    """
+    El MOTIVO que se le muestra al supervisor cuando un día no sirve para pagar la doblada.
+
+    Regresión de un caso real (reprogramación 12, septiembre de 2026): el 15 y el 18 la persona
+    tenía jornada única AM —la propia pantalla lo decía en la columna "Jornada real"— y el
+    calendario los deshabilitaba con "Ese día la persona no tiene una jornada única para doblar
+    (ya dobla, descansa, es festivo/fin de semana, o no tiene turno)". Ninguna de las cuatro
+    causas era cierta: el bloqueo venía de la puerta de calendario por descanso de temporada
+    (`dia_calendario_no_apto` → `es_dia_descanso_temporada`), que es un predicado POR FECHA.
+
+    El bloqueo es correcto y NO se toca: esos dos días son territorio exclusivo del formulario de
+    CAMBIO DESCANSO. Lo que se arregla es que la pantalla lo diga.
+    """
+
+    def _reprog(self, fecha_original=None):
+        """Una reprogramación pendiente del receptor (AM), sin pasar por el flujo de doblada."""
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        return ReprogramacionDiaDoblada.objects.create(
+            doblada_origen=self._crear_aplicar_doblada(),
+            explorador=self.receptor,
+            fecha_original=fecha_original or FECHA_CESION,
+            estado='pendiente',
+        )
+
+    def _crear_aplicar_doblada(self):
+        sol, msg = self.strategy.crear_solicitud(self._datos(tipo_cambio=self.tipo_doblada))
+        self.assertIsNotNone(sol, msg)
+        return sol
+
+    def _descanso_temporada(self, fecha, jornada):
+        from turnos.models import DescansoSemanaManual
+        return DescansoSemanaManual.objects.create(
+            fecha=fecha, jornada=jornada, motivo='temporada', activo=True)
+
+    def _dia_habil_futuro(self, offset=0):
+        """Un lunes-viernes futuro y libre de festivos/mantenimiento del calendario de prueba."""
+        from solicitudes.services.cambios_permanentes_helper import dia_calendario_no_apto
+        d = timezone.localdate() + timedelta(days=7 + offset)
+        while d.weekday() >= 5 or dia_calendario_no_apto(d):
+            d += timedelta(days=1)
+        return d
+
+    # ── el caso que originó el arreglo ────────────────────────────────────────
+
+    def test_descanso_de_temporada_de_la_jornada_contraria_lo_dice(self):
+        """
+        El 18/09/2026 era el descanso del grupo PM y el explorador es AM: ese día trabaja con
+        normalidad. El veto por FECHA lo alcanza igual (correcto), pero el motivo debe decir de
+        quién es el descanso, no acusarlo de "ya dobla".
+        """
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        dia = self._dia_habil_futuro()
+        self._descanso_temporada(dia, self.jornada_pm)
+
+        motivo = RS.motivo_dia_no_apto(self.receptor, dia)
+        self.assertIsNotNone(motivo, 'el día sigue bloqueado: no cambia la elegibilidad')
+        self.assertIn('descanso de temporada', motivo)
+        self.assertIn('PM', motivo, 'debe decir de qué jornada es el descanso')
+        self.assertIn('Cambio de Día de Descanso', motivo, 'y a dónde ir para moverlo')
+        self.assertNotIn('ya dobla', motivo)
+
+    def test_el_motivo_nombra_el_cambio_de_descanso_y_el_companero(self):
+        """Si además ese día está comprometido en un CAMBIO DESCANSO aprobado, se nombra."""
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        dia = self._dia_habil_futuro()
+        self._descanso_temporada(dia, self.jornada_am)
+        acuerdo = {
+            'tipo': 'CAMBIO DESCANSO',
+            'solicitud_id': 656,
+            'companero_nombre': 'duban duban',
+            'fecha_relacionada': '15/09/2026',
+        }
+        motivo = RS.motivo_dia_no_apto(self.receptor, dia, acuerdo=acuerdo)
+        self.assertIn('cambio de descanso aprobado', motivo)
+        self.assertIn('duban duban', motivo)
+        self.assertIn('#656', motivo)
+        self.assertIn('15/09/2026', motivo)
+
+    def test_el_motivo_no_miente_cuando_hay_jornada_unica(self):
+        """
+        El guard del bug: un día bloqueado SOLO por el calendario nunca puede afirmar que la
+        persona ya dobla, descansa o no tiene turno, porque `estado_dia` dice lo contrario.
+        """
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        dia = self._dia_habil_futuro()
+        self._descanso_temporada(dia, self.jornada_pm)
+        # Forma exacta del caso real: un CAMBIO DESCANSO ya resolvió el día y le dejó su AM.
+        # Sin ese turno, la capa de temporada haría que el grupo contrario cubriera y el día
+        # saldría DOBLADA, que es otro escenario (y ahí "ya dobla" sí sería verdad).
+        Turno.objects.create(explorador=self.receptor, fecha=dia, jornada=self.jornada_am,
+                             sala=self.sala, tipo_cambio='CAMBIO DESCANSO')
+
+        self.assertEqual(TS.estado_dia(self.receptor, dia).get('jornada'), 'AM',
+                         'el escenario exige que ese día SÍ tenga jornada única')
+        motivo = RS.motivo_dia_no_apto(self.receptor, dia)
+        for mentira in ('ya dobla', 'descansa', 'no tiene turno'):
+            self.assertNotIn(mentira, motivo)
+
+    # ── una rama por causa ────────────────────────────────────────────────────
+
+    def test_motivo_mantenimiento(self):
+        from turnos.models import DiaEspecial
+        dia = self._dia_habil_futuro()
+        DiaEspecial.objects.create(fecha=dia, tipo='mantenimiento', es_temporada=False, activo=True)
+        self.assertIn('mantenimiento', RS.motivo_dia_no_apto(self.receptor, dia))
+
+    def test_motivo_festivo(self):
+        from turnos.models import DiaEspecial
+        dia = self._dia_habil_futuro()
+        DiaEspecial.objects.create(fecha=dia, tipo='festivo', es_temporada=False, activo=True)
+        self.assertIn('festivo', RS.motivo_dia_no_apto(self.receptor, dia))
+
+    def test_motivo_ya_dobla(self):
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        dia = self._dia_habil_futuro()
+        for j in (self.jornada_am, self.jornada_pm):
+            Turno.objects.create(explorador=self.receptor, fecha=dia, jornada=j, sala=self.sala)
+        motivo = RS.motivo_dia_no_apto(self.receptor, dia)
+        self.assertIn('ya dobla', motivo)
+        self.assertIn('AM + PM', motivo)
+
+    def test_motivo_none_cuando_el_dia_sirve(self):
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        dia = self._dia_habil_futuro()
+        self.assertIsNone(RS.motivo_dia_no_apto(self.receptor, dia))
+
+    # ── el guard que impide que mensaje y veredicto se separen ────────────────
+
+    def test_motivo_y_veredicto_no_divergen(self):
+        """
+        `motivo_dia_no_apto` devuelve None EXACTAMENTE cuando `jornada_doblada_perm` acepta el
+        día. Sin este test, alguien puede tocar una de las dos funciones y dejar la pantalla
+        diciendo "sí puede" sobre un día que el POST rechaza (o al revés).
+        """
+        from solicitudes.services.cambios_permanentes_helper import jornada_doblada_perm
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        base = self._dia_habil_futuro()
+        # Un mes de días variados: descansos de temporada de ambas jornadas, fines de semana,
+        # un día doblado y días normales.
+        self._descanso_temporada(self._dia_habil_futuro(3), self.jornada_am)
+        self._descanso_temporada(self._dia_habil_futuro(10), self.jornada_pm)
+        doblado = self._dia_habil_futuro(17)
+        for j in (self.jornada_am, self.jornada_pm):
+            Turno.objects.create(explorador=self.receptor, fecha=doblado, jornada=j, sala=self.sala)
+
+        for i in range(31):
+            d = base + timedelta(days=i)
+            apto = jornada_doblada_perm(self.receptor, d) is not None
+            sin_motivo = RS.motivo_dia_no_apto(self.receptor, d) is None
+            self.assertEqual(apto, sin_motivo, f'{d}: veredicto={apto} pero motivo={not sin_motivo}')
+
+    def test_la_elegibilidad_no_cambia_por_el_mensaje(self):
+        """
+        No-regresión del arreglo: el cambio era de TEXTO. Un día de descanso de temporada sigue
+        bloqueado en `validar_dia_pago`, con el motivo nuevo dentro del ValueError.
+        """
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        dia = self._dia_habil_futuro()
+        self._descanso_temporada(dia, self.jornada_pm)
+        reprog = self._reprog()
+        with self.assertRaises(ValueError) as cm:
+            RS.validar_dia_pago(reprog, dia)
+        self.assertIn('descanso de temporada', str(cm.exception))
+        self.assertIn('Elige otro día', str(cm.exception))
+
+
+class JornadaDebidaTest(MatrizDobladasTestCase):
+    def test_jornada_debida_usa_el_estado_real_no_la_predeterminada(self):
+        """
+        `_jornada_debida` leía `AsignarJornadaExplorador` (la jornada PREDETERMINADA). Si el día
+        no cumplido tenía un cambio de turno, la persona trabajaba la contraria a su base y la
+        jornada debida quedaba invertida. Ahora se lee de `estado_dia`.
+        """
+        self._asignar_jornada_base(self.receptor, self.jornada_am)   # base AM
+        dia = timezone.localdate() + timedelta(days=10)
+        while dia.weekday() >= 5:
+            dia += timedelta(days=1)
+        # Ese día, en la realidad, trabaja PM (un CT se lo cambió). Ojo al vocabulario:
+        # `Turno.tipo_cambio` usa `TipoCambioTurno` ('CT'), no el nombre de la maestra.
+        Turno.objects.create(explorador=self.receptor, fecha=dia, jornada=self.jornada_pm,
+                             sala=self.sala, tipo_cambio=TipoCambioTurno.CT)
+
+        self.assertEqual(TS.estado_dia(self.receptor, dia).get('jornada'), 'PM')
+        self.assertEqual(RS._jornada_debida(self.receptor, dia), 'AM',
+                         'debe la contraria de la REAL (PM), no la contraria de la base (AM)')

@@ -18,7 +18,7 @@ from datetime import date
 from django.db import transaction
 from django.utils import timezone
 
-from core.constants import TipoCambioTurno, TipoSolicitud
+from core.constants import JornadaDisplay, TipoCambioTurno, TipoSolicitud
 from solicitudes.models import ReprogramacionDiaDoblada, SolicitudCambio
 
 from .d_fds_aplicacion_service import DFDSAplicacionService
@@ -26,6 +26,12 @@ from .deuda_corporativa_service import DeudaCorporativaService
 from .doblada_aplicacion_service import DobladaAplicacionService
 
 logger = logging.getLogger(__name__)
+
+# "No me pasaron el acuerdo del día" — distinto de None, que significa "ese día no tiene ninguno".
+# El calendario precarga el mes entero y pasa None para los días sin acuerdo; quien no precarga
+# (el POST) deja el centinela y la búsqueda se hace sola, y solo cuando hay que redactar un
+# rechazo. Así el camino feliz no paga ninguna consulta extra.
+_ACUERDO_NO_PRECARGADO = object()
 
 
 class ReprogramacionDobladaService:
@@ -119,14 +125,25 @@ class ReprogramacionDobladaService:
 
     @staticmethod
     def _jornada_debida(explorador, fecha) -> str | None:
-        """Jornada que la persona quedó debiendo = la CONTRARIA a su jornada base ese día."""
-        from turnos.models import AsignarJornadaExplorador
-        asg = (AsignarJornadaExplorador.objects.filter(explorador=explorador, fecha_inicio__lte=fecha)
-               .select_related('jornada').order_by('-fecha_inicio').first())
-        base = asg.jornada.nombre.upper() if asg and asg.jornada else None
-        if base == 'AM':
+        """
+        Jornada que la persona quedó debiendo = la CONTRARIA a la que REALMENTE tenía ese día.
+
+        Se lee de la FUENTE DE VERDAD `TurnoService.estado_dia`, no de `AsignarJornadaExplorador`
+        (la jornada PREDETERMINADA), que es lo que hacía antes: si el día no cumplido tenía un
+        cambio de turno, la predeterminada dice AM cuando la persona en realidad trabajaba PM, y
+        la jornada debida quedaba invertida.
+
+        Se llama DESPUÉS de `anular_doblada_de_un_dia` (ver `registrar_inasistencia`), así que
+        `estado_dia` ya devuelve la jornada única restaurada de ese día — justo la que se debía
+        haber doblado. Devuelve None si ese día no hay una jornada única (descanso o doblada que
+        no se pudo anular).
+        """
+        from turnos.services.turno_service import TurnoService
+
+        real = TurnoService.estado_dia(explorador, fecha).get('jornada')
+        if real == 'AM':
             return 'PM'
-        if base == 'PM':
+        if real == 'PM':
             return 'AM'
         return None
 
@@ -184,8 +201,113 @@ class ReprogramacionDobladaService:
         tipo = getattr(reprog.doblada_origen, 'tipo_cambio', None)
         return bool(tipo) and tipo.nombre == TipoSolicitud.D_FDS
 
+    # ------------------------------------------------------------------ motivo del rechazo
+
     @staticmethod
-    def validar_dia_pago(reprog: ReprogramacionDiaDoblada, fecha_nueva: date, hoy: date | None = None):
+    def _nombre(persona) -> str:
+        """Nombre presentable de un explorador. Acepta el str que trae `AcuerdoPorDiaService`,
+        el dict `companero` de `estado_dia`, o el propio modelo."""
+        if isinstance(persona, str):
+            return persona.strip() or 'un compañero'
+        if isinstance(persona, dict):
+            return (persona.get('nombre') or '').strip() or 'un compañero'
+        nombre = f"{getattr(persona, 'nombre', '') or ''} {getattr(persona, 'apellido', '') or ''}"
+        return nombre.strip() or 'un compañero'
+
+    @staticmethod
+    def motivo_dia_no_apto(explorador, fecha: date, acuerdo=_ACUERDO_NO_PRECARGADO) -> str | None:
+        """
+        Razón DETALLADA, en tercera persona (la lee el supervisor), por la que `fecha` no sirve
+        para pagar la doblada; None si sí sirve.
+
+        Existe porque el mensaje anterior era una lista de cuatro causas metidas en una sola
+        frase —"ya dobla, descansa, es festivo/fin de semana, o no tiene turno"— que se mostraba
+        en TODOS los rechazos, incluidos aquellos en los que ninguna de las cuatro era cierta.
+        Caso real (reprogramación 12, septiembre de 2026): el 15 y el 18 la persona tenía jornada
+        única AM —la propia pantalla lo mostraba en la columna "Jornada real"— y el bloqueo venía
+        de la puerta de calendario por descanso de temporada. El supervisor leía "ya dobla" al
+        lado de una celda que decía "AM", sin forma de saber qué pasaba.
+
+        Recorre las causas en el MISMO orden que `jornada_doblada_perm`, que es quien decide de
+        verdad: primero el calendario (`dia_calendario_no_apto`) y después el estado real del
+        día (`estado_dia`). Que ambos no se separen con el tiempo lo fija
+        `test_motivo_y_veredicto_no_divergen`.
+
+        Responde solo por la reprogramación ENTRE SEMANA (la que exige jornada única). Una D FDS
+        se compensa trabajando un día de finde libre y tiene sus propias reglas y sus propios
+        mensajes en `_validar_dia_compensacion_finde`; `validar_dia_pago` nunca llega aquí en
+        ese caso.
+
+        `acuerdo` es la entrada de `AcuerdoPorDiaService.en_fecha`/`en_rango` para ese día (la
+        misma que enriquece Mis Turnos): permite nombrar la solicitud y el compañero. El
+        calendario la trae precargada del mes entero, así que pasarla aquí no cuesta consultas.
+        """
+        from solicitudes.services.acuerdo_por_dia_service import AcuerdoPorDiaService
+        from solicitudes.services.cambios_permanentes_helper import dia_calendario_no_apto
+        from turnos.services.descanso_semana_service import DescansoSemanaService
+        from turnos.services.turno_service import TurnoService
+
+        if acuerdo is _ACUERDO_NO_PRECARGADO:
+            acuerdo = AcuerdoPorDiaService.en_fecha(explorador, fecha)
+
+        f = fecha.strftime('%d/%m/%Y')
+
+        calendario = dia_calendario_no_apto(fecha)
+        if calendario == 'mantenimiento':
+            return f'El {f} es día de mantenimiento: nadie trabaja, así que no hay jornada que doblar.'
+        if calendario == 'festivo':
+            return f'El {f} es festivo: ese día el grupo que rota trabaja AM + PM, no media jornada.'
+        if calendario == 'temporada':
+            jornadas = DescansoSemanaService.jornadas_descanso_temporada(fecha)
+            if jornadas:
+                # Los DOS días de descanso que el supervisor fija son territorio exclusivo del
+                # formulario de CAMBIO DESCANSO, que obliga a compensar dentro de la misma
+                # semana. Una doblada paga en cualquier fecha, así que rompería ese cómputo.
+                # Se nombra la jornada porque el veto es POR FECHA: alcanza también a quien ese
+                # día trabaja con normalidad, y sin decirlo el bloqueo parece arbitrario.
+                texto = (
+                    f'El {f} es un día de descanso de temporada (descanso de la jornada '
+                    f'{" y ".join(jornadas)}). Esos días solo se mueven desde "Cambio de Día de '
+                    f'Descanso", que tiene las cinco opciones para hacerlo (intercambiar el día, '
+                    f'jornadas partidas, que le cubran su día, cambio de doblada o permiso de '
+                    f'media jornada) y obliga a compensar en la misma semana; una doblada paga en '
+                    f'cualquier fecha y rompería ese cómputo.'
+                )
+                if acuerdo and acuerdo.get('tipo') == TipoSolicitud.CAMBIO_DESCANSO:
+                    texto += (
+                        f' Además, ese día ya está comprometido en un cambio de descanso aprobado '
+                        f'con {ReprogramacionDobladaService._nombre(acuerdo.get("companero_nombre"))} '
+                        f'(solicitud #{acuerdo.get("solicitud_id")})'
+                    )
+                    if acuerdo.get('fecha_relacionada'):
+                        texto += f', que compensa el {acuerdo["fecha_relacionada"]}'
+                    texto += '.'
+                return texto
+            return (f'El {f} está dentro de la semana de temporada: ese día no está en jornada '
+                    f'predeterminada, así que no hay media jornada sobre la que doblar.')
+
+        est = TurnoService.estado_dia(explorador, fecha) or {}
+        jornada = est.get('jornada')
+        if jornada in ('AM', 'PM'):
+            return None
+        if jornada == JornadaDisplay.DOBLADA:
+            texto = f'El {f} ya dobla (AM + PM): no le queda jornada contraria que agregar.'
+            if acuerdo and acuerdo.get('tipo'):
+                texto += (f' Viene de {acuerdo["tipo"]} con '
+                          f'{ReprogramacionDobladaService._nombre(acuerdo.get("companero_nombre"))}.')
+            return texto
+        if not est.get('trabaja'):
+            motivo = est.get('motivo')
+            texto = f'El {f} descansa ({motivo}).' if motivo else f'El {f} descansa.'
+            companero = est.get('companero')
+            if companero:
+                texto += f' Se lo cedió a {ReprogramacionDobladaService._nombre(companero)}.'
+            return texto
+        return f'El {f} no tiene turno planificado: no hay una jornada única sobre la que doblar.'
+
+    @staticmethod
+    def validar_dia_pago(reprog: ReprogramacionDiaDoblada, fecha_nueva: date,
+                         hoy: date | None = None, acuerdo=_ACUERDO_NO_PRECARGADO):
         """
         FUENTE ÚNICA de "¿sirve este día para pagar la doblada no cumplida?". La usan el calendario
         del supervisor (para pintar qué días son elegibles) y `programar` (para revalidar el POST),
@@ -194,6 +316,10 @@ class ReprogramacionDobladaService:
         Devuelve la jornada única que la persona tiene ese día (la que se guarda para restaurar al
         cancelar), o None en D FDS —donde la unidad es el día completo y no hay jornada previa—.
         Lanza ValueError con el motivo si el día no sirve.
+
+        `acuerdo`: la entrada de `AcuerdoPorDiaService` para ese día, si quien llama ya la
+        tiene precargada (None = ese día no tiene acuerdo). Solo enriquece el MENSAJE de error;
+        nunca decide. Si no se pasa, se busca sola y solo cuando hay que redactar el rechazo.
         """
         from solicitudes.services.cambios_permanentes_helper import jornada_doblada_perm
 
@@ -214,11 +340,15 @@ class ReprogramacionDobladaService:
             return None
 
         # La persona debe tener jornada única real ese día (para poder doblar = agregar la contraria).
+        # El VEREDICTO lo da `jornada_doblada_perm`; `motivo_dia_no_apto` solo explica el
+        # porqué con detalle, recorriendo las mismas causas en el mismo orden.
         j = jornada_doblada_perm(reprog.explorador, fecha_nueva)
         if j is None:
+            motivo = ReprogramacionDobladaService.motivo_dia_no_apto(
+                reprog.explorador, fecha_nueva, acuerdo)
             raise ValueError(
-                'Ese día la persona no tiene una jornada única para doblar (ya dobla, descansa, '
-                'es festivo/fin de semana, o no tiene turno). Elige otro día.'
+                f'{motivo} Elige otro día.' if motivo
+                else 'Ese día la persona no tiene una jornada única para doblar. Elige otro día.'
             )
         return j
 

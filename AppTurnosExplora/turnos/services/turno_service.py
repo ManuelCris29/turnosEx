@@ -405,7 +405,7 @@ class TurnoService(ITurnoService):
         salen con `fuente='base'`.
 
         Si tu formulario DEBE rechazar la temporada, compruébalo POR REGLA contra el calendario
-        (`DiaEspecial.es_temporada_en(fecha)`, o `_dia_calendario_no_apto()` en
+        (`DiaEspecial.es_temporada_en(fecha)`, o `dia_calendario_no_apto()` en
         `solicitudes/services/cambios_permanentes_helper.py`) — NUNCA con `fuente == 'temporada'`,
         que no se cumplirá para el caso que te interesa y fallará EN SILENCIO.
 

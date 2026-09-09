@@ -27,7 +27,7 @@
 >
 > Son conjuntos distintos, no uno subconjunto del otro: hay días de descanso fijados en fechas
 > **sin** el marcador de semana. Comprobado el 07/08/2026 —
-> `_dia_calendario_no_apto(2026-09-15)` devolvía `None` sobre un día que sí era descanso fijado
+> `dia_calendario_no_apto(2026-09-15)` devolvía `None` sobre un día que sí era descanso fijado
 > de temporada, y por eso los dos permanentes lo dejaban pasar.
 >
 > La regla nueva se implementó **por calendario** (`DescansoSemanaManual` con
@@ -35,6 +35,32 @@
 > `estado_dia()['fuente']`. Así que el punto ciego sigue sin arreglarse y sigue sin molestar.
 > La política vigente está en `solicitudes/tests/test_politica_temporada.py`, ahora con sus
 > **dos ejes separados**.
+
+> **ACTUALIZACIÓN 2026-09-09 — el veto por FECHA es correcto, pero hay que explicarlo.**
+>
+> `es_dia_descanso_temporada(fecha)` pregunta por la FECHA, no por la persona ni por la
+> jornada. Eso está bien para VETAR (los dos días del par son lo que el formulario 6
+> intercambia), pero se filtró a un mensaje de usuario y ahí sí importó.
+>
+> En la pantalla de reprogramación de dobladas
+> (`/solicitudes/reprogramaciones/<id>/programar/`) el veto llega vía `jornada_doblada_perm` →
+> `dia_calendario_no_apto`, y el rechazo se mostraba con una frase fija: *"Ese día la persona
+> no tiene una jornada única para doblar (ya dobla, descansa, es festivo/fin de semana, o no
+> tiene turno)"*. El 15 y el 18/09/2026, con el explorador Yeison (base AM), **ninguna de las
+> cuatro causas era cierta**: `estado_dia` devolvía `jornada='AM'`, `fuente='turno'` —un
+> CAMBIO DESCANSO ya había resuelto el día— y la propia tabla lo mostraba en la columna
+> "Jornada real". El 18 era además el descanso del grupo **PM**, no el suyo.
+>
+> El bloqueo se mantuvo (la política no cambia). Lo que se añadió es
+> `ReprogramacionDobladaService.motivo_dia_no_apto`, que recorre las mismas causas en el mismo
+> orden y nombra la jornada del descanso (`DescansoSemanaService.jornadas_descanso_temporada`,
+> nueva) y el cambio de descanso que compromete el día
+> (`AcuerdoPorDiaService`). `test_motivo_y_veredicto_no_divergen` impide que el mensaje y la
+> elegibilidad se separen.
+>
+> **Moraleja para el próximo:** un predicado por FECHA sirve para decidir, no para redactar.
+> Si el motivo se le enseña a una persona, hay que bajar al detalle (qué jornada, qué
+> solicitud, qué compañero) o el mensaje acabará contradiciendo a `estado_dia`.
 
 ---
 
@@ -119,7 +145,7 @@ en temporada, de forma deliberada.
 | **CAMBIO DESCANSO** (6) | **SÍ**, es su razón de ser | Tiene una modalidad *entre semana* que **solo existe en temporada** ([`solicitar_cambio_descanso.js:11`](../../../static/js/cambio-turno/solicitar_cambio_descanso.js)) | No |
 | **D FDS** (4) | N/A | Opera sobre fines de semana; no usa el datepicker de días especiales | No |
 | **CT PERMANENTE** (2) | **NO** | Regla explícita en backend: `if _es_temporada(fecha): razones.append('Temporada')` en `_razones_exclusion_ct_permanente` | **Ya cubierto** |
-| **DOBLADA PERMANENTE** (5) | **NO** | Regla explícita en backend: `_dia_calendario_no_apto()` (añadida el 2026-08-06) | **Ya cubierto** |
+| **DOBLADA PERMANENTE** (5) | **NO** | Regla explícita en backend: `dia_calendario_no_apto()` (añadida el 2026-08-06) | **Ya cubierto** |
 
 **Conclusión honesta:** a día de hoy no hay un agujero explotable conocido. El ejemplo que
 sirvió para ilustrar el punto ciego —"Vanesa podría pedir una doblada el 16/dic"— resulta ser
@@ -222,7 +248,7 @@ se pierde**: es lo que lee quien va a usar la función.
 
 ### Opción A — Regla de calendario en cada formulario que la necesite
 Replicar lo que ya hacen CT permanente y doblada permanente: preguntar al calendario por regla
-(`_dia_calendario_no_apto` o equivalente) en los formularios que deban rechazar temporada.
+(`dia_calendario_no_apto` o equivalente) en los formularios que deban rechazar temporada.
 
 - ✅ Cambio local, sin riesgo para "Mis Turnos" ni para nada que cuelgue de `estado_dia`.
 - ✅ Cada formulario declara su propia política, que es justo lo que hace falta si las políticas
@@ -278,7 +304,7 @@ for e in Empleado.objects.filter(activo=True):
 - [`AUDITORIA_FUENTE_VERDAD_TURNOS.md`](AUDITORIA_FUENTE_VERDAD_TURNOS.md) — las 6 capas y su orden.
 - `turnos/services/turno_service.py` — `estado_dia` (L4, ~línea 481) y `estado_rango_multiple`
   (la versión batch, que replica el MISMO orden de capas y por tanto el mismo punto ciego).
-- `solicitudes/services/cambios_permanentes_helper.py` — `_dia_calendario_no_apto()`: la comprobación
+- `solicitudes/services/cambios_permanentes_helper.py` — `dia_calendario_no_apto()`: la comprobación
   por regla que hoy protege a doblada permanente; el modelo a seguir para la Opción A.
 - `solicitudes/tests/test_doblada_permanente.py` — clase `DobladaPermanenteDiasCalendarioTest`:
   tests que fijan que un día de temporada no se ofrece como doblable.

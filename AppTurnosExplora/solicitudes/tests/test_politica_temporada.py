@@ -26,9 +26,14 @@ Son DOS ejes distintos, y conviene no mezclarlos:
    Ojo al alcance: esto veta dos fechas por semana, NO la temporada entera. DOBLADA sigue
    pudiendo operar en el resto de días de una semana de temporada.
 
+   La pantalla de REPROGRAMACIÓN de dobladas (supervisor) hereda este veto a través de
+   `jornada_doblada_perm`, y también lo mantiene. Lo que hace distinto es EXPLICARLO: ver
+   `ReprogramacionDobladaService.motivo_dia_no_apto`, que nombra la jornada del descanso y el
+   cambio de descanso que lo compromete, en vez de decir "no tiene una jornada única".
+
    El predicado único es `DescansoSemanaService.es_dia_descanso_temporada(fecha)`. NO sirve
    `DiaEspecial.es_temporada_en` / `es_temporada`: ese marca la SEMANA, y hay días de descanso
-   fijados en fechas sin ese marcador (07/08/2026: `_dia_calendario_no_apto(2026-09-15)`
+   fijados en fechas sin ese marcador (07/08/2026: `dia_calendario_no_apto(2026-09-15)`
    devolvía None sobre un día que sí era descanso fijado).
 
 Esto se fija aquí porque es una decisión de negocio que el código reparte entre el front (el
@@ -131,10 +136,10 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
 
     def test_doblada_permanente_rechaza_temporada_por_regla(self):
         from solicitudes.services.cambios_permanentes_helper import (
-            _dia_calendario_no_apto,
+            dia_calendario_no_apto,
             jornada_doblada_perm,
         )
-        self.assertEqual(_dia_calendario_no_apto(self.dia_temporada), 'temporada')
+        self.assertEqual(dia_calendario_no_apto(self.dia_temporada), 'temporada')
         self.assertIsNone(
             jornada_doblada_perm(self.solicitante, self.dia_temporada),
             'un día de temporada no puede ofrecerse como doblable',
@@ -172,7 +177,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         que antes llegaban a ellos (DOBLADA, CT PERMANENTE y DOBLADA PERMANENTE).
         """
         from solicitudes.services.cambios_permanentes_helper import (
-            _dia_calendario_no_apto,
+            dia_calendario_no_apto,
             razones_exclusion_ct_permanente,
         )
         from turnos.models import DescansoSemanaManual, Jornada
@@ -184,7 +189,7 @@ class PoliticaTemporadaBackendTest(DobladaPermanenteBaseTest):
         )
 
         # DOBLADA PERMANENTE y CT PERMANENTE comparten la regla de calendario.
-        self.assertEqual(_dia_calendario_no_apto(dia), 'temporada')
+        self.assertEqual(dia_calendario_no_apto(dia), 'temporada')
         self.assertIn('Temporada', razones_exclusion_ct_permanente(dia, self.solicitante))
 
         # DOBLADA: rechaza tanto si el día es la cesión como si es el pago.

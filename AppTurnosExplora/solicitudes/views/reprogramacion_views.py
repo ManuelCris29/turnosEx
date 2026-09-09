@@ -173,6 +173,7 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
 
     def _contexto_calendario(self, reprog, anio, mes):
         from core.services.cache_service import CacheService
+        from solicitudes.services.acuerdo_por_dia_service import AcuerdoPorDiaService
         from turnos.services.turno_service import TurnoService
 
         # Refrescar solo el caché de ESTE explorador y mes: el calendario debe reflejar su estado
@@ -180,6 +181,12 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
         CacheService.invalidar_cache_turnos_empleado(reprog.explorador_id, mes, anio)
         estados = TurnoService.estado_mes(reprog.explorador, anio, mes)
         ndias = calendar.monthrange(anio, mes)[1]
+        # Los acuerdos del MES en una sola consulta (la misma fuente que enriquece Mis Turnos):
+        # sirven para que el motivo de un día bloqueado pueda nombrar la solicitud y el compañero
+        # en vez de quedarse en "no tiene una jornada única". Fuera del bucle a propósito, para no
+        # pagar una consulta por día.
+        acuerdos = AcuerdoPorDiaService.en_rango(
+            reprog.explorador, date(anio, mes, 1), date(anio, mes, ndias))
         hoy = timezone.localdate()
         es_finde = RS.es_dfds(reprog)
         dias = []
@@ -188,7 +195,7 @@ class ProgramarReprogramacionView(LoginRequiredMixin, AdminRequiredMixin, View):
             # Misma validación que aplica `programar`: lo que se pinta elegible es exactamente lo
             # que el servicio acepta (en D FDS son días de fin de semana libres, no jornadas únicas).
             try:
-                j = RS.validar_dia_pago(reprog, d, hoy=hoy)
+                j = RS.validar_dia_pago(reprog, d, hoy=hoy, acuerdo=acuerdos.get(d))
                 valido, motivo = True, None
             except ValueError as e:
                 j, valido, motivo = None, False, str(e)

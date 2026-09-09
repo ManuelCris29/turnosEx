@@ -18,12 +18,13 @@ medida fue NO, y conviene dejarla escrita para no volver a plantearlo:
 consumidoras del núcleo de este módulo. De sus 8 dependencias transitivas, 5 son
 COMPARTIDAS con CT permanente —`estado_ct`, `dia_libre_por_solicitud` y las tres
 lectoras de la caché `es_festivo` / `es_mantenimiento` / `es_temporada`— y las
-otras son `_dia_calendario_no_apto` (la puerta de calendario que citan como
-canónica hasta `turnos/services/turno_service.py` y `descanso_semana_service.py`)
-y `_jornada_unica_real`.
+otras son `dia_calendario_no_apto` (la puerta de calendario que citan como
+canónica hasta `turnos/services/turno_service.py` y `descanso_semana_service.py`;
+pública desde el 09/09/2026, cuando `ReprogramacionDobladaService.motivo_dia_no_apto`
+pasó a consumirla) y `_jornada_unica_real`.
 
 Sacarlas a un `doblada_permanente_helper.py` obligaría a importar esas cuatro
-piezas —dos de ellas privadas— cruzando una frontera de módulo nueva, y dejaría
+piezas —una de ellas privada— cruzando una frontera de módulo nueva, y dejaría
 la caché `ContextVar` en un archivo y a sus lectores en otro. Es decir:
 reintroduciría la fuga de API privada que cerró
 `core/tests/test_arquitectura_api_privada.py`, y a cambio de nada.
@@ -506,7 +507,7 @@ def es_temporada(fecha: date) -> bool:
         (`DescansoSemanaManual` con `motivo='temporada'`).
 
     Son conjuntos distintos: hay días de descanso fijados en fechas SIN el marcador de semana
-    (07/08/2026: `_dia_calendario_no_apto(2026-09-15)` devolvía None sobre uno de ellos). Esos
+    (07/08/2026: `dia_calendario_no_apto(2026-09-15)` devolvía None sobre uno de ellos). Esos
     días son territorio exclusivo del formulario de CAMBIO DESCANSO, así que ni CT PERMANENTE ni
     DOBLADA PERMANENTE pueden usarlos.
 
@@ -636,22 +637,14 @@ def _jornada_unica_real(explorador: Empleado, fecha: date):
         return None
 
 
-def _elegibles_contrarios_doblada(solicitante: Empleado, receptor: Empleado, fecha: date):
-    """
-    ¿En `fecha` el solicitante y el receptor son elegibles para doblarse? Ambos deben tener
-    jornada ÚNICA real (AM/PM) y CONTRARIA entre sí. Devuelve (js, jr) si son contrarios, o None.
-    """
-    js = jornada_doblada_perm(solicitante, fecha)
-    jr = jornada_doblada_perm(receptor, fecha)
-    if js and jr and js != jr:
-        return js, jr
-    return None
-
-
-def _dia_calendario_no_apto(fecha: date):
+def dia_calendario_no_apto(fecha: date):
     """
     ¿El CALENDARIO por sí solo descarta `fecha` para una doblada permanente? Devuelve
     'mantenimiento' / 'festivo' / 'temporada', o None.
+
+    Es pública porque la consume también `ReprogramacionDobladaService.motivo_dia_no_apto`,
+    que necesita la CAUSA (no solo el veredicto) para explicarle al supervisor por qué un día
+    con jornada única no se puede usar para pagar una doblada.
 
     Una doblada permanente parte de la jornada PREDETERMINADA del día y la duplica; en
     mantenimiento, festivo o temporada el día no está en jornada predeterminada, así que no hay
@@ -690,7 +683,7 @@ def bloque_calendario_no_apto(desde: date, limite_dias: int = 400):
     el 12 cae domingo.
 
     Una SOLA consulta para toda la ventana. La versión anterior recorría el tramo llamando a
-    `_dia_calendario_no_apto` día a día FUERA de cualquier precarga (el tramo empieza en
+    `dia_calendario_no_apto` día a día FUERA de cualquier precarga (el tramo empieza en
     `fecha_fin + 1`, fuera del rango precargado), y cada día costaba ~3 consultas: el rango que
     termina la víspera de la temporada de fin de año pagaba ~85 consultas extra solo por
     redactar el aviso.
@@ -711,14 +704,14 @@ def bloque_calendario_no_apto(desde: date, limite_dias: int = 400):
     # Misma regla que `DiaEspecial.es_mantenimiento_efectivo`: la temporada manda.
     mantenimiento = mant_raw - temporada
     # Días de descanso FIJADOS de temporada: cuentan como 'temporada' igual que en
-    # `_dia_calendario_no_apto`, y en una consulta para toda la ventana (esta función existe
+    # `dia_calendario_no_apto`, y en una consulta para toda la ventana (esta función existe
     # justamente para no ir día a día).
     temporada |= set(DescansoSemanaManual.objects.filter(
         fecha__range=(desde, hasta_ventana), activo=True, motivo='temporada',
     ).values_list('fecha', flat=True))
 
     def _tipo(f: date):
-        # Mismo orden de prioridad que `_dia_calendario_no_apto`.
+        # Mismo orden de prioridad que `dia_calendario_no_apto`.
         if f in mantenimiento:
             return 'mantenimiento'
         if f in festivos:
@@ -815,11 +808,11 @@ def jornada_doblada_perm(explorador: Empleado, fecha: date, excluir_id=None):
     PROPIA solicitud —que `estado_dia` no puede excluir— para no auto-excluirse.
 
     Los días que el CALENDARIO descarta (mantenimiento / festivo / temporada) se filtran antes de
-    mirar el estado: ver `_dia_calendario_no_apto`. Es el único punto por el que pasan la vista de
+    mirar el estado: ver `dia_calendario_no_apto`. Es el único punto por el que pasan la vista de
     días disponibles, la previsualización, la validación/aplicación y la reprogramación, así que
     el filtro vale para todas ellas.
     """
-    if _dia_calendario_no_apto(fecha):
+    if dia_calendario_no_apto(fecha):
         return None
     st = estado_ct(explorador, fecha)
     j = st.get('jornada')
@@ -842,7 +835,7 @@ def motivo_no_doblada_perm(explorador: Empleado, fecha: date):
     puede (tiene jornada única AM/PM). Usa `estado_dia` para dar el motivo REAL (coincide con
     "Mis Turnos"): ya doblada, festivo, temporada, mantenimiento, fin de semana o descanso.
     """
-    calendario = _dia_calendario_no_apto(fecha)
+    calendario = dia_calendario_no_apto(fecha)
     if calendario:
         # Mismo veredicto que `jornada_doblada_perm`, con el motivo del calendario. Va primero
         # porque en temporada el estado del día puede seguir siendo una jornada normal.
@@ -891,7 +884,7 @@ def motivo_no_cubre_companero(companero: Empleado, fecha: date, jornada_solicita
     """
     if companero is None:
         return {'tipo': 'no_disponible', 'razon': 'compañero no encontrado'}
-    calendario = _dia_calendario_no_apto(fecha)
+    calendario = dia_calendario_no_apto(fecha)
     if calendario:
         # El día no es doblable para NADIE: no es cosa del compañero, así que el motivo se
         # redacta sin culparlo (y nunca como 'misma_jornada', que sugeriría cambiar de persona).
@@ -959,3 +952,62 @@ def calcular_fechas_aplicables_y_excluidas_ct_permanente(
         dias_seleccionados_desde_detalle(detalle),
         incluir_fines_semana=True,
     )
+
+
+# ------------------------------------------------------------------ resumen para el correo
+_NOMBRES_DIA = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+
+
+def dias_legibles_ct_permanente(detalle: CambioPermanenteDetalle) -> str:
+    """
+    Los días del cambio en palabras: 'Martes, Jueves', las fechas sueltas elegidas, o
+    'Todos los días hábiles' cuando no se acotó ninguno (el comportamiento por defecto).
+    """
+    seleccion = dias_seleccionados_desde_detalle(detalle)
+    if seleccion['dias_semana']:
+        return ', '.join(_NOMBRES_DIA[d] for d in sorted(seleccion['dias_semana']) if 0 <= d <= 6)
+    if seleccion['fechas_especificas']:
+        return ', '.join(f.strftime('%d/%m/%Y') for f in sorted(seleccion['fechas_especificas']))
+    return 'Todos los días hábiles'
+
+
+def resumen_correo_ct_permanente(solicitud) -> dict:
+    """
+    Lo que el correo necesita contar de un CT PERMANENTE: qué días entran, cuántos son y
+    **con qué jornada queda cada uno**, que es justo lo que no se veía.
+
+    Las jornadas NO se guardan en la solicitud: un CT permanente es un intercambio y cada
+    día se resuelve contra el estado real (`jornadas_intercambiables_ct`, que lee la misma
+    fuente que "Mis Turnos"). Se toma la del PRIMER día aplicable —dentro de la misma
+    precarga que ya abre el cálculo de fechas, así que no cuesta consultas extra— y el
+    correo la presenta como lo que es: la jornada de hoy, que pasa a ser la del otro.
+
+    Nunca lanza ni devuelve claves ausentes: un correo no puede caerse ni quedar a medias
+    porque este cálculo falle. Si algo no se puede resolver, la clave viene en `None` y la
+    plantilla cae a la explicación genérica.
+    """
+    vacio = {'dias': '', 'total': 0, 'primera': None, 'jornada_solicitante': None,
+             'jornada_receptor': None}
+    detalle = getattr(solicitud, 'cambio_permanente', None)
+    if detalle is None:
+        return vacio
+    try:
+        solicitante = solicitud.explorador_solicitante
+        receptor = solicitud.explorador_receptor
+        aplicables, _ = calcular_fechas_aplicables_y_excluidas_ct_permanente(
+            detalle, solicitante, receptor
+        )
+        resumen = dict(vacio, dias=dias_legibles_ct_permanente(detalle), total=len(aplicables))
+        if not aplicables:
+            return resumen
+        primera = aplicables[0]
+        resumen['primera'] = primera
+        with precargar_ct_permanente([solicitante, receptor], primera, primera):
+            par = jornadas_intercambiables_ct(solicitante, receptor, primera)
+        if par:
+            resumen['jornada_solicitante'], resumen['jornada_receptor'] = par
+        return resumen
+    except Exception:
+        logger.exception('No se pudo resumir el CT permanente de la solicitud %s para el correo',
+                         getattr(solicitud, 'id', '?'))
+        return vacio

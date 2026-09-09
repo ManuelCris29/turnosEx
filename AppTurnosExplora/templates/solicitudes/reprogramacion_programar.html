@@ -13,7 +13,9 @@
       <strong>del mismo día de la semana</strong> que el no cumplido y en los que la persona descanse
       (trabaja el día completo). En sábado y domingo no aplican los 30 min.
     {% else %}
-      Solo se pueden elegir días en que la persona tiene una jornada única (para poder doblar la contraria).
+      Solo se pueden elegir días en que la persona tiene una jornada única (para poder doblar la
+      contraria) y que no estén reservados por mantenimiento, festivo o descanso de temporada.
+      Cada día bloqueado explica su motivo a la derecha.
       Se le agregarán los 30 min en esa fecha real.
     {% endif %}
   </p>
@@ -29,7 +31,8 @@
     <div style="overflow-x:auto;">
       <table class="table table-sm" style="min-width:640px;">
         <thead><tr>
-          <th></th><th>Fecha</th><th>Día</th><th>Jornada real</th><th>Al doblar cubre</th>
+          <th></th><th>Fecha</th><th>Día</th><th>Jornada real</th>
+          <th style="min-width:22rem;">Al doblar cubre / por qué no</th>
         </tr></thead>
         <tbody>
           {% for d in dias %}
@@ -46,7 +49,8 @@
               {% if d.valido %}
                 <span class="badge badge-warning">{% if es_finde %}{{ d.contraria }}{% else %}agrega {{ d.contraria }}{% endif %}</span>
               {% else %}
-                <small class="text-muted" title="{{ d.motivo }}">{{ d.motivo|default:'no puede doblar'|truncatechars:70 }}</small>
+                {# Sin truncar: recortado a 70 caracteres se comía justo la parte que dice POR QUÉ. #}
+                <small class="text-muted">{{ d.motivo|default:'no puede doblar' }}</small>
               {% endif %}
             </td>
           </tr>

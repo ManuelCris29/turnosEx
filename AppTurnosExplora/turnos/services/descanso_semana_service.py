@@ -57,13 +57,19 @@ class DescansoSemanaService:
         comprobación cubre el par.
 
         ⚠️ NO confundir con `DiaEspecial.es_temporada_en(fecha)` (usado por
-        `cambios_permanentes_helper._dia_calendario_no_apto`): ese marca la SEMANA de temporada; este
+        `cambios_permanentes_helper.dia_calendario_no_apto`): ese marca la SEMANA de temporada; este
         marca los DOS DÍAS de descanso que el supervisor fijó dentro de ella. Son conjuntos
-        distintos — comprobado el 07/08/2026: `_dia_calendario_no_apto(2026-09-15)` devuelve
+        distintos — comprobado el 07/08/2026: `dia_calendario_no_apto(2026-09-15)` devuelve
         None sobre un día que sí es descanso fijado de temporada.
 
         Complementa `es_descanso_semana_manual`, que responde por UNA jornada ("¿descanso AM
         este día?"); aquí interesa si la fecha pertenece al par, sea de quien sea.
+
+        ⚠️ Es un predicado POR FECHA, no por persona ni por jornada: responde "este día está
+        reservado al formulario 6", no "esta persona descansa". Quien necesite redactar el
+        motivo para un explorador concreto debe usar `jornadas_descanso_temporada` (de qué
+        jornada es el descanso) junto al estado real del día — ver
+        `ReprogramacionDobladaService.motivo_dia_no_apto`.
         """
         if not fecha:
             return False
@@ -72,6 +78,25 @@ class DescansoSemanaService:
         return DescansoSemanaManual.objects.filter(
             fecha=fecha, activo=True, motivo=MOTIVO_ANUAL,
         ).exists()
+
+    @staticmethod
+    def jornadas_descanso_temporada(fecha: date) -> list:
+        """
+        Jornadas ('AM'/'PM') que tienen descanso de temporada fijado en `fecha`; `[]` si ninguna.
+
+        Es el detalle que `es_dia_descanso_temporada` deliberadamente no da: aquel responde por
+        la FECHA (¿está reservada al formulario 6?) y con eso basta para vetar, pero para
+        EXPLICARLE el veto a un supervisor hace falta decir de quién es el descanso — "descanso
+        de la jornada PM" es lo que le permite entender por qué un explorador AM, que ese día
+        trabaja con normalidad, tampoco puede usarlo.
+        """
+        if not fecha or fecha.weekday() >= 5:
+            return []
+        return sorted(
+            n.upper() for n in DescansoSemanaManual.objects.filter(
+                fecha=fecha, activo=True, motivo=MOTIVO_ANUAL, jornada__isnull=False,
+            ).values_list('jornada__nombre', flat=True)
+        )
 
     @staticmethod
     def descansos_anual(anio: int, motivo: str = MOTIVO_ANUAL) -> dict:
