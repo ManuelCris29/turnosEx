@@ -27,7 +27,22 @@ class NotificacionService:
         """
         Crea notificaciones para el supervisor, el compañero receptor Y el solicitante
         Maneja el caso especial donde supervisor = receptor
+
+        Los TRES correos salen por una sola conexión SMTP (`envio_agrupado`). Antes cada
+        uno abría la suya: tres saludos TLS + AUTH de ~2 s cada uno, y en desarrollo, donde
+        el envío es síncrono, esos ~6 s los esperaba el explorador con el formulario
+        bloqueado. El grupo es reentrante, así que los flujos que crean varias solicitudes
+        de golpe (cobertura con 2 compañeros, doblada permanente con N) pueden envolver el
+        bucle entero y quedarse igualmente con UNA conexión para todo.
         """
+        from solicitudes.services.email_outbox_service import EmailOutboxService
+
+        with EmailOutboxService.envio_agrupado():
+            NotificacionService._notificar_solicitud_creada(solicitud)
+
+    @staticmethod
+    def _notificar_solicitud_creada(solicitud):
+        """Cuerpo de `crear_notificacion_solicitud`. Ver allí por qué está separado."""
         logger.info(f"Iniciando creación de notificaciones para solicitud {solicitud.id}")
         
         try:
@@ -287,13 +302,6 @@ class NotificacionService:
             return False
 
     @staticmethod
-    def obtener_notificaciones_no_leidas(empleado):
-        """
-        Obtiene las notificaciones no leídas de un empleado
-        """
-        return Notificacion.objects.filter(destinatario=empleado, leida=False).order_by('-fecha_creacion')
-
-    @staticmethod
     def obtener_notificaciones(empleado):
         """
         Obtiene todas las notificaciones de un empleado
@@ -308,52 +316,6 @@ class NotificacionService:
             )
             .order_by('-fecha_creacion')
         )
-
-    @staticmethod
-    def crear_notificacion_aprobacion(solicitud, aprobador, comentario_respuesta=None):
-        """
-        Crea notificación de aprobación para el empleado que solicitó
-        """
-        titulo = f"Solicitud Aprobada - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido aprobada por {aprobador.nombre} {aprobador.apellido}."
-        
-        if comentario_respuesta:
-            mensaje += f"\n\nComentario del supervisor: {comentario_respuesta}"
-        
-        # Notificación para el empleado que solicitó
-        Notificacion.objects.create(
-            destinatario=solicitud.explorador_solicitante,
-            tipo='aprobacion',
-            titulo=titulo,
-            mensaje=mensaje,
-            solicitud=solicitud
-        )
-        
-        # Email al empleado que solicitó
-        EmailService._enviar_email_aprobacion(solicitud, aprobador, comentario_respuesta)
-
-    @staticmethod
-    def crear_notificacion_rechazo(solicitud, rechazador, comentario_respuesta=None):
-        """
-        Crea notificación de rechazo para el empleado que solicitó
-        """
-        titulo = f"Solicitud Rechazada - {solicitud.tipo_cambio.nombre}"
-        mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido rechazada por {rechazador.nombre} {rechazador.apellido}."
-        
-        if comentario_respuesta:
-            mensaje += f"\n\nComentario del supervisor: {comentario_respuesta}"
-        
-        # Notificación para el empleado que solicitó
-        Notificacion.objects.create(
-            destinatario=solicitud.explorador_solicitante,
-            tipo='rechazo',
-            titulo=titulo,
-            mensaje=mensaje,
-            solicitud=solicitud
-        )
-        
-        # Email al empleado que solicitó
-        EmailService._enviar_email_rechazo(solicitud, rechazador, comentario_respuesta)
 
     @staticmethod
     def crear_notificacion_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta=None):
@@ -395,6 +357,17 @@ class NotificacionService:
         """
         Crea notificación cuando el receptor aprueba una solicitud
         """
+        from solicitudes.services.email_outbox_service import EmailOutboxService
+
+        # Los dos correos posibles (aviso al supervisor + aprobación al solicitante) por
+        # una sola conexión SMTP; es el segundo sitio del proyecto que manda más de uno.
+        with EmailOutboxService.envio_agrupado():
+            NotificacionService._notificar_aprobacion_receptor(
+                solicitud, receptor, comentario_respuesta)
+
+    @staticmethod
+    def _notificar_aprobacion_receptor(solicitud, receptor, comentario_respuesta=None):
+        """Cuerpo de `crear_notificacion_aprobacion_receptor`."""
         # Notificación para el solicitante
         titulo = f"Solicitud Aprobada por Compañero - {solicitud.tipo_cambio.nombre}"
         mensaje = f"Tu solicitud de {solicitud.tipo_cambio.nombre} para el {NotificacionService._fmt_fecha(solicitud.fecha_cambio_turno)} ha sido aprobada por tu compañero {receptor.nombre} {receptor.apellido}."

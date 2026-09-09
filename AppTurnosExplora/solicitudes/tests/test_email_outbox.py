@@ -179,3 +179,168 @@ class EmailServiceUsaOutboxTest(TestCase):
         fila = EmailOutbox.objects.get()
         self.assertEqual(fila.estado, EmailOutbox.ESTADO_PENDIENTE)
         self.assertEqual(len(mail.outbox), 0)
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='SWALP <no-reply@parqueexplora.org>',
+    EMAIL_SEND_ASYNC=False,
+)
+class OutboxUnaConexionPorLoteTest(TestCase):
+    """
+    El coste de un correo no es el mensaje: es el saludo (handshake TLS + AUTH, ~2 s
+    medidos contra Gmail). Crear una solicitud manda TRES correos, y los flujos
+    multi-compañero muchos más. Lo que se verifica aquí es que todos comparten un
+    único canal, porque de eso —y no del tamaño del mensaje— dependía la latencia.
+    """
+
+    def _encolar(self, n=3):
+        return [
+            EmailOutboxService.encolar(
+                asunto=f'Correo {i}', cuerpo_texto='c', remitente='a@x.org',
+                destinatarios=[f'b{i}@x.org'])
+            for i in range(n)
+        ]
+
+    def test_un_lote_de_tres_abre_una_sola_conexion(self):
+        filas = self._encolar(3)
+
+        with mock.patch.object(EmailOutboxService, '_abrir_conexion',
+                               wraps=EmailOutboxService._abrir_conexion) as abrir:
+            enviados = EmailOutboxService.enviar_lote([f.id for f in filas])
+
+        self.assertEqual(enviados, 3)
+        self.assertEqual(abrir.call_count, 1, 'una conexión para todo el lote')
+        self.assertEqual(len(mail.outbox), 3)
+
+    def test_el_barrido_tambien_va_en_una_sola_conexion(self):
+        self._encolar(4)
+
+        with mock.patch.object(EmailOutboxService, '_abrir_conexion',
+                               wraps=EmailOutboxService._abrir_conexion) as abrir:
+            resultado = EmailOutboxService.procesar_pendientes()
+
+        self.assertEqual(resultado['enviados'], 4)
+        self.assertEqual(abrir.call_count, 1)
+
+    def test_si_el_smtp_no_abre_nadie_quema_un_intento(self):
+        """
+        Antes se reclamaba fila por fila y cada una gastaba un intento contra un
+        servidor caído: cinco caídas seguidas y el correo quedaba FALLIDO para
+        siempre sin que su destinatario tuviera nada que ver.
+        """
+        filas = self._encolar(3)
+
+        with mock.patch.object(EmailOutboxService, '_abrir_conexion', return_value=None):
+            self.assertEqual(EmailOutboxService.enviar_lote([f.id for f in filas]), 0)
+
+        for fila in filas:
+            fila.refresh_from_db()
+            self.assertEqual(fila.estado, EmailOutbox.ESTADO_PENDIENTE)
+            self.assertEqual(fila.intentos, 0, 'una caída del SMTP no gasta intentos')
+
+    def test_un_fallo_a_media_tanda_renueva_el_canal_y_sigue(self):
+        """Un canal muerto haría fallar todo el resto del lote; se renueva y se continúa."""
+        primera, segunda, tercera = self._encolar(3)
+        fallos = {'restantes': 1}
+
+        def send_con_un_fallo(self_mensaje, *args, **kwargs):
+            if fallos['restantes']:
+                fallos['restantes'] -= 1
+                raise OSError('conexión cortada por el servidor')
+            mail.outbox.append(self_mensaje)
+            return 1
+
+        with mock.patch('django.core.mail.EmailMultiAlternatives.send', send_con_un_fallo):
+            with mock.patch.object(EmailOutboxService, '_abrir_conexion',
+                                   wraps=EmailOutboxService._abrir_conexion) as abrir:
+                enviados = EmailOutboxService.enviar_lote(
+                    [primera.id, segunda.id, tercera.id])
+
+        self.assertEqual(enviados, 2, 'las dos siguientes sí salen')
+        self.assertEqual(abrir.call_count, 2, 'se renueva el canal tras el fallo')
+
+        primera.refresh_from_db()
+        self.assertEqual(primera.estado, EmailOutbox.ESTADO_PENDIENTE)
+        self.assertEqual(primera.intentos, 1)
+
+    def test_una_fila_omitida_no_provoca_reconexion(self):
+        """Que otro worker tenga la fila no dice nada del canal: reabrir sería gratuito."""
+        primera, segunda = self._encolar(2)
+        EmailOutboxService._reclamar(primera.id)  # se la queda otro worker
+
+        with mock.patch.object(EmailOutboxService, '_abrir_conexion',
+                               wraps=EmailOutboxService._abrir_conexion) as abrir:
+            enviados = EmailOutboxService.enviar_lote([primera.id, segunda.id])
+
+        self.assertEqual(enviados, 1)
+        self.assertEqual(abrir.call_count, 1)
+
+
+@override_settings(
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    DEFAULT_FROM_EMAIL='SWALP <no-reply@parqueexplora.org>',
+    EMAIL_SEND_ASYNC=False,
+)
+class OutboxEnvioAgrupadoTest(TestCase):
+    """`envio_agrupado`: varios correos encolados por separado, una sola entrega."""
+
+    def _enviar(self, destino):
+        return EmailService._enviar_email_desde_usuario(
+            subject='Prueba', message='cuerpo', from_email='persona@x.org',
+            recipient_list=[destino])
+
+    def test_los_correos_del_bloque_salen_en_un_unico_lote(self):
+        with mock.patch.object(EmailOutboxService, 'enviar_lote',
+                               wraps=EmailOutboxService.enviar_lote) as lote:
+            with EmailOutboxService.envio_agrupado():
+                self._enviar('uno@x.org')
+                self._enviar('dos@x.org')
+                self._enviar('tres@x.org')
+                # Dentro del bloque todavía no ha salido nada.
+                self.assertEqual(len(mail.outbox), 0)
+
+        self.assertEqual(len(mail.outbox), 3)
+        self.assertEqual(lote.call_count, 1)
+        self.assertEqual(len(lote.call_args[0][0]), 3, 'los tres ids en la misma llamada')
+
+    def test_sin_bloque_cada_correo_se_despacha_por_su_cuenta(self):
+        """El comportamiento de siempre: agrupar es opt-in, no un cambio de contrato."""
+        self._enviar('uno@x.org')
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_anidar_grupos_produce_un_solo_lote(self):
+        """
+        Reentrancia: el orquestador abre un grupo alrededor del bucle y cada
+        `crear_notificacion_solicitud` abre el suyo. Si el de dentro despachara,
+        volveríamos a una conexión por solicitud.
+        """
+        with mock.patch.object(EmailOutboxService, 'enviar_lote',
+                               wraps=EmailOutboxService.enviar_lote) as lote:
+            with EmailOutboxService.envio_agrupado():
+                with EmailOutboxService.envio_agrupado():
+                    self._enviar('uno@x.org')
+                self.assertEqual(len(mail.outbox), 0, 'el grupo interior no despacha')
+                self._enviar('dos@x.org')
+
+        self.assertEqual(lote.call_count, 1)
+        self.assertEqual(len(mail.outbox), 2)
+
+    def test_una_excepcion_no_retiene_los_correos_ya_encolados(self):
+        """El despacho va en un `finally`: lo encolado antes del fallo debe salir."""
+        with self.assertRaises(RuntimeError):
+            with EmailOutboxService.envio_agrupado():
+                self._enviar('uno@x.org')
+                raise RuntimeError('algo se rompió después de encolar')
+
+        self.assertEqual(len(mail.outbox), 1)
+
+    def test_el_grupo_queda_cerrado_tras_una_excepcion(self):
+        """Un grupo que no se cierra contaminaría al siguiente envío del mismo hilo."""
+        with self.assertRaises(RuntimeError):
+            with EmailOutboxService.envio_agrupado():
+                raise RuntimeError('x')
+
+        # Si el grupo hubiera quedado abierto, esto no enviaría nada.
+        self._enviar('dos@x.org')
+        self.assertEqual(len(mail.outbox), 1)

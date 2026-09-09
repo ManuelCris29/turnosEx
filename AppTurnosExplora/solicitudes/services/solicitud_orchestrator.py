@@ -29,6 +29,10 @@ logger = logging.getLogger(__name__)
 # Mensaje generico de los 500: el detalle real va al log, nunca a la respuesta.
 _MSG_ERROR_INTERNO = 'Error al procesar la solicitud'
 
+# Ventana del candado anti doble-submit. Ver `_verificar_dedupe`: tiene que durar MÁS que el
+# request más lento que protege, o caduca a mitad de la operación y deja de servir.
+_DEDUPE_TTL_SEGUNDOS = 30
+
 
 class _CreacionAbortada(Exception):
     """
@@ -60,6 +64,14 @@ class SolicitudOrchestrator:
         del mismo empleado y tipo (p. ej. dos CAMBIO DESCANSO con compañeros distintos) no
         chocan entre sí, solo el reenvío idéntico. TTL corto: pasado ese margen, un reenvío
         ya es una acción deliberada del usuario, no un doble-clic.
+
+        EL TTL DEBE SOBREVIVIR AL REQUEST QUE PROTEGE. Estuvo en 10 s, y los flujos que crean
+        VARIAS solicitudes (cobertura con 2 compañeros, doblada permanente con N) tardan más
+        que eso: con 3 correos síncronos por solicitud se midieron ~13 s con dos compañeros y
+        ~19 s con tres. El candado caducaba antes de que terminara el propio request, así que
+        dejaba de proteger justo en los casos donde más falta hace — un segundo POST idéntico
+        a los 11 s pasaba limpio y creaba el acuerdo por duplicado. 30 s cubre el peor caso
+        medido y sigue siendo "inmediato" para el usuario.
         """
         import hashlib
 
@@ -71,7 +83,7 @@ class SolicitudOrchestrator:
         ).hexdigest()
         clave = f"solreq_dedupe_{solicitante.id}_{tipo_nombre}_{huella}"
 
-        if not CacheService.acquire_lock(clave, ttl=10):
+        if not CacheService.acquire_lock(clave, ttl=_DEDUPE_TTL_SEGUNDOS):
             return ResultadoSolicitud.error(
                 'Ya se está procesando esta solicitud. Espera unos segundos antes de reintentar.',
                 status=409, code='duplicate_request')
@@ -254,21 +266,30 @@ class SolicitudOrchestrator:
         class _FalloParcial(Exception):
             pass
 
-        try:
-            # Validar las DOS antes de crear ninguna. Dentro del try: un fallo INESPERADO de la
-            # validación (ya no se disfraza de rechazo de negocio) debe salir como 500 logueado.
-            for datos, etiqueta in ((datos_am, 'AM'), (datos_pm, 'PM')):
-                es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)
-                if not es_valida:
-                    return cls._respuesta_error_validacion(f'Jornada {etiqueta}: {mensaje}')
+        # Un solo lote de correo para las DOS solicitudes: seis correos por una única
+        # conexión SMTP en vez de seis saludos. El grupo se abre POR FUERA del atomic a
+        # propósito — al cerrarse es cuando se intenta la entrega, y hacerlo dentro
+        # devolvería el SMTP al interior de la transacción, que es justo de donde se sacó.
+        # Si la transacción revierte, el rollback se lleva las filas del outbox y el lote
+        # se queda vacío solo.
+        from .email_outbox_service import EmailOutboxService
 
-            with transaction.atomic():
-                creadas = []
+        try:
+            with EmailOutboxService.envio_agrupado():
+                # Validar las DOS antes de crear ninguna. Dentro del try: un fallo INESPERADO de la
+                # validación (ya no se disfraza de rechazo de negocio) debe salir como 500 logueado.
                 for datos, etiqueta in ((datos_am, 'AM'), (datos_pm, 'PM')):
-                    solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos)
-                    if solicitud is None:
-                        raise _FalloParcial(f'Jornada {etiqueta}: {mensaje}')
-                    creadas.append(solicitud)
+                    es_valida, mensaje = SolicitudFactory.validar_solicitud(tipo_solicitud, datos)
+                    if not es_valida:
+                        return cls._respuesta_error_validacion(f'Jornada {etiqueta}: {mensaje}')
+
+                with transaction.atomic():
+                    creadas = []
+                    for datos, etiqueta in ((datos_am, 'AM'), (datos_pm, 'PM')):
+                        solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos)
+                        if solicitud is None:
+                            raise _FalloParcial(f'Jornada {etiqueta}: {mensaje}')
+                        creadas.append(solicitud)
         except _FalloParcial as e:
             logger.warning('Cobertura con 2 compañeros revertida (solicitante=%s): %s',
                            solicitante.id, e)
@@ -490,19 +511,30 @@ class SolicitudOrchestrator:
         # Crear todas, TODO O NADA. El acuerdo con varios compañeros solo tiene sentido completo:
         # si la segunda falla, la primera no puede quedarse viva (el usuario vería un error y aun
         # así tendría media doblada pendiente). Antes el bucle no estaba en transacción.
-        # Igual que en `_procesar_cobertura_dos`: el rollback deshace las filas, pero un email ya
-        # enviado por la primera no se puede "desenviar".
+        #
+        # El `envio_agrupado` de fuera hace dos cosas, y la segunda no es solo rendimiento:
+        #   - Los 3 correos de CADA solicitud —y los de todas las del bucle— salen por UNA
+        #     conexión SMTP. Con tres compañeros son 9 correos: nueve saludos TLS+AUTH
+        #     (~2 s cada uno) pasan a ser uno.
+        #   - Nada se envía hasta que el bloque termina, YA COMMITADO. Eso cierra el agujero
+        #     que describía este comentario: si la segunda solicitud falla, el rollback se
+        #     lleva también las filas del outbox y el correo de la primera no llega a salir
+        #     — antes ya se había "desenviado" imposible.
+        # Va por fuera del atomic para que la entrega no ocurra con la transacción abierta.
         from django.db import transaction as _tx
+
+        from .email_outbox_service import EmailOutboxService
 
         creadas = 0
         try:
-            with _tx.atomic():
-                for receptor, datos in pendientes:
-                    solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos)
-                    if solicitud is None:
-                        raise _CreacionAbortada(
-                            f"Error creando la solicitud para {receptor.nombre}: {mensaje}")
-                    creadas += 1
+            with EmailOutboxService.envio_agrupado():
+                with _tx.atomic():
+                    for receptor, datos in pendientes:
+                        solicitud, mensaje = SolicitudFactory.crear_solicitud(tipo_solicitud, datos)
+                        if solicitud is None:
+                            raise _CreacionAbortada(
+                                f"Error creando la solicitud para {receptor.nombre}: {mensaje}")
+                        creadas += 1
         except _CreacionAbortada as exc:
             return ResultadoSolicitud.error(str(exc), status=400, code='creation_failed')
 

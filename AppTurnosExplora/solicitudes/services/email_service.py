@@ -4,13 +4,16 @@ Extraido de NotificacionService para separar la responsabilidad de ENVIAR correo
 (plantillas, tokens, backend SMTP) de la de crear registros de Notificacion.
 Dependencia en un solo sentido: NotificacionService -> EmailService.
 
-Nota: _configurar_email_backend y _verificar_token se conservan tal cual (sin callers
-actuales) para no cambiar comportamiento; candidatos a limpieza posterior.
+Este modulo NO conoce el transporte. Compone el mensaje y lo entrega a
+EmailOutboxService; quien habla SMTP es `email_outbox_service.py`, y es el UNICO
+fichero de la aplicacion que importa `django.core.mail`. Esa propiedad es lo que hace
+que cambiar de proveedor (Gmail -> SES) sea configuracion y no codigo, asi que
+conviene no romperla: si alguna vez hace falta instanciar un backend a mano, va alli.
+Ver ADR 016 (docs/03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 """
 import logging
 
 from django.conf import settings
-from django.core.mail.backends.smtp import EmailBackend
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 
@@ -52,25 +55,6 @@ class EmailService:
             return solicitud
     
     @staticmethod
-    def _configurar_email_backend(email_usuario):
-        """Configura el backend de email para usar el correo del usuario"""
-        try:
-            # Intentar usar el correo del usuario como EMAIL_HOST_USER
-            backend = EmailBackend(
-                host=settings.EMAIL_HOST,
-                port=settings.EMAIL_PORT,
-                username=email_usuario,  # Usar el correo del usuario
-                password=settings.EMAIL_HOST_PASSWORD,  # Usar la contraseña configurada
-                use_tls=settings.EMAIL_USE_TLS,
-                fail_silently=False
-            )
-            return backend
-        except Exception:
-            logger.exception("Error configurando email backend para %s", email_usuario)
-            # Si falla, usar la configuración por defecto
-            return None
-    
-    @staticmethod
     def _enviar_email_desde_usuario(subject, message, from_email, recipient_list, html_message=None,
                                     clave_idempotencia=None):
         """Envía un correo desde el remitente fijo (DEFAULT_FROM_EMAIL), con la
@@ -84,8 +68,12 @@ class EmailService:
         en la cola y `procesar_email_outbox` la reintenta, en vez de perderse en silencio.
 
         En producción (EMAIL_SEND_ASYNC) el intento va tras el commit y en un hilo, para no
-        bloquear la respuesta ~20 s con el handshake SMTP. En desarrollo/tests es síncrono,
-        de modo que `mail.outbox` se puebla dentro del propio test.
+        bloquear la respuesta con los handshakes SMTP (~2 s cada uno). En desarrollo/tests
+        es síncrono, de modo que `mail.outbox` se puebla dentro del propio test.
+
+        Quien envía VARIOS correos seguidos debería envolverlos en
+        `EmailOutboxService.envio_agrupado()`: así comparten una sola conexión SMTP en vez
+        de saludar al servidor una vez por correo.
 
         Devuelve True cuando el correo quedó ENCOLADO (es decir: su entrega está
         garantizada por reintentos), no cuando el SMTP ya lo aceptó.
@@ -128,13 +116,12 @@ class EmailService:
                 clave_idempotencia=clave_idempotencia,
             )
 
-            if getattr(settings, 'EMAIL_SEND_ASYNC', False):
-                # Fuera del request: tras el commit, en un hilo (no bloquea la respuesta).
-                # Las notificaciones in-app siguen siendo síncronas (instantáneas).
-                EmailOutboxService.enviar_tras_commit(fila.id)
-            else:
-                # Dev/tests: entrega inmediata para que `mail.outbox` quede poblado aquí.
-                EmailOutboxService.intentar_enviar(fila.id)
+            # El CUÁNDO y el CON QUÉ AGRUPACIÓN los decide el outbox (`despachar`): tras el
+            # commit y en un hilo con EMAIL_SEND_ASYNC, aquí mismo en dev/tests, y sin
+            # enviar todavía si el llamador abrió un `envio_agrupado` —así los tres correos
+            # de una notificación salen por una sola conexión en vez de tres—.
+            # Las notificaciones in-app siguen siendo síncronas (instantáneas).
+            EmailOutboxService.despachar(fila.id)
             return True
 
         except Exception as e:
@@ -329,7 +316,8 @@ class EmailService:
             try:
                 html_message = render_to_string('solicitudes/emails/confirmacion_solicitud.html', {
                     'solicitud': solicitud_completa,
-                    'empleado': solicitud_completa.explorador_solicitante
+                    'empleado': solicitud_completa.explorador_solicitante,
+                    'site_url': settings.SITE_URL
                 })
             except Exception as e:
                 logger.exception(f"Error renderizando template de email confirmación: {e}")
@@ -352,54 +340,6 @@ class EmailService:
             return False
     
     @staticmethod
-    def _enviar_email_aprobacion(solicitud, aprobador, comentario_respuesta=None):
-        """
-        Envía email de aprobación al empleado que solicitó
-        """
-        subject = f"Solicitud Aprobada - {solicitud.tipo_cambio.nombre}"
-        
-        context = {
-            'solicitud': solicitud,
-            'aprobador': aprobador,
-            'comentario_respuesta': comentario_respuesta,
-        }
-        
-        html_message = render_to_string('solicitudes/emails/solicitud_aprobada.html', context)
-        plain_message = strip_tags(html_message)
-
-        EmailService._enviar_email_desde_usuario(
-            subject=subject,
-            message=plain_message,
-            from_email=solicitud.explorador_solicitante.email,
-            recipient_list=[solicitud.explorador_solicitante.email],
-            html_message=html_message,
-        )
-
-    @staticmethod
-    def _enviar_email_rechazo(solicitud, rechazador, comentario_respuesta=None):
-        """
-        Envía email de rechazo al empleado que solicitó
-        """
-        subject = f"Solicitud Rechazada - {solicitud.tipo_cambio.nombre}"
-        
-        context = {
-            'solicitud': solicitud,
-            'rechazador': rechazador,
-            'comentario_respuesta': comentario_respuesta,
-        }
-        
-        html_message = render_to_string('solicitudes/emails/solicitud_rechazada.html', context)
-        plain_message = strip_tags(html_message)
-
-        EmailService._enviar_email_desde_usuario(
-            subject=subject,
-            message=plain_message,
-            from_email=solicitud.explorador_solicitante.email,
-            recipient_list=[solicitud.explorador_solicitante.email],
-            html_message=html_message,
-        )
-
-    @staticmethod
     def _enviar_email_aprobacion_supervisor(solicitud, supervisor, comentario_respuesta=None):
         """Envía email cuando el supervisor aprueba una solicitud"""
         subject = f"Solicitud Aprobada por Supervisor - {solicitud.tipo_cambio.nombre}"
@@ -412,7 +352,8 @@ class EmailService:
             'solicitud': solicitud,
             'supervisor': supervisor,
             'comentario_respuesta': comentario_respuesta,
-            'enlaces': enlaces
+            'enlaces': enlaces,
+            'site_url': settings.SITE_URL
         })
         
         # Versión texto plano
@@ -445,7 +386,8 @@ class EmailService:
             'solicitud': solicitud,
             'receptor': receptor,
             'comentario_respuesta': comentario_respuesta,
-            'enlaces': enlaces
+            'enlaces': enlaces,
+            'site_url': settings.SITE_URL
         })
         
         # Versión texto plano
@@ -476,7 +418,8 @@ class EmailService:
             'solicitud': solicitud,
             'supervisor': supervisor,
             'comentario_respuesta': comentario_respuesta,
-            'enlaces': enlaces
+            'enlaces': enlaces,
+            'site_url': settings.SITE_URL
         })
         
         # Versión texto plano
@@ -507,7 +450,8 @@ class EmailService:
             'solicitud': solicitud,
             'receptor': receptor,
             'comentario_respuesta': comentario_respuesta,
-            'enlaces': enlaces
+            'enlaces': enlaces,
+            'site_url': settings.SITE_URL
         })
         
         # Versión texto plano
@@ -525,11 +469,6 @@ class EmailService:
         except Exception:
             logger.exception("Error enviando email de rechazo del receptor") 
 
-    @staticmethod
-    def _verificar_token(solicitud, token, tipo):
-        """Verifica el token del enlace de aprobación (fuente única)."""
-        return tokens_aprobacion.verificar(solicitud, token, tipo)
-    
     @staticmethod
     def _enviar_email_cancelacion(solicitud):
         """Envía email de cancelación al receptor"""
