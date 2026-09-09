@@ -72,3 +72,7 @@ _backups/
 
 # Logs de aplicacion (rotativos). Nunca se versionan: contienen datos personales.
 AppTurnosExplora/logs/
+
+# Estaticos recolectados por collectstatic (copia generada, la sirve WhiteNoise/Nginx).
+# Nunca se versiona: se regenera en cada despliegue y son cientos de archivos.
+AppTurnosExplora/staticfiles/
