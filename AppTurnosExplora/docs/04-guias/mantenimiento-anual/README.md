@@ -52,8 +52,8 @@ PY -m pip install --upgrade "Django>=5.2,<5.3"
 ```
 Actualiza el pin en **los dos** archivos de requerimientos (ambos UTF-8; ya **no** hay
 copia en la raíz del repo):
-- [AppTurnosExplora/requirements.txt](../../requirements.txt) — producción
-- [AppTurnosExplora/requirements-dev.txt](../../requirements-dev.txt) — desarrollo/tests, incluye `-r requirements.txt`
+- [AppTurnosExplora/requirements.txt](../../../requirements.txt) — producción
+- [AppTurnosExplora/requirements-dev.txt](../../../requirements-dev.txt) — desarrollo/tests, incluye `-r requirements.txt`
 
 > Nota histórica: estos ficheros estuvieron en **UTF-16 LE con BOM** y había una tercera copia
 > en la raíz. Hoy son UTF-8 y la copia de la raíz no existe; si te encuentras instrucciones que

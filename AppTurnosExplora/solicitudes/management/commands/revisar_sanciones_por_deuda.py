@@ -27,7 +27,7 @@ Uso
     python manage.py revisar_sanciones_por_deuda             # ejecución normal (cron)
     python manage.py revisar_sanciones_por_deuda --force     # repetir aunque ya corriera hoy
 
-Programación en producción: ver `docs/05-referencia/deployment/MANUAL_SANCIONES_DEUDA.md`.
+Programación en producción: ver `docs/05-referencia/deployment/03-operacion/MANUAL_SANCIONES_DEUDA.md`.
 """
 import logging
 

@@ -4,10 +4,10 @@
 **Ámbito:** qué tiene que valer cada variable de entorno al desplegar, **qué se rompe si no**, y cómo comprobarlo **antes** de que lo descubran los usuarios.
 
 > Este documento explica el **porqué**. Los pasos de infraestructura están en los checklists:
-> [EC2 + RDS](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) — **el camino elegido** (2026-09-04).
+> [EC2 + RDS](../99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) — **el camino elegido** (2026-09-04).
 >
 > ⚠️ Este documento se escribió cuando Fargate seguía sobre la mesa, así que menciona el **ALB** en
-> varias trampas. **Fargate quedó descartada** ([arquitectura §8](./arquitectura-aws-rds-recomendada.md));
+> varias trampas. **Fargate quedó descartada** ([arquitectura §8](../99-aws/arquitectura-aws-rds-recomendada.md));
 > en el plan EC2 el intermediario es **Nginx en la propia instancia**, no un ALB. Las trampas siguen
 > aplicando —Nginx también es un proxy que reescribe cabeceras— pero donde leas "ALB", entiende
 > "Nginx".
@@ -40,7 +40,7 @@ no en el código.** Empieza siempre por listar las variables del contenedor.
 | `DEBUG` | `False` | Con `True` expones trazas completas con configuración y consultas SQL a cualquiera que provoque un error. |
 | `ALLOWED_HOSTS` | `swalp.parqueexplora.org` | **400 Bad Request** en todas las peticiones. Ver la trampa nº 3. |
 | `DB_NAME` `DB_USER` `DB_PASSWORD` `DB_HOST` `DB_PORT` | Datos de RDS | No arranca. `DB_HOST` es el *endpoint* de RDS, no una IP. |
-| `EMAIL_HOST_USER` `EMAIL_HOST_PASSWORD` `DEFAULT_FROM_EMAIL` | Según SES | No arranca (se leen sin valor por defecto). **Ya no son solo para los avisos de solicitudes:** de ellas depende que la gente pueda **recuperar su contraseña**, y ahí el fallo es silencioso. Ver [MANUAL_RECUPERAR_CONTRASENA.md](./MANUAL_RECUPERAR_CONTRASENA.md). |
+| `EMAIL_HOST_USER` `EMAIL_HOST_PASSWORD` `DEFAULT_FROM_EMAIL` | Según SES | No arranca (se leen sin valor por defecto). **Ya no son solo para los avisos de solicitudes:** de ellas depende que la gente pueda **recuperar su contraseña**, y ahí el fallo es silencioso. Ver [MANUAL_RECUPERAR_CONTRASENA.md](../02-correo/MANUAL_RECUPERAR_CONTRASENA.md). |
 
 ### 2.2 Críticas para que funcione BIEN (arranca sin ellas, pero con fallos)
 
@@ -262,7 +262,7 @@ de esta lista cuyo fallo *no da ningún error*: la pantalla responde "revisa tu
 correo" aunque SES esté en sandbox y no salga nada. Pide un enlace con una cuenta
 real, comprueba que llega, que apunta a `https://` con el dominio bueno, y que
 **no sirve dos veces**. Casillas completas en
-[MANUAL_RECUPERAR_CONTRASENA.md](./MANUAL_RECUPERAR_CONTRASENA.md) §6.
+[MANUAL_RECUPERAR_CONTRASENA.md](../02-correo/MANUAL_RECUPERAR_CONTRASENA.md) §6.
 
 ---
 

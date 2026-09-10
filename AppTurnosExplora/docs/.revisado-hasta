@@ -1,6 +1,6 @@
 # Sello de revision de documentacion. Lo lee .claude/hooks/docs-desactualizados.sh
 # y lo escribe .claude/hooks/sellar-docs.sh. No editar a mano.
 #
-# Sellado: 2026-09-09 09:06 en la rama main
-commit=4b3e31e20812211c600ff97f78eeb5e77d8a8d2d
-arbol=fdc91d47254ed8aacb211cf804c52ec328618e24
+# Sellado: 2026-09-10 11:08 en la rama main
+commit=12c770172025ba41f256af2029ec47027ab36dbd
+arbol=0ac2a495e748d600cf7c9c507e3c507c1530e3fb

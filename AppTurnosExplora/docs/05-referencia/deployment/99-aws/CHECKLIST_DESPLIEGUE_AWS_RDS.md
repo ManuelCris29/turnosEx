@@ -51,7 +51,7 @@ pytest -n auto --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de 
       averiguar que no era un bug sino tres fechas que habían caducado. Esta comprobación lo
       habría dicho semanas antes, en diez minutos y sin nada a medias por en medio.
 - [ ] Contexto completo, cómo leer el resultado y la decisión pendiente de si esto debe ir al CI:
-      **[MANUAL_TESTS_QUE_CADUCAN.md](./MANUAL_TESTS_QUE_CADUCAN.md)**.
+      **[MANUAL_TESTS_QUE_CADUCAN.md](../03-operacion/MANUAL_TESTS_QUE_CADUCAN.md)**.
 
 ### 0.5 Ensayo en local de los estáticos con `DEBUG=False`
 
@@ -250,7 +250,7 @@ DEFAULT_FROM_EMAIL=SWALP <no-reply@parqueexplora.org>
 
 > Generar `SECRET_KEY`: `python -c "from django.core.management.utils import get_random_secret_key as g; print(g())"`
 
-> 📖 **Qué hace cada variable y qué se rompe si falta:** [CONFIGURACION_PRODUCCION.md](./CONFIGURACION_PRODUCCION.md).
+> 📖 **Qué hace cada variable y qué se rompe si falta:** [CONFIGURACION_PRODUCCION.md](../03-operacion/CONFIGURACION_PRODUCCION.md).
 > Antes de dar por terminado el despliegue, ejecuta `python manage.py check --deploy`:
 > debe decir *"no issues"*. Si sale `core.E001`, falta `CACHE_URL` y los usuarios
 > verán turnos desactualizados.
@@ -410,7 +410,7 @@ sudo systemctl status certbot.timer     # renovación automática
 > corporativo de Workspace** — tocarlo tiene riesgo real, arrastra el límite de 10 consultas DNS
 > y convierte un trámite de días en uno de semanas. Un CNAME nuevo, en cambio, no puede romper
 > nada de lo que ya funciona. Razonado en el
-> [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
+> [ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 >
 > **Ojo con la comprobación:** que DKIM diga `PASS` no basta. Si el dominio de la firma no es el
 > del `From`, **la alineación no existe** y DMARC falla igual. Es el paso que casi todo el mundo
@@ -422,14 +422,14 @@ sudo systemctl status certbot.timer     # renovación automática
 > Con Gmail eso rebotaba y punto; con SES puede apagar el flujo de aprobaciones entero. SES publica
 > `Reputation.BounceRate` y `Reputation.ComplaintRate` en CloudWatch sin configurar nada: cuelga
 > dos `AWS::CloudWatch::Alarm` del `AlertTopic` que ya existe en
-> [`swalp-infra.yaml`](../../../infra/cloudformation/swalp-infra.yaml), con umbrales **por debajo**
+> [`swalp-infra.yaml`](../../../../infra/cloudformation/swalp-infra.yaml), con umbrales **por debajo**
 > de los de AWS (0,02 y 0,0005) para que suenen mientras aún hay margen.
 
-**Fase 2 (posterior, sin fecha) — SES por API + IAM role:** elimina el secreto de la ecuación; requiere `pip install django-ses boto3`, `EMAIL_BACKEND=django_ses.SESBackend` y un **IAM role** en la EC2. **No se hace en la misma ventana que el cambio de transporte**: dos variables a la vez en una primera salida a producción convierten cualquier fallo en un problema de diagnóstico. Y pierde urgencia porque **las credenciales SMTP de SES tampoco caducan**. Los ~20 s de latencia ya los resuelven el envío asíncrono y el lote sobre una conexión ([ADR 015](../../03-arquitectura/adr/015-entrega-de-correo-en-lote.md)); con backend HTTP, de hecho, ese lote deja de comprar nada. Ver [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
+**Fase 2 (posterior, sin fecha) — SES por API + IAM role:** elimina el secreto de la ecuación; requiere `pip install django-ses boto3`, `EMAIL_BACKEND=django_ses.SESBackend` y un **IAM role** en la EC2. **No se hace en la misma ventana que el cambio de transporte**: dos variables a la vez en una primera salida a producción convierten cualquier fallo en un problema de diagnóstico. Y pierde urgencia porque **las credenciales SMTP de SES tampoco caducan**. Los ~20 s de latencia ya los resuelven el envío asíncrono y el lote sobre una conexión ([ADR 015](../../../03-arquitectura/adr/015-entrega-de-correo-en-lote.md)); con backend HTTP, de hecho, ese lote deja de comprar nada. Ver [ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 
 **Outbox de correos — ⚠️ paso obligatorio:**
 - [ ] Programar el cron `procesar_email_outbox` (cada 5 min). **Sin él, un correo que falle queda guardado pero no se reintenta nunca.**
-- [ ] Ver el paso a paso completo en **[MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md)**.
+- [ ] Ver el paso a paso completo en **[MANUAL_OUTBOX_CORREOS.md](../02-correo/MANUAL_OUTBOX_CORREOS.md)**.
 
 **Sanciones por deuda de horas — ⚠️ paso obligatorio:**
 - [ ] Programar el cron `revisar_sanciones_por_deuda` (una vez al día, de madrugada).
@@ -451,7 +451,7 @@ sudo systemctl status certbot.timer     # renovación automática
 - [ ] Probado el aviso: fuerza la condición (renombra temporalmente la fila de hoy en
       `/admin/solicitudes/revisionsancionesdeuda/`, o espera 3 días) y comprueba que **llega el
       correo**. Un aviso sin probar no es un aviso.
-- [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](./MANUAL_SANCIONES_DEUDA.md)**.
+- [ ] Paso a paso en **[MANUAL_SANCIONES_DEUDA.md](../03-operacion/MANUAL_SANCIONES_DEUDA.md)**.
 
 **Comprobar que las dos tareas de arriba existen de verdad — ⚠️ paso obligatorio:**
 ```bash
@@ -498,7 +498,7 @@ python manage.py verificar_crons        # termina con codigo 1 si algo va mal
       ```
       Alternativa mejor si ya usas CloudWatch: instalar el agent sobre el journal de la unidad y
       crear el metric filter + alarma descritos en el
-      [manual técnico § 13.6](../../manual_tecnico.md).
+      [manual técnico § 13.6](../../../manual_tecnico.md).
 - [ ] Probado el aviso: fuerza una línea con ese texto en el journal y comprueba que llega el
       correo. **Un aviso sin probar no es un aviso.**
 - [ ] **Revisión de sanciones: confirmar que corrió.** Al día siguiente del despliegue,

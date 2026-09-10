@@ -232,7 +232,7 @@ Tres detalles que evitan sorpresas:
    `migrate`: no toca el esquema de tu base real (`docker-compose.hostdb.yml`, clave `command`).
 3. El puerto de MySQL en `local` se publica en **3307** para no chocar con tu MySQL local en 3306.
 
-Guía completa: [MANUAL_DOCKER_LOCAL.md](./05-referencia/deployment/MANUAL_DOCKER_LOCAL.md).
+Guía completa: [MANUAL_DOCKER_LOCAL.md](./05-referencia/deployment/03-operacion/MANUAL_DOCKER_LOCAL.md).
 
 ---
 
@@ -1059,7 +1059,7 @@ fuente de verdad del calendario está en [05-referencia/turnos/](./05-referencia
 9. **Efectos secundarios.** Ninguno: es solo lectura.
 10. **Servicios.** `TurnoService.dia_comprometido_por_solicitud` y `CambioDescansoAplicacionService._jornadas_actuales` (`:245-248`).
 11. **Tests.** `solicitudes/tests/test_cambio_doblada_candidatos.py`, `solicitudes/tests/test_cobertura_dos_companeros.py`.
-12. **Gotchas.** El filtro (e) existe porque el desplegable y la validación de envío miraban fechas distintas: el selector solo el día de cesión y el backend además el día de pago, así que ofrecía compañeros que el envío tumbaba (`:258-263`, commit `9c429e3`). Es el patrón 37 de `PROTECTION_PATTERNS.md`. Si tocas este endpoint, toca `_validar_semana_cobertura` en el mismo commit.
+12. **Gotchas.** El filtro (e) existe porque el desplegable y la validación de envío miraban fechas distintas: el selector solo el día de cesión y el backend además el día de pago, así que ofrecía compañeros que el envío tumbaba (`:258-263`, commit `9c429e3`). Es el patrón 37 de `PROTECTION_PATTERNS.md`. Si tocas este endpoint, toca `_validar_semana_cobertura` en el mismo commit. **Este endpoint no sabe nada del modo «2 compañeros»**: evalúa una jornada a la vez, así que la regla del día de pago libre no le corresponde y vive en `_pago_dos_debe_estar_libre` (§ 8.3). El campo `mi_jornada_pago` de la respuesta es lo que el formulario usa para adelantarla.
 
 #### `GET /solicitudes/dfds-companeros/`
 
@@ -1116,7 +1116,7 @@ fuente de verdad del calendario está en [05-referencia/turnos/](./05-referencia
 
 | Servicio | Qué hace | Quién lo llama |
 |---|---|---|
-| `solicitud_orchestrator.py` | Encadena los chequeos transversales —dedupe, cierre, sanciones, restricción— y despacha al tipo. Contiene además los dos flujos multi-solicitud: `_procesar_cobertura_dos` (`:201`) y `_procesar_doblada_permanente_multi` (`:387`). Los dos envuelven su bucle en `EmailOutboxService.envio_agrupado()` **por fuera** del `atomic()` (`:278,530`): los 3N correos comparten conexión y, sobre todo, **nada se entrega hasta que el bloque termina, ya commitado** | `CrearSolicitudUseCase` |
+| `solicitud_orchestrator.py` | Encadena los chequeos transversales —dedupe, cierre, sanciones, restricción— y despacha al tipo. Contiene además los dos flujos multi-solicitud: `_procesar_cobertura_dos` y `_procesar_doblada_permanente_multi`. El primero lleva delante `_pago_dos_debe_estar_libre`, el **único guard de pareja** del archivo: mira una condición que ninguna de las dos solicitudes puede ver por separado (ver § 8.3). Los dos envuelven su bucle en `EmailOutboxService.envio_agrupado()` **por fuera** del `atomic()` (`:278,530`): los 3N correos comparten conexión y, sobre todo, **nada se entrega hasta que el bloque termina, ya commitado** | `CrearSolicitudUseCase` |
 | `solicitud_factory.py` | Resuelve el `TipoSolicitudCambio` a su `Strategy` en cascada de cuatro niveles (`:131-195`) y expone `validar_solicitud`, `crear_solicitud` y `revalidar_para_aprobar` (`:293`) | orquestador y servicio de aprobación |
 | `solicitud_aprobacion_service.py` | Ejecuta la aprobación: revalida (`:124`) y aplica | casos de uso de aprobación |
 | `solicitud_request_parser.py` | Convierte el `POST` en el dict de datos que entienden las estrategias | orquestador |
@@ -1202,7 +1202,7 @@ Gmail: crear una solicitud tardaba 6,3-7,8 s en responder y **todo** ese tiempo 
 cada uno de los tres correos abría su propia conexión (~2 s de handshake TLS + AUTH). Los flujos
 multi-compañero multiplicaban la cifra: cobertura con 2 compañeros son 6 correos, doblada permanente
 con 3 son 9. Detalle del mecanismo en § 3.4; operación en
-[MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md).
+[MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/02-correo/MANUAL_OUTBOX_CORREOS.md).
 
 **Comandos de `solicitudes`** (`solicitudes/management/commands/`):
 
@@ -1212,10 +1212,24 @@ con 3 son 9. Detalle del mecanismo en § 3.4; operación en
 | `instalar_calendario_colombiano` | Carga los festivos | una vez / anual |
 | `actualizar_codigos_estrategia` | Sincroniza `TipoSolicitudCambio.codigo_estrategia` | tras tocar el catálogo |
 | `archivar_solicitudes_antiguas` | Mueve solicitudes viejas | periódico |
-| `verificar_crons` | **Comprueba desde fuera que los dos crons corren**: el del outbox y el de sanciones. Mide la **espera** del correo pendiente más antiguo que ya tocaba enviar, no el tamaño de la cola —una cola larga con worker vivo se vacía sola; una fila que lleva horas parada solo se explica porque nadie la recoge (`verificar_crons.py:54-99`)—. Cada problema sale con el marcador `CRON_NO_EJECUTADO` (`:45`) y el comando termina con código `1`, para que sea un *check* y no un informe que alguien tiene que acordarse de leer (`:81-84`). Opciones: `--umbral-outbox MINUTOS` y `--json` (`:56-61`) | cron de vigilancia |
+| `verificar_crons` | **Comprueba desde fuera que los dos crons corren**: el del outbox y el de sanciones. Mide la **espera** del correo pendiente más antiguo que ya tocaba enviar, no el tamaño de la cola —una cola larga con worker vivo se vacía sola; una fila que lleva horas parada solo se explica porque nadie la recoge (`verificar_crons.py:131-174`)—. Cada problema sale con el marcador `CRON_NO_EJECUTADO` (`:69`) y el comando termina con código `1`, para que sea un *check* y no un informe que alguien tiene que acordarse de leer (`:124-127`). Opciones: `--umbral-outbox MINUTOS` y `--json` (`:89-100`) | cron de vigilancia |
+| `alertar_crons` | **El mismo diagnóstico, y además avisa.** Importa la clase de `verificar_crons` y ejecuta sus tres chequeos —`_revisar_outbox`, `_revisar_correos_fallidos` y `_revisar_sanciones`— sin duplicar criterio (`alertar_crons.py:66-73,104-108`); si alguno falla, **manda el correo él mismo**. Existe porque `verificar_crons` solo *diagnostica*: en AWS bastaba —el `crontab` de Linux avisa por correo al salir con código distinto de cero y CloudWatch enganchaba los marcadores con un *metric filter*—, pero **Dokploy no tiene disparador para un Schedule que falla**: sus notificaciones cubren despliegues, backups, limpieza de Docker y umbrales del servidor (`:4-18`). Envía con `smtplib` directo y **no** con `django.core.mail` (`:205-242`), por dos motivos: el vigilante no puede compartir maquinaria con lo que vigila —todo correo de la aplicación pasa por `EmailOutbox`, y si lo averiado es el worker del outbox la alerta se quedaría en la cola que denuncia— y el [ADR 016](./03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md) restringe `django.core.mail` a `email_outbox_service.py` (`:20-34`). Reutiliza la configuración `EMAIL_*` de settings: mismo transporte, sin pasar por la cola (`:214-235`). Destinatarios: `--para` o la variable de entorno `ALERTAS_CRON_EMAIL` (separadas por coma); **sin destinatarios falla ruidosamente** (`:159-169`) —no se añadió un ajuste a `settings.py` a propósito: es configuración de despliegue—. **Latido semanal**: los lunes manda un correo de «sin novedad» aunque todo esté bien (`:78-79,119-121`), la única defensa contra que deje de correr *él*. Termina con código `1` si hay problema, **incluido no haber podido enviar el aviso** (`:142-149,154-155`). `--dry-run` imprime el correo sin enviarlo —y sin exigir destinatarios—, pero conserva la salida `1` si hay problemas (`:130-137`). Opciones: `--para`, `--dry-run`, `--umbral-outbox`, `--umbral-fallidos`, `--sin-latido` (`:86-101`) | Schedule diario |
 | `cancelar_deudas_fin_semana`, `cancelar_deudas_huerfanas` | Saneamiento de deudas | puntual |
 | `reaplicar_doblada` (`:259`), `corregir_doblada_cesion_total` (`:73`) | Reparación manual. ⚠ **Llaman a `aplicar_doblada_pago` sin validar y sin pasar por la guardia LIFO**, y se ejecutan cuando el día ya está descuadrado — el momento de más riesgo. `verificar_doblada.py:384` sugiere el de reaplicación al detectar errores. Ver § 16.2 | puntual |
 | `verificar_doblada`, `verificar_integridad_dobladas`, `verificar_efecto_aplicado`, `validar_dobladas_junio`, `validar_jornadas`, `test_factory`, `test_verificar_doblada_jeison`, `validar_fix_doblada_jeison` | Diagnóstico | manual |
+
+**`verificar_crons` y `alertar_crons` no son duplicados — no los fusiones.** El primero
+*diagnostica*: imprime, admite `--json` y deja el veredicto en el código de salida, que es
+lo que lo hace útil como paso de un despliegue. El segundo *entrega el aviso* cuando no hay
+infraestructura que lo haga por él. La lógica está escrita **una sola vez**:
+`alertar_crons` importa la clase de `verificar_crons` y llama a sus tres `staticmethod`
+(`solicitudes/management/commands/alertar_crons.py:66-73,104-108`), así que un chequeo nuevo
+se añade en `verificar_crons` y los dos lo heredan. Lo que `alertar_crons` pone encima
+—destinatarios, transporte, latido y código de salida— lo cubren 16 pruebas en
+`solicitudes/tests/test_alertar_crons.py` (`:2-13`). Los Schedules y la configuración paso a
+paso están en
+[CHECKLIST_DESPLIEGUE_DOKPLOY.md](./05-referencia/deployment/01-dokploy/CHECKLIST_DESPLIEGUE_DOKPLOY.md)
+(FASE 9 y § 11.2).
 
 **Comandos de `turnos`** (`turnos/management/commands/`): `archivar_turnos_antiguos`,
 `limpiar_festivos_futuros`, `materializar_alternancia`, `verificar_apertura_anio`.
@@ -1225,7 +1239,7 @@ incidencias concretas (`..._jeison`, `..._junio`). No son parte del ciclo de vid
 sistema; ver § 16.
 
 El manual de operación del outbox está en
-[MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md).
+[MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/02-correo/MANUAL_OUTBOX_CORREOS.md).
 
 ### 7.4 La costura donde el mensaje cambia de destinatario
 
@@ -1354,6 +1368,8 @@ la primera dice quién manda sobre un día, la segunda quién puede deshacer lo 
 | `Turno.tipo_cambio` solo acepta los ocho valores de `TipoCambioTurno` | `turnos/models.py:90-94` | Un typo entra en silencio y el turno deja de contarse en los filtros de texto exacto |
 | **Un día ya usado en un cambio de descanso vuelve a estar libre de inmediato.** `dia_bloqueado_para_nuevo_cambio` bloquea la fecha **solo** si hay un turno con `tipo_cambio` distinto de `CAMBIO DESCANSO` (DOBLADA, D FDS, CT…): ese bloqueo es permanente y sin ventana. Un CAMBIO DESCANSO previo **no** bloquea — coherente con P1, "la última aprobada gana por día". Es la **fuente única** que comparten el selector de findes y la validación | Regla: `solicitudes/services/cambio_descanso_aplicacion_service.py:243-247`, motivo en el docstring `:217-240`; llamadas en `solicitudes/services/strategies/cambio_descanso_strategy.py:111` y `solicitudes/views/api_fin_semana.py:358`. Tests: `solicitudes/tests/test_cambio_descanso.py:254` (`CDReintercambioDiaTest`), centinela en `:312`. Motivo completo: [ADR 010](./03-arquitectura/adr/010-dia-de-descanso-libre-tras-el-intercambio.md) | Si se **reintroduce** el bloqueo, un día intercambiado queda congelado para toda la plantilla mientras dure la ventana de cancelación (hoy 24 h). Si se **quita** el bloqueo por otro tipo de cambio, se cede un día que ya está comprometido por una doblada o un CT |
 | La temporada manda sobre el mantenimiento | `turnos/models.py:186-200` (`es_mantenimiento_efectivo`) | Un lunes de temporada se trata como descanso |
+| **Cobertura de día completo (2 compañeros): el día de pago tiene que estar LIBRE.** Las dos solicitudes comparten una única `fecha_pago`, así que ese día se devuelven las **dos** medias jornadas —la AM a un compañero y la PM al otro— y el solicitante termina en **AM+PM**. Eso solo cabe partiendo de cero: con media jornada propia solo alcanza para pagarle a uno y el otro habría cubierto gratis. **Es un guard de PAREJA, y por eso no vive en la strategy:** `_validar_semana_cobertura` valida cada solicitud por separado y no puede ver el conjunto. Rechazaba el caso igual, pero por la mitad equivocada del problema (`tomadas & pre_sol_fp`, la jornada que choca) y con un mensaje que manda a hacer un **Cambio de Turno sencillo** — que aquí es un **callejón sin salida**: girar la jornada propia traslada el choque al otro compañero. Y si la `fecha_pago` fuera de mantenimiento, ese día ni siquiera se puede pedir un CT. El guard corta el par **antes** de validar ninguna de las dos y da el motivo real, con las dos salidas que sí existen: el día libre de la semana, o cobertura de **solo AM** / **solo PM** | `SolicitudOrchestrator._pago_dos_debe_estar_libre`, llamado al inicio de `_procesar_cobertura_dos` (justo tras la restricción médica, antes de construir `datos_am`/`datos_pm`). Se apoya en `CambioDescansoAplicacionService._jornadas_actuales`: **estado real del día**, no la jornada base (P-jornada-real). El formulario lo adelanta con `mi_jornada_pago`, que ya devuelve `GET /solicitudes/cobertura-candidatos/`: recuadro rojo bloqueante `cob-aviso-dos-libre` + error al enviar, y en modo `DOS` se **suprime** el aviso de «Ir a Cambio de Turno» (`static/js/cambio-turno/solicitar_cambio_descanso.js`, `mostrarAvisoDosDiaLibre` y la salida temprana de `verificarPagoCobertura`). El desplegable de día de pago además **deshabilita los días de mantenimiento**: ese día no opera nadie, así que no hay jornada del compañero que cubrir. El texto del rechazo y el del aviso del formulario son un **espejo** sincronizado a mano (`solicitud_orchestrator.py:228-234` ↔ `solicitar_cambio_descanso.js:1091-1095`), con centinela `AvisoDiaPagoLibreEspejoTest`. Tests: `solicitudes/tests/test_cobertura_dos_companeros.py:29` (espejo), `:154` (`test_dia_de_pago_con_media_jornada_propia_es_rechazado`, que además fija que el mensaje **no** mande al CT) y `:174` (`test_dia_de_pago_donde_ya_doblo_tampoco_sirve_para_los_dos`) | Sin el guard el rechazo llega igual, pero con el consejo equivocado: el usuario hace el Cambio de Turno, vuelve, y choca con el otro compañero. Si alguien "arregla" el síntoma relajando `_validar_semana_cobertura`, se crea media cobertura pagada y la otra media gratis |
+| **Una sub-modalidad de CAMBIO DESCANSO entre semana se apaga desde el backend, no desde el formulario.** Hoy está apagada `cambio_doblada`. El interruptor es la constante `SUBMODALIDADES_SEMANA_DESHABILITADAS` y se comprueba dentro de `validar_solicitud`, en la rama de ENTRE SEMANA y **antes** de despachar a ningún sub-validador. Como `revalidar_para_aprobar` termina llamando a `validar_solicitud`, el apagado cubre las dos entradas: una solicitud que se hubiera colado antes del despliegue **tampoco se puede aprobar**. El código del sub-flujo **no se borra** (`_validar_semana_cambio_doblada` y su aplicación siguen enteras): reactivar es sacar la clave del `frozenset` y quitar la clase `disabled` de la tarjeta | Constante: `solicitudes/services/strategies/cambio_descanso_strategy.py:53` (motivo comentado en `:40-52`); comprobación y mensaje en `:248-256`, con la etiqueta sacada de `DobladaDetalle.SUBMODALIDAD_SEMANA_CHOICES` (`:252`) para que el texto siga siendo cierto al apagar o reactivar otra. Doble entrada: `solicitudes/services/strategies/base_strategy.py:114`. Reflejo visual (**solo cosmético**): `templates/solicitudes/solicitar_cambio_descanso.html:128-133`. Tests: `solicitudes/tests/test_cambio_doblada_deshabilitado.py:74,80,93,120,131`. Detalle en [05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md](./05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md) | Si el apagado viviera solo en el template, bastaría con quitar la clase desde DevTools —o tener la pestaña abierta desde antes del despliegue, con el HTML y el JS anteriores— para que el POST entrara. Y si la comprobación estuviera en la vista y no en `validar_solicitud`, una solicitud creada antes del apagado se seguiría aprobando |
 | Una fecha sin `AsignacionEspecialManual` es "sin planificar" y así se reporta; nunca se infiere un grupo | `turnos/models.py:305-315` | El pasado se recalcula solo |
 | Un turno anulado no cuenta como falta ni genera deuda | `turnos/models.py:41-51,73` | Se penaliza un día que se anuló |
 | Una sanción no se borra: se levanta, dejando quién, cuándo y por qué | `empleados/models.py:299,323-330` | Se pierde el hecho disciplinario |
@@ -1447,8 +1463,8 @@ la aplicación). Ver § 13.3.
 |---|---|---|
 | `SECRET_KEY = env('SECRET_KEY')`, **sin valor por defecto** | `config/settings.py:32` | La aplicación no arranca sin la clave: `django-environ` lanza `ImproperlyConfigured`. Una tarea mal configurada muere, no se inventa una clave |
 | Cero apariciones de `get_random_secret_key`, `secrets.token*` o `urandom` en todo el repositorio | — | El código **no puede** generar una clave por instancia |
-| `aws secretsmanager create-secret --name swalp/SECRET_KEY` | *(era del checklist de Fargate, descartada y borrada el 2026-09-04)* | En el plan EC2 el secreto va en el `.env` de la instancia; ver [checklist EC2+RDS](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md) FASE 4 |
-| Instancia única con Elastic IP, sin ALB, con un `.env` en la máquina | [checklist EC2+RDS](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md) | Sin reparto de tráfico no hay nada que pueda divergir |
+| `aws secretsmanager create-secret --name swalp/SECRET_KEY` | *(era del checklist de Fargate, descartada y borrada el 2026-09-04)* | En el plan EC2 el secreto va en el `.env` de la instancia; ver [checklist EC2+RDS](./05-referencia/deployment/99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) FASE 4 |
+| Instancia única con Elastic IP, sin ALB, con un `.env` en la máquina | [checklist EC2+RDS](./05-referencia/deployment/99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) | Sin reparto de tráfico no hay nada que pueda divergir |
 | El `Dockerfile` usa `SECRET_KEY=build-only` como **prefijo de un `RUN`**, no como `ENV` | `AppTurnosExplora/Dockerfile` | La clave ficticia del build no queda en el runtime de la imagen |
 
 Queda como comprobación operativa —no del repositorio— confirmar en la consola de AWS que el
@@ -2018,7 +2034,7 @@ Ver § 13 y los checklists de [05-referencia/deployment/](./05-referencia/deploy
 > **Decidido el 2026-09-04: EC2 `t4g.micro` + RDS `db.t4g.micro` Single-AZ.** ECS Fargate quedó
 > **descartada por presupuesto** (~$64/mes con IVA frente a ~$32) y su checklist se borró. El
 > razonamiento completo, con precios verificados, está en
-> [arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md)
+> [arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/99-aws/arquitectura-aws-rds-recomendada.md)
 > §5 y §8.
 
 ```mermaid
@@ -2078,8 +2094,8 @@ RDS, alarmas de costo) están en
 configuración *dentro* del servidor (Nginx, certbot, systemd, crontab, `.env`) es manual a
 propósito: ver arquitectura §12.1.
 
-**Paso a paso:** [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md)
-(FASES 0-11) y [MANUAL_DESPLIEGUE_EC2.md](./05-referencia/deployment/MANUAL_DESPLIEGUE_EC2.md).
+**Paso a paso:** [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./05-referencia/deployment/99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md)
+(FASES 0-11) y [MANUAL_DESPLIEGUE_EC2.md](./05-referencia/deployment/99-aws/MANUAL_DESPLIEGUE_EC2.md).
 Cómo encajan la URL, la IP y las variables está en arquitectura §11.
 
 ### 13.2 Pipeline y pasos
@@ -2151,8 +2167,8 @@ Ojo: `docker-compose.hostdb.yml` **sobrescribe el `command`** para arrancar solo
 - [ ] Los roles `Supervisor` y `Explorador` y las jornadas `AM` y `PM` existentes.
 
 Checklists completos:
-[CHECKLIST_DESPLIEGUE_AWS_RDS.md](./05-referencia/deployment/CHECKLIST_DESPLIEGUE_AWS_RDS.md) y
-[CONFIGURACION_PRODUCCION.md](./05-referencia/deployment/CONFIGURACION_PRODUCCION.md).
+[CHECKLIST_DESPLIEGUE_AWS_RDS.md](./05-referencia/deployment/99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) y
+[CONFIGURACION_PRODUCCION.md](./05-referencia/deployment/03-operacion/CONFIGURACION_PRODUCCION.md).
 
 ### 13.4 Rollback
 
@@ -2172,7 +2188,7 @@ migraciones, snapshot de RDS.
 | Traza de una petición concreta | El **código de referencia** que el usuario ve en la página de error (§ 9.5). Filtrarlo en CloudWatch devuelve todas sus líneas |
 | Cierre semanal caído | **Alarma** sobre `CIERRE SEMANAL INOPERATIVO` (ver § 13.6). Buscarlo a mano no basta: el fallo es silencioso |
 | Tipo de solicitud sin estrategia | `warning` de la factory (`solicitudes/services/solicitud_factory.py:190-195`) |
-| **Los crons no corren** | `python manage.py verificar_crons` (`--json` para consumo automático). Comprueba el del outbox y el de sanciones; cada problema sale marcado con **`CRON_NO_EJECUTADO`** y el comando termina con código `1`. Alarma sobre ese marcador (`solicitudes/management/commands/verificar_crons.py:45,81-84`) |
+| **Los crons no corren** | Dos comandos, dos trabajos. `python manage.py verificar_crons` (`--json` para consumo automático) **diagnostica**: comprueba el del outbox y el de sanciones, cada problema sale marcado con **`CRON_NO_EJECUTADO`** o **`CORREOS_FALLIDOS`** y termina con código `1` (`solicitudes/management/commands/verificar_crons.py:69-70,124-127`). `python manage.py alertar_crons` corre esos mismos tres chequeos y **manda el correo él mismo** (`solicitudes/management/commands/alertar_crons.py:104-108`), porque Dokploy no dispara notificación cuando un Schedule falla: destinatarios en `--para` o en la variable de entorno **`ALERTAS_CRON_EMAIL`** —sin ninguno falla ruidosamente (`:159-169`)— y transporte `smtplib` directo, al margen del outbox que vigila (`:205-242`). **Los lunes manda un latido de «sin novedad» aunque todo esté bien** (`:119-121`): un vigilante mudo y uno muerto se ven igual desde fuera. Probarlo con `--dry-run`, que imprime el correo sin enviarlo (`:130-137`) |
 | Correos atascados | `EmailOutbox` con `estado='fallido'` — agotó los 5 intentos (`solicitudes/models.py:73,81`). Nadie las recoge ya: `procesar_email_outbox --resumen` las lista para que se vean |
 | Solicitudes atascadas | Pantalla `/solicitudes/gestion-solicitudes/` |
 | Auditoría de cambios | Tablas `historical*` de `django-simple-history` |
@@ -2376,7 +2392,7 @@ cualquiera sin que nadie haya tocado nada; ya ocurrió tres veces a la vez, con 
 distintas (`conftest.py:11-30`). **Los fallos que produce `--dias-en-el-futuro` son el hallazgo,
 no un error de la corrida**, y el arreglo correcto es inyectar `hoy` en el servicio, no congelar
 el reloj (`conftest.py:38-42`). El procedimiento completo está en
-[05-referencia/deployment/MANUAL_TESTS_QUE_CADUCAN.md](./05-referencia/deployment/MANUAL_TESTS_QUE_CADUCAN.md).
+[05-referencia/deployment/MANUAL_TESTS_QUE_CADUCAN.md](./05-referencia/deployment/03-operacion/MANUAL_TESTS_QUE_CADUCAN.md).
 
 ### 14.2 Cómo está partida la suite
 
@@ -2649,7 +2665,7 @@ verdad" del árbol documental. Ver § 18.
 | B11 (cerrado) | `PermisoMediaJornadaCancelResponderView` solo comprobaba `_es_supervisor(request.user)`: cualquier supervisor decidía sobre el permiso de cualquier explorador, aunque el aviso se mandara solo al suyo. Control por **rol** en vez de por **relación** | Dos helpers de módulo en `permisos/views.py`: `_supervisor_del_permiso` (`:561`), fuente única de quién responde por el permiso —`permiso.supervisor or permiso.empleado.supervisor`—, usada por la autorización (`:588`) y por el aviso (`:611`) para que decida y avise la misma persona; y `_puede_responder_cancelacion` (`:569`), con tres reglas: rol de supervisor (`:583`), el dueño no se responde a sí mismo (`:585`) y hay que ser **el** supervisor concreto (`:588-591`), **salvo que el permiso no tenga ninguno resoluble**, en cuyo caso vale cualquiera —matiz deliberado: si no, la petición sería incontestable y caducaría siempre—. La vista carga con `select_related('empleado', 'empleado__supervisor', 'supervisor')` (`:534`). Tests `:158` y `:169` |
 | B13 (cerrado) | **`VENTANA_CANCELACION_MINUTOS = 30` existía dos veces con significados distintos**: legado sin uso en `solicitudes/use_cases/cancelar_solicitud.py` y regla viva en `cambio_descanso_aplicacion_service.py`, donde sostenía el bloqueo temporal del día. Quien leyera una creería haber entendido la otra | **Cerrado por eliminación, no por el renombrado que se anticipaba.** Se retiró el bloqueo temporal —la premisa que lo sostenía murió con la cancelación consensuada, ver [ADR 010](./03-arquitectura/adr/010-dia-de-descanso-libre-tras-el-intercambio.md)— y con él la constante en **los dos** archivos: la del `use_case` era código muerto sin ningún uso. `VENTANA_CANCELACION_MINUTOS` **ya no existe en el proyecto**; los plazos vivos son `VENTANA_PEDIR_CANCELACION_HORAS` y `VENTANA_RESPONDER_CANCELACION_HORAS` (`core/constants.py:201,206`). Suite en verde: **959 tests** |
 | B14 (cerrado) | El modal de aprobación/rechazo de solicitudes enviaba el texto en el campo `comentario`, pero todas las vistas de `aprobacion_views.py` leen `comentario_respuesta`. El comentario del supervisor **nunca se guardaba**: se escribía, se enviaba y se perdía en el camino, sin error visible | El front envía ya `comentario_respuesta` (`static/js/solicitudes/solicitudes_pendientes_list.js`, con el motivo comentado en el propio código para que no se “corrija” de vuelta). Al hacerse obligatorio el comentario (P6) el fallo habría salido igualmente: el backend rechazaría con `comentario_requerido` un formulario aparentemente relleno |
-| B3 (cerrado) | **No había recuperación de contraseña.** Tras 5 intentos fallidos el usuario quedaba bloqueado una hora y su única salida era un administrador | Implementada y enrutada: `core/login/urls.py` declara las **seis** rutas del ciclo completo — `password_change`, `password_change_done`, `password_reset`, `password_reset_done`, `password_reset_confirm` y `password_reset_complete` (`core/login/urls.py:19-35`). Se declaran una a una en vez de con `include('django.contrib.auth.urls')` porque ese include trae su propio `login`/`logout`, que chocarían con las vistas propias; los **nombres** sí son los estándar de Django, así que `{% url 'password_reset' %}` y los enlaces que genera `PasswordResetForm` funcionan sin configuración extra. El correo de reseteo **no pasa por `EmailOutbox`** a propósito (`core/login/views.py:135-137`). Los límites de axes siguen vigentes (`config/settings.py:362-363`). Manual completo: [MANUAL_RECUPERAR_CONTRASENA.md](./05-referencia/deployment/MANUAL_RECUPERAR_CONTRASENA.md) |
+| B3 (cerrado) | **No había recuperación de contraseña.** Tras 5 intentos fallidos el usuario quedaba bloqueado una hora y su única salida era un administrador | Implementada y enrutada: `core/login/urls.py` declara las **seis** rutas del ciclo completo — `password_change`, `password_change_done`, `password_reset`, `password_reset_done`, `password_reset_confirm` y `password_reset_complete` (`core/login/urls.py:19-35`). Se declaran una a una en vez de con `include('django.contrib.auth.urls')` porque ese include trae su propio `login`/`logout`, que chocarían con las vistas propias; los **nombres** sí son los estándar de Django, así que `{% url 'password_reset' %}` y los enlaces que genera `PasswordResetForm` funcionan sin configuración extra. El correo de reseteo **no pasa por `EmailOutbox`** a propósito (`core/login/views.py:135-137`). Los límites de axes siguen vigentes (`config/settings.py:362-363`). Manual completo: [MANUAL_RECUPERAR_CONTRASENA.md](./05-referencia/deployment/02-correo/MANUAL_RECUPERAR_CONTRASENA.md) |
 | B8 (cerrado) | **CSP estricta en modo report-only indefinido.** La política activa permitía cuatro CDN que ninguna plantilla usaba ya | **La migración a estáticos locales terminó.** jsDelivr (flatpickr, chart.js, sweetalert2, fullcalendar), cdnjs (Font Awesome) e ionicons se autohospedan en `static/plugins/` y ya no los referencia ninguna plantilla. Barridas las **116** plantillas, el único origen externo que queda es Google Fonts; confirmado eso, la segunda cabecera REPORT-ONLY **se borró** y sus valores son ahora los que se aplican de verdad (`config/settings.py:424-433`). Sigue abierto por decisión —no por olvido— el `'unsafe-inline'` en `script-src`, razonado en el propio `settings.py` |
 | B12 (cerrado) | Los dos mensajes de bloqueo de `cambio_descanso_strategy.py` aconsejaban "cancela ese cambio dentro de los 30 min de aprobado": desde el acuerdo de cancelación consensuada (ADR 009) ni el plazo son 30 minutos ni la cancelación depende de quien lee el mensaje. Un consejo inejecutable | Reescritos (`solicitudes/services/strategies/cambio_descanso_strategy.py:120-128`): ahora dicen esperar a que pase la ventana o pedírselo al supervisor. En esa pasada **solo** cambió el consejo. Después, el bloqueo temporal en sí se **retiró** (ADR 010) y el segundo mensaje, el de "cambio de descanso reciente", quedó **inalcanzable** y se eliminó: hoy queda **uno solo**, el de otro tipo de cambio aplicado (`solicitudes/services/strategies/cambio_descanso_strategy.py:117-120`). Ver B13 |
 
@@ -2667,6 +2683,71 @@ hash corto: el trabajo de la rama `fix/cambio-descanso-temporada` está confirma
 `main`. Varias filas comparten hash porque un mismo commit cierra código, tests y notas de un
 mismo hallazgo; las filas puramente documentales apuntan al commit de documentación que las
 introdujo (`9dc4af1`).
+
+### El aviso del formulario y el rechazo del servidor dicen la misma regla con las mismas palabras
+
+*(Trabajo en curso: `solicitudes/services/solicitud_orchestrator.py`, `static/js/cambio-turno/solicitar_cambio_descanso.js` y su suite están en el árbol, sin confirmar.)*
+
+La regla del día de pago libre en la cobertura con dos compañeros (§ 8.3) tenía **dos redacciones**: una en el aviso bloqueante del formulario y otra en el rechazo del POST. Es la misma regla, y el usuario puede toparse con ella por cualquiera de los dos caminos.
+
+| Cambio | Impacto |
+|---|---|
+| El servidor adopta la redacción del formulario (`solicitud_orchestrator.py:228-234`) | Un solo texto para una sola regla, se llegue por donde se llegue |
+| Había un **tercer** sitio con la misma regla en otra redacción —el bullet de la lista «Faltan datos» al pulsar Enviar—, que el centinela no veía porque vive en el mismo archivo JS que el recuadro rojo. Se unificó **por construcción**: tres constantes en `solicitar_cambio_descanso.js:1064-1067` (`DOS_LIBRE_TITULAR`, `DOS_LIBRE_MOTIVO`, `DOS_LIBRE_SALIDA`) que consumen el recuadro (`:1091-1095`) y el bullet (`:1291-1296`) | Dentro del front el literal existe **una sola vez**, así que los dos avisos no pueden separarse sin tocar la constante: garantía más fuerte que un test, y por eso ahí **no hay test**. La sincronización manual y el centinela solo hacen falta en el cruce **front ↔ servidor**, que son lenguajes distintos y no pueden compartir el literal |
+| La única diferencia que queda es **deliberada**: el formulario nombra el día libre concreto (`solicitar_cambio_descanso.js:1075-1083`), el servidor no | El servidor no consulta el desplegable, así que no puede sugerir un día; y el formulario solo lo nombra si sigue siendo una opción viva |
+| En el JS las negritas envuelven **frases completas** (`:1091-1095`) | Si partieran una frase por dentro, el `<strong>` quedaría en medio y la frase núcleo dejaría de ser localizable para el centinela |
+| Los dos fuentes llevan un comentario que apunta al otro (`solicitud_orchestrator.py:222-227`, `solicitar_cambio_descanso.js:1085-1090`) | La sincronización es **manual**: quien edite un lado tiene el otro señalado en la misma pantalla |
+| `AvisoDiaPagoLibreEspejoTest` (`solicitudes/tests/test_cobertura_dos_companeros.py:29`, caso `:60`) | Lee los dos fuentes y exige las **tres frases núcleo** literales (`:44-49`). Las sigue encontrando porque ahora viven en las constantes, y la costura de `_COSTURA` (`:54`) une los dos trozos de `DOS_LIBRE_MOTIVO`. Si falla, se ajusta el lado que quedó atrás; no se relaja la comparación |
+
+Detalle y textos literales en [05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md](./05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md) (§ 6, cobertura con DOS compañeros).
+
+### El aviso de doblada permanente deja de dar por firme lo que solo está pendiente
+
+*(Trabajo en curso: los cambios de `solicitudes/services/strategies/doblada_permanente_strategy.py` y de su suite están en el árbol, todavía sin confirmar.)*
+
+La **regla no cambia**: una doblada permanente del compañero, pendiente **o** aprobada, que comparta alguna fecha sigue bloqueando el nuevo acuerdo. Lo que cambia es el aviso, que era uno solo y decía «ya tiene una doblada permanente en esas fechas» incluso cuando el otro acuerdo estaba solo **pendiente de aprobación**: daba por firme lo que aún podía cancelarse.
+
+| Cambio | Impacto |
+|---|---|
+| Tres mensajes en lugar de uno, ramificando por `det.solicitud.estado` y —si es `pendiente`— por `det.solicitud.explorador_solicitante_id` (`doblada_permanente_strategy.py:278-297`) | El usuario sabe si lo que le bloquea es un acuerdo cerrado o uno que todavía se puede caer, y actúa en consecuencia |
+| La variante «la pendiente es tuya»: "Ya enviaste una doblada permanente a {compañero}…" (`:283-288`) | Es el caso frecuente. Mandarle a «elegir otro compañero» cuando la pendiente es **suya** lo despista: lo que tiene que hacer es esperar su propia solicitud |
+| El listado de fechas del choque (`detalle`, `:267-269`) se mantiene en las tres variantes | El aviso sigue señalando la fecha exacta que bloquea |
+| La rama compara `str(det.solicitud.estado or '').lower() == 'pendiente'` (`:278`), no `== 'pendiente'` a secas | El filtro que trae `otros` va por ORM y **MySQL no distingue mayúsculas**: una fila guardada como `'PENDIENTE'` llegaba hasta aquí y, comparada en Python tal cual, se anunciaba como **aprobada** — el error exacto que los tres mensajes vienen a corregir (motivo en `:274-277`) |
+| `solicitudes/tests/test_doblada_permanente.py::DobladaPermanenteOtroAcuerdoTest`: `test_el_aviso_distingue_pendiente_de_aprobada` (`:355`) y `test_si_la_pendiente_es_propia_el_aviso_lo_dice` (`:371`) | El primero fija que el aviso de una pendiente **no** contiene "aprobada"; el segundo, que el de la propia empieza por "Ya enviaste" |
+
+Mensajes literales y motivo en [05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md](./05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md) (§ 5, regla 9).
+
+### «Cambio de doblada» queda deshabilitado, y el interruptor es del backend
+
+*(Trabajo en curso: `solicitudes/services/strategies/cambio_descanso_strategy.py`, la tarjeta del template y `solicitudes/tests/test_cambio_doblada_deshabilitado.py` están en el árbol, sin confirmar.)*
+
+| Cambio | Impacto |
+|---|---|
+| `SUBMODALIDADES_SEMANA_DESHABILITADAS = frozenset({'cambio_doblada'})` (`cambio_descanso_strategy.py:53`) | Un conjunto, no un `if` con un literal: apagar o reactivar otra sub-modalidad es editar una línea, y el test `test_el_interruptor_es_el_conjunto_y_no_un_literal_suelto` (`:131` del archivo de tests) lo vigila |
+| La comprobación va en `validar_solicitud`, en la rama de ENTRE SEMANA y antes de despachar (`:248-256`) | Cubre creación **y** aprobación: `revalidar_para_aprobar` pasa por ahí (`base_strategy.py:114`), así que una solicitud colada antes del apagado tampoco se aprueba |
+| El mensaje nombra la opción apagada con la etiqueta de `SUBMODALIDAD_SEMANA_CHOICES` (`:252`) y ofrece salida: «Elige otra de las opciones de esa semana» | El texto sigue siendo verdad si mañana se apaga otra, y el usuario no queda atascado sin saber qué hacer |
+| La clase `disabled` de la tarjeta (`templates/solicitudes/solicitar_cambio_descanso.html:128-133`) es **solo el reflejo visual** | Se quita desde DevTools, y una pestaña abierta desde antes del despliegue conserva el HTML y el JS viejos: el POST llega igual al servidor. Por eso la defensa está en el backend |
+| El código del sub-flujo **no se elimina** | `_validar_semana_cambio_doblada` y su aplicación siguen enteras. Reactivar = sacar la clave del `frozenset` + quitar la clase `disabled` |
+
+Regla en § 8.3; sub-modalidades y mecanismo completo en [05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md](./05-referencia/solicitudes/REGLAS_NEGOCIO_SOLICITUDES.md) (§ 6, modalidad ENTRE SEMANA).
+
+### El vigilante de las tareas programadas ahora avisa por su cuenta
+
+*(Trabajo en curso: `solicitudes/management/commands/alertar_crons.py` y su suite están en
+el árbol, todavía sin confirmar. El marcador `CORREOS_FALLIDOS` que este comando
+reenvía sí está commitado, en `0b8d896`.)*
+
+| Cambio | Impacto |
+|---|---|
+| **Nuevo `python manage.py alertar_crons`.** Ejecuta los tres chequeos de `verificar_crons` reutilizando su clase (`alertar_crons.py:66-73,104-108`) y, si alguno falla, envía el correo de alerta | `verificar_crons` solo diagnostica. En AWS bastaba: el `crontab` de Linux avisa por correo al salir con código distinto de cero y CloudWatch enganchaba los marcadores con un *metric filter*. **En Dokploy no existe ninguna de las dos cosas** —sus notificaciones cubren despliegues, backups, limpieza de Docker y umbrales del servidor, pero no hay disparador para un Schedule que falla (`:4-18`)— |
+| **Transporte `smtplib` directo, no `django.core.mail`** (`:205-242`) | Dos motivos que apuntan al mismo sitio: el vigilante no puede compartir maquinaria con lo que vigila —si lo averiado es el worker del outbox, una alerta encolada se quedaría esperando junto a los correos que denuncia— y el [ADR 016](./03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md) fija que fuera de los tests `django.core.mail` solo puede aparecer en `email_outbox_service.py`, así que un import aquí rompería ese invariante en silencio (`:20-34`). Se reutiliza la configuración `EMAIL_*` de settings: mismo transporte, sin cola (`:214-235`) |
+| **Destinatarios por `--para` o `ALERTAS_CRON_EMAIL`**, sin ajuste nuevo en `settings.py` (`:159-169`) | Es configuración de despliegue y en Dokploy vive junto al resto de variables de la aplicación. Sin destinatarios el comando **falla ruidosamente**: un vigilante mal configurado que calla es peor que ninguno |
+| **Latido semanal los lunes** (`:78-79,119-121`) | Única defensa contra que deje de correr *este* comando: un vigilante mudo y uno muerto se ven igual desde fuera. Semanal y no diario a propósito —un aviso diario de que no pasa nada se deja de leer en dos semanas, y entonces el latido no vale nada— |
+| **Código de salida `1` también cuando el aviso no se pudo enviar** (`:142-149`) | El Schedule queda en rojo además de haber avisado. No se relanza la excepción: se informa por stderr para que el traceback no tape el diagnóstico, que es lo que alguien va a leer |
+| **El cuerpo del correo lleva un pie con qué hacer ante cada marcador** (`:191-202`) | `CRON_NO_EJECUTADO` → revisar los Schedules de Dokploy (`swalp-outbox`, `swalp-sanciones`); `CORREOS_FALLIDOS` → `/admin/solicitudes/emailoutbox/`, filtrar por «fallido» y decidir |
+| **Pruebas**: `solicitudes/tests/test_alertar_crons.py`, 16 casos | Prueban solo lo que este comando añade encima de `verificar_crons` —silencio cuando todo va bien, aviso, destinatarios, no dejar fila en el outbox, fallo de envío, latido y `--dry-run`—, para que los criterios de los chequeos no queden duplicados en dos suites (`:2-13`) |
+
+División de trabajo entre los dos comandos en § 7.3; operación en § 13.5.
 
 ### El detalle del día de Mis Turnos dice siempre con quién es el acuerdo
 
@@ -2777,7 +2858,7 @@ tests siguen enviando síncrono y `mail.outbox` se puebla dentro del propio test
 
 15 tests nuevos en `solicitudes/tests/test_email_outbox.py` (`OutboxUnaConexionPorLoteTest`,
 `OutboxEnvioAgrupadoTest`); suite completa en verde, 1.729 pasados. Operación en
-[MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md).
+[MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/02-correo/MANUAL_OUTBOX_CORREOS.md).
 
 
 ### Horas a favor del explorador: la deuda también corre al revés
@@ -2881,7 +2962,7 @@ daban por buenos):
 4. **FASE 5 nunca ejecutaba `createcachetable`**, pese a que el `.env` ya fijaba `CACHE_URL=db://`.
    La app arrancaba, `check --deploy` pasaba, y petaba en la primera carga de Mis Turnos.
 
-Secciones nuevas en [arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/arquitectura-aws-rds-recomendada.md):
+Secciones nuevas en [arquitectura-aws-rds-recomendada.md](./05-referencia/deployment/99-aws/arquitectura-aws-rds-recomendada.md):
 **§11** (la URL, la IP y las variables paso a paso, con el orden que impone certbot) y **§12**
 (qué va en YAML y qué no, más el orden completo de despliegue).
 
@@ -3014,6 +3095,25 @@ Commit `e93ce3b` (*fix(cobertura): avisar cuando el dia de pago ya se trabaja AM
 | La sincronización del select compartido de compañero se limita a los sub-tipos que lo usan (`intercambio_dia` y `jornadas_partidas`) | En cobertura el compañero se elige en `cob-select-1` y el compartido está oculto y vacío: sincronizar contra él borraba la selección buena, y el formulario pedía un compañero que ya estaba elegido |
 | Tests en `solicitudes/tests/test_cambio_doblada_candidatos.py` | Regresión de ambas mitades |
 
+### El día de pago de la cobertura con 2 compañeros debe estar libre
+
+Continuación directa del cambio anterior, sobre el mismo formulario. Regla completa en § 8.3.
+
+El caso que lo destapó: cobertura de **día completo (2 compañeros)** con el día de pago puesto
+en un día donde el solicitante ya trabajaba la AM. El backend lo rechazaba —bien— pero por la
+jornada que chocaba, y el mensaje mandaba a hacer un **Cambio de Turno sencillo**. Ese consejo
+no lleva a ninguna parte: las dos solicitudes comparten `fecha_pago`, así que ese día se pagan
+las **dos** medias jornadas, y girar la jornada propia solo traslada el choque al otro
+compañero. Si además el día fuera de mantenimiento, ahí no se puede pedir un CT siquiera.
+
+| Cambio | Impacto |
+|---|---|
+| `SolicitudOrchestrator._pago_dos_debe_estar_libre`, llamado al inicio de `_procesar_cobertura_dos` | **Guard de pareja**: mira una condición que ninguna de las dos solicitudes ve por separado, así que no cabía en `_validar_semana_cobertura`. Corta antes de validar ninguna y da el motivo real más las dos salidas que existen (día libre, o solo AM / solo PM) |
+| Recuadro rojo bloqueante `cob-aviso-dos-libre` + error al enviar, sobre `mi_jornada_pago` (dato que el endpoint de candidatos **ya** devolvía) | El usuario lo ve al elegir el día, no tras rellenar el formulario entero. Mismo criterio que el commit `e93ce3b` de arriba |
+| En modo `DOS` se **suprime** el aviso «Ir a Cambio de Turno» (salida temprana de `verificarPagoCobertura`) | Sigue vivo en *Solo AM* / *Solo PM*, donde sí resuelve. Retirarlo del modo DOS es la mitad del arreglo: el consejo equivocado era el daño |
+| El desplegable de día de pago **deshabilita los días de mantenimiento**, con el motivo a la vista | Ese día no opera nadie: no hay jornada del compañero que cubrir. Antes se podían elegir y el envío moría más adelante sin explicar por qué |
+| `solicitudes/tests/test_cobertura_dos_companeros.py`: dos casos nuevos y uno reencuadrado | Uno de ellos fija que el mensaje **no** mande al Cambio de Turno. `test_si_falla_una_jornada_no_se_crea_ninguna` se reescribió para seguir probando la atomicidad por jornada: su escenario antiguo lo intercepta ahora el guard nuevo |
+
 ### Páginas de error propias y trazabilidad de la petición
 
 Commit `65c08ac` (*feat(errores): paginas de error propias y codigo de referencia por peticion*),
@@ -3127,7 +3227,7 @@ configuración de SonarQube, la cobertura y las correcciones del triaje.
 | ~~2~~ | ~~Lo mismo para `_procesar_doblada_permanente_multi`~~ | `solicitud_orchestrator.py:509-531` | **RESUELTO 2026-09-08** — mismo mecanismo y misma conclusión |
 | 33 | Que el ahorro del lote se mantenga contra **SES en producción**. Las cifras del manual (~2 s de handshake, 6,3-7,8 s por solicitud) están **medidas contra Gmail desde desarrollo el 2026-09-07**; SES tiene otra latencia y otros límites de mensajes por conexión, y ese límite es justo lo que dispara la renovación de canal a media tanda (`solicitudes/services/email_outbox_service.py:265-272`) | Logs de desarrollo | No hay entorno de producción con SES contra el que medir. Repetir la medición tras el despliegue y ajustar el número si difiere |
 | ~~34~~ | ~~Que la rama de **PAGO REPROGRAMADO** de `AcuerdoPorDiaService` nombre al compañero correcto~~ | `solicitudes/tests/test_acuerdo_por_dia.py:156-198` | **RESUELTO 2026-09-09** — cuatro casos cubren la rama: que nombre al compañero de la doblada ORIGINAL y devuelva `fecha_relacionada` = el día incumplido, que una reprogramación `cancelada` no reclame el día, que pase por la misma guarda de realidad que las demás, y que un acuerdo con snapshot le gane el día (la rama se añade al final, solo sobre fechas que nadie reclamó) |
-| 35 | Si el despliegue **invalida** la caché del mes de Mis Turnos | `docs/05-referencia/deployment/MANUAL_DESPLIEGUE_EC2.md` y § 13.2 | No aparece ningún paso de invalidación ni de reinicio del backend de caché. Con el TTL de una hora (`core/services/cache_service.py:17`), un cambio en la respuesta puede tardar hasta 60 minutos en verse; conviene añadirlo al checklist de § 13.3 y decidir si se hace por comando o reiniciando la caché |
+| 35 | Si el despliegue **invalida** la caché del mes de Mis Turnos | `docs/05-referencia/deployment/99-aws/MANUAL_DESPLIEGUE_EC2.md` y § 13.2 | No aparece ningún paso de invalidación ni de reinicio del backend de caché. Con el TTL de una hora (`core/services/cache_service.py:17`), un cambio en la respuesta puede tardar hasta 60 minutos en verse; conviene añadirlo al checklist de § 13.3 y decidir si se hace por comando o reiniciando la caché |
 | 36 | Si algún consumidor de `solicitud_info` fuera de `static/js/mis_turnos.js` asume el formato anterior | `grep` sobre `static/` | Hoy el único consumidor es `mis_turnos.js`. El bloque conserva las mismas claves que antes, pero ahora se rellena en días que antes llegaban `null` (doblada permanente, CT permanente a partir del segundo día, cambio de descanso entre semana): un consumidor que trate `solicitud_info != null` como "esto es un CAMBIO TURNO" se equivocaría |
 | 3 | Porcentaje de cobertura de tests actual | No se ejecutó `pytest --cov` | Requiere una base MySQL levantada |
 | 4 | Número exacto de migraciones de `turnos`, `empleados` y `permisos` | `*/migrations/` | Solo se contaron las de `solicitudes` (35 archivos). La § 1.3 cita 33/15/8/8 de una pasada anterior; el dato de `solicitudes` ya no coincide y conviene recontar los cuatro |
@@ -3143,7 +3243,7 @@ configuración de SonarQube, la cobertura y las correcciones del triaje.
 | 11 | Que la plantilla `infra/cloudformation/swalp-infra.yaml` despliega sin errores en AWS | La plantilla | **Solo se validó la sintaxis YAML y los tipos de recurso; no se ha ejecutado contra una cuenta real.** Probarla primero con `--stack-name swalp-test` y borrarla después, comprobando que `delete-stack` no deja recursos huérfanos cobrando |
 | 12 | Las fechas de fin de soporte estándar de MySQL 8.0 y 8.4 en RDS | Documentación de AWS vía Context7 | La documentación describe el **mecanismo** (Extended Support se cobra por vCPU-hora) pero sus fechas concretas dependen de la región y del momento. Verificar antes de desplegar con `aws rds describe-db-major-engine-versions --engine mysql` |
 | 13 | Los precios unitarios de AWS citados en la arquitectura (§5) | Páginas de precios de terceros (Vantage, Holori) y de AWS | Contrastados entre varias fuentes y coherentes entre sí, pero **no verificados contra la factura real ni contra la Pricing Calculator con la cuenta del proyecto**. El IVA colombiano del 19 % está confirmado como tarifa general, no como trato fiscal concreto de esta entidad |
-| 11 | Frecuencia real del cron de `procesar_email_outbox` en producción | [MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md) | No está en el código: es configuración de infraestructura |
+| 11 | Frecuencia real del cron de `procesar_email_outbox` en producción | [MANUAL_OUTBOX_CORREOS.md](./05-referencia/deployment/02-correo/MANUAL_OUTBOX_CORREOS.md) | No está en el código: es configuración de infraestructura |
 | ~~23~~ | ~~Inconsistencia entre las dos vías de extinción de deuda por sanción: la condonación reconocía la auto-sanción por periodo y el consumo por el prefijo del motivo~~ | `solicitudes/services/deuda_corporativa_service.py:58-69` | **RESUELTO 2026-09-05** — el criterio por periodo se extendió a las **siete** consultas que deciden algo, con dos `Q` de clase (`ES_AUTOMATICA`, `ES_MANUAL`). El prefijo queda como etiqueta de lectura. Cierra además la vía de doble sanción sobre un mes ya juzgado. Test: `test_editar_el_motivo_no_reabre_el_ciclo_de_sanciones` (`solicitudes/tests/test_consumo_deuda_por_sancion.py:339`) |
 | 12 | Si la sección "deuda conocida pendiente de decisión" de `PROTECTION_PATTERNS.md:2180` sigue vigente | `PROTECTION_PATTERNS.md` | Se leyó el índice, no el contenido completo de esa sección |
 | 13 | Si `CierreSolicitudesConfig.habilitado` está activo en el entorno real | `solicitudes/models.py:802` | El valor por defecto es `False`; el estado real es un dato de producción |

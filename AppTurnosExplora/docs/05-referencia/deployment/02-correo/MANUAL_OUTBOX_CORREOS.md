@@ -221,8 +221,8 @@ ahí cada envío es un hecho distinto y duplicarlo no tendría sentido lógico q
 
 ## 6. Relación con otros documentos
 
-- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 10 (correo/SES).
-- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 8 (DNS) y FASE 10 (SES).
+- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](../99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 10 (correo/SES).
+- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](../99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 8 (DNS) y FASE 10 (SES).
 - [SOLUCION_ENVIO_CORREOS.md](./SOLUCION_ENVIO_CORREOS.md) — diagnóstico de credenciales
   SMTP. Sigue vigente: el outbox garantiza la *entrega*, pero si las credenciales están
   mal, los correos acumularán intentos y terminarán en `fallido`.

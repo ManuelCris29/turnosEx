@@ -71,8 +71,8 @@ y conviene decidir cuál antes de tocar nada, porque **los pasos no son los mism
 
 **`django-ses` y `boto3` NO están hoy en `requirements.txt`**, así que el camino API exige
 un cambio de dependencias y una imagen nueva. Los otros manuales
-([CHECKLIST_DESPLIEGUE_AWS_RDS.md](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) FASE 10 "Correo",
-[arquitectura-aws-rds-recomendada.md](./arquitectura-aws-rds-recomendada.md)) lo
+([CHECKLIST_DESPLIEGUE_AWS_RDS.md](../99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) FASE 10 "Correo",
+[arquitectura-aws-rds-recomendada.md](../99-aws/arquitectura-aws-rds-recomendada.md)) lo
 recomiendan como **mejora posterior**, no como punto de partida.
 
 **Recomendación: empieza por SMTP** (secciones 3.1 a 6 de este manual) y pásate a la API
@@ -174,7 +174,7 @@ El enlace se construye con el **host de la petición**, no con `SITE_URL`. Si es
 mal, el correo llega pero el enlace no sirve:
 
 - **`ALLOWED_HOSTS`** debe incluir el dominio público (`swalp.parqueexplora.org`). Ver la
-  trampa 3 de [CONFIGURACION_PRODUCCION.md](./CONFIGURACION_PRODUCCION.md).
+  trampa 3 de [CONFIGURACION_PRODUCCION.md](../03-operacion/CONFIGURACION_PRODUCCION.md).
 - **`SECURE_PROXY_SSL_HEADER`** ya se activa con `SECURE_HTTPS=True`. Sin él, Django cree
   que la petición llegó por HTTP y **manda enlaces `http://`** que el ALB rebota.
 
@@ -196,7 +196,7 @@ Después de desplegar, con una cuenta real (no la de un admin):
       basta: si el dominio de la firma no es el del `From`, **no hay alineación** y acabará en
       spam para todo el mundo. `spf=pass` aquí no prueba nada — SES envía con su propio
       Return-Path y ese SPF pasa siempre. Ver
-      [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
+      [ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 - [ ] El enlace empieza por **`https://swalp.parqueexplora.org/password/recuperar/`**
       (sección 5).
 - [ ] El enlace abre el formulario, la contraseña nueva se guarda, y **se puede entrar
@@ -244,8 +244,8 @@ Lambda, cola ni base de datos.
 
 ## 9. Documentos relacionados
 
-- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](./CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 10 (SES) y FASE 11 (verificación).
-- [CONFIGURACION_PRODUCCION.md](./CONFIGURACION_PRODUCCION.md) — tabla de variables y las cuatro trampas.
+- [CHECKLIST_DESPLIEGUE_AWS_RDS.md](../99-aws/CHECKLIST_DESPLIEGUE_AWS_RDS.md) — FASE 10 (SES) y FASE 11 (verificación).
+- [CONFIGURACION_PRODUCCION.md](../03-operacion/CONFIGURACION_PRODUCCION.md) — tabla de variables y las cuatro trampas.
 - [MANUAL_OUTBOX_CORREOS.md](./MANUAL_OUTBOX_CORREOS.md) — por dónde sale el aviso de "contraseña cambiada".
   **Ojo:** el enlace de recuperación NO pasa por el outbox, y es deliberado (ver el
   docstring de `PasswordResetSWALPView`).

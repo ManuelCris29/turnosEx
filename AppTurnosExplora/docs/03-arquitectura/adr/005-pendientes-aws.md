@@ -121,7 +121,7 @@ Agregar `REDIS_URL` a SSM Parameter Store.
 >
 > Lo que hoy garantiza la entrega es la tabla `EmailOutbox` con su cron de reintentos
 > (`procesar_email_outbox`, cada 5 min). Ver
-> [MANUAL_OUTBOX_CORREOS.md](../../05-referencia/deployment/MANUAL_OUTBOX_CORREOS.md).
+> [MANUAL_OUTBOX_CORREOS.md](../../05-referencia/deployment/02-correo/MANUAL_OUTBOX_CORREOS.md).
 
 *Texto original, conservado para que se entienda qué se descartó:* agregar `boto3` y una cola
 SQS, publicar a SQS desde el `on_commit` en vez de llamar a `NotificacionService`, y un worker

@@ -775,7 +775,10 @@ En ambos casos, desde mañana en adelante.
 
 **5. Qué necesitas antes de empezar.**
 El mes, el día que quieres cambiar, el compañero y —en fin de semana— la semana de
-devolución. En **Entre semana**, además, decidir cuál de las cinco opciones quieres.
+devolución. En **Entre semana**, además, decidir qué quieres hacer esa semana: de las cinco
+opciones que se muestran, **Cambio de doblada** está deshabilitada por ahora, así que puedes
+elegir entre las otras cuatro.
+<!-- fuente: templates/solicitudes/solicitar_cambio_descanso.html:128-133; solicitudes/services/strategies/cambio_descanso_strategy.py:53 -->
 
 **6. Pasos numerados.**
 
@@ -798,7 +801,9 @@ devolución. En **Entre semana**, además, decidir cuál de las cinco opciones q
 2. Elige el **Mes**: verás tus días de descanso de temporada.
 3. En **Tu Descanso**, toca el día que quieres intercambiar. Debajo aparece el descanso
    del grupo contrario de esa misma semana.
-4. En **¿Qué quieres hacer?**, elige una de las cinco opciones (ver punto 8).
+4. En **¿Qué quieres hacer?**, elige una de las cuatro opciones disponibles (ver punto 8).
+   La quinta tarjeta, **Cambio de doblada**, aparece atenuada con la nota *No disponible por
+   ahora* y no se selecciona aunque la pulses.
 5. Rellena el bloque que aparece según la opción elegida.
 6. Elige el **Compañero**.
 7. Escribe **Comentarios** y pulsa **Enviar Solicitud**.
@@ -815,13 +820,13 @@ devolución. En **Entre semana**, además, decidir cuál de las cinco opciones q
 | **Compañero con quien intercambias** | Un nombre | Sí en fin de semana | *Selecciona un compañero…* | Habilita la devolución |
 | **Semana de Devolución** | Otra semana del mismo mes | Sí en fin de semana | Ninguna | Puede mostrar el aviso de domingos impares |
 | **Tu Descanso** | Un día de descanso de temporada | Sí en entre semana | Ninguno | Fija la semana del intercambio |
-| **¿Qué quieres hacer?** | Una de las cinco opciones | Sí en entre semana | Ninguna | Muestra un bloque distinto |
+| **¿Qué quieres hacer?** | Una de las cuatro opciones disponibles; **Cambio de doblada** está deshabilitada | Sí en entre semana | Ninguna | Muestra un bloque distinto |
 | **¿Qué jornada trabajas TÚ los dos días?** | **AM (mañana)** o **PM (tarde)** | Solo en *Jornadas partidas* | Ninguna | Tu compañero trabaja la contraria |
 | **¿Qué te cubren de tu día completo?** | **Solo AM**, **Solo PM** o **Día completo (2 compañeros)** | Solo en *Que me cubran mi día* | Ninguna | Determina cuántos compañeros hacen falta |
-| **Día de pago (misma semana)** | Un día de la misma semana | Solo en *Que me cubran mi día* | Ninguno | Debe ser de la misma semana |
+| **Día de pago (misma semana)** | Un día de la misma semana | Solo en *Que me cubran mi día* | Tu día de descanso de esa semana | Debe ser de la misma semana. Con **Día completo (2 compañeros)** tiene que ser un día en el que estés **libre**. Los días de **mantenimiento** salen deshabilitados: ese día no opera nadie |
 | **¿Con qué jornada pagas ese día?** | **AM** o **PM** | Solo si estás libre ese día y él trabaja las dos | Ninguna | Define qué le cubres |
 | **Compañero que te cubre** / **Compañero que cubre la PM** | Nombres | Sí en cobertura | *Selecciona un compañero…* | Con dos compañeros se crean dos solicitudes |
-| **Doblada de la semana que tomas** | Una doblada del desplegable | Solo en *Cambio de doblada* | *Cargando dobladas de la semana…* | Define quién toma tu día |
+| **Doblada de la semana que tomas** | Una doblada del desplegable | Solo en *Cambio de doblada*, que está deshabilitada por ahora: hoy este campo no llegas a verlo | *Cargando dobladas de la semana…* | Define quién toma tu día |
 | **¿Qué media jornada trabajas tu día completo?** | **AM (mañana)** o **PM (tarde)** | Solo en *Permiso media jornada* | Ninguna | La otra media la trabajas en tu descanso |
 | **Compañero** | Un nombre | Sí, salvo en permiso | *Selecciona un compañero…* | Es quien aprueba |
 | **Comentarios** | El motivo | Sí | Vacío | Nada |
@@ -835,16 +840,40 @@ devolución. En **Entre semana**, además, decidir cuál de las cinco opciones q
 | 🔁 **Intercambiar el día** | Cambias tu descanso por el del compañero: él toma tu día completo y tú el suyo. Sin deuda. |
 | 🌗 **Jornadas partidas** | Uno va los 2 días en la mañana (AM) y el otro los 2 días en la tarde (PM). Sin deuda. |
 | 🤝 **Que me cubran mi día** | Te cubren 1 jornada o las 2 de tu día completo y pagas en la **misma semana**. Deuda de 30 minutos solo para quien doble sobre su propia jornada. |
-| ♻️ **Cambio de doblada** | Tomas la doblada que un compañero ya tiene esa semana y él toma tu día completo. Sin deuda, porque ambos ya doblaban. |
+| ♻️ **Cambio de doblada** | **No disponible por ahora.** Cuando esté activa: tomas la doblada que un compañero ya tiene esa semana y él toma tu día completo. Sin deuda, porque ambos ya doblaban. |
 | 📋 **Permiso media jornada** | Trabajas media jornada tu día completo y la otra media tu día de descanso. Se aprueba como **PERMISO** por tu supervisor, sin pasar por un compañero. Sin deuda. |
 
 <!-- fuente: templates/solicitudes/solicitar_cambio_descanso.html:116-135 -->
+
+**Sobre la opción que está deshabilitada.** La tarjeta ♻️ **Cambio de doblada** sigue en
+pantalla, atenuada y con la nota *No disponible por ahora*, pero no se puede elegir: al
+pulsarla no ocurre nada y no se abre su bloque de campos.
+<!-- fuente: templates/solicitudes/solicitar_cambio_descanso.html:128-133; static/js/cambio-turno/solicitar_cambio_descanso.js:780-786 -->
+
+Se mantiene a la vista, con su descripción, porque es una pausa y no una retirada: puede
+volver a activarse. Mientras tanto, para esa semana usa una de las otras cuatro opciones.
+El bloqueo no depende de la pantalla: aunque la solicitud llegue por otra vía, el sistema la
+rechaza igual (ver el punto 10).
+<!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py:53,248-256 -->
 
 | Opción de cobertura | Qué implica |
 |---|---|
 | **Solo AM** | Un compañero cubre tu mañana |
 | **Solo PM** | Un compañero cubre tu tarde |
-| **Día completo (2 compañeros)** | Se crean **dos** solicitudes en un solo envío: o se crean las dos o ninguna. Después cada una se aprueba por separado. |
+| **Día completo (2 compañeros)** | Se crean **dos** solicitudes en un solo envío: o se crean las dos o ninguna. Después cada una se aprueba por separado. **El día de pago tiene que estar libre** (ver abajo). |
+
+**Por qué el día completo exige pagar en un día libre.** Con dos compañeros, ese día de pago
+se usa **dos veces**: le devuelves media jornada a uno (la AM) y media al otro (la PM). O sea
+que ese día terminas trabajando **AM+PM**, y eso solo cabe si llegabas libre. Si ese día ya
+trabajas media jornada, solo alcanza para pagarle a uno y el otro te habría cubierto gratis.
+
+Un **Cambio de Turno** no lo resuelve: girar tu jornada solo traslada el choque al otro
+compañero. Y si el día de pago fuera de mantenimiento, ese día ni siquiera se puede pedir un
+Cambio de Turno. Las salidas reales son dos: **elegir tu día libre** de esa semana, o pedir
+que te cubran **solo la AM** o **solo la PM** (ahí sí basta con tener libre esa mitad).
+
+<!-- fuente: solicitudes/services/solicitud_orchestrator.py (_pago_dos_debe_estar_libre) -->
+<!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js (mostrarAvisoDosDiaLibre) -->
 
 <!-- fuente: templates/solicitudes/solicitar_cambio_descanso.html:153-155,187-188 -->
 <!-- fuente: solicitudes/services/solicitud_orchestrator.py:190-290 -->
@@ -863,9 +892,28 @@ Avisos inmediatos, tal como aparecen:
 - *"Los dos compañeros deben ser personas distintas."*
 - *"El día de pago ya trabajas AM+PM (doblada): no te queda jornada con la que pagar. Elige
   otro día."*
+- Solo en **Día completo (2 compañeros)**, y en cuanto eliges un día de pago en el que ya
+  trabajas, un recuadro rojo: *"Para el día completo el día de pago debe estar LIBRE. Ese día
+  le devuelves media jornada a cada compañero (AM a uno y PM al otro), o sea que trabajas
+  AM+PM. El dd/mm/aaaa ya trabajas AM, así que solo podrías pagarle a uno. Un Cambio de Turno
+  no lo arregla: te dejaría chocando con el otro. Elige tu día libre (lunes 09/03), o pide que
+  te cubran solo la AM o solo la PM."* Es palabra por palabra lo que responde el sistema si
+  envías igualmente (punto 14); lo único que añade la pantalla es el nombre y la fecha de tu
+  día libre de esa semana, que solo se propone si sigue disponible en el desplegable.
+  <!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js:1064-1095 (mostrarAvisoDosDiaLibre); solicitudes/services/solicitud_orchestrator.py:201-235 -->
+- Si pulsas **Enviar Solicitud** sin corregirlo, la lista de *Faltan datos* dice lo mismo:
+  *"Para el día completo (2 compañeros) el día de pago debe estar LIBRE. Ese día le devuelves
+  media jornada a cada compañero (AM a uno y PM al otro), o sea que trabajas AM+PM. Elige un
+  día de esa semana en el que estés libre, o pide que te cubran solo la AM o solo la PM."*
+  Frente al recuadro rojo se ahorra dos cosas que ahí ya tienes delante: qué jornada trabajas
+  ese día y la advertencia de que un **Cambio de Turno** no lo arregla.
+  <!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js:1064-1067 (literales compartidos), :1294-1296 -->
 - *"En el día de pago tienes la misma jornada que el compañero: primero haz un Cambio de
   Turno sencillo."*
-- *"Selecciona la doblada que tomas."*, *"Elige qué media jornada trabajas tu día."*
+- *"Elige qué media jornada trabajas tu día."* (El aviso *"Selecciona la doblada que tomas."*
+  pertenece a **Cambio de doblada** y hoy no llegas a verlo: esa opción está deshabilitada.)
+- La tarjeta ♻️ **Cambio de doblada** no responde al clic: no se marca ni abre campos.
+  <!-- fuente: static/js/cambio-turno/solicitar_cambio_descanso.js:780-786 -->
 - *"Ingresa un comentario."*
 - Si el mes tiene 5 domingos: *"Uno trabajará 3 domingos y el otro 2. Confirmen ambos antes
   de continuar."*
@@ -900,6 +948,17 @@ En modalidad **Entre semana**:
 - Que la compensación sea en la misma semana.
 - Que el compañero sea del grupo contrario y que ambos tengáis realmente ese descanso
   asignado.
+- Que la opción elegida esté disponible. **Cambio de doblada** está deshabilitada: si la
+  solicitud llega igualmente, se rechaza con *"«Cambio de doblada de la semana» está
+  deshabilitado por ahora. Elige otra de las opciones de esa semana."*. La misma
+  comprobación se repite al aprobar, así que una solicitud de esa opción enviada antes de
+  que se apagara tampoco se puede aprobar: el compañero o el supervisor ven ese mismo texto
+  y deben rechazarla.
+  <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py:53,248-256; solicitudes/tests/test_cambio_doblada_deshabilitado.py -->
+- En **Que me cubran mi día** con **Día completo (2 compañeros)**, que el día de pago sea un
+  día en el que estés libre. Se comprueba antes de crear nada, así que no queda ninguna de
+  las dos solicitudes a medias.
+  <!-- fuente: solicitudes/services/solicitud_orchestrator.py:201-235,294-296 -->
 
 <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py -->
 
@@ -989,6 +1048,8 @@ cambiar de nuevo, se cancela el anterior.
 | "Ya tienes una solicitud de cobertura pendiente para esa jornada de ese día." | Duplicado de cobertura | Espera la respuesta |
 | "Selecciona el compañero que te cubre la jornada AM." | Falta el primer compañero en el modo de dos | Selecciónalo |
 | "No se pudo crear la cobertura completa, no se creó ninguna solicitud." | Una de las dos coberturas falló la validación | Corrige y vuelve a enviar; no quedó nada a medias |
+| "Para el día completo el día de pago debe estar LIBRE. Ese día le devuelves media jornada a cada compañero (AM a uno y PM al otro), o sea que trabajas AM+PM. El dd/mm/aaaa ya trabajas AM, así que solo podrías pagarle a uno. Un Cambio de Turno no lo arregla: te dejaría chocando con el otro. Elige un día de esa semana en el que estés libre, o pide que te cubran solo la AM o solo la PM." | Con dos compañeros pagas **dos** medias jornadas ese día, así que acabarías en AM+PM; ya trabajabas media. En lugar de AM ves lo que trabajas de verdad ese día: **AM**, **PM** o **AM+PM (doblada)**. Es el mismo texto del recuadro rojo del formulario (punto 9) | Elige un día libre de esa semana, o pide solo AM o solo PM. Un Cambio de Turno **no** lo arregla: movería el choque al otro compañero <!-- fuente: solicitudes/services/solicitud_orchestrator.py:201-235 --> |
+| "«Cambio de doblada de la semana» está deshabilitado por ahora. Elige otra de las opciones de esa semana." | La opción ♻️ **Cambio de doblada** no está disponible. Sale si la solicitud se envía de todos modos, y también al intentar aprobar una enviada antes de que se apagara | Elige otra de las cuatro opciones de esa semana. Si la solicitud ya existe y está pendiente, hay que rechazarla <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py:248-256 --> |
 
 <!-- fuente: solicitudes/services/strategies/cambio_descanso_strategy.py; solicitud_orchestrator.py:190-290 -->
 
@@ -1342,7 +1403,11 @@ cada compañero, la cuenta debe cuadrar exactamente.
   caiga en festivo, fin de semana, mantenimiento, temporada, descanso, día libre ni un día
   ya doblado.
   <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py -->
-- Que el compañero no tenga ya otra doblada permanente en esas fechas.
+- Que el compañero no tenga ya otra doblada permanente sobre esas fechas, esté **aprobada**
+  o solo **pendiente**. Una solicitud pendiente reserva las fechas desde que se envía: hasta
+  que se apruebe o se cancele, esas fechas no se pueden comprometer otra vez. El aviso te
+  dice en cuál de las dos situaciones estás y qué hacer en cada caso (punto 14).
+  <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py:264-293 -->
 - Que ninguna fecha caiga en una ventana de cierre semanal activa.
   <!-- fuente: solicitudes/services/solicitud_orchestrator.py:441-455 -->
 
@@ -1393,12 +1458,26 @@ independientes.
 | "El … lo tienes como día que cedes y como día que devuelves a la vez. Ese día no puedes descansar y doblarte al mismo tiempo, aunque sean compañeros distintos." | Cruce entre cesión y devolución | Reasigna la fecha |
 | "Estás sancionado en ese rango de fechas; no puedes crear la solicitud." | Tienes sanción | Habla con tu supervisor |
 | "… está sancionado en ese rango. Elige otro compañero o ajusta las fechas." | El compañero está sancionado | Cambia de compañero |
-| "… ya tiene una doblada permanente en esas fechas. Elige otras fechas u otro compañero." | Solapamiento | Ajusta |
+| "NOMBRE APELLIDO ya tiene una doblada permanente aprobada en esas fechas (dd/mm/aaaa). Elige otras fechas u otro compañero." | El compañero ya tiene un acuerdo **en firme** sobre esas fechas; entre paréntesis salen las que chocan | Cambia esas fechas o elige a otra persona <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py:290-293 --> |
+| "NOMBRE APELLIDO tiene una solicitud de doblada permanente PENDIENTE de aprobación que ya compromete esas fechas (dd/mm/aaaa). Espera a que se apruebe o se cancele, o elige otras fechas u otro compañero." | El acuerdo del compañero es con **otra persona** y todavía no está aprobado, pero esas fechas ya están reservadas | Espera a que se resuelva, o cambia las fechas o el compañero <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py:285-289 --> |
+| "Ya enviaste una doblada permanente a NOMBRE APELLIDO que compromete esas fechas (dd/mm/aaaa) y sigue PENDIENTE de aprobación. Espera a que se apruebe o se cancele, o elige otras fechas." | La solicitud que bloquea es **tuya**, y con ese mismo compañero | Espera su respuesta, o retírala desde **Mis Solicitudes** y vuelve a enviarla con otras fechas. Cambiar de compañero no hace falta <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py:278-284 --> |
 | "Estas fechas ya no son válidas para la doblada: … Ese día tú y el compañero deben tener jornadas CONTRARIAS (AM↔PM) según su jornada real, y no puede caer en festivo, fin de semana, mantenimiento, temporada, descanso, día libre ni un día ya doblado." | Fechas no aptas | Ajusta las fechas o el compañero |
 | "Agrega al menos un día de cesión con su compañero" | Formulario vacío | Añade filas |
 | "Compañero no válido." | El compañero seleccionado ya no existe | Recarga y vuelve a elegir |
 
 <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py; solicitud_orchestrator.py -->
+
+**Sobre los tres avisos de fechas ya comprometidas.** Los tres significan lo mismo —esas
+fechas no están libres— y el bloqueo es idéntico: una doblada permanente **pendiente**
+reserva sus fechas desde que se envía, igual que una aprobada, y las mantiene reservadas
+hasta que se apruebe o se cancele. Lo que cambia es a quién le toca mover ficha.
+
+Si el acuerdo está aprobado, no hay nada que esperar: cambia las fechas o el compañero. Si
+solo está pendiente, tienes dos caminos: esperar a que se resuelva o buscar otras fechas. Y
+si la pendiente es la que tú mismo enviaste a esa persona, cambiar de compañero no sirve de
+nada; lo que hay que mover son las fechas, o retirar tu propia solicitud desde **Mis
+Solicitudes**.
+<!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py:264-293 -->
 
 Además, si pasan 45 segundos sin respuesta el envío deja de esperar y sale *"La
 solicitud está tardando demasiado"*. No significa que haya fallado: comprueba
@@ -1575,10 +1654,10 @@ Referencia rápida de los valores que aparecen en los formularios.
 | ¿Qué quieres hacer? | **Intercambiar el día** | Él toma tu día completo y tú el suyo. Sin deuda |
 | ¿Qué quieres hacer? | **Jornadas partidas** | Uno hace AM los dos días y el otro PM los dos días. Sin deuda |
 | ¿Qué quieres hacer? | **Que me cubran mi día** | Te cubren una o las dos jornadas y pagas en la misma semana |
-| ¿Qué quieres hacer? | **Cambio de doblada** | Tomas la doblada que él ya tenía y él toma tu día. Sin deuda |
+| ¿Qué quieres hacer? | **Cambio de doblada** | **No disponible por ahora**: la tarjeta sale atenuada y no se puede elegir. Cuando esté activa, tomas la doblada que él ya tenía y él toma tu día. Sin deuda |
 | ¿Qué quieres hacer? | **Permiso media jornada** | Media jornada tu día completo y media tu descanso; lo aprueba solo el supervisor |
 | ¿Qué te cubren? | **Solo AM** / **Solo PM** | Un compañero cubre esa mitad |
-| ¿Qué te cubren? | **Día completo (2 compañeros)** | Dos solicitudes en un solo envío, todo o nada |
+| ¿Qué te cubren? | **Día completo (2 compañeros)** | Dos solicitudes en un solo envío, todo o nada. El día de pago debe estar libre: ahí le devuelves media jornada a cada uno |
 | Jornada a ceder en doblada | **Jornada AM (él conserva PM)** | Cedes tu mañana |
 | Jornada a ceder en doblada | **Jornada PM (él conserva AM)** | Cedes tu tarde |
 | Estado de solicitud | **Pendiente** | Falta al menos una aprobación |
@@ -2659,6 +2738,9 @@ Cambios recientes que afectan a lo que ves en pantalla.
 | **La pantalla de levantar sanción avisa antes de confirmar** | Un recuadro en ámbar dice cuántas horas se condonan y que no se podrán volver a cobrar. También recuerda que el antecedente se conserva. El mensaje posterior indica cuántas horas se condonaron <!-- fuente: templates/empleados/sanciones_levantar.html; empleados/views/sanciones.py (SancionLevantarView.form_valid) --> |
 | **En Consolidado de Horas, "Saldado por sanción cumplida" pasó a llamarse "Extinguido por sanción"** | Cada fila lleva ahora una etiqueta que distingue **Sanción cumplida** (el castigo fue el pago) de **Condonada al levantar** (el supervisor la perdonó). El resumen de arriba dice "extinguido por sanción" y la nota al pie explica las dos vías. Ver el apartado 6.9 <!-- fuente: templates/turnos/consolidado_horas.html:57,225,251-255,265-273 --> |
 | En **PDH**, la fecha de pago la decide el supervisor | Se retiró una validación que rechazaba fechas legítimas <!-- fuente: commit 9bf81f8 --> |
+| **En Doblada Permanente, el aviso de fechas ocupadas dice si el otro acuerdo está aprobado o solo pendiente** | Antes salía siempre el mismo texto —"ya tiene una doblada permanente en esas fechas"— aunque el acuerdo del compañero estuviera todavía esperando aprobación, y eso hacía pensar que ya estaba en firme. Ahora hay tres avisos: acuerdo aprobado, solicitud pendiente de otra pareja, y solicitud pendiente que enviaste tú mismo a esa persona; cada uno indica qué hacer. La regla no cambió: una solicitud pendiente sigue reservando esas fechas hasta que se apruebe o se cancele. Ver el apartado 4.5 <!-- fuente: solicitudes/services/strategies/doblada_permanente_strategy.py:264-293 --> |
+| **En Cambio de Día de Descanso, la opción "Cambio de doblada" está deshabilitada** | La tarjeta ♻️ **Cambio de doblada** de la modalidad **Entre semana** sigue a la vista con su descripción, pero atenuada y con la nota *No disponible por ahora*: no se puede seleccionar. Es una pausa, no una retirada. Las otras cuatro opciones de la semana funcionan igual que antes. Ver el apartado 4.3 <!-- fuente: templates/solicitudes/solicitar_cambio_descanso.html:128-133; solicitudes/services/strategies/cambio_descanso_strategy.py:53,248-256 --> |
+| **La cobertura de día completo con dos compañeros exige pagar en un día libre** | Ese día devuelves media jornada a cada uno (la AM a uno y la PM al otro), o sea que acabas trabajando el día entero. Si ya trabajabas media jornada, el envío se detiene antes de crear nada y el aviso explica el motivo: solo alcanzarías para pagarle a uno. Un **Cambio de Turno** no lo resuelve, porque traslada el choque al otro compañero. Esta regla se anuncia en tres momentos —el recuadro rojo bajo el día de pago, la lista de datos que faltan al enviar y la respuesta del sistema— y los tres la cuentan ahora con las mismas palabras. Antes cada uno la contaba a su manera y parecían reglas distintas. Lo único que cambia entre ellos es cuánto detalle repiten: el recuadro añade qué jornada trabajas ese día y te nombra tu día libre. Ver el apartado 4.3 <!-- fuente: solicitudes/services/solicitud_orchestrator.py:201-235,294-296; static/js/cambio-turno/solicitar_cambio_descanso.js:1064-1067,1090-1095,1294-1296 --> |
 
 <!-- fuente: git log del repositorio, commits 0e541c1 … 40a7ed8 -->
 
@@ -2696,6 +2778,8 @@ incluyeron como hechos en el manual.
 | Si el aviso de "otro año" aparece también antes de enviar, dentro del formulario | Formularios de los seis trámites | Se comprobó la validación al enviar, común a los seis; no se localizó un aviso equivalente en la propia pantalla |
 | Qué texto lleva el botón del aviso "La solicitud está tardando demasiado" en **Cambio de Día de Descanso** y en **Doblada** | Pantallas de envío de esos dos formularios | Los otros cuatro fijan **Entendido** de forma explícita; estos dos no lo indican y muestran el botón por defecto del componente de avisos. No se comprobó en pantalla qué palabra aparece ahí |
 | Si el aviso de tiempo puede salir cuando la solicitud ya se guardó y el compañero ya recibió el correo | Envío de solicitudes y cola de correo | Es posible en teoría, porque el corte solo detiene la espera y no cancela nada en el servidor; no se pudo reproducir para confirmar qué avisos llegan en ese caso |
+| Hasta cuándo estará deshabilitada la opción ♻️ **Cambio de doblada** del cambio de descanso entre semana | Formulario, pantalla de envío y comprobación del servidor | El apagado está hecho para poder revertirse, pero no hay ninguna fecha ni condición escrita para reactivarlo: es una decisión que se toma fuera de la aplicación |
+| Qué ve un explorador cuya solicitud de **Cambio de doblada** quedó pendiente antes de que se deshabilitara la opción | Comprobación del servidor y pantalla de solicitudes pendientes | Se verificó que esa solicitud ya no se puede aprobar y que quien intente aprobarla ve el aviso de opción deshabilitada; no se pudo comprobar con datos reales si queda alguna en esa situación ni qué se muestra en **Mis Solicitudes** |
 | Qué ve exactamente un supervisor que tiene permisos aprobados antes de esta versión, sin fecha de aprobación guardada | Vista de cancelación de permisos | Para esos permisos antiguos el plazo se sigue midiendo desde la última modificación; no se pudo comprobar con datos reales cuántos quedan en esa situación |
 
 ---

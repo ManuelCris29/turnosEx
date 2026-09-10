@@ -332,7 +332,7 @@ auditoría. La decisión **sigue abierta**; lo que sigue es el análisis, no una
 
 ### El dato que suele decidirla mal
 
-| | EC2 ([arquitectura §2](../05-referencia/deployment/arquitectura-aws-rds-recomendada.md)) — **camino elegido (2026-09-04)** | Fargate ([§8](../05-referencia/deployment/arquitectura-aws-rds-recomendada.md)) — **descartada por presupuesto**; su checklist se borró |
+| | EC2 ([arquitectura §2](../05-referencia/deployment/99-aws/arquitectura-aws-rds-recomendada.md)) — **camino elegido (2026-09-04)** | Fargate ([§8](../05-referencia/deployment/99-aws/arquitectura-aws-rds-recomendada.md)) — **descartada por presupuesto**; su checklist se borró |
 |---|---|---|
 | CPU / RAM | t4g.small = **2 vCPU / 2 GB** | **0,5 vCPU / 1 GB** |
 | Coste | ~$32/mes | ~$56/mes (1 task) · ~$74 (2 tasks) |

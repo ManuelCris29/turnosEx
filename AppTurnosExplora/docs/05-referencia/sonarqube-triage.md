@@ -331,7 +331,7 @@ Ejemplo del umbral: "complejidad 27, permitido 15".
 reglas de dobladas / CT permanente / cambio de descanso, donde un error es
 caro y sutil. Atacarlos **de a uno, con tests que cubran la función antes de
 tocarla**, y solo cuando ya haya que modificar ese código por otra razón.
-Ver [PROTECTION_PATTERNS.md](../../PROTECTION_PATTERNS.md).
+Ver [PROTECTION_PATTERNS.md](../../../PROTECTION_PATTERNS.md).
 
 ## 🟡 EVALUAR — modelado de datos (1)
 

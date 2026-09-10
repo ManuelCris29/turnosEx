@@ -44,7 +44,7 @@ inscritos y un máximo de 30 solicitudes/día:
 > exactamente **cero**, y a cambio introduce el riesgo más caro que existe — el borrado
 > de datos.
 
-Ver [arquitectura-aws-rds-recomendada.md](./arquitectura-aws-rds-recomendada.md) § 4.2 y § 5.
+Ver [arquitectura-aws-rds-recomendada.md](../99-aws/arquitectura-aws-rds-recomendada.md) § 4.2 y § 5.
 
 ---
 

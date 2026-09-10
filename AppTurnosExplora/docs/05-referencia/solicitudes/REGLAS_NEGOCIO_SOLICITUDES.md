@@ -511,9 +511,13 @@ cubrir↔devolver completos.
 | 6 | Un mismo día no puede ser de cesión y de devolución | "Un mismo día de la semana no puede ser de cesión y de devolución a la vez." | Backend + Frontend |
 | 7 | **Balance**: misma cantidad de fechas (o días) cubiertas que devueltas | "Debes devolver la misma cantidad de fechas que te cubren..." | Backend + Frontend |
 | 8 | Ni solicitante ni compañero pueden estar **sancionados** en el rango | "Estás sancionado en ese rango..." / "{compañero} está sancionado en ese rango." | Backend |
-| 9 | El compañero no puede tener otra **doblada permanente** (pendiente o aprobada) que comparta alguna **fecha**. Se cruzan las fechas concretas de ambos acuerdos, no los días de la semana: dos acuerdos pueden usar el mismo weekday en fechas distintas y no chocar. Solo se compara por weekday si el otro acuerdo es legacy (sin `fechas_*`) | "{compañero} ya tiene una doblada permanente en esas fechas (dd/mm/aaaa)." | Backend |
+| 9 | El compañero no puede tener otra **doblada permanente** (pendiente o aprobada) que comparta alguna **fecha**. Se cruzan las fechas concretas de ambos acuerdos, no los días de la semana: dos acuerdos pueden usar el mismo weekday en fechas distintas y no chocar. Solo se compara por weekday si el otro acuerdo es legacy (sin `fechas_*`) | Tres variantes según el estado del otro acuerdo y quién lo envió (`doblada_permanente_strategy.py:278-297`):<br>• **Aprobada:** "{compañero} ya tiene una doblada permanente aprobada en esas fechas (dd/mm/aaaa). Elige otras fechas u otro compañero."<br>• **Pendiente de otro par:** "{compañero} tiene una solicitud de doblada permanente PENDIENTE de aprobación que ya compromete esas fechas (dd/mm/aaaa). Espera a que se apruebe o se cancele, o elige otras fechas u otro compañero."<br>• **Pendiente enviada por el propio solicitante:** "Ya enviaste una doblada permanente a {compañero} que compromete esas fechas (dd/mm/aaaa) y sigue PENDIENTE de aprobación. Espera a que se apruebe o se cancele, o elige otras fechas." | Backend |
 | 10 | Jornadas **contrarias** por fecha real; deben quedar días válidos para cubrir **y** devolver | "No quedan fechas válidas para CUBRIR y DEVOLVER a la vez..." | Backend + Frontend |
 | 11 | Ninguna de las **fechas afectadas** puede estar tomada por otra solicitud **pendiente**, ni del solicitante ni del compañero. Se cruzan las fechas que de verdad se aplicarían, no solo el inicio del rango | "Ya tienes una solicitud pendiente que afecta el dd/mm/aaaa..." | Backend |
+
+**Por qué la regla 9 tiene tres mensajes.** El bloqueo es el mismo para una pendiente y para una aprobada —esas fechas ya están comprometidas—, pero el aviso no puede confundirlas. El mensaje único daba por firme un acuerdo que solo estaba **pendiente de aprobación**, y en el caso más frecuente —la pendiente es la que el propio solicitante ya envió a ese mismo compañero— le decía "elige otro compañero" cuando lo que debe hacer es esperar su propia solicitud. La rama se decide por `det.solicitud.estado` y, si es `pendiente`, por `det.solicitud.explorador_solicitante_id` frente al solicitante actual (`solicitudes/services/strategies/doblada_permanente_strategy.py:278-297`; el motivo está comentado en `:270-277`). La comparación es `str(det.solicitud.estado or '').lower() == 'pendiente'` (`:278`) y no `== 'pendiente'` a secas: el filtro de arriba va por ORM y MySQL **no distingue mayúsculas**, así que una fila guardada como `'PENDIENTE'` llega hasta aquí y, comparada en Python tal cual, se anunciaría como aprobada —justo el error que estos tres mensajes vienen a corregir (motivo comentado en `:274-277`)—. Las fechas concretas del choque se listan igual en las tres variantes (`detalle`, `:267-269`).
+
+Cobertura: `solicitudes/tests/test_doblada_permanente.py` → `DobladaPermanenteOtroAcuerdoTest` (`:292`), casos `test_el_aviso_distingue_pendiente_de_aprobada` (`:355`) y `test_si_la_pendiente_es_propia_el_aviso_lo_dice` (`:371`).
 
 ### Reglas del flujo multi-compañero — `_procesar_doblada_permanente_multi`
 
@@ -598,11 +602,56 @@ semana** — un día de temporada modificado se compensa dentro de su propia sem
 | `intercambio_dia` | Intercambio directo de descansos: yo descanso tu día y tú el mío | No |
 | `jornadas_partidas` | Los dos días especiales se reparten por jornada: yo trabajo siempre AM y tú siempre PM (o al revés) | No |
 | `cobertura_misma_semana` | Un compañero me cubre **AM o PM** de mi día completo de temporada, y le devuelvo esa jornada otro día de la misma semana | 30 min solo si quien cubre **ya tenía jornada** ese día y acabó doblado |
-| `cambio_doblada` | El compañero tiene una doblada real ese día y yo mi día completo de temporada: se intercambian | No |
+| `cambio_doblada` — **DESHABILITADA** (el código sigue entero, ver abajo) | El compañero tiene una doblada real ese día y yo mi día completo de temporada: se intercambian | No |
 
 En `cobertura_misma_semana` **no se puede ceder el día completo a UNA sola persona** —eso es
 "intercambiar el día"—; el día entero solo se reparte entre **dos** compañeros (una solicitud por
 jornada).
+
+#### `cambio_doblada` está apagada: dónde está el interruptor
+
+El interruptor real es una constante del backend, no la tarjeta del formulario:
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| `SUBMODALIDADES_SEMANA_DESHABILITADAS` | `solicitudes/services/strategies/cambio_descanso_strategy.py:53` | `frozenset({'cambio_doblada'})`. Es el interruptor. El motivo está comentado en `:40-52` |
+| Comprobación | mismo archivo, `:248-256` | Dentro de `validar_solicitud`, en la rama de ENTRE SEMANA, **antes** de despachar a cualquier sub-validador. Devuelve `«{etiqueta}» está deshabilitado por ahora. Elige otra de las opciones de esa semana.`, con la etiqueta sacada de `DobladaDetalle.SUBMODALIDAD_SEMANA_CHOICES` (`:252`) para que el texto siga siendo cierto si se apaga o reactiva otra |
+| Reflejo visual | `templates/solicitudes/solicitar_cambio_descanso.html:128-133` | La clase `disabled` de la tarjeta y el texto "No disponible por ahora". **Solo cosmético**: se quita desde DevTools y una pestaña abierta antes del despliegue conserva el HTML y el JS anteriores, así que el POST llega igual |
+
+Como la comprobación vive en `validar_solicitud`, cubre las **dos** entradas: la creación y la re-validación al aprobar (`revalidar_para_aprobar` termina llamando a `validar_solicitud`, `solicitudes/services/strategies/base_strategy.py:114`). Una solicitud que se hubiera colado antes del apagado **tampoco se puede aprobar**.
+
+El código del sub-flujo **no se elimina**: `_validar_semana_cambio_doblada` y su aplicación siguen enteras. Para reactivarlo: sacar `'cambio_doblada'` del `frozenset` y quitar la clase `disabled` de la tarjeta. Cobertura: `solicitudes/tests/test_cambio_doblada_deshabilitado.py` → `CambioDobladaDeshabilitadoTest` (`:31`), que fija el rechazo del POST directo (`:74`), el mensaje (`:80`), el bloqueo al aprobar una colada (`:93`), que las demás sub-modalidades siguen vivas (`:120`) y que el interruptor es el conjunto y no un literal suelto (`:131`).
+
+#### Cobertura de día completo con DOS compañeros: el día de pago debe estar LIBRE
+
+Cuando el día completo se reparte entre dos compañeros, las dos solicitudes comparten una única `fecha_pago`: ese día se devuelven las **dos** medias jornadas —AM a uno y PM al otro— y el solicitante termina trabajando **AM+PM**. Solo cabe partiendo de cero; con media jornada propia solo alcanza para pagarle a uno y el otro habría cubierto gratis.
+
+La comprobación es `SolicitudOrchestrator._pago_dos_debe_estar_libre` (`solicitudes/services/solicitud_orchestrator.py:201`), llamada al inicio de `_procesar_cobertura_dos` (`:294`), justo tras la restricción médica y **antes** de validar ninguna de las dos solicitudes. Lee el estado **real** del día con `CambioDescansoAplicacionService._jornadas_actuales` (`:217`), no la jornada predeterminada.
+
+No es una regla nueva: `_validar_semana_cobertura` ya rechazaba el caso, pero por la mitad equivocada del problema —la jornada que choca— y con un mensaje que manda a hacer un **Cambio de Turno**, que aquí no resuelve nada: girar la jornada propia solo traslada el choque al otro compañero. Por eso el par se corta antes, con el motivo real (motivo comentado en `:285-293`). Mensaje exacto (`:228-234`):
+
+> Para el día completo el día de pago debe estar LIBRE. Ese día le devuelves media jornada a cada compañero (AM a uno y PM al otro), o sea que trabajas AM+PM. El {dd/mm/aaaa} ya trabajas {jornada}, así que solo podrías pagarle a uno. Un Cambio de Turno no lo arregla: te dejaría chocando con el otro. Elige un día de esa semana en el que estés libre, o pide que te cubran solo la AM o solo la PM.
+
+`{jornada}` es `AM+PM (doblada)` si ya dobla ese día, o la jornada suelta que tenga (`:221`). Sin `fecha_pago` el corte es anterior: `Elige el día de pago (de la misma semana).` (`:215`). Cobertura: `solicitudes/tests/test_cobertura_dos_companeros.py`, casos `test_dia_de_pago_con_media_jornada_propia_es_rechazado` (`:154`, que además fija que el mensaje **no** mande al Cambio de Turno) y `test_dia_de_pago_donde_ya_doblo_tampoco_sirve_para_los_dos` (`:174`).
+
+**Patrón de protección: la misma regla se anuncia en tres sitios y ninguno puede divergir.** El usuario se topa con esta regla por tres caminos —el recuadro rojo bajo el día de pago, el bullet de la lista «Faltan datos» al pulsar Enviar, y el rechazo del POST—, y leer tres redacciones distintas de lo MISMO desorienta. Los tres dicen ahora lo mismo, pero **la garantía no es la misma en los dos cruces**:
+
+| Cruce | Garantía | Por qué |
+|---|---|---|
+| Dentro del front (recuadro rojo ↔ «Faltan datos») | **Literal compartido**: una sola definición | Los dos avisos viven en el mismo archivo, así que pueden usar la misma constante. No hay nada que sincronizar y **no hace falta test**: para separarlos habría que tocar la constante, y eso cambia los dos |
+| Front ↔ servidor | **Sincronización manual + test centinela** | Son lenguajes distintos y no pueden compartir el literal. Lo único que queda es escribir el mismo texto dos veces y poner un guardián que lo compruebe |
+
+La **única** diferencia deliberada sigue siendo el día libre concreto: el formulario lo nombra (`sugerencia`, solo si ese día sigue siendo una opción viva del desplegable, `static/js/cambio-turno/solicitar_cambio_descanso.js:1075-1083`) y el servidor no, porque no lo consulta. El bullet de «Faltan datos» tampoco lleva el detalle de la jornada propia, que el recuadro ya tiene delante (`:1292-1293`).
+
+| Pieza | Dónde | Nota |
+|---|---|---|
+| Constantes del front | `static/js/cambio-turno/solicitar_cambio_descanso.js:1064-1067`: `DOS_LIBRE_TITULAR`, `DOS_LIBRE_MOTIVO` y `DOS_LIBRE_SALIDA` (motivo comentado en `:1059-1063`) | El literal existe **una sola vez** en el archivo. Ahí viven además las frases núcleo que el centinela cruza contra el servidor |
+| Recuadro rojo bloqueante | `:1091-1095`, dentro de `mostrarAvisoDosDiaLibre` (`:1069`), con el comentario que apunta al servidor en `:1085-1090` | Las negritas envuelven **frases completas** a propósito: si partieran una frase por dentro, el marcado `<strong>` quedaría en medio del texto y la frase núcleo dejaría de ser localizable |
+| Bullet de «Faltan datos» | `:1291-1296` | Consume las mismas tres constantes. Es el sitio que **el centinela no cubre**: vive en el mismo archivo que el recuadro, así que compararlos sería comparar el archivo consigo mismo. Lo que lo mantiene en línea es compartir la constante |
+| Rechazo del servidor | `solicitudes/services/solicitud_orchestrator.py:228-234`, con el comentario que apunta al JS en `:222-227` | Aquí el texto está escrito a mano. Es el lado que hay que ajustar —o el otro— cuando el centinela falla |
+| Centinela | `solicitudes/tests/test_cobertura_dos_companeros.py` → `AvisoDiaPagoLibreEspejoTest` (`:29`), caso `test_las_dos_redacciones_comparten_las_frases_nucleo` (`:60`) | Lee los dos **fuentes** —el `.py` y el `.js`— y exige que aparezcan literales las **tres frases núcleo** (`FRASES`, `:44-49`). Las encuentra en las constantes; antes de comparar cose las cadenas partidas en varias líneas (`_COSTURA`, `:54`), que es lo que une los dos trozos de `DOS_LIBRE_MOTIVO` |
+
+Si el centinela falla es porque se editó un lado del cruce con el servidor y no el otro: se ajusta el que quedó atrás, no se relaja la comparación. Dentro del front no hay nada que ajustar: se edita la constante y los dos avisos cambian juntos.
 
 ### Reglas al aprobar y aplicar
 

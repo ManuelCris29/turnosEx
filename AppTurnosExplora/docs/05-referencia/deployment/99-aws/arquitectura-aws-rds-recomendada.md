@@ -11,7 +11,7 @@
 > §3, §4 y §5 están recalculadas para esa escala; los objetivos de 1.000 usuarios se conservan
 > como camino de crecimiento.
 
-> Sustituye a [ANALISIS_MIGRACION_AWS.md](../../01-analisis/ANALISIS_MIGRACION_AWS.md) (que evitaba RDS). Integra el [PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA](./PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA.docx).
+> Sustituye a [ANALISIS_MIGRACION_AWS.md](../../../01-analisis/ANALISIS_MIGRACION_AWS.md) (que evitaba RDS). Integra el [PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA](../02-correo/PLAN_CORREO_TRANSACCIONAL_Y_LATENCIA.docx).
 
 ---
 
@@ -111,11 +111,11 @@
 ### 4.3 Amazon SES — correo transaccional · **~$2/mes**
 - **Qué:** conteo real del flujo (`NotificacionService` → `EmailService`): por solicitud se encolan **1-3** correos al crearla (supervisor, receptor, solicitante — o el combinado `_enviar_email_supervisor_receptor`) y **2-4** al responder receptor y supervisor (`notificacion_service.py:391-512`). Son **~6 correos por solicitud**.
 - **Volumen a 30 solicitudes/día:** 30 × 6 × 30 días = **5.400/mes**, más recuperación de contraseña y avisos de seguridad ≈ **6.000/mes** × $0,10/1.000 ≈ **$0,60/mes**. (A 100 solicitudes/día serían ~18.000/mes ≈ $1,80.)
-- **Por qué SES** (razonado en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md)):
+- **Por qué SES** (razonado en el [ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md)):
   - **Entregabilidad — el motivo principal.** Hoy se envía como `no-reply@parqueexplora.org` autenticando contra Gmail, así que la firma DKIM es de `gmail.com` y **no alinea** con el remitente: DMARC falla y el correo va a spam para las 300 personas, en silencio. Con Easy DKIM sobre el dominio propio, alinea.
   - **Credenciales que no caducan:** las SMTP de SES se derivan de una clave IAM y solo cambian si alguien las rota. Adiós al App Password de Gmail, que **ya caducó una vez** y tumbó el envío sin avisar (`SOLUCION_ENVIO_CORREOS.md`).
   - **Retroalimentación:** rebotes y quejas como métricas de CloudWatch. Gmail no dice qué rebotó.
-- **Se arranca por SMTP, no por la API.** Tres variables de entorno y **cero líneas de código**; la suite de correo (26 pruebas) sigue verde sin tocarla. `django-ses` + IAM role queda como mejora posterior, no como punto de partida — exige `boto3` en `requirements.txt` y mete una segunda variable en la primera salida a producción. La latencia ya la resuelve `EMAIL_SEND_ASYNC` más el lote sobre una conexión ([ADR 015](../../03-arquitectura/adr/015-entrega-de-correo-en-lote.md)).
+- **Se arranca por SMTP, no por la API.** Tres variables de entorno y **cero líneas de código**; la suite de correo (26 pruebas) sigue verde sin tocarla. `django-ses` + IAM role queda como mejora posterior, no como punto de partida — exige `boto3` en `requirements.txt` y mete una segunda variable en la primera salida a producción. La latencia ya la resuelve `EMAIL_SEND_ASYNC` más el lote sobre una conexión ([ADR 015](../../../03-arquitectura/adr/015-entrega-de-correo-en-lote.md)).
 - **Dependencia:** IT publica los **3 CNAME de Easy DKIM** (sin tocar el SPF) y hay que **salir del sandbox** (§6).
 
 ### 4.4 Disco de la EC2 (EBS gp3, 20 GB) · **~$1,60/mes**
@@ -242,7 +242,7 @@ Ninguno es opcional con un techo de 150.000 COP:
 1. **IT de Parque Explora** (controlan DNS y Workspace):
    - Crear `no-reply@parqueexplora.org`.
    - Agregar los **3 CNAME de Easy DKIM** que genera SES. **NO se toca el registro SPF**
-     ([ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md), decisión 3):
+     ([ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md), decisión 3):
      SES envía con su propio Return-Path (`@<región>.amazonses.com`), cuyo SPF publica Amazon y
      pasa; DMARC exige que **uno** de los dos mecanismos alinee, y Easy DKIM firma con el dominio
      del From. Pedir que ajusten el SPF del ápice —del que depende **todo** el correo de
@@ -261,13 +261,13 @@ Ninguno es opcional con un techo de 150.000 COP:
      las credenciales SMTP de SES en el `.env`. `EMAIL_BACKEND` se deja **sin definir** (usa el
      SMTP por defecto); ponerlo en `console` escribe los correos en el log y **no los recibe
      nadie, sin ningún error**. `django_ses.SESBackend` + IAM role es la vía de salida
-     documentada en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md),
+     documentada en el [ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md),
      sin fecha.
    - ⏳ **Cachear consultas del dashboard** (read-heavy) con `LocMemCache` → menos carga a RDS.
 4. **Archivado anual (pendiente, sin fecha):** dump anual a S3 cada diciembre. Se
    analizó purgar los años pasados y se **descartó**: el almacenamiento sobra para
    >150 años sobre el mínimo de 20 GB ya pagado. Ver
-   [MANUAL_ARCHIVADO_ANUAL.md](./MANUAL_ARCHIVADO_ANUAL.md).
+   [MANUAL_ARCHIVADO_ANUAL.md](../03-operacion/MANUAL_ARCHIVADO_ANUAL.md).
 5. **Django prod:** `.env` con `ENVIRONMENT=production`, `DEBUG=False`, `ALLOWED_HOSTS`, `SECRET_KEY`, `CSRF_TRUSTED_ORIGINS`, conexión a RDS.
 
 ---
@@ -504,7 +504,7 @@ certificado.
 ### 11.4 Qué va exactamente en el `.env` — y qué se rompe si falta
 
 Cinco variables dependen del dominio. La tabla completa está en
-[CONFIGURACION_PRODUCCION.md §2](./CONFIGURACION_PRODUCCION.md); aquí solo las relacionadas con la URL:
+[CONFIGURACION_PRODUCCION.md §2](../03-operacion/CONFIGURACION_PRODUCCION.md); aquí solo las relacionadas con la URL:
 
 ```bash
 # El dominio final. SIN esquema (sin https://), separado por comas.
@@ -644,7 +644,7 @@ corporativo"* — que es otra conversación y otro plazo. Pide **las dos identid
 primero: el subdominio deja todos los registros en algo que IT puede delegar entero y donde un
 error no toca el correo de Workspace. Y **no pidas MAIL FROM personalizado** en la primera
 vuelta: solo sirve para alinear también el SPF, y con DKIM alineado DMARC ya pasa. El porqué
-completo, en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
+completo, en el [ADR 016](../../../03-arquitectura/adr/016-transporte-de-correo-y-fiabilidad.md).
 
 ---
 
@@ -652,7 +652,7 @@ completo, en el [ADR 016](../../03-arquitectura/adr/016-transporte-de-correo-y-f
 
 **Sí, la mitad. Y esa mitad conviene hacerla en YAML; la otra mitad no.**
 
-La plantilla está escrita y validada: **[`infra/cloudformation/swalp-infra.yaml`](../../../infra/cloudformation/swalp-infra.yaml)**.
+La plantilla está escrita y validada: **[`infra/cloudformation/swalp-infra.yaml`](../../../../infra/cloudformation/swalp-infra.yaml)**.
 
 ### 12.1 La división: infraestructura sí, configuración del servidor no
 
