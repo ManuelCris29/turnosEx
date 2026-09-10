@@ -1,0 +1,100 @@
+name: Deploy
+
+# Despliegue a Dokploy, y SOLO si el CI pasó.
+#
+# POR QUÉ ESTE FICHERO EXISTE
+# ---------------------------
+# Dokploy trae "Auto Deploy" encendido por defecto para GitHub: despliega en cada
+# push. Aquí eso sería un error, y por un motivo concreto, no por prudencia
+# genérica: el job `test` de ci.yml corre `manage.py check --deploy`, que es la
+# barrera que impide desplegar con LocMemCache (`core.E001`) o con django-axes
+# mal configurado tras el proxy (`core.E003` / `core.E004`). Desplegar en el push
+# crudo se salta esa barrera justo en los dos fallos que dejan la aplicación en
+# pie pero rota: turnos desactualizados, o los 300 empleados bloqueados al quinto
+# intento fallido de cualquiera.
+#
+# Así que Auto Deploy va APAGADO en Dokploy y el despliegue lo dispara esto,
+# enganchado al final del CI.
+#
+# QUÉ HACE FALTA CONFIGURAR (una vez)
+# -----------------------------------
+#   1. En Dokploy: Application → Deployments → Auto Deploy = OFF.
+#   2. En Dokploy: Settings → API Keys → generar una.
+#   3. En GitHub: Settings → Secrets and variables → Actions → New secret:
+#        DOKPLOY_URL      https://dokploy.tu-dominio  (SIN barra final)
+#        DOKPLOY_API_KEY  la clave del paso 2
+#        DOKPLOY_APP_ID   el applicationId, visible en la URL del panel
+#
+# El panel de Dokploy tiene que ser alcanzable desde GitHub Actions. Si hoy solo
+# responde en el `:3000`, pídele a quien administre el servidor que le ponga
+# dominio propio con TLS ANTES de meter aquí una API key: esa clave puede
+# desplegar y leer configuración de todas las aplicaciones del servidor.
+#
+# ANTES DE ACTIVARLO
+# ------------------
+# Haz el primer despliegue a mano desde el panel. Este automatismo se enciende
+# cuando ya sabes que la aplicación levanta; si no, el primer fallo llega
+# envuelto en dos capas (Actions y Dokploy) en vez de una.
+
+on:
+  workflow_run:
+    # Tiene que coincidir con el `name:` de ci.yml. Si algún día se renombra el
+    # CI, esto deja de dispararse EN SILENCIO: no da error, simplemente no ocurre.
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  # Botón manual, para redesplegar sin tener que empujar un commit vacío.
+  workflow_dispatch:
+
+# Dos merges seguidos a main: que no se pisen dos despliegues. Y aquí NO se
+# cancela el que está en curso —al contrario que en el CI—, porque el contenedor
+# corre `migrate` al arrancar y cortar un despliegue a media migración es
+# exactamente el problema que no se quiere tener.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # `workflow_run` se dispara también cuando el CI falla o se cancela: sin este
+    # `if`, esto desplegaría precisamente las corridas rojas.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Disparar el despliegue en Dokploy
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+          DOKPLOY_APP_ID: ${{ secrets.DOKPLOY_APP_ID }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DOKPLOY_URL}" ] || [ -z "${DOKPLOY_API_KEY}" ] || [ -z "${DOKPLOY_APP_ID}" ]; then
+            echo "::error::Faltan secretos. Define DOKPLOY_URL, DOKPLOY_API_KEY y DOKPLOY_APP_ID."
+            exit 1
+          fi
+
+          echo "Desplegando ${GITHUB_SHA::7} ..."
+
+          # --fail-with-body: sin esto, curl devuelve 0 ante un 401 o un 500 y el
+          # job saldría en verde sin haber desplegado nada.
+          curl --fail-with-body --silent --show-error \
+               --max-time 60 \
+               -X POST "${DOKPLOY_URL}/api/application.deploy" \
+               -H "x-api-key: ${DOKPLOY_API_KEY}" \
+               -H "Content-Type: application/json" \
+               -d "{\"applicationId\":\"${DOKPLOY_APP_ID}\"}"
+
+          echo ""
+          echo "Peticion aceptada. El build y el arranque se siguen en Dokploy → Deployments."
+
+      - name: Recordatorio
+        run: |
+          echo "::notice::Dokploy construye y arranca de forma asincrona: que este job este"
+          echo "::notice::en verde solo significa que ACEPTO la peticion, no que la aplicacion"
+          echo "::notice::este arriba. El resultado real esta en el panel, y las notificaciones"
+          echo "::notice::appDeploy / appBuildError de Dokploy son las que avisan de verdad."
