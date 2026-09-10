@@ -197,6 +197,43 @@ class SolicitudOrchestrator:
         return None
 
     # ------------------------------------------ CAMBIO DESCANSO: cobertura con 2 compañeros
+    @staticmethod
+    def _pago_dos_debe_estar_libre(solicitante, fecha_pago_raw):
+        """
+        Cobertura de día completo con DOS compañeros: el día de pago tiene que estar libre.
+
+        Ese día se devuelven las DOS medias jornadas (una a cada compañero), o sea que se
+        termina trabajando AM+PM. Quien ya tiene media jornada propia solo podría pagarle a
+        uno. Devuelve `ResultadoSolicitud` de error, o None si el día está libre.
+        """
+        from .cambio_descanso_aplicacion_service import CambioDescansoAplicacionService as _App
+        try:
+            fecha_pago = DateUtils.parse_date(fecha_pago_raw) if fecha_pago_raw else None
+        except (ValueError, TypeError):
+            fecha_pago = None
+        if not fecha_pago:
+            return ResultadoSolicitud.error('Elige el día de pago (de la misma semana).',
+                                            status=400, code='missing_fields')
+        mias = _App._jornadas_actuales(solicitante, fecha_pago)
+        if not mias:
+            return None
+        dia = fecha_pago.strftime('%d/%m/%Y')
+        tengo = 'AM+PM (doblada)' if mias >= {'AM', 'PM'} else next(iter(mias))
+        # REDACCIÓN ESPEJO del aviso del formulario (`mostrarAvisoDosDiaLibre` en
+        # static/js/cambio-turno/solicitar_cambio_descanso.js). El usuario puede llegar aquí
+        # por el aviso en pantalla o directo por POST, y leer dos textos distintos para la
+        # MISMA regla desorienta. Las tres frases núcleo son idénticas en los dos lados y
+        # `test_cobertura_dos_companeros.py` lo verifica; lo único que el formulario añade es
+        # el día libre concreto, que aquí no se sugiere porque el servidor no lo consulta.
+        return ResultadoSolicitud.error(
+            f'Para el día completo el día de pago debe estar LIBRE. '
+            f'Ese día le devuelves media jornada a cada compañero (AM a uno y PM al otro), '
+            f'o sea que trabajas AM+PM. El {dia} ya trabajas {tengo}, así que solo podrías '
+            f'pagarle a uno. Un Cambio de Turno no lo arregla: te dejaría chocando con el otro. '
+            f'Elige un día de esa semana en el que estés libre, o pide que te cubran solo la '
+            f'AM o solo la PM.',
+            status=400, code='validation_error')
+
     @classmethod
     def _procesar_cobertura_dos(cls, post, tipo_solicitud, solicitante, comentario):
         """
@@ -244,6 +281,19 @@ class SolicitudOrchestrator:
         restriccion = cls.verificar_restriccion(solicitante, {str(rid1), str(rid2)}, fechas, confirmar)
         if restriccion:
             return ResultadoSolicitud.desde_payload(restriccion, status=400)
+
+        # El día de pago tiene que estar LIBRE. Aquí se pagan DOS medias jornadas (la AM a un
+        # compañero y la PM al otro) en el MISMO día, así que ese día se termina trabajando
+        # AM+PM: solo cabe si no se tenía nada. Con media jornada propia solo se le podría
+        # pagar a uno, y el otro se quedaría cubriendo gratis.
+        #
+        # La validación por solicitud ya lo rechaza (choca la jornada que coincide), pero su
+        # mensaje manda a hacer un Cambio de Turno, que aquí NO resuelve nada: girar la jornada
+        # propia solo traslada el choque al otro compañero. Por eso el par se corta antes, con
+        # el motivo real.
+        error_pago = cls._pago_dos_debe_estar_libre(solicitante, post.get('fecha_pago'))
+        if error_pago:
+            return error_pago
 
         def _datos(receptor, jornada):
             return {

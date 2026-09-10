@@ -37,6 +37,8 @@
 .compa-grupo { font-size: .85rem; color: #64748b; }
 
 .alert-warning-info { background: #fef3c7; border-left: 4px solid #eab308; padding: 12px; border-radius: 6px; margin: 12px 0; color: #92400e; }
+/* Regla que BLOQUEA el envío (rojo), a diferencia del aviso amarillo que solo informa. */
+.alert-bloqueo { background: #fee2e2; border-left: 4px solid #dc2626; padding: 12px; border-radius: 6px; margin: 12px 0; color: #991b1b; }
 
 .resumen-box { background: #f0f4ff; border-left: 4px solid #6366f1; padding: 12px 15px; margin-top: 12px; border-radius: 4px; color: #3730a3; display: none; }
 .resumen-box.show { display: block; }
@@ -51,6 +53,10 @@
 .descanso-card.selected { border-color: #6366f1; background: #e0e7ff; }
 .descanso-dia { font-weight: 600; color: #1e293b; margin-bottom: 4px; }
 .descanso-grupo { font-size: .85rem; color: #64748b; }
+/* Sub-tipo deshabilitado (mismo criterio que .semana-card.disabled) */
+.descanso-card.disabled { opacity: .55; cursor: not-allowed; background: #f1f5f9; }
+.descanso-card.disabled:hover { border-color: #e2e8f0; background: #f1f5f9; box-shadow: none; }
+.descanso-motivo { font-size: .78rem; font-style: italic; color: #94a3b8; margin-top: 6px; }
 
 /* Color por grupo (convención del calendario anual): AM = azul, PM = amarillo. */
 .descanso-card.grupo-am { border-color: #0d6efd; background: #dbeafe; }

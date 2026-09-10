@@ -35,6 +35,23 @@ from .estrategia_fin_de_semana import EstrategiaFinDeSemana
 
 logger = logging.getLogger(__name__)
 
+# INTERRUPTOR de las sub-modalidades de ENTRE SEMANA.
+#
+# Esta constante —y no la tarjeta del formulario— es la que de verdad apaga un
+# sub-flujo. La clase `disabled` en `solicitar_cambio_descanso.html` es solo el
+# reflejo visual: se puede quitar desde DevTools, y una pestaña abierta desde
+# antes del despliegue conserva el HTML y el JS anteriores, así que el POST con
+# la sub-modalidad apagada llega igual al servidor.
+#
+# Se comprueba en `validar_solicitud`, que es el paso por el que entran TANTO la
+# creación como la re-validación al aprobar (`revalidar_para_aprobar`). Por eso
+# una solicitud que se colara antes del apagado tampoco se puede aprobar después.
+#
+# El código NO se elimina: `_validar_semana_cambio_doblada` y su aplicación siguen
+# enteras. Para reactivar el sub-flujo se saca de este conjunto y se quita la clase
+# `disabled` de la tarjeta en el template.
+SUBMODALIDADES_SEMANA_DESHABILITADAS = frozenset({'cambio_doblada'})
+
 
 class CambioDescansoStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
 
@@ -228,6 +245,15 @@ class CambioDescansoStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
             es_finde = fecha_cesion.weekday() in (5, 6)
             if not es_finde:
                 sub = datos.get('submodalidad_semana') or 'intercambio_dia'
+                if sub in SUBMODALIDADES_SEMANA_DESHABILITADAS:
+                    # La etiqueta sale de los `choices` del modelo y no escrita a mano:
+                    # el interruptor es un conjunto, así que el mensaje tiene que seguir
+                    # siendo verdad cuando se apague o reactive otra sub-modalidad.
+                    etiqueta = dict(DobladaDetalle.SUBMODALIDAD_SEMANA_CHOICES).get(sub, sub)
+                    return False, (
+                        f"«{etiqueta}» está deshabilitado por ahora. "
+                        "Elige otra de las opciones de esa semana."
+                    )
                 if sub == 'jornadas_partidas':
                     return self._validar_semana_jornadas_partidas(
                         solicitante, receptor, fecha_cesion, fecha_pago, datos)

@@ -58,6 +58,8 @@
     let cobJornadaPago = null;       // cobertura: jornada elegida para pagar (AM/PM) cuando estoy libre
     let cobCandidato1 = null;        // cobertura: candidato del slot 1 seleccionado (para refrescar info)
     let cobPagoImposible = false;    // cobertura: ya doblo el día de pago → no me queda jornada para pagar
+    let cobDosPagoNoLibre = false;   // cobertura DOS: el día de pago no está libre → no alcanza para pagarle a los dos
+    let diasMantenimiento = new Set(); // ISO de los días de mantenimiento del año (nadie trabaja)
     let dobladaSel = null;           // cambio_doblada: {empleado_id, nombre, fecha}
     let permJornada = null;          // permiso: jornada que trabajo mi día completo
 
@@ -150,6 +152,7 @@
     function resetSubtipos() {
         subtipoSemana = null; jpJornada = null; cobOpcion = null; cobDiaPago = null;
         empleadoReceptor2 = null; dobladaSel = null; permJornada = null;
+        cobPagoImposible = false; cobDosPagoNoLibre = false; coberturaBloqueoCT = false;
         const st = document.getElementById('subtipo-semana-container');
         if (st) st.style.display = 'none';
         document.querySelectorAll('.subtipo-card').forEach(c => c.classList.remove('selected'));
@@ -492,6 +495,11 @@
             .then(r => r.json())
             .then(data => {
                 const descansos = (data && data.descansos) || {};
+                // Los de mantenimiento se guardan aparte: no son descansos que se puedan
+                // intercambiar, pero sí hay que saber cuáles son para no ofrecerlos como día
+                // de pago (ese día no opera nadie, así que no hay jornada que devolver).
+                diasMantenimiento = new Set(Object.entries(descansos)
+                    .filter(([, motivo]) => motivo === 'mantenimiento').map(([f]) => f));
                 // Solo días de TEMPORADA del mes elegido y no pasados.
                 const dias = Object.entries(descansos)
                     .filter(([f, motivo]) => {
@@ -770,6 +778,8 @@
 
     document.querySelectorAll('.subtipo-card').forEach(card => {
         card.addEventListener('click', function () {
+            // Sub-tipo deshabilitado desde el template: no se selecciona ni abre su bloque.
+            if (this.classList.contains('disabled')) return;
             document.querySelectorAll('.subtipo-card').forEach(c => c.classList.remove('selected'));
             this.classList.add('selected');
             seleccionarSubtipo(this.dataset.subtipo);
@@ -849,6 +859,9 @@
             // Reset de selección de compañeros al cambiar de opción.
             empleadoReceptor = null; empleadoReceptor2 = null; coberturaBloqueoCT = false;
             cobJornadaPago = null; cobCandidato1 = null; cobPagoImposible = false;
+            cobDosPagoNoLibre = false;
+            const avisoDos = document.getElementById('cob-aviso-dos-libre');
+            if (avisoDos) avisoDos.style.display = 'none';
             document.getElementById('empleado_receptor').value = '';
             document.getElementById('cob-aviso-ct').style.display = 'none';
             document.getElementById('cob-jornada-pago-grupo').style.display = 'none';
@@ -879,8 +892,16 @@
             if (iso === miDiaTrabajo() || d < hoy) continue;
             const o = document.createElement('option');
             o.value = iso;
-            o.textContent = `${nombreDia(d)} ${fmt(d)}` + (iso === miDescanso() ? ' (tu día libre — sin deuda tuya)' : '');
-            if (iso === miDescanso()) o.selected = true;
+            if (diasMantenimiento.has(iso)) {
+                // Día de mantenimiento: no opera nadie, así que no hay jornada del compañero
+                // que puedas cubrir. Tampoco sirve el atajo del Cambio de Turno (esos días no
+                // son seleccionables ahí), por eso se deshabilita en vez de dejar fallar.
+                o.disabled = true;
+                o.textContent = `${nombreDia(d)} ${fmt(d)} (mantenimiento — nadie trabaja)`;
+            } else {
+                o.textContent = `${nombreDia(d)} ${fmt(d)}` + (iso === miDescanso() ? ' (tu día libre — sin deuda tuya)' : '');
+                if (iso === miDescanso()) o.selected = true;
+            }
             sel.appendChild(o);
         }
         cobDiaPago = sel.value || null;
@@ -1000,12 +1021,25 @@
         const el = document.getElementById('cob-mi-jornada-pago');
         if (!el) return;
         const pago = cobDiaPago ? fmt(parseISO(cobDiaPago)) : '';
-        if (!miJornadaPago || !pago) { el.style.display = 'none'; return; }
+        if (!miJornadaPago || !pago) {
+            // Sin dato del día de pago no hay nada que bloquear: los avisos se apagan para no
+            // dejar colgado el de una selección anterior.
+            el.style.display = 'none';
+            cobPagoImposible = false; cobDosPagoNoLibre = false;
+            mostrarAvisoDosDiaLibre();
+            return;
+        }
         // Si ya doblo (AM+PM) ese día no me queda jornada con la que pagar: cubrir al compañero
         // sería ficticio (ya estoy ese día completo). El backend lo rechaza
         // (`_validar_semana_cobertura`: "ya trabajas esa jornada"), así que se avisa aquí en vez
         // de dejar llenar todo el formulario para fallar al enviar.
         cobPagoImposible = (miJornadaPago === 'DOBLADA');
+        // DÍA COMPLETO (2 compañeros): ese día se pagan las DOS medias jornadas (la AM a uno y
+        // la PM al otro), o sea que se termina trabajando AM+PM. Con media jornada propia solo
+        // se le podría pagar a uno y el otro cubriría gratis, así que el día de pago tiene que
+        // estar LIBRE. El Cambio de Turno no sirve de atajo aquí: girar la jornada propia solo
+        // mueve el choque al otro compañero.
+        cobDosPagoNoLibre = (cobOpcion === 'DOS' && !!miJornadaPago && miJornadaPago !== 'DESCANSO');
         const txt = miJornadaPago === 'DESCANSO'
             ? 'estás <strong>libre</strong> (puedes cubrir sin deuda)'
             : (cobPagoImposible
@@ -1013,6 +1047,52 @@
                 : `trabajas <strong>${miJornadaPago}</strong>`);
         el.style.display = 'block';
         el.innerHTML = `<i class="fas fa-user-clock mr-1"></i>El día de pago (${pago}) ${txt}.`;
+        mostrarAvisoDosDiaLibre();
+    }
+
+    // Aviso BLOQUEANTE del día completo con 2 compañeros: el día de pago debe estar libre.
+    // Ese día se devuelven las DOS medias jornadas (la AM a uno y la PM al otro), así que se
+    // termina trabajando AM+PM; con media jornada propia solo alcanza para pagarle a uno y el
+    // otro cubriría gratis. No se ofrece el atajo del Cambio de Turno porque no resuelve nada:
+    // girar la jornada propia deja el choque con el otro compañero (y si el día de pago fuera
+    // de mantenimiento, ese día ni siquiera se puede pedir un Cambio de Turno).
+    // Las dos frases que abren el aviso viven AQUÍ y en ningún otro sitio del archivo: la
+    // misma regla se anuncia en dos lugares de la pantalla —el recuadro rojo bajo el día de
+    // pago y la lista «Faltan datos» al enviar— y antes cada uno la contaba a su manera.
+    // Compartir el literal es lo que impide que vuelvan a separarse; la primera es además una
+    // de las frases núcleo que `AvisoDiaPagoLibreEspejoTest` cruza contra el servidor.
+    const DOS_LIBRE_TITULAR = 'el día de pago debe estar LIBRE.';
+    const DOS_LIBRE_MOTIVO = 'Ese día le devuelves media jornada a cada compañero ' +
+        '(AM a uno y PM al otro), o sea que trabajas AM+PM.';
+    const DOS_LIBRE_SALIDA = 'o pide que te cubran solo la AM o solo la PM.';
+
+    function mostrarAvisoDosDiaLibre() {
+        const el = document.getElementById('cob-aviso-dos-libre');
+        if (!el) return;
+        if (!cobDosPagoNoLibre) { el.style.display = 'none'; return; }
+        const pago = cobDiaPago ? fmt(parseISO(cobDiaPago)) : 'ese día';
+        const tengo = miJornadaPago === 'DOBLADA' ? 'AM+PM (doblada)' : miJornadaPago;
+        // El día libre de la semana (tu descanso de temporada) solo se nombra si sigue siendo
+        // una opción del desplegable: si ya pasó, no está ahí y sugerirlo confundiría.
+        const sel = document.getElementById('cob-dia-pago');
+        const libre = miDescanso();
+        const hayLibre = !!libre && !!sel &&
+            Array.from(sel.options).some(o => o.value === libre && !o.disabled);
+        const sugerencia = hayLibre
+            ? ` Elige tu día libre (<strong>${nombreDia(parseISO(libre))} ${fmt(parseISO(libre))}</strong>)`
+            : ' Elige un día de esa semana en el que estés libre';
+        el.style.display = 'block';
+        // REDACCIÓN ESPEJO del rechazo del servidor (`_pago_dos_debe_estar_libre` en
+        // solicitudes/services/solicitud_orchestrator.py): la misma regla no puede leerse de
+        // dos maneras según por dónde llegue el usuario. Las negritas envuelven frases
+        // COMPLETAS a propósito, para que las tres frases núcleo queden idénticas al texto
+        // del servidor —`test_cobertura_dos_companeros.py` compara este archivo con aquél—.
+        // Lo único propio de aquí es `sugerencia`, que nombra el día libre concreto.
+        el.innerHTML = '<i class="fas fa-ban mr-1"></i> ' +
+            `<strong>Para el día completo ${DOS_LIBRE_TITULAR}</strong> ${DOS_LIBRE_MOTIVO} ` +
+            `El ${pago} ya trabajas <strong>${tengo}</strong>, así que solo ` +
+            `podrías pagarle a uno. Un Cambio de Turno no lo arregla: te dejaría chocando con el otro.` +
+            `${sugerencia}, ${DOS_LIBRE_SALIDA}`;
     }
 
     // Detalle del compañero elegido: su jornada el día que cubre + qué pasa el día de pago.
@@ -1098,6 +1178,10 @@
         const aviso = document.getElementById('cob-aviso-ct');
         aviso.style.display = 'none';
         if (!empleadoReceptor || !cobDiaPago || !MI_EMPLEADO_ID) return;
+        // En el día completo con 2 compañeros el Cambio de Turno es un callejón sin salida
+        // (girar la jornada propia traslada el choque al otro compañero). Ahí el aviso que
+        // corresponde es el de `mostrarAvisoDosDiaLibre`: el día de pago debe estar libre.
+        if (cobOpcion === 'DOS') return;
         const params = new URLSearchParams({
             deudor_id: MI_EMPLEADO_ID, acreedor_id: empleadoReceptor.id, fecha_pago: cobDiaPago,
         });
@@ -1200,8 +1284,16 @@
                     if (empleadoReceptor && empleadoReceptor2 && empleadoReceptor.id === empleadoReceptor2.id)
                         errores.push('Los dos compañeros deben ser personas distintas.');
                 }
-                if (cobPagoImposible)
+                // Doblando el día de pago fallan las dos reglas; en modo DOS manda la de abajo,
+                // que explica el motivo concreto (hay que pagarle a los DOS ese mismo día).
+                if (cobPagoImposible && !cobDosPagoNoLibre)
                     errores.push('El día de pago ya trabajas AM+PM (doblada): no te queda jornada con la que pagar. Elige otro día.');
+                if (cobDosPagoNoLibre)
+                    // Mismas frases que el recuadro rojo y que el rechazo del servidor; aquí sin
+                    // el detalle de la jornada propia, que el recuadro ya tiene delante.
+                    errores.push(`Para el día completo (2 compañeros) ${DOS_LIBRE_TITULAR} ` +
+                        `${DOS_LIBRE_MOTIVO} Elige un día de esa semana en el que estés libre, ` +
+                        `${DOS_LIBRE_SALIDA}`);
                 if (coberturaBloqueoCT)
                     errores.push('En el día de pago tienes la misma jornada que el compañero: primero haz un Cambio de Turno sencillo.');
             }

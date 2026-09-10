@@ -125,9 +125,11 @@
                     <div class="descanso-dia">🤝 Que me cubran mi día</div>
                     <div class="descanso-grupo">Te cubren 1 jornada o las 2 de tu día completo y pagas en la MISMA semana. Deuda de 30 min solo para quien doble sobre su propia jornada.</div>
                   </div>
-                  <div class="descanso-card subtipo-card" data-subtipo="cambio_doblada">
+                  <!-- DESHABILITADO (no se elimina): la clase `disabled` la respeta el listener de .subtipo-card. -->
+                  <div class="descanso-card subtipo-card disabled" data-subtipo="cambio_doblada">
                     <div class="descanso-dia">♻️ Cambio de doblada</div>
                     <div class="descanso-grupo">Tomas la doblada que un compañero ya tiene esa semana y él toma tu día completo. Sin deuda (ambos ya doblaban).</div>
+                    <div class="descanso-motivo">No disponible por ahora</div>
                   </div>
                   <div class="descanso-card subtipo-card" data-subtipo="permiso_media_jornada">
                     <div class="descanso-dia">📋 Permiso media jornada</div>
@@ -159,6 +161,9 @@
                   <select class="form-control" id="cob-dia-pago"></select>
                   <small class="form-text text-muted">Ese día cubres al compañero lo equivalente. Debe ser de la misma semana.</small>
                   <div id="cob-mi-jornada-pago" class="form-text" style="display:none;"></div>
+                  <!-- Bloqueo del día completo (2 compañeros): ese día se pagan las DOS medias
+                       jornadas, así que el día de pago tiene que estar libre. -->
+                  <div id="cob-aviso-dos-libre" class="alert-bloqueo mt-2" style="display:none;"></div>
                 </div>
                 <!-- Compañero (slot 1: cubre la jornada / la AM en modo 2 compañeros) -->
                 <div class="mt-2" id="cob-candidatos-grupo" style="display:none;">

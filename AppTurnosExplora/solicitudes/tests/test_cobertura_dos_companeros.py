@@ -12,7 +12,9 @@ Escenario de temporada usado:
 - Día de pago (misma semana): descansa el grupo PM → el solicitante está libre y cada compañero
   trabaja el día completo, así que él puede cubrirle la AM a uno y la PM al otro.
 """
+import re
 from datetime import date, timedelta
+from pathlib import Path
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -22,6 +24,46 @@ from django.utils import timezone
 from empleados.models import CompetenciaEmpleado, Empleado, Jornada
 from solicitudes.models import SolicitudCambio, TipoSolicitudCambio
 from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, Sala
+
+
+class AvisoDiaPagoLibreEspejoTest(TestCase):
+    """
+    El aviso del formulario y el rechazo del servidor dicen la MISMA regla, así que tienen
+    que decirla con las mismas palabras.
+
+    El usuario puede toparse con esta regla por dos caminos —el aviso en pantalla al elegir el
+    día de pago, o el rechazo del POST— y leer dos redacciones distintas de lo mismo desorienta.
+    Se comparan solo las frases NÚCLEO, no el texto entero: el formulario añade el día libre
+    concreto (que el servidor no consulta) y reparte negritas.
+
+    Si este test falla es porque se editó un lado y no el otro: ajusta el que quedó atrás.
+    """
+
+    # Frases que deben aparecer LITERALES en los dos sitios. Van sin marcado, y por eso en el JS
+    # las negritas envuelven frases completas en vez de partirlas por dentro.
+    FRASES = (
+        'el día de pago debe estar LIBRE.',
+        'Ese día le devuelves media jornada a cada compañero (AM a uno y PM al otro), '
+        'o sea que trabajas AM+PM.',
+        'Un Cambio de Turno no lo arregla: te dejaría chocando con el otro.',
+    )
+
+    # Une los trozos de una cadena partida en varias líneas: el cierre y la apertura del
+    # siguiente trozo, con su `+` o su prefijo `f` en medio. Así se encuentran las frases que
+    # cruzan un corte de línea del fuente. El `+` de "AM+PM" no se toca: no está entre comillas.
+    _COSTURA = re.compile(r"""['`]\s*\+?\s*f?['`]""")
+
+    def _fuente(self, *partes):
+        ruta = Path(__file__).resolve().parent.parent.parent.joinpath(*partes)
+        return self._COSTURA.sub('', ruta.read_text(encoding='utf-8'))
+
+    def test_las_dos_redacciones_comparten_las_frases_nucleo(self):
+        servidor = self._fuente('solicitudes', 'services', 'solicitud_orchestrator.py')
+        formulario = self._fuente('static', 'js', 'cambio-turno', 'solicitar_cambio_descanso.js')
+
+        for frase in self.FRASES:
+            self.assertIn(frase, servidor, f'Falta en el rechazo del servidor: {frase!r}')
+            self.assertIn(frase, formulario, f'Falta en el aviso del formulario: {frase!r}')
 
 
 class CoberturaDosCompanerosTest(TestCase):
@@ -95,13 +137,53 @@ class CoberturaDosCompanerosTest(TestCase):
             self.assertEqual(s.estado, 'pendiente')
 
     def test_si_falla_una_jornada_no_se_crea_ninguna(self):
-        """Sin el descanso del grupo PM en el día de pago, los compañeros solo trabajan AM: la
-        solicitud de la jornada PM no es válida. Antes quedaba creada la de AM; ahora, ninguna."""
+        """El día de pago el segundo compañero solo trabaja AM (turno real), así que no hay PM
+        que cubrirle: la solicitud de la jornada PM no es válida. Antes quedaba creada solo la
+        de AM; ahora, ninguna."""
+        from turnos.models import Turno
+        self._pago_es_dia_libre_del_solicitante()
+        Turno.objects.create(explorador=self.comp_pm, fecha=self.pago,
+                             jornada=self.am, sala=self.sala)
+
         r = self._post()
         self.assertEqual(r.status_code, 400)
         self.assertEqual(SolicitudCambio.objects.count(), 0,
                          'No debió quedar ninguna solicitud a medias')
         self.assertIn('PM', r.json().get('error', ''))
+
+    def test_dia_de_pago_con_media_jornada_propia_es_rechazado(self):
+        """
+        Día completo con DOS compañeros: el día de pago tiene que estar LIBRE.
+
+        Ahí se devuelven las dos medias jornadas (la AM a uno y la PM al otro), así que se
+        termina trabajando AM+PM. Con media jornada propia solo alcanza para pagarle a uno y el
+        otro cubriría gratis. Sin el descanso del grupo PM ese día, el solicitante (PM) trabaja
+        su PM: no vale como día de pago.
+
+        El mensaje NO debe mandar a hacer un Cambio de Turno: girar la jornada propia solo
+        traslada el choque al otro compañero (y si el día fuera de mantenimiento, ese día ni
+        siquiera se puede pedir un Cambio de Turno).
+        """
+        r = self._post()
+        self.assertEqual(r.status_code, 400, r.content)
+        error = r.json().get('error', '')
+        self.assertIn('LIBRE', error)
+        self.assertNotIn('primero haz un Cambio de Turno', error)
+        self.assertEqual(SolicitudCambio.objects.count(), 0)
+
+    def test_dia_de_pago_donde_ya_doblo_tampoco_sirve_para_los_dos(self):
+        """Doblando ya el día de pago no queda ninguna jornada libre: mismo rechazo por día
+        no libre, antes de tocar la validación por jornada."""
+        from turnos.models import Turno
+        self._pago_es_dia_libre_del_solicitante()
+        for jornada in (self.am, self.pm):
+            Turno.objects.create(explorador=self.solicitante, fecha=self.pago,
+                                 jornada=jornada, sala=self.sala)
+
+        r = self._post()
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn('LIBRE', r.json().get('error', ''))
+        self.assertEqual(SolicitudCambio.objects.count(), 0)
 
     def test_mismo_companero_dos_veces_rechazado(self):
         self._pago_es_dia_libre_del_solicitante()
