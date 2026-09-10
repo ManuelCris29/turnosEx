@@ -352,6 +352,35 @@ class DobladaPermanenteOtroAcuerdoTest(DobladaPermanenteBaseTest):
         ok, msg = self.strat.validar_solicitud(self._datos())
         self.assertTrue(ok, f'Otro weekday del legacy no toca este acuerdo: {msg}')
 
+    def test_el_aviso_distingue_pendiente_de_aprobada(self):
+        """Una pendiente bloquea igual, pero el aviso no puede darla por hecha."""
+        sol = self._acuerdo_del_receptor([self.lunes])
+        sol.estado = 'pendiente'
+        sol.save(update_fields=['estado'])
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+        self.assertIn('PENDIENTE', msg)
+        self.assertNotIn('aprobada', msg)
+
+        sol.estado = 'aprobada'
+        sol.save(update_fields=['estado'])
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+        self.assertIn('aprobada', msg)
+
+    def test_si_la_pendiente_es_propia_el_aviso_lo_dice(self):
+        """No tiene sentido mandar a "elegir otro compañero" si la pendiente es suya."""
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.solicitante, explorador_receptor=self.receptor,
+            tipo_cambio=self.tipo, comentario='la mia', estado='pendiente')
+        DobladaPermanenteDetalle.objects.create(
+            solicitud=sol, fecha_inicio=self.fi, fecha_fin=self.ff,
+            dias_cesion=str(self.lunes.weekday()), dias_devolucion='',
+            fechas_cesion=self.lunes.strftime('%Y-%m-%d'), fechas_devolucion='')
+        ok, msg = self.strat.validar_solicitud(self._datos())
+        self.assertFalse(ok)
+        self.assertIn('Ya enviaste', msg)
+
     def test_al_revalidar_no_choca_consigo_misma(self):
         sol = self._crear()
         ok, msg = self.strat.revalidar_para_aprobar(sol)

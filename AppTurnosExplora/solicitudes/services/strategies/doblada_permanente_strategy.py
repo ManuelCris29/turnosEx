@@ -267,9 +267,33 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
                 detalle = ''
                 if choque:
                     detalle = ' (' + ', '.join(f.strftime('%d/%m/%Y') for f in sorted(choque)) + ')'
+                # El bloqueo es el mismo para pendiente y aprobada (esas fechas ya están
+                # comprometidas), pero el AVISO no puede confundirlas: decir "ya tiene una
+                # doblada permanente" cuando el otro acuerdo solo está pendiente hace creer
+                # que ya está en firme. Se nombra el estado real.
+                # `.lower()`: el filtro de arriba va por ORM y MySQL no distingue
+                # mayúsculas, así que una fila guardada como 'PENDIENTE' llega hasta aquí;
+                # comparada en Python tal cual, se anunciaría como aprobada —justo el error
+                # que estos tres mensajes vienen a corregir—.
+                if str(det.solicitud.estado or '').lower() == 'pendiente':
+                    # Caso frecuente: la pendiente es la que el propio solicitante ya envió a
+                    # ese mismo compañero. Decirle "elige otro compañero" lo despista; lo que
+                    # tiene que hacer es esperar su propia solicitud.
+                    if det.solicitud.explorador_solicitante_id == getattr(solicitante, 'id', None):
+                        return False, (
+                            f"Ya enviaste una doblada permanente a {receptor.nombre} "
+                            f"{receptor.apellido} que compromete esas fechas{detalle} y sigue "
+                            f"PENDIENTE de aprobación. Espera a que se apruebe o se cancele, o "
+                            f"elige otras fechas."
+                        )
+                    return False, (
+                        f"{receptor.nombre} {receptor.apellido} tiene una solicitud de doblada "
+                        f"permanente PENDIENTE de aprobación que ya compromete esas fechas{detalle}. "
+                        f"Espera a que se apruebe o se cancele, o elige otras fechas u otro compañero."
+                    )
                 return False, (
-                    f"{receptor.nombre} {receptor.apellido} ya tiene una doblada permanente en esas "
-                    f"fechas{detalle}. Elige otras fechas u otro compañero."
+                    f"{receptor.nombre} {receptor.apellido} ya tiene una doblada permanente "
+                    f"aprobada en esas fechas{detalle}. Elige otras fechas u otro compañero."
                 )
 
             # ===========================
