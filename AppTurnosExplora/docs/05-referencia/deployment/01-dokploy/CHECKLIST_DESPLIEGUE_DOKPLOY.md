@@ -41,8 +41,8 @@ pytest -n 4                          # debe estar en verde
 pytest -n 4 --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de mes y medio?
 ```
 
-- [ ] Las dos corridas salen en verde.
-- [ ] **Si la segunda sale roja, eso es el hallazgo, no un error de la corrida.** Contexto
+- [x ] Las dos corridas salen en verde.
+- [x ] **Si la segunda sale roja, eso es el hallazgo, no un error de la corrida.** Contexto
       en [MANUAL_TESTS_QUE_CADUCAN.md](../03-operacion/MANUAL_TESTS_QUE_CADUCAN.md).
 
 ### 0.2 Ensayo local de los estáticos con `DEBUG=False`
@@ -57,9 +57,9 @@ python manage.py collectstatic --noinput
 python manage.py runserver
 ```
 
-- [ ] Login, dashboard, Mis Turnos y los 6 formularios **se ven con estilos**.
-- [ ] Consola del navegador: **ningún 404** de CSS/JS y **ningún bloqueo de CSP**.
-- [ ] Volver a dejar `DEBUG=True`.
+- [ x] Login, dashboard, Mis Turnos y los 6 formularios **se ven con estilos**.
+- [ x] Consola del navegador: **ningún 404** de CSS/JS y **ningún bloqueo de CSP**.
+- [x ] Volver a dejar `DEBUG=True`.
 
 ### 0.3 Generar la `SECRET_KEY`
 
@@ -67,7 +67,7 @@ python manage.py runserver
 python -c "import secrets; print(secrets.token_hex(50))"
 ```
 
-- [ ] Guardada donde no dependa de una persona.
+- [ x] Guardada donde no dependa de una persona.
 
 > Se usa `token_hex` y no el `get_random_secret_key()` de Django a propósito: aquel puede
 > incluir `$`, `%` y `(`, y ese mismo valor acaba pegado en ficheros compose y en shells
@@ -88,27 +88,37 @@ se lo lleva puesto a las demás aplicaciones.
 
 Antes de crear nada, mirar en el panel:
 
-- [ ] **Settings → S3 Destinations** — ¿ya hay un destino para los backups de las otras
+- [x] **Settings → S3 Destinations** — ¿ya hay un destino para los backups de las otras
       apps? Si lo hay, **la FASE 10 se resuelve en cinco minutos** con un `prefix` propio.
-- [ ] **Settings → Notifications** — ¿ya hay un canal (correo, Slack, Teams)? Añadirse a
+- [x] **Settings → Notifications** — ¿ya hay un canal (correo, Slack, Teams)? Añadirse a
       él en vez de montar otro.
-- [ ] **Git Sources** — ¿ya hay una GitHub App instalada? Entonces basta con darle acceso
+- [x] **Git Sources** — ¿ya hay una GitHub App instalada? Entonces basta con darle acceso
       al repositorio nuevo.
-- [ ] **Registry** — ¿hay un registro de Docker? Decide si el rollback será rápido o por
+- [x] **Registry** — ¿hay un registro de Docker? Decide si el rollback será rápido o por
       reconstrucción (ver FASE 12.4).
+
+> **Reconocimiento hecho el 2026-09-10 — casi nada que reutilizar:**
+>
+> | Panel | Estado encontrado | Qué implica |
+> |---|---|---|
+> | **S3 Destinations** | vacío | La FASE 10 va **completa**: elegir opción A/B/C de la FASE 10.1, montar el destino y **probar la restauración**. No hay atajo de cinco minutos. |
+> | **Notifications** | vacío | La FASE 11 monta el canal desde cero. Correo como mínimo, para `databaseBackup` y `serverThreshold`. |
+> | **Git Sources** | hay una GitHub App **Compartida** (`dokploy-linux-server-heba`), de otra cuenta | No se reutiliza: el repo está en el GitHub personal `ManuelCris29`. En la FASE 12.1 se crea **una GitHub App propia** desde el panel, instalada **solo** en ese repo — así los permisos no dependen de quien administra el servidor "Heba". |
+> | **Registry** | vacío | Sin rollback por imagen: volver atrás = **reconstruir** (varios minutos). Aceptable con 300 usuarios internos (FASE 12.4); montar un Docker Registry queda como opcional. |
+> | **Projects** | el nuestro ya existe pero vacío; hay otros dos con apps | Confirma que el servidor es **compartido**: el límite de memoria (FASE 4.2) y el Docker Cleanup (FASE 1.2) **no son opcionales**. |
 
 ### 1.2 Recursos
 
-- [ ] **Disco libre.** El build hace `pip install` + `collectstatic` de **143 MB** de
+- [ x] **Disco libre.** El build hace `pip install` + `collectstatic` de **143 MB** de
       estáticos, y las imágenes viejas se acumulan. Quedarse sin disco **tumba también a
       las otras aplicaciones**.
-- [ ] **Docker Cleanup activado** en Dokploy.
-- [ ] **RAM libre** suficiente para MySQL (~400 MB–1 GB) + Redis (~100 MB) + 3 workers de
+- [ x] **Docker Cleanup activado** en Dokploy.
+- [ x] **RAM libre** suficiente para MySQL (~400 MB–1 GB) + Redis (~100 MB) + 3 workers de
       gunicorn (~450 MB).
 
 ### 1.3 La pregunta para IT que conviene hacer hoy
 
-- [ ] **¿Qué hay por debajo del Windows Server: una VM Linux o WSL2?**
+- [x ] **¿Qué hay por debajo del Windows Server: una VM Linux o WSL2?**
 
       No cambia nada de este plan —Dokploy corre y eso significa que hay un Linux
       debajo—, pero sí cambia el riesgo operativo: **sobre WSL2, Docker no arranca solo
@@ -121,9 +131,9 @@ Antes de crear nada, mirar en el panel:
 
 ### 2.1 Crear el servicio
 
-- [ ] *Databases → Create → MySQL*, versión **8.4**.
-- [ ] Base `bdturnosex`, charset `utf8mb4`.
-- [ ] Anotar de *Internal Credentials*: **host interno**, usuario y contraseña. El host es
+- [x ] *Databases → Create → MySQL*, versión **8.4**.
+- [ x] Base `bdturnosex`, charset `utf8mb4`.
+- [x ] Anotar de *Internal Credentials*: **host interno**, usuario y contraseña. El host es
       un nombre de la red overlay — **no** una IP y **no** `localhost`.
 
 > **Por qué 8.4 y no 8.0:** el soporte comunitario de MySQL 8.0 terminó en abril de 2026.
@@ -139,12 +149,12 @@ fecha con `CONVERT_TZ`, y `CONVERT_TZ` con **nombres** de zona necesita las tabl
 `CONVERT_TZ` devuelve `NULL` y **el admin de Django revienta al filtrar por fecha** — el
 mismo error que ya apareció en el MySQL local durante el desarrollo.
 
-- [ ] Crear un Schedule de tipo **Dokploy Server**, pegar
+- [ x] Crear un Schedule de tipo **Dokploy Server**, pegar
       [`infra/dokploy/cargar-zonas-horarias.sh`](../../../../infra/dokploy/cargar-zonas-horarias.sh),
       definir `CONTENEDOR_MYSQL` y **ejecutarlo a mano una vez**. No se programa: no es un
       cron.
 
-- [ ] **Verificar.** El script lo hace solo, pero conviene verlo:
+- [ x] **Verificar.** El script lo hace solo, pero conviene verlo:
 
       ```sql
       SELECT COUNT(*) FROM mysql.time_zone_name;        -- ≈ 1795, nunca 0
@@ -566,6 +576,10 @@ Un cron caído se queda en rojo dentro de un log que nadie abre, que es **peor**
       con **darle acceso al repositorio**. Si no, crear una (nombre único, p. ej.
       `Dokploy-ParqueExplora`), instalarla y autorizarla con acceso **solo** a
       `ManuelCris29/turnosEx`.
+
+> 📌 **La App Compartida `dokploy-linux-server-heba` no cuenta como "ya instalada".** Es
+> de otra cuenta y el repo vive en el GitHub personal `ManuelCris29`. Aquí toca **crear
+> una propia** desde el panel — este es el camino "si no".
 
 > La GitHub App es preferible a una clave de despliegue: los permisos son revocables por
 > repositorio y el token rota solo.
