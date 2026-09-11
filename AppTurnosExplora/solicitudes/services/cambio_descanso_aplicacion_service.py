@@ -147,6 +147,10 @@ class CambioDescansoAplicacionService:
                     'acuerdo': {
                         'solicitud_id': s.id,
                         'tipo_solicitud': 'CAMBIO DESCANSO',
+                        # Qué papel juega el EMPLEADO (no el compañero) en el intercambio.
+                        # Aquí se sabe de primera mano; deducirlo después obligaría a volver
+                        # a mirar la solicitud para saber de qué lado cae cada uno.
+                        'rol': 'solicitante' if es_sol else 'receptor',
                         'fecha_cesion': fc.strftime('%d/%m/%Y') if fc else None,
                         'fecha_pago': fp.strftime('%d/%m/%Y') if fp else None,
                         'fecha_solicitud': DateUtils.format_datetime_display(s.fecha_solicitud),

@@ -16,6 +16,10 @@ rango de fechas y devuelve, por fecha, un dict con toda la info que consumen las
                                            # 'cambio de día de descanso' | 'doblada permanente'
             'origen': str|None,            # 'cambio_descanso' → es un INTERCAMBIO, no un día libre
             'tipo': str,                   # 'cedio' | 'pago'
+            'rol': str|None,               # papel del EMPLEADO en la solicitud:
+                                           # 'solicitante' | 'receptor'. NO se deduce de
+                                           # 'tipo': en la devolución residual de un pago en
+                                           # sábado quien cobra es el solicitante.
             'tipo_solicitud': str,         # nombre del TIPO ('DOBLADA', 'CAMBIO DESCANSO'…)
             'companero': {'id','nombre'}|None,
             'solicitud_id': int|None,
@@ -153,6 +157,7 @@ class DescansoPorSolicitudService:
                 det = getattr(s, 'doblada', None)
                 salida[emp_id].setdefault(d, {
                     'motivo': 'cedió su jornada', 'origen': None, 'tipo': 'cedio',
+                    'rol': 'solicitante',
                     'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
                     'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
                     'fecha_cesion': _fmt(s.fecha_cambio_turno),
@@ -217,6 +222,7 @@ class DescansoPorSolicitudService:
                 det = getattr(s, 'doblada', None)
                 salida[emp_id].setdefault(d, {
                     'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
+                    'rol': 'receptor',
                     'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
                     'companero': _comp(s.explorador_solicitante), 'solicitud_id': s.id,
                     'fecha_cesion': _fmt(s.fecha_cambio_turno),
@@ -245,7 +251,10 @@ class DescansoPorSolicitudService:
                 continue
             salida[emp_id].setdefault(fps, {
                 # Misma forma que un pago normal: a esta persona le devuelven la jornada.
+                # OJO con el `rol`: aquí quien cobra es el SOLICITANTE (es su devolución
+                # residual), no el receptor como en la rama de arriba.
                 'motivo': 'paga doblada', 'origen': None, 'tipo': 'pago',
+                'rol': 'solicitante',
                 'tipo_solicitud': s.tipo_cambio.nombre if s.tipo_cambio else None,
                 'companero': _comp(s.explorador_receptor), 'solicitud_id': s.id,
                 'fecha_cesion': _fmt(s.fecha_cambio_turno),
@@ -280,6 +289,7 @@ class DescansoPorSolicitudService:
                 acuerdo = comp.get('acuerdo') or {} if comp else {}
                 salida[emp_id].setdefault(dcd, {
                     'motivo': 'cambio de día de descanso', 'origen': 'cambio_descanso', 'tipo': 'cedio',
+                    'rol': acuerdo.get('rol'),
                     'tipo_solicitud': 'CAMBIO DESCANSO',
                     'companero': {'id': comp['id'], 'nombre': comp['nombre']} if comp else None,
                     'solicitud_id': acuerdo.get('solicitud_id'),
@@ -314,6 +324,7 @@ class DescansoPorSolicitudService:
                 info = {
                     'motivo': 'doblada permanente', 'origen': None,
                     'tipo': 'cedio' if es_sol else 'pago',
+                    'rol': 'solicitante' if es_sol else 'receptor',
                     'tipo_solicitud': 'DOBLADA PERMANENTE',
                     'companero': _comp(companero), 'solicitud_id': sp.id,
                     # Una permanente es un RANGO con varias fechas por lado, no un par

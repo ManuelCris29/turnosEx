@@ -138,16 +138,22 @@ class ReporteDiaEnriquecidoTest(TestCase):
         wb = openpyxl.load_workbook(io.BytesIO(resp.content))
         self.assertEqual(wb.sheetnames,
                          ['Resumen', 'Trabajan AM', 'Trabajan PM', 'Descansan',
-                          'Deuda pendiente'])
+                          'Cambios y permisos', 'Deuda pendiente'])
         deuda = [wb['Deuda pendiente'].cell(row=4, column=c).value for c in range(1, 11)]
         self.assertIn('Debe (h)', deuda)
         self.assertIn('Supervisor', deuda)
         self.assertIn('Dobladas (min)', deuda)
         self.assertIn('Permisos (min)', deuda)
-        headers = [wb['Trabajan AM'].cell(row=4, column=c).value for c in range(1, 10)]
+        headers = [wb['Trabajan AM'].cell(row=4, column=c).value for c in range(1, 15)]
         self.assertIn('¿Por qué trabaja hoy?', headers)
         self.assertIn('Restricción', headers)
         self.assertIn('Doblada pendiente', headers)
+        # El «con quién» del acuerdo: columnas propias, no enterrado en la frase.
+        for h in ('Con quién', 'Tipo de cambio', 'Su papel', 'Fecha relacionada',
+                  'Aprobado el'):
+            self.assertIn(h, headers)
+        self.assertIn('Con quién',
+                      [wb['Descansan'].cell(row=4, column=c).value for c in range(1, 15)])
 
     def test_excel_hoja_deuda_lista_lo_pendiente_del_mes_hasta_la_fecha(self):
         """La hoja replica /empleados/sanciones/morosos/?corte=: del día 1 al día elegido."""
@@ -255,6 +261,179 @@ class ReporteDiaEnriquecidoTest(TestCase):
             with self.subTest(params=params):
                 resp = self.client.get('/turnos/api/reporte-mes/dias/', params)
                 self.assertEqual(resp.status_code, 400)
+
+    # ── 7c. El «con quién» del acuerdo ───────────────────────────────────────
+    def _doblada_aprobada(self):
+        """A cede su jornada de hoy a B, que la dobla. B trabaja, A descansa.
+
+        Es el caso mínimo con las DOS caras del mismo trato: sirve para comprobar que las
+        dos hojas de personas nombran al compañero y que la hoja de movimientos lo cuenta
+        UNA sola vez.
+        """
+        from django.utils import timezone as _tz
+
+        from solicitudes.models import DobladaDetalle
+        from turnos.models import Turno
+
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.a, explorador_receptor=self.b,
+            tipo_cambio=self.tipo_dob, estado='aprobada', fecha_cambio_turno=FECHA,
+            fecha_resolucion=_tz.now() - timedelta(days=3),
+        )
+        det = DobladaDetalle.objects.create(
+            solicitud=sol, fecha_pago=FECHA + timedelta(days=7),
+            tipo_cesion='cesion_completa', empleado_receptor=self.b,
+        )
+        # B queda doblando hoy (AM + PM); A sin turnos, que es como se aplica de verdad.
+        for jor in (self.am, self.pm):
+            Turno.objects.create(explorador=self.b, fecha=FECHA, jornada=jor,
+                                 sala=self.sala, tipo_cambio='DOBLADA')
+        det.snapshot_turnos_resultantes = {
+            f'{self.b.id}:{FECHA.isoformat()}': [
+                {'jornada_nombre': 'AM', 'sala_id': self.sala.id, 'tipo_cambio': 'DOBLADA'},
+                {'jornada_nombre': 'PM', 'sala_id': self.sala.id, 'tipo_cambio': 'DOBLADA'},
+            ],
+            f'{self.a.id}:{FECHA.isoformat()}': [],   # el cedente queda libre
+        }
+        det.save(update_fields=['snapshot_turnos_resultantes'])
+        return sol, det
+
+    def test_las_dos_caras_del_acuerdo_nombran_al_companero(self):
+        sol, det = self._doblada_aprobada()
+        data = ReporteDiaService.reporte(FECHA)
+
+        que_trabaja = _buscar(data, self.b.id)['acuerdo']
+        que_descansa = _buscar(data, self.a.id)['acuerdo']
+        self.assertEqual(que_trabaja['companero_nombre'], f'{self.a.nombre} {self.a.apellido}')
+        self.assertEqual(que_trabaja['rol'], 'receptor')
+        self.assertEqual(que_descansa['companero_nombre'], f'{self.b.nombre} {self.b.apellido}')
+        self.assertEqual(que_descansa['rol'], 'solicitante')
+        # Las dos caras hablan del MISMO trato y apuntan al MISMO día de devolución.
+        self.assertEqual(que_trabaja['solicitud_id'], sol.id)
+        self.assertEqual(que_descansa['solicitud_id'], sol.id)
+        esperado = det.fecha_pago.strftime('%d/%m/%Y')
+        self.assertEqual(que_trabaja['fecha_relacionada'], esperado)
+        self.assertEqual(que_descansa['fecha_relacionada'], esperado)
+
+    def test_excel_pone_el_companero_en_columna_propia_y_un_solo_movimiento(self):
+        import openpyxl
+
+        from turnos.api.views.reportes import ReporteDiaExcelView
+
+        sol, det = self._doblada_aprobada()
+        req = RequestFactory().get('/x?fecha=' + FECHA.isoformat())
+        req.user = self.sup.user
+        wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+
+        def _fila_de(hoja, nombre):
+            ws = wb[hoja]
+            cols = {ws.cell(row=4, column=c).value: c for c in range(1, ws.max_column + 1)}
+            for r in range(5, ws.max_row + 1):
+                if ws.cell(row=r, column=cols['Nombre']).value == nombre:
+                    return {k: ws.cell(row=r, column=c).value for k, c in cols.items()}
+            return None
+
+        # B dobla hoy: sale en las dos hojas de trabajo, nombrando a A.
+        fila_b = _fila_de('Trabajan AM', self.b.nombre)
+        self.assertEqual(fila_b['Con quién'], f'{self.a.nombre} {self.a.apellido}')
+        self.assertEqual(fila_b['Tipo de cambio'], 'DOBLADA')
+        self.assertEqual(fila_b['Su papel'], 'Recibió el cambio')
+        self.assertEqual(fila_b['Fecha relacionada'], det.fecha_pago.strftime('%d/%m/%Y'))
+
+        fila_a = _fila_de('Descansan', self.a.nombre)
+        self.assertEqual(fila_a['Con quién'], f'{self.b.nombre} {self.b.apellido}')
+        self.assertEqual(fila_a['Su papel'], 'Pidió el cambio')
+
+        # Un acuerdo = UN movimiento, aunque aparezca en las dos personas.
+        ws = wb['Cambios y permisos']
+        cols = {ws.cell(row=4, column=c).value: c for c in range(1, ws.max_column + 1)}
+        nums = [ws.cell(row=r, column=cols['N° solicitud']).value
+                for r in range(5, ws.max_row + 1)]
+        self.assertEqual([n for n in nums if n == sol.id], [sol.id])
+        fila = next(r for r in range(5, ws.max_row + 1)
+                    if ws.cell(row=r, column=cols['N° solicitud']).value == sol.id)
+        self.assertEqual(ws.cell(row=fila, column=cols['Quién pidió']).value,
+                         f'{self.a.nombre} {self.a.apellido}')
+        self.assertEqual(ws.cell(row=fila, column=cols['Con quién']).value,
+                         f'{self.b.nombre} {self.b.apellido}')
+        # La frase junta los dos lados del trato.
+        que_pasa = ws.cell(row=fila, column=cols['Qué pasa hoy']).value
+        self.assertIn(f'{self.b.nombre} {self.b.apellido} trabaja', que_pasa)
+        self.assertIn(f'{self.a.nombre} {self.a.apellido} descansa', que_pasa)
+
+    def test_la_fecha_relacionada_nunca_es_el_dia_del_reporte(self):
+        """
+        En un CAMBIO DESCANSO los DOS lados figuran como 'cedio' (los dos ceden su día), así
+        que decidir la contraparte por ese campo hacía que quien está en la fecha de pago se
+        viera a sí mismo: "fecha relacionada = hoy", que no informa de nada. La otra fecha es
+        la del par que NO es hoy.
+        """
+        from django.utils import timezone as _tz
+
+        from solicitudes.models import DobladaDetalle
+
+        tipo_cd = TipoSolicitudCambio.objects.create(
+            nombre='CAMBIO DESCANSO', codigo_estrategia='CAMBIO DESCANSO', activo=True)
+        cesion = FECHA - timedelta(days=3)
+        sol = SolicitudCambio.objects.create(
+            explorador_solicitante=self.a, explorador_receptor=self.b,
+            tipo_cambio=tipo_cd, estado='aprobada', fecha_cambio_turno=cesion,
+            fecha_resolucion=_tz.now() - timedelta(days=10),
+        )
+        DobladaDetalle.objects.create(solicitud=sol, fecha_pago=FECHA,
+                                      tipo_cesion='cesion_completa', empleado_receptor=self.b)
+
+        acuerdo = _buscar(ReporteDiaService.reporte(FECHA), self.a.id)['acuerdo']
+        self.assertIsNotNone(acuerdo)
+        self.assertEqual(acuerdo['fecha_relacionada'], cesion.strftime('%d/%m/%Y'))
+
+    def test_el_reporte_no_gasta_mas_consultas_al_crecer_la_plantilla(self):
+        """
+        El «con quién» se resuelve en LOTE. Con ~400 exploradores, preguntarlo persona a
+        persona serían ~400 tandas de consultas y el reporte se caería por tiempo: es toda
+        la razón de ser de `AcuerdoPorDiaService.en_rango_multiple`.
+        """
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        def _consultas():
+            with CaptureQueriesContext(connection) as ctx:
+                ReporteDiaService.reporte(FECHA)
+            return len(ctx)
+
+        base = _consultas()
+        for n in range(20):
+            u = User.objects.create_user(username=f'carga_{n}', password='x')
+            e = Empleado.objects.create(user=u, nombre=f'Carga{n}', apellido='X',
+                                        cedula=f'85{n:03d}', activo=True)
+            AsignarJornadaExplorador.objects.create(
+                explorador=e, jornada=self.am, fecha_inicio=date(2025, 1, 1))
+
+        self.assertEqual(_consultas(), base,
+                         'el número de consultas debe ser constante, no crecer por empleado')
+
+    def test_excel_avisa_cuando_el_dia_no_tiene_movimientos(self):
+        import openpyxl
+
+        from turnos.api.views.reportes import ReporteDiaExcelView
+
+        req = RequestFactory().get('/x?fecha=' + FECHA.isoformat())
+        req.user = self.sup.user
+        wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+        self.assertIn('No hay cambios ni permisos', wb['Cambios y permisos']['A5'].value)
+
+    def test_un_dia_sin_acuerdo_no_inventa_companero(self):
+        """Un turno normal no tiene «con quién»: la columna queda en '—', no vacía ni falsa."""
+        import openpyxl
+
+        from turnos.api.views.reportes import ReporteDiaExcelView
+
+        req = RequestFactory().get('/x?fecha=' + FECHA.isoformat())
+        req.user = self.sup.user
+        wb = openpyxl.load_workbook(io.BytesIO(ReporteDiaExcelView().get(req).content))
+        ws = wb['Trabajan AM']
+        cols = {ws.cell(row=4, column=c).value: c for c in range(1, ws.max_column + 1)}
+        self.assertEqual(ws.cell(row=5, column=cols['Con quién']).value, '—')
 
     # ── 8. Permisos de la API ────────────────────────────────────────────────
     def test_api_sin_rol_supervisor_devuelve_403(self):

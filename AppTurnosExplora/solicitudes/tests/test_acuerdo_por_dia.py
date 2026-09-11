@@ -133,22 +133,63 @@ class AcuerdoPorDiaTest(TestCase):
         self.assertEqual(AcuerdoPorDiaService.en_rango(
             self.yo, DIA - timedelta(days=2), DIA - timedelta(days=1)), {})
 
-    # ------------------------------------------------- PAGO REPROGRAMADO
-    def _reprogramacion(self, companero, estado='pendiente'):
+    # ------------------------------------------------- variante BATCH
+    def test_el_batch_dice_lo_mismo_que_la_version_individual(self):
         """
-        Una doblada que `self.yo` no pudo cumplir y que el supervisor le reprogramó a `DIA`.
+        `en_rango_multiple` es la implementación real y `en_rango` su atajo: si divergieran,
+        el reporte del supervisor y el detalle del día contarían historias distintas del
+        mismo día. Es el mismo pacto que ya tiene `DescansoPorSolicitudService`.
+        """
+        self._turno('DOBLADA')
+        self._solicitud(self.reciente, resuelta_hace_dias=1, tipo_cambio_turno='DOBLADA')
+        Turno.objects.create(explorador=self.antiguo, fecha=DIA, sala=self.sala,
+                             jornada=self.pm, tipo_cambio='PAGO REPROGRAMADO')
+        self._reprogramacion(self.reciente, explorador=self.antiguo)
+
+        empleados = [self.yo, self.antiguo, self.reciente]
+        batch = AcuerdoPorDiaService.en_rango_multiple(empleados, DIA, DIA)
+        for emp in empleados:
+            self.assertEqual(batch[emp.id],
+                             AcuerdoPorDiaService.en_rango(emp, DIA, DIA),
+                             f'el batch difiere del individual para {emp.nombre}')
+        # Y no es un empate de diccionarios vacíos: los dos que trabajan tienen acuerdo.
+        self.assertEqual(batch[self.yo.id][DIA]['companero_nombre'], 'Rita Reciente')
+        self.assertEqual(batch[self.antiguo.id][DIA]['tipo_cambio'], 'PAGO REPROGRAMADO')
+
+    def test_el_batch_no_atribuye_dias_a_quien_no_esta_en_el_lote(self):
+        """
+        Un snapshot habla de las DOS personas del acuerdo. Al pedir solo una, la otra no
+        puede aparecer en la salida ni colarse como clave nueva.
+        """
+        self._turno('DOBLADA')
+        self._solicitud(self.reciente, resuelta_hace_dias=1, tipo_cambio_turno='DOBLADA')
+
+        batch = AcuerdoPorDiaService.en_rango_multiple([self.yo], DIA, DIA)
+        self.assertEqual(set(batch), {self.yo.id})
+        self.assertEqual(batch[self.yo.id][DIA]['companero_nombre'], 'Rita Reciente')
+
+    def test_el_batch_sin_empleados_no_consulta_nada(self):
+        with self.assertNumQueries(0):
+            self.assertEqual(AcuerdoPorDiaService.en_rango_multiple([], DIA, DIA), {})
+
+    # ------------------------------------------------- PAGO REPROGRAMADO
+    def _reprogramacion(self, companero, estado='pendiente', explorador=None):
+        """
+        Una doblada que `explorador` (por defecto `self.yo`) no pudo cumplir y que el
+        supervisor le reprogramó a `DIA`.
 
         El compañero sale de la doblada ORIGINAL: la reprogramación no es un acuerdo nuevo
         entre dos, solo mueve el día que ya se debía.
         """
+        explorador = explorador or self.yo
         origen = SolicitudCambio.objects.create(
-            explorador_solicitante=self.yo, explorador_receptor=companero,
+            explorador_solicitante=explorador, explorador_receptor=companero,
             tipo_cambio=self.tipo, estado='aprobada',
             fecha_cambio_turno=DIA - timedelta(days=14),
             fecha_resolucion=timezone.now() - timedelta(days=20),
         )
         return ReprogramacionDiaDoblada.objects.create(
-            doblada_origen=origen, explorador=self.yo,
+            doblada_origen=origen, explorador=explorador,
             fecha_original=DIA - timedelta(days=7),
             fecha_reprogramada=DIA, estado=estado,
         )

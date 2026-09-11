@@ -79,7 +79,26 @@ class AcuerdoPorDiaService:
 
     @staticmethod
     def en_rango(empleado, ini, fin):
-        """Acuerdo que hace trabajar a `empleado` en cada día de `[ini, fin]`: {fecha: info}."""
+        """Acuerdo que hace trabajar a `empleado` en cada día de `[ini, fin]`: {fecha: info}.
+
+        Atajo sobre `en_rango_multiple`, que es la implementación real — el mismo reparto
+        que en `DescansoPorSolicitudService`. Así el detalle del día (un empleado, un mes) y
+        el reporte del supervisor (toda la plantilla, un día) comparten literalmente el
+        mismo código en vez de dos copias que se desincronizan.
+        """
+        emp_id = getattr(empleado, 'id', empleado)
+        return AcuerdoPorDiaService.en_rango_multiple([empleado], ini, fin).get(emp_id, {})
+
+    @staticmethod
+    def en_rango_multiple(empleados, ini, fin):
+        """
+        Versión BATCH: `{emp_id: {fecha: info}}` para VARIOS empleados con un número de
+        consultas CONSTANTE (no N×empleado).
+
+        La usa el reporte operativo del día, que clasifica a toda la plantilla a la vez: con
+        ~400 exploradores, llamar a la versión individual en bucle costaba ~400 tandas de
+        consultas. Mismas reglas, mismo orden de prioridad y misma guarda de realidad.
+        """
         from django.db.models import Q
 
         from solicitudes.models import SolicitudCambio
@@ -89,17 +108,22 @@ class AcuerdoPorDiaService:
         if isinstance(fin, str):
             fin = date.fromisoformat(fin)
 
-        emp_id = getattr(empleado, 'id', empleado)
+        emp_ids = {getattr(e, 'id', e) for e in empleados}
+        salida = {eid: {} for eid in emp_ids}
+        if not emp_ids:
+            return salida
+
         qini = ini - timedelta(days=AcuerdoPorDiaService.MARGEN_DIAS)
         qfin = fin + timedelta(days=AcuerdoPorDiaService.MARGEN_DIAS)
 
         # UNA consulta para las candidatas. El filtro de fechas es DELIBERADAMENTE amplio
-        # (un superconjunto): solo sirve para no traerse el histórico entero del empleado.
+        # (un superconjunto): solo sirve para no traerse el histórico entero del lote.
         # Quién reclama cada día lo decide el snapshot, más abajo.
         candidatas = (
             SolicitudCambio.objects
             .filter(estado='aprobada')
-            .filter(Q(explorador_solicitante_id=emp_id) | Q(explorador_receptor_id=emp_id))
+            .filter(Q(explorador_solicitante_id__in=emp_ids)
+                    | Q(explorador_receptor_id__in=emp_ids))
             .filter(
                 Q(fecha_cambio_turno__range=(qini, qfin))
                 | Q(doblada__fecha_pago__range=(qini, qfin))
@@ -122,12 +146,12 @@ class AcuerdoPorDiaService:
         # reescrito después por otra seguiría nombrando a su compañero, que es justo el
         # error que este servicio viene a cerrar.
         from turnos.models import Turno
-        tipos_reales = {}
-        for _f, _tc in Turno.objects.filter(
-                explorador_id=emp_id, fecha__range=(ini, fin)
-        ).values_list('fecha', 'tipo_cambio'):
+        tipos_reales = {eid: {} for eid in emp_ids}
+        for _eid, _f, _tc in Turno.objects.filter(
+                explorador_id__in=emp_ids, fecha__range=(ini, fin)
+        ).values_list('explorador_id', 'fecha', 'tipo_cambio'):
             if _tc:
-                tipos_reales.setdefault(_f, set()).add(_tc)
+                tipos_reales[_eid].setdefault(_f, set()).add(_tc)
 
         # LA ÚLTIMA APROBADA GANA EL DÍA: se recorren de más reciente a más antigua y la
         # primera que reclame una fecha se la queda (`setdefault`). Es el principio central
@@ -138,16 +162,16 @@ class AcuerdoPorDiaService:
             reverse=True,
         )
 
-        salida = {}
         for sol in ordenadas:
-            for fecha, tipos_esperados in AcuerdoPorDiaService._dias_reclamados(sol, emp_id):
+            for emp_id, fecha, tipos_esperados in AcuerdoPorDiaService._dias_reclamados(
+                    sol, emp_ids):
                 if not (ini <= fecha <= fin):
                     continue
-                if not (tipos_esperados & tipos_reales.get(fecha, set())):
+                if not (tipos_esperados & tipos_reales[emp_id].get(fecha, set())):
                     continue
-                salida.setdefault(fecha, AcuerdoPorDiaService._info(sol, emp_id, fecha))
+                salida[emp_id].setdefault(fecha, AcuerdoPorDiaService._info(sol, emp_id, fecha))
 
-        AcuerdoPorDiaService._agregar_pagos_reprogramados(salida, emp_id, ini, fin, tipos_reales)
+        AcuerdoPorDiaService._agregar_pagos_reprogramados(salida, emp_ids, ini, fin, tipos_reales)
         return salida
 
     @staticmethod
@@ -173,20 +197,28 @@ class AcuerdoPorDiaService:
         return None
 
     @staticmethod
-    def _fecha_de_clave(clave, emp_id):
-        """La fecha de una clave `"<emp_id>:<YYYY-MM-DD>"`, o None si no es de este empleado."""
-        clave = str(clave)
-        if not clave.startswith(f'{emp_id}:'):
-            return None
+    def _par_de_clave(clave, emp_ids):
+        """`(emp_id, fecha)` de una clave `"<emp_id>:<YYYY-MM-DD>"`, o `(None, None)`.
+
+        Devuelve `(None, None)` también cuando el empleado de la clave no está en el lote:
+        un snapshot habla de las DOS personas del acuerdo, y solo interesan las pedidas.
+        """
+        emp_txt, _, fecha_txt = str(clave).partition(':')
         try:
-            return date.fromisoformat(clave.split(':', 1)[1])
-        except (ValueError, IndexError):
-            return None
+            emp_id = int(emp_txt)
+        except ValueError:
+            return None, None
+        if emp_id not in emp_ids:
+            return None, None
+        try:
+            return emp_id, date.fromisoformat(fecha_txt)
+        except ValueError:
+            return None, None
 
     @staticmethod
-    def _dias_reclamados(solicitud, emp_id):
+    def _dias_reclamados(solicitud, emp_ids):
         """
-        `(fecha, {tipos_cambio aceptables})` de los días que ESTA solicitud puede reclamar.
+        `(emp_id, fecha, {tipos_cambio aceptables})` de los días que ESTA solicitud reclama.
 
         Dos niveles, del más preciso al menos, porque los dos snapshots no dicen lo mismo:
 
@@ -207,12 +239,12 @@ class AcuerdoPorDiaService:
         resultante = AcuerdoPorDiaService._snapshot(solicitud, 'snapshot_turnos_resultantes')
         if resultante:
             for clave, turnos in resultante.items():
-                fecha = AcuerdoPorDiaService._fecha_de_clave(clave, emp_id)
+                emp_id, fecha = AcuerdoPorDiaService._par_de_clave(clave, emp_ids)
                 if fecha is None or not turnos:
                     continue
                 tipos = {t.get('tipo_cambio') for t in turnos if t.get('tipo_cambio')}
                 if tipos:
-                    yield fecha, tipos
+                    yield emp_id, fecha, tipos
             return
 
         previo = AcuerdoPorDiaService._snapshot(solicitud, 'snapshot_turnos_previos')
@@ -222,9 +254,9 @@ class AcuerdoPorDiaService:
         if not tipo_turno:
             return
         for clave in previo:
-            fecha = AcuerdoPorDiaService._fecha_de_clave(clave, emp_id)
+            emp_id, fecha = AcuerdoPorDiaService._par_de_clave(clave, emp_ids)
             if fecha is not None:
-                yield fecha, {tipo_turno}
+                yield emp_id, fecha, {tipo_turno}
 
     @staticmethod
     def _tipo_cambio_de(solicitud):
@@ -270,7 +302,7 @@ class AcuerdoPorDiaService:
         return None
 
     @staticmethod
-    def _agregar_pagos_reprogramados(salida, emp_id, ini, fin, tipos_reales):
+    def _agregar_pagos_reprogramados(salida, emp_ids, ini, fin, tipos_reales):
         """
         PAGO REPROGRAMADO: el día que el supervisor programó para pagar una doblada que no
         se pudo cumplir. No pasa por ningún snapshot —lo escribe el módulo de
@@ -281,7 +313,7 @@ class AcuerdoPorDiaService:
 
         reprogramaciones = (
             ReprogramacionDiaDoblada.objects
-            .filter(explorador_id=emp_id, fecha_reprogramada__range=(ini, fin))
+            .filter(explorador_id__in=emp_ids, fecha_reprogramada__range=(ini, fin))
             .exclude(estado='cancelada')
             .select_related('doblada_origen__tipo_cambio',
                             'doblada_origen__explorador_solicitante',
@@ -290,15 +322,16 @@ class AcuerdoPorDiaService:
         )
         for r in reprogramaciones:
             fecha = r.fecha_reprogramada
-            if fecha in salida:
+            emp_id = r.explorador_id
+            if fecha in salida[emp_id]:
                 continue
-            if TipoCambioTurno.PAGO_REPROGRAMADO not in tipos_reales.get(fecha, set()):
+            if TipoCambioTurno.PAGO_REPROGRAMADO not in tipos_reales[emp_id].get(fecha, set()):
                 continue
             origen = r.doblada_origen
             es_solicitante = origen.explorador_solicitante_id == emp_id
             companero = (origen.explorador_receptor if es_solicitante
                          else origen.explorador_solicitante)
-            salida[fecha] = {
+            salida[emp_id][fecha] = {
                 'solicitud_id': origen.id,
                 'tipo': origen.tipo_cambio.nombre if origen.tipo_cambio else None,
                 'tipo_cambio': TipoCambioTurno.PAGO_REPROGRAMADO,

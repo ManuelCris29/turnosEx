@@ -19,6 +19,7 @@ empleado y día por día: si alguien vuelve a tocar una capa aquí sin tocarla a
 """
 from datetime import date as _date
 
+from core.utils.date_utils import DateUtils
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
 from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, DiaEspecial, Turno
@@ -105,7 +106,9 @@ class ReporteDiaService:
             {id, nombre, apellido, jornada_base, jornada_dia,
              tipo,          # 'oficial' | 'cambio' | 'doblada'
              cubre_a,       # None | {id, nombre}  (cuando dobló por alguien)
-             permiso,       # None | {horas, tipo, especificacion, estado}
+             acuerdo,       # None | la solicitud que le puso este turno (ver abajo)
+             permiso,       # None | {horas, tipo, especificacion, estado, id,
+                            #   cubre, aprobado_por, fecha_aprobacion, es_permanente}
              restriccion,   # None | {tipo, recomendacion, fecha_fin}
              sancion,       # None | {motivo, fecha_inicio, fecha_fin}
              deuda_reprogramacion}  # None | {fecha_original, jornada_debida,
@@ -115,6 +118,7 @@ class ReporteDiaService:
             {id, nombre, apellido, jornada_base,
              motivo,        # texto legible
              companero,     # None | {id, nombre}
+             acuerdo,       # None | la solicitud por la que descansa (ver abajo)
              permiso, restriccion, sancion, deuda_reprogramacion}  # (idem)
           ],
           'dia_info': {
@@ -125,6 +129,20 @@ class ReporteDiaService:
                                # "descansan todos", sino "nadie lo ha planificado".
           }
         }
+
+        `acuerdo` tiene la MISMA forma en los dos lados —quien trabaja por un cambio y quien
+        descansa por él son las dos caras del mismo trato— y es lo que permite al reporte
+        decir CON QUIÉN se hizo, no solo que hubo un cambio:
+
+            {'solicitud_id', 'tipo',            # 'DOBLADA', 'CAMBIO TURNO', 'CT PERMANENTE'…
+             'tipo_cambio',                     # lo que quedó escrito en Turno.tipo_cambio
+             'companero_id', 'companero_nombre',
+             'rol',                             # 'solicitante' | 'receptor'
+             'fecha_solicitud', 'fecha_resolucion',   # 'DD/MM/AAAA HH:MM' | None
+             'fecha_relacionada'}               # el OTRO día del trato ('DD/MM/AAAA') | None
+
+        Sale de `AcuerdoPorDiaService` para quien trabaja y de `DescansoPorSolicitudService`
+        para quien descansa (normalizado en `reporte_dia_empleado._acuerdo_de_descanso`).
 
         Las fechas dentro de restriccion/sancion/deuda_reprogramacion son
         strings ISO (YYYY-MM-DD) o None.
@@ -201,6 +219,19 @@ class ReporteDiaService:
                 empleados, fecha, fecha).items()
         }
 
+        # ── L1: acuerdo que pone a TRABAJAR (FUENTE ÚNICA, en batch) ─────────
+        # El hermano del bloque de arriba: `dobla_cubre` (más abajo) solo sabe de
+        # DOBLADA/D FDS y solo del lado del receptor, así que un CAMBIO TURNO, un CT
+        # PERMANENTE, una DOBLADA PERMANENTE o un PAGO REPROGRAMADO salían sin decir con
+        # quién era el acuerdo. `AcuerdoPorDiaService` lo resuelve para los seis tipos por
+        # snapshot, con la misma guarda de realidad y el mismo "la última aprobada gana".
+        from solicitudes.services.acuerdo_por_dia_service import AcuerdoPorDiaService
+        acuerdo_l1 = {
+            eid: por_fecha.get(fecha)
+            for eid, por_fecha in AcuerdoPorDiaService.en_rango_multiple(
+                empleados, fecha, fecha).items()
+        }
+
         # Quién DOBLÓ (receptor en fecha_cambio_turno) → para mostrar "cubre a X"
         dobla_cubre = {}   # emp_id (receptor) → {id, nombre} del cedente
         for s in (SolicitudCambio.objects
@@ -217,7 +248,7 @@ class ReporteDiaService:
                   .filter(empleado_id__in=emp_ids,
                           estado__in=['APROBADO', 'PENDIENTE'],
                           fecha_inicio__lte=fecha, fecha_fin__gte=fecha)
-                  .select_related('empleado')):
+                  .select_related('empleado', 'cubre', 'supervisor')):
             if p.es_permanente:
                 dias_set = {int(x) for x in (p.dias_semana or '').split(',')
                             if x.strip().isdigit()}
@@ -228,6 +259,14 @@ class ReporteDiaService:
                 'tipo': p.get_tipo_display(),
                 'especificacion': p.especificacion or '',
                 'estado': p.estado,
+                # Un permiso también deja un hueco que alguien tapa: para el supervisor es
+                # tan parte de la planeación del día como una doblada. `cubre` es opcional.
+                'id': p.id,
+                'cubre': _nombre(p.cubre) if p.cubre else None,
+                'aprobado_por': _nombre(p.supervisor) if p.supervisor else None,
+                'fecha_solicitud': DateUtils.format_datetime_display(p.creado_en),
+                'fecha_aprobacion': DateUtils.format_datetime_display(p.fecha_aprobacion),
+                'es_permanente': p.es_permanente,
             }
 
         # ── Restricciones activas en la fecha (batch) ────────────────────────
@@ -299,6 +338,7 @@ class ReporteDiaService:
             jornada_base_por_emp=jornada_base_por_emp,
             turnos_por_emp=turnos_por_emp,
             descanso_l2=descanso_l2,
+            acuerdo_l1=acuerdo_l1,
             dobla_cubre=dobla_cubre,
             permisos_por_emp=permisos_por_emp,
             restricciones_por_emp=restricciones_por_emp,

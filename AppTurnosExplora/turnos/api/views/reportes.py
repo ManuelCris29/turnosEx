@@ -77,6 +77,31 @@ def _frase_descansa(emp):
     return frases.get(motivo, (emp.get('motivo') or 'Descansa').capitalize())
 
 
+#: Cómo se lee el papel de la persona en el trato. El vocabulario interno
+#: ('solicitante'/'receptor') no le dice nada a un supervisor mirando una planilla.
+ROL_LBL = {'solicitante': 'Pidió el cambio', 'receptor': 'Recibió el cambio'}
+
+
+def _celdas_acuerdo(emp):
+    """Las 5 celdas del ACUERDO que puso a esta persona en la jornada de hoy.
+
+    Mismo dict en las dos hojas (`ReporteDiaService.reporte` lo normaliza), así que hay un
+    solo formateador: con quién, de qué tipo, qué papel juega, cuál es el OTRO día del trato
+    y cuándo se aprobó. Todo '—' cuando el día no viene de ninguna solicitud (turno normal,
+    rotación, festivo, temporada…).
+    """
+    a = emp.get('acuerdo') or {}
+    if not a:
+        return ['—'] * 5
+    return [
+        a.get('companero_nombre') or '—',
+        a.get('tipo') or '—',
+        ROL_LBL.get(a.get('rol')) or '—',
+        a.get('fecha_relacionada') or '—',
+        a.get('fecha_resolucion') or '—',
+    ]
+
+
 def _txt_permiso(emp):
     p = emp.get('permiso')
     if not p:
@@ -490,6 +515,13 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             ('⚠ Sin planificar', 'FEE2E2', '991B1B',
              'El día es finde o festivo y todavía no tiene publicada la alternancia: '
              'las columnas vacías NO significan que descansen todos.'),
+            ('Con quién', 'F1F5F9', '334155',
+             'Compañero del acuerdo que puso a esa persona en la jornada de hoy. Al lado: '
+             'el tipo de solicitud, qué papel jugó y "Fecha relacionada", que es el OTRO '
+             'día del trato (si hoy cede, el día en que se lo devuelven, y al revés).'),
+            ('Cambios y permisos', 'F1F5F9', '334155',
+             'Hoja aparte con UNA fila por movimiento del día: quién lo pidió, con quién, '
+             'qué pasa hoy y cuándo se aprobó. Es el resumen para planear la semana.'),
         ]
         for etiqueta, bg, fg, desc_txt in leyenda:
             cb = ws.cell(row=fila, column=1, value=etiqueta)
@@ -537,7 +569,16 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                              MORADO_CL=MORADO_CL)
 
         # ════════════════════════════════════════════════════════════════════
-        # HOJA 5 — DEUDA PENDIENTE AL CORTE
+        # HOJA 5 — CAMBIOS Y PERMISOS DEL DÍA
+        # ════════════════════════════════════════════════════════════════════
+        ws_cambios = wb.create_sheet('Cambios y permisos')
+        self._hoja_cambios(ws_cambios, trabajando, descansando, fecha_legible,
+                           fill=fill, fuente=fuente, borde=borde_fino,
+                           centrado=centrado, izquierda=izquierda,
+                           VERDE_OSC='065F46', VERDE_MED='0D9488')
+
+        # ════════════════════════════════════════════════════════════════════
+        # HOJA 6 — DEUDA PENDIENTE AL CORTE
         # ════════════════════════════════════════════════════════════════════
         ws_deuda = wb.create_sheet('Deuda pendiente')
         self._hoja_deuda(ws_deuda, filas_deuda or [], resumen_deuda or {},
@@ -596,8 +637,15 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                        fill, fuente, borde, centrado, izquierda, dia_info):
         from openpyxl.utils import get_column_letter
         COLS = [(5, '#'), (20, 'Nombre'), (16, 'Apellido'), (12, 'Jornada hoy'),
-                (54, '¿Por qué trabaja hoy?'), (34, 'Permiso'),
-                (34, 'Restricción'), (30, 'Sanción'), (36, 'Doblada pendiente')]
+                (54, '¿Por qué trabaja hoy?'),
+                (24, 'Con quién'), (20, 'Tipo de cambio'), (17, 'Su papel'),
+                (16, 'Fecha relacionada'), (18, 'Aprobado el'),
+                (34, 'Permiso'), (34, 'Restricción'), (30, 'Sanción'),
+                (36, 'Doblada pendiente')]
+        # Índices POR NOMBRE, no a mano: el pintado de abajo iba con `col == 6/7/8/9`
+        # hardcodeado, así que insertar una columna en medio descolocaba en silencio todos
+        # los colores. Derivándolos de COLS, añadir o mover una columna es cambiar una línea.
+        IDX = {label: n for n, (_, label) in enumerate(COLS, 1)}
         self._encabezado_hoja(ws, titulo, fecha_legible, AZUL_OSC, color_enc,
                                fill, fuente, centrado, COLS)
         self._fila_header(ws, 4, COLS, color_enc, 'FFFFFF',
@@ -609,25 +657,34 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             tipo = emp.get('tipo', 'oficial')
             deuda = emp.get('deuda_reprogramacion') or {}
             frase = _frase_trabaja(emp, dia_info)
+            acu = _celdas_acuerdo(emp)
+            hay_acuerdo = bool(emp.get('acuerdo'))
             t_perm, t_rest, t_sanc, t_deuda = (_txt_permiso(emp), _txt_restriccion(emp),
                                                _txt_sancion(emp), _txt_deuda(emp))
             vals = [i - 4, emp['nombre'], emp['apellido'], emp.get('jornada_dia', ''),
-                    frase, t_perm or '—', t_rest or '—', t_sanc or '—', t_deuda or '—']
+                    frase, *acu,
+                    t_perm or '—', t_rest or '—', t_sanc or '—', t_deuda or '—']
             for col, v in enumerate(vals, 1):
                 c = ws.cell(row=i, column=col, value=v)
                 c.border = borde()
                 c.alignment = izquierda(True) if col > 1 else centrado()
                 c.font = fuente(size=10)
-                if col == 5:  # frase: color según tipo
+                if col == IDX['¿Por qué trabaja hoy?']:  # frase: color según tipo
                     c.fill = fill(TIPO_BG.get(tipo, bg))
                     c.font = fuente(bold=True, color=TIPO_FG.get(tipo, '000000'), size=10)
-                elif col == 6:
+                elif col == IDX['Con quién']:
+                    c.fill = fill(TIPO_BG.get(tipo, bg) if hay_acuerdo else bg)
+                    if hay_acuerdo:
+                        c.font = fuente(bold=True, color=TIPO_FG.get(tipo, '000000'), size=10)
+                elif col == IDX['Tipo de cambio']:
+                    c.fill = fill(TIPO_BG.get(tipo, bg) if hay_acuerdo else bg)
+                elif col == IDX['Permiso']:
                     c.fill = fill('FEFCE8' if t_perm else bg)
-                elif col == 7:
+                elif col == IDX['Restricción']:
                     c.fill = fill('FEF3C7' if t_rest else bg)
-                elif col == 8:
+                elif col == IDX['Sanción']:
                     c.fill = fill('FEE2E2' if t_sanc else bg)
-                elif col == 9:
+                elif col == IDX['Doblada pendiente']:
                     if deuda.get('paga_hoy'):
                         c.fill = fill('DCFCE7'); c.font = fuente(bold=True, size=10)
                     else:
@@ -635,7 +692,8 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                 else:
                     c.fill = fill(bg)
             ws.row_dimensions[i].height = _altura(
-                (frase, 54), (t_perm, 34), (t_rest, 34), (t_sanc, 30), (t_deuda, 36))
+                (frase, 54), (acu[0], 24), (t_perm, 34), (t_rest, 34),
+                (t_sanc, 30), (t_deuda, 36))
         if not empleados:
             ws.merge_cells(f'A5:{get_column_letter(len(COLS))}5')
             c = ws['A5']
@@ -648,8 +706,12 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                         GRIS_OSC, GRIS_MED, GRIS_CLARO, VERDE_CL, MORADO_CL):
         from openpyxl.utils import get_column_letter
         COLS = [(5, '#'), (20, 'Nombre'), (16, 'Apellido'), (11, 'Jornada base'),
-                (56, '¿Por qué descansa hoy?'), (34, 'Permiso'),
-                (34, 'Restricción'), (30, 'Sanción'), (36, 'Doblada pendiente')]
+                (56, '¿Por qué descansa hoy?'),
+                (24, 'Con quién'), (20, 'Tipo de cambio'), (17, 'Su papel'),
+                (16, 'Fecha relacionada'), (18, 'Aprobado el'),
+                (34, 'Permiso'), (34, 'Restricción'), (30, 'Sanción'),
+                (36, 'Doblada pendiente')]
+        IDX = {label: n for n, (_, label) in enumerate(COLS, 1)}
         self._encabezado_hoja(ws, 'DESCANSAN 🛌', fecha_legible, GRIS_OSC, GRIS_MED,
                                fill, fuente, centrado, COLS)
         self._fila_header(ws, 4, COLS, GRIS_MED, 'FFFFFF',
@@ -670,26 +732,35 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             motivo = (emp.get('motivo') or '').lower()
             deuda = emp.get('deuda_reprogramacion') or {}
             frase = _frase_descansa(emp)
+            acu = _celdas_acuerdo(emp)
+            hay_acuerdo = bool(emp.get('acuerdo'))
             t_perm, t_rest, t_sanc, t_deuda = (_txt_permiso(emp), _txt_restriccion(emp),
                                                _txt_sancion(emp), _txt_deuda(emp))
             vals = [i - 4, emp['nombre'], emp['apellido'], emp.get('jornada_base', ''),
-                    frase, t_perm or '—', t_rest or '—', t_sanc or '—', t_deuda or '—']
+                    frase, *acu,
+                    t_perm or '—', t_rest or '—', t_sanc or '—', t_deuda or '—']
             motivo_bg = MOTIVO_BG.get(motivo, bg)
             for col, v in enumerate(vals, 1):
                 c = ws.cell(row=i, column=col, value=v)
                 c.border = borde()
                 c.alignment = izquierda(True) if col > 1 else centrado()
                 c.font = fuente(size=10)
-                if col == 5:  # frase: color según motivo
+                if col == IDX['¿Por qué descansa hoy?']:  # frase: color según motivo
                     c.fill = fill(motivo_bg)
                     c.font = fuente(bold=True, color=GRIS_OSC, size=10)
-                elif col == 6:
+                elif col == IDX['Con quién']:
+                    c.fill = fill(motivo_bg if hay_acuerdo else bg)
+                    if hay_acuerdo:
+                        c.font = fuente(bold=True, color=GRIS_OSC, size=10)
+                elif col == IDX['Tipo de cambio']:
+                    c.fill = fill(motivo_bg if hay_acuerdo else bg)
+                elif col == IDX['Permiso']:
                     c.fill = fill('FEFCE8' if t_perm else bg)
-                elif col == 7:
+                elif col == IDX['Restricción']:
                     c.fill = fill('FEF3C7' if t_rest else bg)
-                elif col == 8:
+                elif col == IDX['Sanción']:
                     c.fill = fill('FEE2E2' if t_sanc else bg)
-                elif col == 9:
+                elif col == IDX['Doblada pendiente']:
                     if deuda.get('paga_hoy'):
                         c.fill = fill('DCFCE7'); c.font = fuente(bold=True, size=10)
                     else:
@@ -697,13 +768,120 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                 else:
                     c.fill = fill(bg)
             ws.row_dimensions[i].height = _altura(
-                (frase, 56), (t_perm, 34), (t_rest, 34), (t_sanc, 30), (t_deuda, 36))
+                (frase, 56), (acu[0], 24), (t_perm, 34), (t_rest, 34),
+                (t_sanc, 30), (t_deuda, 36))
         if not empleados:
             ws.merge_cells(f'A5:{get_column_letter(len(COLS))}5')
             c = ws['A5']
             c.value = 'Todos los exploradores trabajan este día'
             c.font = fuente(italic=True, color='94A3B8', size=10)
             c.alignment = centrado()
+
+    def _hoja_cambios(self, ws, trabajando, descansando, fecha_legible,
+                      fill, fuente, borde, centrado, izquierda, VERDE_OSC, VERDE_MED):
+        """UNA fila por MOVIMIENTO del día: qué se movió, entre quiénes y cuándo se aprobó.
+
+        Las otras hojas contestan "¿qué hace fulano hoy?". Esta contesta la pregunta del
+        supervisor que planea la semana: "¿qué se movió y con quién queda pendiente la
+        devolución?".
+
+        Un acuerdo aparece en las DOS personas (quien trabaja y quien descansa son las dos
+        caras del mismo trato), así que se DEDUPLICA por número de solicitud: es un
+        movimiento, no dos. La columna "Qué pasa hoy" junta los dos lados en una frase.
+        """
+        from openpyxl.utils import get_column_letter
+        COLS = [(5, '#'), (20, 'Tipo'), (22, 'Quién pidió'), (22, 'Con quién'),
+                (52, 'Qué pasa hoy'), (16, 'Fecha relacionada'),
+                (18, 'Solicitado el'), (18, 'Aprobado el'), (22, 'Aprobado por'),
+                (13, 'N° solicitud')]
+        self._encabezado_hoja(ws, 'CAMBIOS Y PERMISOS DEL DÍA 🔄', fecha_legible,
+                              VERDE_OSC, VERDE_MED, fill, fuente, centrado, COLS)
+        self._fila_header(ws, 4, COLS, VERDE_MED, 'FFFFFF',
+                          fill, fuente, centrado, borde)
+
+        def _persona(emp):
+            return f'{emp["nombre"]} {emp["apellido"]}'.strip()
+
+        movimientos = {}
+        for emp, verbo in ([(e, 'trabaja') for e in trabajando]
+                           + [(e, 'descansa') for e in descansando]):
+            a = emp.get('acuerdo') or {}
+            if a.get('solicitud_id'):
+                clave = ('sol', a['solicitud_id'])
+                mov = movimientos.get(clave)
+                if mov is None:
+                    # `rol` desconocido (dato antiguo) se trata como solicitante: es el
+                    # caso mayoritario y deja la fila legible en vez de invertida.
+                    es_sol = a.get('rol') != 'receptor'
+                    yo, otro = _persona(emp), a.get('companero_nombre') or '—'
+                    mov = movimientos[clave] = {
+                        'orden': (0, a.get('tipo') or '', yo),
+                        'vals': [a.get('tipo') or '—',
+                                 yo if es_sol else otro,
+                                 otro if es_sol else yo,
+                                 [],
+                                 a.get('fecha_relacionada') or '—',
+                                 a.get('fecha_solicitud') or '—',
+                                 a.get('fecha_resolucion') or '—',
+                                 '—',
+                                 a['solicitud_id']],
+                    }
+                jd = emp.get('jornada_dia') if verbo == 'trabaja' else None
+                mov['vals'][3].append(f'{_persona(emp)} {verbo}'
+                                      + (f' {jd}' if jd else ''))
+            p = emp.get('permiso') or {}
+            if p.get('id'):
+                horas = p.get('horas', 0) or 0
+                esp = f' — {p["especificacion"]}' if p.get('especificacion') else ''
+                cubre = (p.get('cubre') or {}).get('nombre') or '—'
+                movimientos[('permiso', p['id'])] = {
+                    'orden': (1, 'PERMISO', _persona(emp)),
+                    'vals': ['PERMISO', _persona(emp), cubre,
+                             [f'{_persona(emp)}: permiso de {horas:g}h '
+                              f'({p.get("tipo", "")}{esp}) — {p.get("estado", "")}'],
+                             '—',
+                             p.get('fecha_solicitud') or '—',
+                             p.get('fecha_aprobacion') or '—',
+                             (p.get('aprobado_por') or {}).get('nombre') or '—',
+                             p['id']],
+                }
+
+        filas = sorted(movimientos.values(), key=lambda m: m['orden'])
+        for i, mov in enumerate(filas, 5):
+            bg = 'FFFFFF' if i % 2 == 1 else 'F8FAFC'
+            vals = list(mov['vals'])
+            vals[3] = ' · '.join(vals[3]) or '—'
+            es_permiso = vals[0] == 'PERMISO'
+            for col, v in enumerate([i - 4, *vals], 1):
+                c = ws.cell(row=i, column=col, value=v)
+                c.border = borde()
+                c.alignment = izquierda(True) if col > 1 else centrado()
+                c.font = fuente(size=10)
+                if col == 2:
+                    c.fill = fill('FEFCE8' if es_permiso else 'CCFBF1')
+                    c.font = fuente(bold=True, color='854D0E' if es_permiso else VERDE_OSC,
+                                    size=10)
+                else:
+                    c.fill = fill(bg)
+            ws.row_dimensions[i].height = _altura((vals[3], 52), (vals[1], 22), (vals[2], 22))
+
+        if not filas:
+            ws.merge_cells(f'A5:{get_column_letter(len(COLS))}5')
+            c = ws['A5']
+            c.value = 'No hay cambios ni permisos aprobados que afecten este día'
+            c.font = fuente(italic=True, color='94A3B8', size=10)
+            c.alignment = centrado()
+
+        # Nota al pie: por qué "Aprobado por" solo se llena en los permisos.
+        fila = 5 + max(len(filas), 1) + 1
+        ws.merge_cells(f'A{fila}:{get_column_letter(len(COLS))}{fila}')
+        c = ws.cell(row=fila, column=1, value=(
+            'ℹ  "Aprobado por" solo aparece en los permisos: de las solicitudes de cambio se '
+            'guarda CUÁNDO quedaron aprobadas, no qué supervisor las aprobó. '
+            'El "N° solicitud" sirve para buscarla en el módulo de solicitudes.'))
+        c.font = fuente(italic=True, color='64748B', size=9)
+        c.alignment = izquierda(True)
+        ws.row_dimensions[fila].height = _altura((c.value, 120))
 
     def _hoja_deuda(self, ws, filas, resumen, fecha, fecha_legible,
                     fill, fuente, borde, centrado, izquierda, ROJO_OSC, ROJO_MED):

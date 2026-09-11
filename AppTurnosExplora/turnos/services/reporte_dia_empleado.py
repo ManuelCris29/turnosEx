@@ -38,6 +38,51 @@ from typing import Any
 MOTIVO_SIN_PLANIFICAR = 'sin alternancia publicada'
 
 
+def _acuerdo_de_descanso(l2, fecha):
+    """Traduce la ficha de descanso (L2) a la MISMA forma que `AcuerdoPorDiaService._info`.
+
+    Quien descansa y quien trabaja llegan por servicios distintos —`DescansoPorSolicitudService`
+    y `AcuerdoPorDiaService`— pero el supervisor lee la misma columna en las dos hojas del
+    Excel. Normalizando aquí, el formateador es uno solo y no hay dos vocabularios que
+    cuadrar en la vista.
+
+    Todos estos campos YA los devolvía L2; hasta ahora el reporte se quedaba solo con
+    `motivo` y `companero` y tiraba el resto.
+    """
+    if not l2:
+        return None
+    from core.constants import MAPA_SOLICITUD_A_TURNO
+
+    comp = l2.get('companero') or {}
+    tipo = l2.get('tipo_solicitud')
+    # La OTRA fecha del trato: la del par cesión/pago que NO es la de hoy. Se decide
+    # comparando con la fecha, igual que `AcuerdoPorDiaService._fecha_contraparte`, y no por
+    # el campo `tipo`: en un CAMBIO DESCANSO L2 marca 'cedio' a los DOS lados (los dos ceden
+    # su día), así que quien está en la fecha de pago se veía a sí mismo como "fecha
+    # relacionada" — el día de hoy, que no informa de nada.
+    # Los permanentes son un rango con varias fechas por lado, no un par, y ahí L2 manda las
+    # dos en None a propósito.
+    hoy = fecha.strftime('%d/%m/%Y')
+    cesion, pago = l2.get('fecha_cesion'), l2.get('fecha_pago')
+    if cesion == hoy:
+        relacionada = pago
+    elif pago == hoy:
+        relacionada = cesion
+    else:
+        relacionada = pago if l2.get('tipo') == 'cedio' else cesion
+    return {
+        'solicitud_id': l2.get('solicitud_id'),
+        'tipo': tipo,
+        'tipo_cambio': MAPA_SOLICITUD_A_TURNO.get(tipo, tipo),
+        'companero_id': comp.get('id'),
+        'companero_nombre': comp.get('nombre'),
+        'rol': l2.get('rol'),
+        'fecha_solicitud': l2.get('fecha_solicitud'),
+        'fecha_resolucion': l2.get('fecha_aprobacion'),
+        'fecha_relacionada': relacionada,
+    }
+
+
 @dataclass(frozen=True)
 class ContextoDia:
     """Todo lo del día, ya reunido en lote e indexado por empleado.
@@ -56,6 +101,7 @@ class ContextoDia:
     jornada_base_por_emp: dict
     turnos_por_emp: dict
     descanso_l2: dict
+    acuerdo_l1: dict
     dobla_cubre: dict
     permisos_por_emp: dict
     restricciones_por_emp: dict
@@ -76,6 +122,7 @@ def clasifica(emp, ctx: ContextoDia, trabajando: list, descansando: list) -> Non
     cubre_a = None
     motivo_descanso = None
     companero_descanso = None
+    acuerdo_descanso = None
 
     # El ORDEN de estas ramas replica exactamente el de `TurnoService.estado_dia`
     # (L5 festivo → L1 turno real → L2 solicitud → base → L6 finde → L4 temporada →
@@ -106,6 +153,7 @@ def clasifica(emp, ctx: ContextoDia, trabajando: list, descansando: list) -> Non
             trabaja = False
             motivo_descanso = l2['motivo']
             companero_descanso = l2.get('companero')
+            acuerdo_descanso = _acuerdo_de_descanso(l2, ctx.fecha)
         elif ctx.grupo_dobla_festivo is None:
             trabaja = False
             motivo_descanso = MOTIVO_SIN_PLANIFICAR
@@ -131,6 +179,7 @@ def clasifica(emp, ctx: ContextoDia, trabajando: list, descansando: list) -> Non
         trabaja = False
         motivo_descanso = l2['motivo']
         companero_descanso = l2.get('companero')
+        acuerdo_descanso = _acuerdo_de_descanso(l2, ctx.fecha)
 
     # — Sin jornada base —
     elif not jb:
@@ -191,10 +240,18 @@ def clasifica(emp, ctx: ContextoDia, trabajando: list, descansando: list) -> Non
             'jornada_dia': jornada_dia,
             'tipo': tipo,
             'cubre_a': cubre_a,
+            # QUÉ ACUERDO le puso este turno: con quién, de qué tipo, qué papel juega y cuál
+            # es el otro día del trato. `cubre_a` solo sabe de DOBLADA/D FDS y solo del lado
+            # del receptor; esto cubre los seis tipos y el pago reprogramado.
+            'acuerdo': ctx.acuerdo_l1.get(emp.id),
         })
     else:
         descansando.append({
             **base_info,
             'motivo': motivo_descanso,
             'companero': companero_descanso,
+            # Solo cuando el descanso VIENE de una solicitud (las dos ramas que leen L2).
+            # Un descanso por rotación, temporada o mantenimiento no tiene acuerdo detrás,
+            # aunque la persona tenga una solicitud vieja rondando ese día.
+            'acuerdo': acuerdo_descanso,
         })

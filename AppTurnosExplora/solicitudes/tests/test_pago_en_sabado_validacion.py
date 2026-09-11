@@ -258,17 +258,31 @@ class DevolucionEnSemanaTest(PagoEnSabadoBase):
         self.assertIn('festivo', msg)
 
     def test_el_dia_de_devolucion_no_puede_ser_en_el_pasado(self):
-        pasado = timezone.localdate() - timedelta(days=10)
-        while pasado.weekday() >= 5:
-            pasado -= timedelta(days=1)
-        # El sábado se mueve al mes del día pasado para que el fallo sea por PASADO y no
-        # por la guarda del mismo mes, que se comprueba antes.
-        sabado_del_pasado = pasado
+        hoy = timezone.localdate()
+
+        # Un sábado en el pasado y un día de semana del MISMO mes, también pasado: así el
+        # rechazo es por PASADO y no por la guarda del "mismo mes", que se comprueba antes.
+        sabado_del_pasado = hoy - timedelta(days=7)
         while sabado_del_pasado.weekday() != 5:
-            sabado_del_pasado += timedelta(days=1)
+            sabado_del_pasado -= timedelta(days=1)
+        if sabado_del_pasado.day == 1:
+            dia_semana_pasado = sabado_del_pasado + timedelta(days=2)   # lunes
+        else:
+            dia_semana_pasado = sabado_del_pasado - timedelta(days=1)   # viernes
+
+        # El receptor debe ser del grupo que trabaja ESE sábado (guarda anterior a la de
+        # "pasado"): `self.sabado` de setUp puede estar en la fase contraria de la
+        # alternancia, así que se realinea a este sábado.
+        from turnos.tests.alternancia_helpers import publicar_alternancia
+        publicar_alternancia(sabado_del_pasado.year)
+        grupo = AsignacionEspecialService.grupo_trabaja(sabado_del_pasado)
+        jsab = self.am if grupo == 'AM' else self.pm
+        jcon = self.pm if grupo == 'AM' else self.am
+        self._jornada(self.receptor, jsab)
+        self._jornada(self.solicitante, jcon)
 
         ok, msg = self._ambas(fecha_pago_obj=sabado_del_pasado,
-                              fecha_pago_semana=pasado.strftime('%Y-%m-%d'))
+                              fecha_pago_semana=dia_semana_pasado.strftime('%Y-%m-%d'))
 
         self.assertFalse(ok)
         self.assertIn('pasado', msg)
