@@ -2,6 +2,7 @@ from django.db import models
 from simple_history.models import HistoricalRecords
 
 from core.constants import TipoCambioTurno
+from core.services.cache_service import CACHE_TTL_VERY_LONG, CacheService
 
 # Los tres últimos NO se usan en este archivo: se RE-EXPORTAN. Hay código y tests
 # que hacen `from turnos.models import CompetenciaEmpleado`, así que quitarlos de
@@ -126,6 +127,11 @@ class Turno(models.Model):
     def __str__(self):
         return f"{self.explorador.user.username} - {self.fecha}" #type:ignore
     
+#: Clave del "número de versión" del caché de DiaEspecial. Ver
+#: `DiaEspecial._version_cache` y `turnos/signals.py`.
+DIA_ESPECIAL_VERSION_KEY = 'dia_especial_version_v1'
+
+
 class DiaEspecial(models.Model):
     # Año mínimo/máximo aceptado en toda la gestión de días especiales.
     # Fuente única: formularios, servicios y endpoints API validan contra estos límites.
@@ -188,8 +194,29 @@ class DiaEspecial(models.Model):
         return self.fecha.month if self.fecha else None
 
     @classmethod
+    def _version_cache(cls) -> int:
+        """Número de versión del caché de este modelo (ver `turnos/signals.py`).
+
+        Se incrementa en CUALQUIER escritura de `DiaEspecial` (señal
+        post_save/post_delete), sin importar la fecha afectada. Con el patrón
+        "borrar el año y recrear" que usa `DiaEspecialService`, perseguir cada
+        fecha individual para invalidar sería más código para el mismo
+        resultado: un solo número en la clave invalida TODAS las fechas
+        cacheadas de una vez.
+        """
+        return CacheService.get(DIA_ESPECIAL_VERSION_KEY, 0)
+
+    @classmethod
     def es_temporada_en(cls, fecha):
         """True si la fecha cae dentro de un día de temporada activo."""
+        return CacheService.get_or_set(
+            f"dia_especial_temporada_v1_{cls._version_cache()}_{fecha}",
+            lambda: cls._es_temporada_en_bd(fecha),
+            ttl=CACHE_TTL_VERY_LONG,
+        )
+
+    @classmethod
+    def _es_temporada_en_bd(cls, fecha):
         try:
             return cls.objects.filter(fecha=fecha, es_temporada=True, activo=True).exists()
         except Exception:
@@ -198,6 +225,14 @@ class DiaEspecial(models.Model):
     @classmethod
     def es_festivo(cls, fecha):
         """True si la fecha es un festivo activo. Fuente única para "¿es festivo?"."""
+        return CacheService.get_or_set(
+            f"dia_especial_festivo_v1_{cls._version_cache()}_{fecha}",
+            lambda: cls._es_festivo_bd(fecha),
+            ttl=CACHE_TTL_VERY_LONG,
+        )
+
+    @classmethod
+    def _es_festivo_bd(cls, fecha):
         try:
             return cls.objects.filter(fecha=fecha, tipo='festivo', activo=True).exists()
         except Exception:
@@ -212,8 +247,16 @@ class DiaEspecial(models.Model):
         Un lunes (u otro día) marcado como mantenimiento que cae dentro de un
         rango de temporada NO se considera mantenimiento, porque la temporada manda.
         """
+        return CacheService.get_or_set(
+            f"dia_especial_mantenimiento_v1_{cls._version_cache()}_{fecha}",
+            lambda: cls._es_mantenimiento_efectivo_bd(fecha),
+            ttl=CACHE_TTL_VERY_LONG,
+        )
+
+    @classmethod
+    def _es_mantenimiento_efectivo_bd(cls, fecha):
         try:
-            if cls.es_temporada_en(fecha):
+            if cls.es_temporada_en(fecha):  # ya cacheado por su propia clave
                 return False
             return cls.objects.filter(fecha=fecha, tipo='mantenimiento', activo=True).exists()
         except Exception:

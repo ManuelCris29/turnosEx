@@ -35,7 +35,7 @@ from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio
 
 from .base_strategy import SolicitudStrategy
-from .estrategia_fin_de_semana import EstrategiaFinDeSemana
+from .estrategia_fin_de_semana import EstrategiaFinDeSemana, estado_de
 
 logger = logging.getLogger(__name__)
 
@@ -396,7 +396,9 @@ class DFDSStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
                 "No se pudo notificar el traspaso de cobertura de la solicitud %s", solicitud.pk)
 
     # --------------------------------------------------- empleados disponibles
-    def disponibilidad_companero(self, candidato: Empleado, fecha_cesion) -> Tuple[bool, Optional[str]]:
+    def disponibilidad_companero(
+        self, candidato: Empleado, fecha_cesion, estados_precargados: dict = None,
+    ) -> Tuple[bool, Optional[str]]:
         """
         Regla de D FDS: puede recibir el día quien lo tenga LIBRE.
 
@@ -411,10 +413,10 @@ class DFDSStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
         El criterio anterior (grupo contrario + trabajar el otro día del finde) dejaba fuera a
         quien descansa los dos días y a los compañeros del mismo grupo, que en la operación real
         son justamente a quienes se les puede ceder.
+
+        `estados_precargados`: ver `estado_de` en `estrategia_fin_de_semana.py`.
         """
         from datetime import timedelta
-
-        from turnos.services.turno_service import TurnoService
 
         otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5
                 else fecha_cesion - timedelta(days=1))
@@ -423,14 +425,14 @@ class DFDSStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
 
         # El día que se cede se mira primero y se corta ahí si ya lo trabaja: se ahorra la mitad
         # de las consultas, porque quien trabaja ese día ya está descartado pase lo que pase.
-        est_ced = TurnoService.estado_dia(candidato, fecha_cesion)
+        est_ced = estado_de(estados_precargados, candidato, fecha_cesion)
         if est_ced['trabaja']:
-            est_otro = TurnoService.estado_dia(candidato, otro)
+            est_otro = estado_de(estados_precargados, candidato, otro)
             if est_otro['trabaja']:
                 return False, 'ya trabaja los dos días de ese finde'
             return False, f'ya trabaja ese {dia_ced}'
 
-        est_otro = TurnoService.estado_dia(candidato, otro)
+        est_otro = estado_de(estados_precargados, candidato, otro)
         if est_otro['trabaja'] and est_otro.get('jornada') in ('AM', 'PM'):
             return False, f'solo tiene media jornada ({est_otro.get("jornada")}) el {dia_otro} de ese finde'
         return True, None

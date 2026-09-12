@@ -10,10 +10,12 @@ corporativas: se conserva la traza histórica pero dejan de contar.
 """
 import logging
 
-from django.db.models.signals import post_save, pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 
-from .models import DeudaCorporativa, DeudaExplorador, SolicitudCambio
+from core.services.cache_service import CacheService
+
+from .models import DeudaCorporativa, DeudaExplorador, SolicitudCambio, TipoSolicitudCambio
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +90,10 @@ def cancelar_deudas_al_cancelar_solicitud(sender, instance, **kwargs):
             "Solicitud %s %s: %s deuda(s) corporativa(s) y %s entre exploradores canceladas.",
             instance.id, instance.estado, corp, entre,
         )
+
+
+@receiver(post_save, sender=TipoSolicitudCambio)
+@receiver(post_delete, sender=TipoSolicitudCambio)
+def _invalidar_catalogo_tipos_solicitud(sender, **kwargs):
+    """Ver `TipoSolicitudCambioListView` (solicitudes/views/dashboard_admin.py): se cachea 1h."""
+    CacheService.delete('catalogo_tipos_solicitud_v1')

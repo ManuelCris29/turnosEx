@@ -47,6 +47,10 @@ class PermisosSesionUpdateView(LoginRequiredMixin, StaffRequiredMixin, View):
                 defaults={'habilitado': codigo in marcadas},
             )
 
+        # La invalidación del caché de `sesiones_habilitadas` la dispara la señal
+        # post_save/post_delete de PermisoSesion (empleados/signals.py), no esta
+        # vista: PermisoSesion también se edita desde /admin/, y un solo punto de
+        # invalidación en la señal cubre ambos caminos.
         messages.success(
             request,
             f'Permisos de sesión actualizados para {empleado.nombre} {empleado.apellido}.',

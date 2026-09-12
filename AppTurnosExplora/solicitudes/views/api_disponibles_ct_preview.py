@@ -32,6 +32,11 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         `CambioDescansoStrategy._validar_entre_semana`) para que lo que se ofrece y lo que se
         acepta no puedan divergir. Sin el parámetro no filtra nada: el resto de formularios
         (CT, doblada, CT permanente…) siguen igual.
+
+        Usa `estado_rango_multiple` (mismo resultado que `estado_dia` celda a celda, ver su
+        docstring) en vez de llamar `estado_dia` una vez por candidato: con un desplegable de
+        varias decenas de empleados, la versión individual paga ~3-5 consultas POR candidato
+        mientras que la batch paga un número constante para el desplegable completo.
         """
         if not fecha_descanso_receptor or not empleados:
             return empleados
@@ -39,7 +44,11 @@ class ObtenerEmpleadosDisponiblesView(LoginRequiredMixin, View):
         if not fecha_obj:
             return empleados
         from turnos.services.turno_service import TurnoService
-        return [e for e in empleados if not TurnoService.estado_dia(e, fecha_obj)['trabaja']]
+        estados = TurnoService.estado_rango_multiple(empleados, fecha_obj, fecha_obj)
+        return [
+            e for e in empleados
+            if not estados.get(getattr(e, 'id', e), {}).get(fecha_obj, {}).get('trabaja')
+        ]
 
     def get(self, request):
         fecha = request.GET.get('fecha')

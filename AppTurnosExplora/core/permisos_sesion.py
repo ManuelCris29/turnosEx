@@ -22,6 +22,7 @@ PDH; solo evita que la sesión le aparezca tachada el día que sí sea superviso
 """
 import logging
 
+from core.services.cache_service import CACHE_TTL_LONG, CacheService
 from core.sesiones import POR_CODIGO, SESIONES
 
 logger = logging.getLogger(__name__)
@@ -49,20 +50,12 @@ def excepciones_de(empleado) -> dict:
     }
 
 
-def sesiones_habilitadas(user) -> dict:
-    """Mapa {codigo: bool} con lo que este usuario ve. Falla CERRADO salvo staff.
+def _cache_key_sesiones(user_id) -> str:
+    return f"sesiones_habilitadas_v1_{user_id}"
 
-    Devuelve un dict completo (todas las sesiones del catálogo) y no un set,
-    porque la plantilla necesita poder preguntar por una sesión que está
-    apagada sin que Django lo confunda con "la variable no existe".
-    """
+
+def _calcular_sesiones_habilitadas(user) -> dict:
     from core.mixins import es_supervisor
-
-    if not getattr(user, 'is_authenticated', False):
-        return {s.codigo: False for s in SESIONES}
-
-    if _es_admin_total(user):
-        return {s.codigo: True for s in SESIONES}
 
     empleado = getattr(user, 'empleado', None)
     permisos = defectos_para(es_supervisor(user))
@@ -76,6 +69,60 @@ def sesiones_habilitadas(user) -> dict:
             getattr(user, 'username', '?'), exc_info=True,
         )
     return permisos
+
+
+def sesiones_habilitadas(user) -> dict:
+    """Mapa {codigo: bool} con lo que este usuario ve. Falla CERRADO salvo staff.
+
+    Devuelve un dict completo (todas las sesiones del catálogo) y no un set,
+    porque la plantilla necesita poder preguntar por una sesión que está
+    apagada sin que Django lo confunda con "la variable no existe".
+
+    Se pide 2-3 veces por request (context processor + middleware), así que el
+    resultado se memoiza en el propio objeto `user` (mismo patrón que
+    `user._perm_cache` en `django.contrib.auth`): dentro de la misma petición,
+    `request.user` es la misma instancia para las tres llamadas. Entre
+    peticiones se usa `CacheService` con TTL de una hora, igual que "Mis
+    Turnos" — el dato solo cambia cuando se escribe `PermisoSesion`, y esa
+    escritura invalida la clave (ver `empleados/signals.py`).
+    """
+    if not getattr(user, 'is_authenticated', False):
+        return {s.codigo: False for s in SESIONES}
+
+    cacheado_en_request = getattr(user, '_sesiones_habilitadas_cache', None)
+    if cacheado_en_request is not None:
+        return cacheado_en_request
+
+    if _es_admin_total(user):
+        resultado = {s.codigo: True for s in SESIONES}
+    else:
+        resultado = CacheService.get_or_set(
+            _cache_key_sesiones(user.id),
+            lambda: _calcular_sesiones_habilitadas(user),
+            ttl=CACHE_TTL_LONG,
+        )
+
+    try:
+        user._sesiones_habilitadas_cache = resultado
+    except Exception:
+        pass  # user podría ser un objeto sin __dict__ mutable; no es crítico
+    return resultado
+
+
+def invalidar_cache_sesiones(user_id) -> None:
+    """Invalida el caché de `sesiones_habilitadas` para este usuario.
+
+    Se llama desde la señal post_save/post_delete de `PermisoSesion`
+    (empleados/signals.py), que cubre tanto `PermisosSesionUpdateView` como el
+    admin de Django. El borrado es INMEDIATO, sin aplazar a
+    `transaction.on_commit` (a diferencia de
+    `CacheService.invalidar_cache_turnos_empleado`): esto es una edición
+    administrativa rara, hecha por una sola persona a la vez, sin la lectura
+    concurrente de alto volumen que sí justifica aplazar el borrado en Mis
+    Turnos. Aplazar aquí solo complicaría los tests (que crean `PermisoSesion`
+    por ORM sin pasar por una transacción explícita) sin una ganancia real.
+    """
+    CacheService.delete(_cache_key_sesiones(user_id))
 
 
 def puede_ver(user, codigo: str) -> bool:

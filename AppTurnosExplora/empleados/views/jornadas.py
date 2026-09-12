@@ -8,6 +8,7 @@ from django.views.generic import ListView, UpdateView
 from django.views.generic.edit import CreateView, DeleteView
 
 from core.mixins import AdminRequiredMixin
+from core.services.cache_service import CACHE_TTL_VERY_LONG, CacheService
 
 from ..forms import JornadaForm
 from ..models import Jornada
@@ -18,6 +19,12 @@ class JornadaListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
     model = Jornada
     template_name = 'empleados/jornadas_list.html'
     context_object_name = 'jornadas'
+
+    def get_queryset(self):
+        # Catálogo casi estático: se cachea 24h e invalida por señal
+        # (empleados/signals.py) ante cualquier escritura de Jornada.
+        qs = super().get_queryset()
+        return CacheService.get_or_set('catalogo_jornadas_v1', lambda: list(qs), ttl=CACHE_TTL_VERY_LONG)
 
 class JornadaCreateView(LoginRequiredMixin, AdminRequiredMixin, SuccessMessageMixin, CreateView):
     model = Jornada

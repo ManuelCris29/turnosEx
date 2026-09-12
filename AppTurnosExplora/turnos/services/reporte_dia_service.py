@@ -19,6 +19,7 @@ empleado y día por día: si alguien vuelve a tocar una capa aquí sin tocarla a
 """
 from datetime import date as _date
 
+from core.services.cache_service import CACHE_TTL_SHORT, CacheService
 from core.utils.date_utils import DateUtils
 from empleados.models import Empleado
 from solicitudes.models import SolicitudCambio
@@ -97,6 +98,24 @@ class ReporteDiaService:
 
     @staticmethod
     def reporte(fecha: _date) -> dict:
+        """Cachea `_reporte_bd` 5 minutos. Ver su docstring para la forma del resultado.
+
+        Sin invalidación explícita a propósito: este reporte agrega datos que
+        cambian por ~15 puntos distintos (aprobación, cancelación, sanciones,
+        permisos, día especial...); perseguir cada uno aquí sería acoplar un
+        reporte de solo lectura a toda esa lógica. Un TTL corto cubre el caso
+        real (ver el reporte y bajar el Excel de la misma fecha, `ReporteDiaView`
+        y `ReporteDiaExcelView` en `turnos/api/views/reportes.py`) sin arriesgar
+        más de 5 minutos de desfase en una pantalla que ya se refresca a mano.
+        """
+        return CacheService.get_or_set(
+            f"reporte_dia_v1_{fecha}",
+            lambda: ReporteDiaService._reporte_bd(fecha),
+            ttl=CACHE_TTL_SHORT,
+        )
+
+    @staticmethod
+    def _reporte_bd(fecha: _date) -> dict:
         """
         Devuelve el estado de todos los empleados activos para `fecha`.
 

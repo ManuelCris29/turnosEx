@@ -70,13 +70,24 @@ class DFDSCompanerosView(LoginRequiredMixin, View):
 
         lista = strat.get_empleados_disponibles(fecha.isoformat(), emp) if strat else []
 
+        # `disponibilidad_companero` llama a `estado_dia` 1-2 veces por candidato; con el pool
+        # completo de exploradores (D FDS lo ofrece a todos salvo uno mismo) eran ~50-100
+        # consultas solo para pintar el selector. Se precarga en lote (número de consultas
+        # constante) el rango que cubre las dos fechas del finde y se pasa a cada llamada.
+        estados_precargados = None
+        if lista:
+            from turnos.services.turno_service import TurnoService
+            estados_precargados = TurnoService.estado_rango_multiple(
+                lista, min(fecha, otro), max(fecha, otro),
+            )
+
         companeros = []
         for r in lista:
             # La regla de disponibilidad la pone CADA estrategia: el intercambio (CAMBIO DESCANSO)
             # exige que el compañero trabaje el otro día del finde para poder canjearlo; la cesión
             # (D FDS) solo exige que tenga libre el día que recibe. Tenerla aquí dentro obligaba a
             # que ambos formularios compartieran criterio.
-            disp, motivo = strat.disponibilidad_companero(r, fecha)
+            disp, motivo = strat.disponibilidad_companero(r, fecha, estados_precargados)
             companeros.append({
                 'id': r.id, 'nombre': f'{r.nombre} {r.apellido}',
                 # `etiqueta` la pone la estrategia y dice POR QUÉ ese compañero sirve. Antes se
@@ -125,11 +136,20 @@ class DescansosSemanaUsuarioView(LoginRequiredMixin, View):
         res = {}
         if jornada:
             from turnos.services.turno_service import TurnoService
+            # Un solo empleado, pero hasta una decena de fechas de temporada en el año: batch
+            # (`estado_rango_multiple`, número de consultas constante) en vez de una llamada a
+            # `estado_dia` por fecha. Solo hace falta en `es_propio` (es el único caso que la usa).
+            estados_emp = (
+                TurnoService.estado_rango_multiple(
+                    [emp], _date(anio, 1, 1), _date(anio, 12, 31),
+                ).get(emp.id, {})
+                if es_propio else {}
+            )
             for d in DescansoSemanaManual.objects.filter(
                     fecha__year=anio, activo=True, jornada__nombre__iexact=jornada):
                 if d.fecha.weekday() >= 5:
                     continue
-                if es_propio and TurnoService.estado_dia(emp, d.fecha)['trabaja']:
+                if es_propio and estados_emp.get(d.fecha, {}).get('trabaja'):
                     continue  # ya lo cedió: hoy trabaja ese día, no es descanso disponible
                 res[d.fecha.isoformat()] = 'temporada'
         for de in DiaEspecial.objects.filter(fecha__year=anio, tipo='mantenimiento', activo=True):

@@ -2,6 +2,8 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.utils import timezone
 from django.views.generic import TemplateView
 
+from core.services.cache_service import CACHE_TTL_MEDIUM, CACHE_TTL_SHORT, CacheService
+
 
 class DashboardView(LoginRequiredMixin, TemplateView):
     template_name = 'dashboard/dashboard.html'
@@ -29,14 +31,26 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         # Dashboard, Mis Indicadores e Indicadores del supervisor coincidan.
         if es_admin:
             # Supervisor: métricas globales de toda la organización (1 por cambio).
-            data = IndicadoresService.get(anio=anio)
+            # Escanea SolicitudCambio y PermisoEspecial del año completo: se
+            # cachea 30 min (igual para cualquier supervisor que mire ese año)
+            # en vez de recalcularlo en cada visita al dashboard.
+            data = CacheService.get_or_set(
+                f"dashboard_indicadores_v1_{anio}",
+                lambda: IndicadoresService.get(anio=anio),
+                ttl=CACHE_TTL_MEDIUM,
+            )
             permisos_pend = PermisoEspecial.objects.filter(estado='PENDIENTE').count()
             kpi_empleados = Empleado.objects.filter(activo=True).count()
             kpi_permisos_usados = 0
         elif empleado:
             # Explorador: SUS datos, participación como solicitante O receptor
-            # (igual que "Mis Indicadores").
-            data = IndicadoresService.get(explorador_id=empleado.id, anio=anio, incluir_receptor=True)
+            # (igual que "Mis Indicadores"). TTL corto (dato personal: se espera
+            # que refleje su última solicitud pronto).
+            data = CacheService.get_or_set(
+                f"dashboard_indicadores_v1_emp{empleado.id}_{anio}",
+                lambda: IndicadoresService.get(explorador_id=empleado.id, anio=anio, incluir_receptor=True),
+                ttl=CACHE_TTL_SHORT,
+            )
             permisos_pend = PermisoEspecial.objects.filter(estado='PENDIENTE', empleado=empleado).count()
             kpi_empleados = 0
             kpi_permisos_usados = PermisoEspecial.objects.filter(
@@ -77,7 +91,11 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         if es_admin:
             try:
                 from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
-                morosos_pendientes = DeudaCorporativaService.contar_pendientes_de_sancion()
+                morosos_pendientes = CacheService.get_or_set(
+                    'dashboard_morosos_pendientes_v1',
+                    DeudaCorporativaService.contar_pendientes_de_sancion,
+                    ttl=CACHE_TTL_MEDIUM,
+                )
             except Exception:
                 import logging
                 logging.getLogger(__name__).warning(

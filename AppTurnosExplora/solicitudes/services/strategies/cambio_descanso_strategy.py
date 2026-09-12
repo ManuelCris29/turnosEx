@@ -31,7 +31,7 @@ from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio
 
 from .base_strategy import SolicitudStrategy
-from .estrategia_fin_de_semana import EstrategiaFinDeSemana
+from .estrategia_fin_de_semana import EstrategiaFinDeSemana, estado_de
 
 logger = logging.getLogger(__name__)
 
@@ -1069,7 +1069,9 @@ class CambioDescansoStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
                                 and not analisis.get('es_domingo'))
         return not festivo_entre_semana
 
-    def disponibilidad_companero(self, candidato: Empleado, fecha_cesion) -> Tuple[bool, Optional[str]]:
+    def disponibilidad_companero(
+        self, candidato: Empleado, fecha_cesion, estados_precargados: dict = None,
+    ) -> Tuple[bool, Optional[str]]:
         """
         ¿Puede este compañero participar en un cambio de FIN DE SEMANA sobre `fecha_cesion`?
 
@@ -1083,17 +1085,17 @@ class CambioDescansoStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
         Es la regla del INTERCAMBIO, la de este formulario. Vivía en
         `SolicitudStrategy` como comportamiento por defecto de las SEIS
         estrategias; ver `estrategia_fin_de_semana.py`.
+
+        `estados_precargados`: ver `estado_de` en `estrategia_fin_de_semana.py`.
         """
         from datetime import timedelta
-
-        from turnos.services.turno_service import TurnoService
 
         otro = (fecha_cesion + timedelta(days=1) if fecha_cesion.weekday() == 5
                 else fecha_cesion - timedelta(days=1))
         dia_otro = 'sábado' if otro.weekday() == 5 else 'domingo'
 
-        trabaja_otro = TurnoService.estado_dia(candidato, otro)['trabaja']
-        libre_cesion = not TurnoService.estado_dia(candidato, fecha_cesion)['trabaja']
+        trabaja_otro = estado_de(estados_precargados, candidato, otro)['trabaja']
+        libre_cesion = not estado_de(estados_precargados, candidato, fecha_cesion)['trabaja']
         if trabaja_otro and libre_cesion:
             return True, None
         if not libre_cesion:

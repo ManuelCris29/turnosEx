@@ -393,12 +393,21 @@ class ReporteDiaEnriquecidoTest(TestCase):
         persona serían ~400 tandas de consultas y el reporte se caería por tiempo: es toda
         la razón de ser de `AcuerdoPorDiaService.en_rango_multiple`.
         """
+        from django.core.cache import cache
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
         def _consultas():
+            # `_reporte_bd` (sin caché) y no `reporte`: `reporte` cachea 5 minutos
+            # por fecha, así que la segunda llamada con la MISMA fecha daría 0
+            # consultas por acierto de caché y no por el aplanamiento que se
+            # quiere probar aquí. `cache.clear()` además evita que la caché de
+            # `DiaEspecial.es_festivo`/`es_mantenimiento_efectivo` (también
+            # cacheados) haga MENOS consultas en la segunda llamada por acierto
+            # de esa otra caché, en vez de por el aplanamiento real.
+            cache.clear()
             with CaptureQueriesContext(connection) as ctx:
-                ReporteDiaService.reporte(FECHA)
+                ReporteDiaService._reporte_bd(FECHA)
             return len(ctx)
 
         base = _consultas()

@@ -25,6 +25,15 @@ from turnos.services.turno_service import TurnoService
 class ReporteDiaParidadMixin:
     """Comparador reutilizable: exige paridad reporte ↔ estado_dia en un rango."""
 
+    def setUp(self):
+        # `ReporteDiaService.reporte` cachea 5 minutos por fecha (ver su docstring).
+        # Sin este `clear()`, una fecha ya cacheada por OTRA clase de test de este
+        # archivo (con empleados y datos distintos) se reutilizaría aquí en vez de
+        # calcularse de nuevo, y la comparación con `estado_dia` compararía contra
+        # los datos equivocados.
+        from django.core.cache import cache
+        cache.clear()
+
     def assert_paridad(self, desde, hasta, empleados=None):
         empleados = empleados if empleados is not None else list(
             Empleado.objects.filter(activo=True))
@@ -164,14 +173,26 @@ class ReporteDiaCosteConstanteTest(TestCase):
             cls.empleados.append(e)
 
     def _consultas_con(self, activos):
+        from django.core.cache import cache
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
+
+        # `DiaEspecial.es_festivo`/`es_mantenimiento_efectivo` también cachean
+        # (turnos/models.py). Sin este `clear()`, la segunda llamada de este
+        # test para la MISMA fecha acertaría esa caché y haría MENOS consultas
+        # que la primera — no porque el coste creciera con la plantilla, sino
+        # porque ya no es una medición en las mismas condiciones.
+        cache.clear()
 
         Empleado.objects.update(activo=False)
         ids = [e.id for e in self.empleados[:activos]]
         Empleado.objects.filter(id__in=ids).update(activo=True)
+        # Se llama a `_reporte_bd` (sin caché) y no a `reporte`: este test mide el
+        # coste de la CONSULTA real, y `reporte` cachea 5 minutos por fecha — con
+        # la misma fecha en las dos llamadas, la segunda daría 0 consultas por
+        # acierto de caché y no por el aplanamiento que este test quiere probar.
         with CaptureQueriesContext(connection) as ctx:
-            ReporteDiaService.reporte(date(2026, 3, 10))
+            ReporteDiaService._reporte_bd(date(2026, 3, 10))
         return len(ctx)
 
     def test_el_numero_de_consultas_no_crece_con_la_plantilla(self):

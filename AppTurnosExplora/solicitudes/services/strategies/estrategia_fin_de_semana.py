@@ -44,6 +44,27 @@ from typing import Optional, Tuple
 from empleados.models import Empleado
 
 
+def estado_de(estados_precargados, candidato: Empleado, fecha):
+    """
+    Estado REAL de `candidato` en `fecha`: de `estados_precargados` si lo cubre, si no,
+    `TurnoService.estado_dia` (consulta individual).
+
+    `DFDSCompanerosView.get` recorre TODOS los candidatos del selector llamando a
+    `disponibilidad_companero` por cada uno, y esta llama a su vez a `estado_dia` una o dos
+    veces — con varias decenas de candidatos eran ~50-100 consultas solo para pintar el
+    desplegable. La vista precarga el rango de las dos fechas del finde para toda la lista
+    con `TurnoService.estado_rango_multiple` (número de consultas constante) y lo pasa aquí;
+    sin precarga (p. ej. un test que llama a `disponibilidad_companero` suelto) se sigue
+    resolviendo igual, solo que consulta por consulta.
+    """
+    if estados_precargados is not None:
+        estado = estados_precargados.get(getattr(candidato, 'id', candidato), {}).get(fecha)
+        if estado is not None:
+            return estado
+    from turnos.services.turno_service import TurnoService
+    return TurnoService.estado_dia(candidato, fecha)
+
+
 class EstrategiaFinDeSemana:
     """
     Lo implementan las estrategias que aparecen en el selector de fin de semana.
@@ -53,7 +74,9 @@ class EstrategiaFinDeSemana:
     """
 
     @abstractmethod
-    def disponibilidad_companero(self, candidato: Empleado, fecha_cesion) -> Tuple[bool, Optional[str]]:
+    def disponibilidad_companero(
+        self, candidato: Empleado, fecha_cesion, estados_precargados: dict = None,
+    ) -> Tuple[bool, Optional[str]]:
         """
         ¿Puede este compañero participar en un cambio de fin de semana sobre `fecha_cesion`?
 
@@ -64,6 +87,9 @@ class EstrategiaFinDeSemana:
         INTERCAMBIO (CAMBIO DESCANSO) necesita que el compañero trabaje el OTRO día del
         finde para poder canjearlo; la CESIÓN (D FDS) solo necesita que tenga libre el
         día que recibe.
+
+        `estados_precargados` es opcional (ver `estado_de` en este módulo): sin él, se
+        resuelve exactamente igual, consulta por consulta.
         """
 
     @abstractmethod

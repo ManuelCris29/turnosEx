@@ -36,6 +36,13 @@ class MorososTestBase(TestCase):
             nombre='EnPlazo', apellido='Test', cedula='enplazo', activo=True, supervisor=cls.sup)
 
     def setUp(self):
+        # DashboardView cachea `morosos_pendientes` 30 min bajo una clave global
+        # (no por test): sin este `clear()`, un test posterior vería el número
+        # que dejó cacheado uno anterior en vez de recalcularlo con sus propios
+        # datos.
+        from django.core.cache import cache
+        cache.clear()
+
         self.hoy = timezone.localdate()
         mes_pasado = self.hoy.replace(day=1) - timedelta(days=1)
         # Vencida: mes anterior, sin pagar. Nadie la ha evaluado todavía.

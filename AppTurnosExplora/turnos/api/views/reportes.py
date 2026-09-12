@@ -6,6 +6,7 @@ from django.http import JsonResponse
 from django.views.generic import View
 
 from core.mixins import SupervisorApiRequiredMixin
+from core.services.cache_service import CACHE_TTL_SHORT, CacheService
 from core.utils.date_utils import DateUtils
 
 
@@ -186,12 +187,25 @@ def _deuda_del_corte(fecha):
     Devuelve (filas, resumen) con resumen = {exploradores, minutos, horas, proyectada}.
     `proyectada` avisa de que la fecha es futura: entonces la cifra incluye días que
     todavía no han vencido, así que no es deuda exigible, es una previsión.
+
+    Se cachean 5 minutos las `filas` (la consulta cara, determinística en función
+    de `fecha`), igual razón que `ReporteDiaService.reporte`: hoy se calculan por
+    separado desde `ReporteDiaView` y `ReporteDiaExcelView` para la MISMA fecha,
+    y no hay un evento único de invalidación (depende de aprobaciones, sanciones
+    y pagos de deuda). `proyectada` se recalcula SIEMPRE fuera de la caché: no
+    depende de `fecha` sola sino de "hoy" (`timezone.localdate()`), que cambia
+    aunque `fecha` no cambie — cachearla junto con `filas` serviría un rótulo
+    PROYECTADA/PENDIENTE desactualizado durante todo el TTL.
     """
     from django.utils import timezone
 
     from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
 
-    filas = DeudaCorporativaService.deuda_a_corte(fecha)
+    filas = CacheService.get_or_set(
+        f"deuda_corte_filas_v1_{fecha}",
+        lambda: DeudaCorporativaService.deuda_a_corte(fecha),
+        ttl=CACHE_TTL_SHORT,
+    )
     minutos = sum(f['minutos'] for f in filas)
     return filas, {
         'exploradores': len(filas),

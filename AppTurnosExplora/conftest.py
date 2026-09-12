@@ -114,6 +114,32 @@ def _anio_planificado(request):
         yield
 
 
+@pytest.fixture(autouse=True)
+def _cache_limpia():
+    """
+    Limpia la caché de Django ANTES de cada test.
+
+    Varias piezas cachean por clave versionada e invalidan por señal al ESCRIBIR
+    (turnos/signals.py, empleados/signals.py, solicitudes/signals.py) — correcto en
+    producción, donde una transacción que revierte es la excepción. Pero cada test de
+    esta suite corre dentro de una transacción que SIEMPRE revierte al terminar
+    (`TestCase`), y una escritura revertida no dispara ninguna señal: el registro
+    desaparece de la base, pero la caché que esa escritura invalidó o pobló sigue viva
+    para el SIGUIENTE test del mismo proceso de pytest-xdist. Un test que crea, por
+    ejemplo, un `DiaEspecial` en una fecha que otro test —más adelante, por
+    coincidencia— vuelve a usar, heredaría ese valor cacheado apuntando a datos que ya
+    no existen (así se cazó: dos tests de `test_cierre_solicitudes.py` fallaban según
+    el orden en que pytest-xdist los repartiera entre workers).
+
+    Limpiar antes de CADA test restaura la misma garantía que ya da la base de datos:
+    cada test empieza desde cero, sin depender de que cada archivo se acuerde de
+    llamar `cache.clear()` en su propio `setUp` (varios ya lo hacían por su cuenta;
+    esto lo vuelve automático para toda la suite).
+    """
+    from django.core.cache import cache
+    cache.clear()
+
+
 def pytest_configure(config):
     dias = config.getoption('--dias-en-el-futuro')
     if not dias:

@@ -4,6 +4,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from django.views.generic import CreateView, DeleteView, ListView, TemplateView, UpdateView
 
 from core.mixins import AdminRequiredMixin
+from core.services.cache_service import CACHE_TTL_LONG, CacheService
 
 from ..models import TipoSolicitudCambio
 
@@ -32,6 +33,12 @@ class TipoSolicitudCambioListView(LoginRequiredMixin, AdminRequiredMixin, ListVi
     model = TipoSolicitudCambio
     template_name = 'solicitudes/tiposolicitudcambio_list.html'
     context_object_name = 'tipos_solicitud'
+
+    def get_queryset(self):
+        # Cambia algo más que Salas/Jornadas (activar/desactivar tipos): TTL de
+        # 1h, no 24h. Invalida por señal (solicitudes/signals.py).
+        qs = super().get_queryset()
+        return CacheService.get_or_set('catalogo_tipos_solicitud_v1', lambda: list(qs), ttl=CACHE_TTL_LONG)
 
 class TipoSolicitudCambioCreateView(LoginRequiredMixin, AdminRequiredMixin, CreateView):
     model = TipoSolicitudCambio
