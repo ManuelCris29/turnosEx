@@ -343,7 +343,7 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         self.tipo_doblada = TipoSolicitudCambio.objects.create(nombre='DOBLADA')
 
     def test_no_duplica_la_deuda_del_pago_reprogramado(self):
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         fecha = _lunes_futuro()
         sol = SolicitudCambio.objects.create(
@@ -353,7 +353,7 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         )
 
         for _ in range(2):
-            DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+            DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
                 explorador=self.receptor, minutos=30, fecha_doblada=fecha,
                 solicitud=sol, comentario='Pago reprogramado por inasistencia',
             )
@@ -383,9 +383,9 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         """
         import inspect
 
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
-        fuente = inspect.getsource(DeudaCorporativaService.crear_deuda_corporativa_idempotente)
+        fuente = inspect.getsource(DeudaCorporativaRepository.crear_deuda_corporativa_idempotente)
         self.assertNotIn(
             'solicitud_origen=solicitud', fuente,
             'la clave idempotente debe ser por DÍA, no por solicitud: ver patrón #21')
@@ -416,7 +416,7 @@ class TestReprogramacionUsaDeudaIdempotente(HuecosTestCase):
         Al revertir hay que cancelar SOLO las activas. El filtro crudo
         `DeudaCorporativa.objects.filter(solicitud_origen=...)` arrastra también las PAGADAS: se
         pierde el registro de la compensación y el PDH queda apuntando a una deuda cancelada.
-        Usa `DeudaCorporativaService.cancelar_deudas_de_solicitud()`.
+        Usa `DeudaCorporativaRepository.cancelar_deudas_de_solicitud()`.
         """
         import inspect
 

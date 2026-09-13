@@ -24,6 +24,7 @@ from core.constants import JornadaDisplay, TipoCambioTurno
 from turnos.models import Turno
 
 from .d_fds_aplicacion_service import DFDSAplicacionService
+from .deuda_corporativa_repository import DeudaCorporativaRepository
 from .deuda_corporativa_service import DeudaCorporativaService
 from .deuda_service import DeudaService
 
@@ -277,7 +278,7 @@ class DobladaPermanenteAplicacionService:
             )
             return
         # IDEMPOTENTE: un día doblado = UNA deuda de 30 min, venga de la solicitud que venga.
-        DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+        DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
             explorador=explorador,
             minutos=30,
             fecha_doblada=fecha,
@@ -363,7 +364,7 @@ class DobladaPermanenteAplicacionService:
             DobladaPermanenteAplicacionService._deuda(receptor, fecha, solicitud, 'cesión')
             # El solicitante pierde sus turnos ese día: si venía doblando, deja de doblar y sus
             # 30 min de esa fecha ya no corresponden.
-            DeudaCorporativaService.sincronizar_deuda_corporativa(
+            DeudaCorporativaRepository.sincronizar_deuda_corporativa(
                 solicitante, fecha, motivo=f'cede el día en la doblada permanente {solicitud.id}')
             n_ces += 1
 
@@ -372,7 +373,7 @@ class DobladaPermanenteAplicacionService:
             DFDSAplicacionService._crear_doblada_dia(solicitante, fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM)
             Turno.objects.filter(explorador=receptor, fecha=fecha).delete()
             DobladaPermanenteAplicacionService._deuda(solicitante, fecha, solicitud, 'devolución')
-            DeudaCorporativaService.sincronizar_deuda_corporativa(
+            DeudaCorporativaRepository.sincronizar_deuda_corporativa(
                 receptor, fecha, motivo=f'descansa en la doblada permanente {solicitud.id}')
             n_dev += 1
 
@@ -508,7 +509,7 @@ class DobladaPermanenteAplicacionService:
                     Turno.objects.filter(explorador=quien, fecha=fecha, tipo_cambio=TipoCambioTurno.DOBLADA_PERM).delete()
 
         # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.
-        DeudaCorporativaService.cancelar_deudas_de_solicitud(
+        DeudaCorporativaRepository.cancelar_deudas_de_solicitud(
             solicitud, motivo='doblada permanente revertida')
         # Un acuerdo deshecho no es un favor: se cancelan igual que en D FDS y en la doblada
         # suelta, o quedarían para siempre en "Mis Favores" de ambos exploradores.

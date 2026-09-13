@@ -539,8 +539,8 @@ class DobladaAplicacionService:
             # cuente como vigentes) y luego reconstruir el estado con las dobladas que siguen
             # aprobadas sobre las fechas afectadas (corrige la cesión total cancelada).
             DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
-            from .deuda_corporativa_service import DeudaCorporativaService as _DCS
-            _DCS.cancelar_deudas_de_solicitud(solicitud, motivo='doblada revertida')
+            from .deuda_corporativa_repository import DeudaCorporativaRepository as _DCR
+            _DCR.cancelar_deudas_de_solicitud(solicitud, motivo='doblada revertida')
             afectados = DobladaAplicacionService._fechas_explorador_afectados(snapshot)
             DobladaAplicacionService.reconciliar_dobladas_aprobadas(afectados, solicitud.id)
             from core.services.cache_service import CacheService
@@ -607,8 +607,8 @@ class DobladaAplicacionService:
         DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
 
         # --- Cancelar deudas corporativas (solo las ACTIVAS: lo pagado sigue pagado) ---
-        from .deuda_corporativa_service import DeudaCorporativaService as _DCS
-        _DCS.cancelar_deudas_de_solicitud(solicitud, motivo='doblada sin snapshot')
+        from .deuda_corporativa_repository import DeudaCorporativaRepository as _DCR
+        _DCR.cancelar_deudas_de_solicitud(solicitud, motivo='doblada sin snapshot')
 
         # --- Reconciliar otras dobladas aprobadas sobre las mismas fechas ---
         afectados_sin_snap = {

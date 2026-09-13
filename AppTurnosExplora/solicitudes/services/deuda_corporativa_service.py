@@ -1,21 +1,25 @@
 """
-Servicio para gestión de deudas corporativas.
+Política de SANCIÓN POR DEUDA: quién cierra un mes debiendo, qué sanción le corresponde y
+cuándo una deuda vieja queda saldada por haber cumplido la sanción.
 
-Responsabilidad única: Crear, consultar y gestionar deudas corporativas
-acumuladas por exploradores al realizar dobladas.
+Este módulo decide; no persiste deudas ni redacta avisos. Eso vive aparte desde que la clase
+llegó a 1130 líneas mezclando cuatro motivos de cambio distintos:
+
+- el CÁLCULO puro (duración, reincidencia, plazos) → `sancion_deuda_calculo.py`
+- la PERSISTENCIA de `DeudaCorporativa`            → `deuda_corporativa_repository.py`
+- los AVISOS al explorador                         → `sancion_notificador.py`
+- la POLÍTICA y su orquestación                    → este archivo
 """
 import logging
 from datetime import date, timedelta
-from typing import Optional
 
 from django.db import transaction
-from django.db.models import F, Q, Sum
+from django.db.models import F, Q
 from django.utils import timezone
 
-from core.constants import JornadaDisplay
 from empleados.models import Empleado
 from empleados.sancion_utils import invalidar_cache_turnos
-from solicitudes.models import ConfiguracionSanciones, DeudaCorporativa, SolicitudCambio
+from solicitudes.models import ConfiguracionSanciones, DeudaCorporativa
 from solicitudes.services.sancion_deuda_calculo import (
     DURACION_BASE_DIAS as _DURACION_BASE_DIAS,
 )
@@ -25,6 +29,7 @@ from solicitudes.services.sancion_deuda_calculo import (
     cadena_sanciones,
     fin_de_plazo,
 )
+from solicitudes.services.sancion_notificador import SancionNotificador
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +37,7 @@ logger = logging.getLogger(__name__)
 class DeudaCorporativaService:
     """
     Servicio para gestión de deudas corporativas.
-    
+
     Responsabilidad única: Operaciones sobre deudas corporativas acumuladas.
     """
 
@@ -279,63 +284,6 @@ class DeudaCorporativaService:
             .values_list('minutos_generados', flat=True))
         return round(minutos / 60, 2)
 
-    @staticmethod
-    def notificar_condonacion(sancion, horas: float) -> None:
-        """
-        Avisa al explorador de que le levantaron la sanción y, si las hubo, le perdonaron
-        las horas de ese mes.
-
-        Se le avisa a él y no solo al supervisor porque es un hecho irreversible que le
-        cambia el saldo: sin esto, el afectado solo podía enterarse entrando por su cuenta
-        al Consolidado de Horas. Va por la campana y no por correo, como el aviso de la
-        propia sanción, para que las dos mitades de la misma historia lleguen por el mismo
-        sitio.
-
-        Es pública —sin guion bajo— porque la llama `SancionEmpleado.levantar()`, que vive
-        en otra aplicación. Marcarla como privada invitaría a moverla o renombrarla
-        creyéndola interna, y el aviso desaparecería sin que nada fallara.
-
-        Nunca lanza, igual que `_notificar_sancion`: un fallo avisando no puede tumbar un
-        levantamiento ya decidido. Ese `try` es además lo que hace seguro llamarla DENTRO
-        de la transacción del levantamiento —quitarlo haría que un error creando la
-        notificación revirtiera el levantamiento entero—, así que no se retira sin mover
-        antes la llamada fuera de la transacción.
-        """
-        try:
-            from solicitudes.models import Notificacion
-
-            desde = sancion.levantada_en.strftime('%d/%m/%Y')
-            if horas:
-                titulo = f'✅ Sanción levantada y {horas} h condonadas'
-                cuerpo = (
-                    f'Tu supervisor levantó la sanción el {desde}. Ya puedes volver a '
-                    f'realizar solicitudes de cambio de turno y permisos.\n\n'
-                    f'Además se te condonaron las {horas} h que debías de ese mes: dejan '
-                    f'de figurar como pendientes en tu Consolidado de Horas y nadie te las '
-                    f'va a reclamar.\n\n'
-                    f'La sanción sigue en tu historial y cuenta como antecedente: si '
-                    f'vuelves a cerrar un mes debiendo, la siguiente será más larga.'
-                )
-            else:
-                titulo = '✅ Sanción levantada'
-                cuerpo = (
-                    f'Tu supervisor levantó la sanción el {desde}. Ya puedes volver a '
-                    f'realizar solicitudes de cambio de turno y permisos.\n\n'
-                    f'La sanción sigue en tu historial y cuenta como antecedente.'
-                )
-            if sancion.levantada_motivo:
-                cuerpo += f'\n\nMotivo indicado: {sancion.levantada_motivo}'
-
-            Notificacion.objects.create(
-                destinatario=sancion.explorador,
-                tipo='sancion_levantada',
-                titulo=titulo,
-                mensaje=cuerpo,
-                solicitud=None,
-            )
-        except Exception:
-            logger.warning('Error creando la notificación de levantamiento de la sanción %s',
-                           getattr(sancion, 'id', '?'), exc_info=True)
 
     @staticmethod
     def _antecedente(explorador: Empleado):
@@ -510,7 +458,7 @@ class DeudaCorporativaService:
                     f"siguiente será de {sancion.duracion_siguiente} días."
                 ),
             )
-            DeudaCorporativaService._notificar_sancion(explorador, nueva, sancion)
+            SancionNotificador.notificar_sancion(explorador, nueva, sancion)
             invalidar_cache_turnos(nueva)
             logger.info('Sanción automática creada para %s por %s: %s -> %s (%s días, nivel %s)',
                         explorador.id, sancion.periodo, inicio, fin,
@@ -860,244 +808,11 @@ class DeudaCorporativaService:
                     'sobre %s explorador(es).', creadas, consumidas, len(ids))
         return {'creadas': creadas, 'consumidas': consumidas, 'detalle': '\n'.join(lineas)}
 
-    @staticmethod
-    def _notificar_sancion(explorador, sancion, ventana) -> None:
-        """
-        Avisa al explorador de su nueva sanción.
-
-        La notificación nace cuando se MATERIALIZA el registro, y con el cálculo derivado eso
-        puede ocurrir después del inicio de la ventana (el sistema se enteró tarde). Por eso
-        el texto dice explícitamente desde cuándo rige: si empezó hace días, la persona tiene
-        que poder leerlo, no deducirlo.
-        """
-        try:
-            from solicitudes.models import Notificacion
-            dias = ventana.duracion_dias
-            mes = ventana.periodo.nombre()
-            if ventana.reincidencia == 0:
-                titulo = f"⚠️ Sanción automática: {dias} días bloqueado"
-                intro = (f"Cerraste {mes} debiendo horas y no las pagaste dentro del mes, "
-                         f"que es el plazo que había.")
-            else:
-                titulo = (f"⚠️ Sanción ampliada: {dias} días bloqueados "
-                          f"(reincidencia #{ventana.reincidencia})")
-                intro = (f"Has vuelto a cerrar un mes debiendo horas: {mes}. "
-                         f"Esta es la reincidencia #{ventana.reincidencia}.")
-            Notificacion.objects.create(
-                destinatario=explorador,
-                tipo='sancion',
-                titulo=titulo,
-                mensaje=(
-                    f"{intro}\n\n"
-                    f"Rige desde el {ventana.inicio.strftime('%d/%m/%Y')} "
-                    f"hasta el {ventana.fin.strftime('%d/%m/%Y')} ({dias} días).\n\n"
-                    f"Durante este período NO puedes realizar solicitudes de cambio de turno ni permisos. "
-                    f"La sanción se cumple completa: pagar la deuda ahora no la levanta ni la "
-                    f"acorta. Al terminar, lo que debías de {mes} queda saldado por la propia "
-                    f"sanción. Si vuelves a cerrar un mes debiendo, la siguiente será de "
-                    f"{ventana.duracion_siguiente} días."
-                ),
-                solicitud=None,
-            )
-        except Exception:
-            logger.warning("Error creando notificación de sanción por deuda", exc_info=True)
 
 
-    @staticmethod
-    def crear_deuda_corporativa(
-        explorador: Empleado,
-        minutos: int,
-        fecha_doblada: date,
-        solicitud: Optional[SolicitudCambio] = None,
-        comentario: Optional[str] = None
-    ) -> DeudaCorporativa:
-        """
-        Crear un registro de deuda corporativa.
-
-        NO recibe `fecha_generacion`: ese campo es `auto_now_add`, o sea que Django graba la
-        fecha de HOY al insertar y descarta lo que se le pase. Aceptarlo como parámetro solo
-        invita a creer que se puede fijar. La fecha que importa para el negocio es
-        `fecha_doblada` (el día que la persona realmente dobló), y esa sí se guarda.
-
-        Args:
-            explorador: Explorador que acumula la deuda
-            minutos: Minutos de deuda (típicamente 30 por doblada)
-            fecha_doblada: Fecha en que se realizó la doblada
-            solicitud: Solicitud que generó la deuda (opcional)
-            comentario: Comentario opcional
-
-        Returns:
-            Instancia de DeudaCorporativa creada
-        """
-        deuda = DeudaCorporativa.objects.create(
-            explorador=explorador,
-            solicitud_origen=solicitud,
-            minutos=minutos,
-            fecha_doblada=fecha_doblada,
-            estado='activa',
-            comentario=comentario
-        )
-        
-        logger.info(f"Deuda corporativa creada: {explorador.nombre} - {minutos} min - {fecha_doblada}")
-
-        # Nota: la ACUMULACIÓN de horas vive en DeudaCorporativa y se muestra en el
-        # Consolidado de Horas. El modelo PDH se reserva para los PAGOS de horas
-        # (descuentos autorizados por un supervisor), que son un ledger aparte.
-        return deuda
     
-    @staticmethod
-    def crear_deuda_corporativa_idempotente(
-        explorador: Empleado,
-        minutos: int,
-        fecha_doblada: date,
-        solicitud: Optional[SolicitudCambio] = None,
-        comentario: Optional[str] = None
-    ) -> Optional[DeudaCorporativa]:
-        """
-        Igual que `crear_deuda_corporativa`, pero NO crea nada si ya existe una deuda ACTIVA
-        para ese (explorador, fecha_doblada) — venga de la solicitud que venga.
 
-        Un día doblado = 30 min, SIEMPRE. Nadie puede doblar dos veces el mismo día, así que dos
-        deudas activas en la misma fecha son necesariamente un cobro doble. La clave es por DÍA a
-        propósito: cuando incluía `solicitud_origen`, dos solicitudes DISTINTAS que tocaban el mismo
-        día del mismo explorador creaban 30 min cada una (60 min por un solo día doblado) y el guard
-        no las veía. El caso real venía por la doblada permanente, que creaba sobre sus ocurrencias
-        calculadas sin mirar el estado del día.
 
-        También cubre el motivo original: re-aplicar una solicitud ya aplicada
-        (`reaplicar_doblada`, `corregir_doblada_cesion_total`, un reintento o una re-aprobación).
-        El cobro doble no produce ningún error visible: aparece en el Consolidado de Horas semanas
-        después.
 
-        Solo mira las ACTIVAS: si la deuda del día fue cancelada (solicitud revertida o el día dejó
-        de ser doblada) se puede volver a crear, que es justo lo que debe pasar al re-aplicar.
-
-        Úsala SIEMPRE que la deuda nazca de aplicar una solicitud. Devuelve None si ya existía.
-        Ver PROTECTION_PATTERNS.md #21.
-        """
-        existente = DeudaCorporativa.objects.filter(
-            explorador=explorador,
-            fecha_doblada=fecha_doblada,
-            estado='activa',
-        ).first()
-        if existente:
-            logger.info(
-                "Deuda corporativa ya existente para %s en %s (deuda %s, solicitud origen %s); "
-                "la solicitud %s no crea otra: un día doblado = 30 min.",
-                explorador.nombre, fecha_doblada, existente.id,
-                existente.solicitud_origen_id, getattr(solicitud, 'id', None),
-            )
-            return None
-        return DeudaCorporativaService.crear_deuda_corporativa(
-            explorador=explorador,
-            minutos=minutos,
-            fecha_doblada=fecha_doblada,
-            solicitud=solicitud,
-            comentario=comentario,
-        )
-
-    @staticmethod
-    def cancelar_deudas_de_solicitud(solicitud: SolicitudCambio, motivo: str = '') -> int:
-        """
-        Cancela las deudas corporativas ACTIVAS de una solicitud al revertirla. Devuelve cuántas.
-
-        Úsala en vez de `DeudaCorporativa.objects.filter(solicitud_origen=...).update(...)`: el
-        filtro por `estado='activa'` es la parte que importa y se olvidaba. Sin él, una deuda ya
-        PAGADA pasaba a 'cancelada' al revertir, con dos daños: se perdía el registro de que el
-        explorador ya compensó esos 30 min, y el PDH que la pagó quedaba apuntando (vía
-        `deudas_pagadas`) a una deuda que dice estar cancelada. Si después se re-aplicaba la
-        solicitud, el guard idempotente no veía nada activo y volvía a cobrar un día ya pagado.
-
-        Una deuda pagada es historia cerrada: revertir la solicitud no des-paga lo que ya se pagó.
-
-        OJO: esto vale solo para `DeudaCorporativa`. En `DeudaExplorador` el estado 'pagada' es
-        otra cosa (el par de favores está completo, y se marca al crearla), así que ahí sí hay que
-        cancelarla al revertir — ver `exclude(estado='cancelada')` en signals.py.
-        """
-        n = (DeudaCorporativa.objects
-             .filter(solicitud_origen=solicitud, estado='activa')
-             .update(estado='cancelada'))
-        if n:
-            logger.info(
-                "Solicitud %s revertida%s: %s deuda(s) corporativa(s) activa(s) canceladas "
-                "(las pagadas se conservan).",
-                getattr(solicitud, 'id', None), f' ({motivo})' if motivo else '', n,
-            )
-        return n
-
-    @staticmethod
-    def sincronizar_deuda_corporativa(explorador: Empleado, fecha: date, motivo: str = '') -> int:
-        """
-        Cancela las deudas corporativas ACTIVAS de `explorador` en `fecha` si ese día YA NO es
-        DOBLADA según los turnos reales.
-
-        Los 30 min son de quien REALMENTE dobla. Cuando una solicitud posterior le quita una de
-        las dos mitades (p. ej. cede a un tercero la jornada que otro compañero le había cedido),
-        deja de doblar y los 30 min pasan a quien ahora dobla — pero la deuda vieja seguía activa
-        y sumando en el Consolidado de Horas. Llamar después de aplicar los turnos.
-
-        Devuelve el número de deudas canceladas.
-        """
-        from turnos.services.turno_service import TurnoService
-
-        if TurnoService.obtener_jornada_display(explorador, fecha) == JornadaDisplay.DOBLADA:
-            return 0
-
-        activas = list(DeudaCorporativa.objects.filter(
-            explorador=explorador, fecha_doblada=fecha, estado='activa',
-        ))
-        for deuda in activas:
-            DeudaCorporativaService.cancelar_deuda(
-                deuda,
-                comentario=(
-                    f"Cancelada automáticamente: el {fecha} ya no es jornada DOBLADA para "
-                    f"{explorador.nombre}{f' ({motivo})' if motivo else ''}."
-                ),
-            )
-        if activas:
-            logger.info(
-                "Deuda corporativa sincronizada: %s deuda(s) canceladas para %s en %s (ya no dobla).",
-                len(activas), explorador.nombre, fecha,
-            )
-        return len(activas)
-
-    @staticmethod
-    def obtener_deuda_total(explorador: Empleado) -> int:
-        """
-        Obtener la deuda corporativa total acumulada de un explorador.
-        Suma todas las deudas con estado 'activa'.
-        
-        Args:
-            explorador: Explorador para el cual calcular la deuda total
-        
-        Returns:
-            Total de minutos de deuda corporativa acumulada
-        """
-        total = DeudaCorporativa.objects.filter(
-            explorador=explorador,
-            estado='activa'
-        ).aggregate(total=Sum('minutos'))['total']
-        
-        return total or 0
     
-    @staticmethod
-    def cancelar_deuda(deuda: DeudaCorporativa, comentario: Optional[str] = None) -> DeudaCorporativa:
-        """
-        Cancelar una deuda corporativa (marcar como cancelada).
-        Útil para correcciones administrativas.
-        
-        Args:
-            deuda: Instancia de DeudaCorporativa a cancelar
-            comentario: Comentario opcional sobre la cancelación
-        
-        Returns:
-            Instancia de DeudaCorporativa actualizada
-        """
-        deuda.estado = 'cancelada'
-        if comentario:
-            deuda.comentario = comentario
-        deuda.save()
-        
-        logger.info(f"Deuda corporativa cancelada: {deuda.explorador.nombre} - {deuda.minutos} min")
-        return deuda
     

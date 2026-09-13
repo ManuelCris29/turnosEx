@@ -13,6 +13,7 @@ from core.constants import JornadaDisplay
 from empleados.models import Empleado
 from solicitudes.models import DobladaDetalle, SolicitudCambio
 
+from .deuda_corporativa_repository import DeudaCorporativaRepository
 from .deuda_corporativa_service import DeudaCorporativaService
 from .deuda_service import DeudaService
 
@@ -102,7 +103,7 @@ class DobladaDeudaService:
                 return
             jornada_display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
             if jornada_display == JornadaDisplay.DOBLADA:
-                creada = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+                creada = DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
                     explorador=explorador,
                     minutos=30,
                     fecha_doblada=fecha_doblada,
@@ -145,10 +146,10 @@ class DobladaDeudaService:
         # sola jornada en la cesión) y al recibir cobertura en la fecha de pago. Sin esto la deuda
         # vieja quedaba activa sumando en el Consolidado de Horas mientras el nuevo receptor —el
         # que realmente dobla— recibía la suya.
-        DeudaCorporativaService.sincronizar_deuda_corporativa(
+        DeudaCorporativaRepository.sincronizar_deuda_corporativa(
             solicitante, fecha_cesion, motivo=f'cedió una jornada en la solicitud {solicitud.id}',
         )
-        DeudaCorporativaService.sincronizar_deuda_corporativa(
+        DeudaCorporativaRepository.sincronizar_deuda_corporativa(
             receptor, fecha_pago, motivo=f'recibe cobertura en la solicitud {solicitud.id}',
         )
 

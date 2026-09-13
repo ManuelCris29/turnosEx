@@ -435,11 +435,12 @@ class SancionEmpleado(models.Model):
             self.save(update_fields=['levantada_en', 'levantada_por', 'levantada_motivo',
                                      'actualizado_en'])
             from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+            from solicitudes.services.sancion_notificador import SancionNotificador
             DeudaCorporativaService.condonar_deudas_por_levantamiento(self)
             # El explorador se entera por la campana, igual que se enteró de la sanción.
             # Va dentro de la transacción a propósito: si el levantamiento no llega a
             # guardarse, tampoco puede quedar un aviso diciendo que sí.
-            DeudaCorporativaService.notificar_condonacion(
+            SancionNotificador.notificar_condonacion(
                 self, DeudaCorporativaService.horas_condonadas_por(self))
         return self
 

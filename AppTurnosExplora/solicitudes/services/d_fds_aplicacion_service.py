@@ -36,6 +36,7 @@ from turnos.models import Turno
 from turnos.services.doblada_turno_service import DobladaTurnoService
 from turnos.services.jornada_service import JornadaService
 
+from .deuda_corporativa_repository import DeudaCorporativaRepository
 from .deuda_corporativa_service import DeudaCorporativaService
 from .deuda_service import DeudaService
 
@@ -129,7 +130,7 @@ class DFDSAplicacionService:
             ).delete()
         DeudaExplorador.objects.filter(solicitud_origen=solicitud).update(estado='cancelada')
         # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.
-        DeudaCorporativaService.cancelar_deudas_de_solicitud(solicitud, motivo='D FDS revertida')
+        DeudaCorporativaRepository.cancelar_deudas_de_solicitud(solicitud, motivo='D FDS revertida')
         # Patrón #22: restaurar el snapshot arrasa el día entero. Hay que reconstruir lo que
         # SIGUE vigente en esas fechas (otra doblada, un CT, un CT permanente…), o se borra en
         # silencio. Se cancelan las deudas ANTES para que la reconciliación no cuente las propias.
@@ -181,7 +182,7 @@ class DFDSAplicacionService:
                 return
             display = TurnoService.obtener_jornada_display(explorador, fecha_doblada)
             if display == 'DOBLADA':
-                creada = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+                creada = DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
                     explorador=explorador,
                     minutos=30,
                     fecha_doblada=fecha_doblada,
@@ -205,9 +206,9 @@ class DFDSAplicacionService:
         # El solicitante cede su día y el receptor recibe cobertura en el pago; si alguno venía
         # doblando esa fecha, deja de hacerlo. Sin esto la deuda vieja quedaba activa sumando en el
         # Consolidado de Horas aunque el día ya no fuera doblada.
-        DeudaCorporativaService.sincronizar_deuda_corporativa(
+        DeudaCorporativaRepository.sincronizar_deuda_corporativa(
             solicitante, fecha_cesion, motivo=f'cede el día en la D FDS {solicitud.id}')
-        DeudaCorporativaService.sincronizar_deuda_corporativa(
+        DeudaCorporativaRepository.sincronizar_deuda_corporativa(
             receptor, fecha_pago, motivo=f'recibe cobertura en la D FDS {solicitud.id}')
 
         logger.info("D FDS deudas generadas: Solicitud %s", solicitud.id)

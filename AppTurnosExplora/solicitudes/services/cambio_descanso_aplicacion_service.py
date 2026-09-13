@@ -530,10 +530,11 @@ class CambioDescansoAplicacionService:
         ese día y quedaste con AM+PM (doblaste). Venir en el día libre (media o completa)
         no genera deuda. Solo lun-vie no festivo (aplica_deuda_doblada).
         """
+        from .deuda_corporativa_repository import DeudaCorporativaRepository
         from .deuda_corporativa_service import DeudaCorporativaService
         if len(pre_set) == 1 and post_set >= {'AM', 'PM'} \
                 and DeudaCorporativaService.aplica_deuda_doblada(fecha):
-            DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+            DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
                 explorador=explorador,
                 minutos=30,
                 fecha_doblada=fecha,
@@ -550,8 +551,9 @@ class CambioDescansoAplicacionService:
         de las dos mitades del día los extingue. Sin esto la deuda vieja seguía activa sumando en
         el Consolidado de Horas aunque el día ya no fuera DOBLADA.
         """
-        from .deuda_corporativa_service import DeudaCorporativaService
-        DeudaCorporativaService.sincronizar_deuda_corporativa(
+        from .deuda_corporativa_repository import DeudaCorporativaRepository
+
+        DeudaCorporativaRepository.sincronizar_deuda_corporativa(
             explorador, fecha, motivo=f'{que_hizo} en el cambio de descanso {solicitud.id}')
 
     @staticmethod
@@ -714,8 +716,8 @@ class CambioDescansoAplicacionService:
                     solicitud.id, fechas,
                 )
         # Solo las ACTIVAS: una deuda corporativa ya pagada sigue pagada aunque se revierta.
-        from .deuda_corporativa_service import DeudaCorporativaService as _DCS
-        _DCS.cancelar_deudas_de_solicitud(solicitud, motivo='cambio de descanso revertido')
+        from .deuda_corporativa_repository import DeudaCorporativaRepository as _DCR
+        _DCR.cancelar_deudas_de_solicitud(solicitud, motivo='cambio de descanso revertido')
         # Patrón #22: restaurar el snapshot arrasa el día entero. Reconstruir lo que SIGUE
         # vigente en esas fechas (otra doblada, un CT, un CT permanente…) o se borra en silencio.
         if snap:

@@ -171,15 +171,15 @@ class SincronizarDeudaCorporativaTest(MatrizDobladasTestCase):
     """Los 30 min son de quien REALMENTE dobla: si el día deja de ser doblada, se cancelan."""
 
     def test_cancela_la_deuda_cuando_el_dia_ya_no_es_doblada(self):
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         self._asignar_jornada_base(self.emisor, self.jornada_pm)
         self._crear_turno(self.emisor, FECHA_CESION, self.jornada_pm)  # una sola jornada
-        deuda = DeudaCorporativaService.crear_deuda_corporativa(
+        deuda = DeudaCorporativaRepository.crear_deuda_corporativa(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION,
             comentario='deuda de una doblada que ya se deshizo')
 
-        canceladas = DeudaCorporativaService.sincronizar_deuda_corporativa(
+        canceladas = DeudaCorporativaRepository.sincronizar_deuda_corporativa(
             self.emisor, FECHA_CESION, motivo='test')
 
         self.assertEqual(canceladas, 1)
@@ -187,31 +187,31 @@ class SincronizarDeudaCorporativaTest(MatrizDobladasTestCase):
         self.assertEqual(deuda.estado, 'cancelada')
 
     def test_conserva_la_deuda_si_sigue_doblando(self):
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         self._asignar_jornada_base(self.emisor, self.jornada_pm)
         self._crear_doblada_turnos(self.emisor, FECHA_CESION)
-        DeudaCorporativaService.crear_deuda_corporativa(
+        DeudaCorporativaRepository.crear_deuda_corporativa(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION)
 
         self.assertEqual(
-            DeudaCorporativaService.sincronizar_deuda_corporativa(self.emisor, FECHA_CESION), 0)
+            DeudaCorporativaRepository.sincronizar_deuda_corporativa(self.emisor, FECHA_CESION), 0)
         self.assertEqual(
             DeudaCorporativa.objects.filter(explorador=self.emisor, estado='activa').count(), 1)
 
     def test_no_toca_una_deuda_ya_pagada(self):
         """Una deuda saldada se queda saldada: solo se cancelan las ACTIVAS."""
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         self._asignar_jornada_base(self.emisor, self.jornada_pm)
         self._crear_turno(self.emisor, FECHA_CESION, self.jornada_pm)  # ya no dobla
-        deuda = DeudaCorporativaService.crear_deuda_corporativa(
+        deuda = DeudaCorporativaRepository.crear_deuda_corporativa(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION)
         deuda.estado = 'pagada'
         deuda.save(update_fields=['estado'])
 
         self.assertEqual(
-            DeudaCorporativaService.sincronizar_deuda_corporativa(self.emisor, FECHA_CESION), 0)
+            DeudaCorporativaRepository.sincronizar_deuda_corporativa(self.emisor, FECHA_CESION), 0)
         deuda.refresh_from_db()
         self.assertEqual(deuda.estado, 'pagada')
 
@@ -325,12 +325,12 @@ class IdempotenciaPorDiaTest(MatrizDobladasTestCase):
             fecha_resolucion=timezone.now())
 
     def test_dos_solicitudes_distintas_no_cobran_el_dia_dos_veces(self):
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         sol_a, sol_b = self._solicitud('A'), self._solicitud('B')
-        primera = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+        primera = DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION, solicitud=sol_a)
-        segunda = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+        segunda = DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION, solicitud=sol_b)
 
         self.assertIsNotNone(primera)
@@ -339,22 +339,22 @@ class IdempotenciaPorDiaTest(MatrizDobladasTestCase):
             DeudaCorporativa.objects.filter(
                 explorador=self.emisor, fecha_doblada=FECHA_CESION, estado='activa').count(), 1)
         self.assertEqual(
-            DeudaCorporativaService.obtener_deuda_total(self.emisor), 30,
+            DeudaCorporativaRepository.obtener_deuda_total(self.emisor), 30,
             'un día doblado son 30 min, no 60')
 
     def test_si_la_del_dia_esta_cancelada_se_puede_volver_a_crear(self):
         """Al re-aplicar tras revertir, el día vuelve a deber sus 30 min."""
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         sol = self._solicitud('única')
-        primera = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+        primera = DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION, solicitud=sol)
-        DeudaCorporativaService.cancelar_deuda(primera, comentario='revertida')
+        DeudaCorporativaRepository.cancelar_deuda(primera, comentario='revertida')
 
-        segunda = DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+        segunda = DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION, solicitud=sol)
         self.assertIsNotNone(segunda, 'la cancelada no debe bloquear la nueva')
-        self.assertEqual(DeudaCorporativaService.obtener_deuda_total(self.emisor), 30)
+        self.assertEqual(DeudaCorporativaRepository.obtener_deuda_total(self.emisor), 30)
 
     def test_revertir_no_des_paga_una_deuda_ya_pagada(self):
         """
@@ -363,17 +363,17 @@ class IdempotenciaPorDiaTest(MatrizDobladasTestCase):
         apuntando a una deuda 'cancelada'; al re-aplicar, el guard no vería nada activo y volvería
         a cobrar un día ya pagado.
         """
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         sol = self._solicitud('con deuda pagada')
-        pagada = DeudaCorporativaService.crear_deuda_corporativa(
+        pagada = DeudaCorporativaRepository.crear_deuda_corporativa(
             explorador=self.emisor, minutos=30, fecha_doblada=FECHA_CESION, solicitud=sol)
         pagada.estado = 'pagada'
         pagada.save(update_fields=['estado'])
-        activa = DeudaCorporativaService.crear_deuda_corporativa(
+        activa = DeudaCorporativaRepository.crear_deuda_corporativa(
             explorador=self.receptor, minutos=30, fecha_doblada=FECHA_PAGO, solicitud=sol)
 
-        canceladas = DeudaCorporativaService.cancelar_deudas_de_solicitud(sol, motivo='test')
+        canceladas = DeudaCorporativaRepository.cancelar_deudas_de_solicitud(sol, motivo='test')
 
         self.assertEqual(canceladas, 1, 'solo la activa')
         pagada.refresh_from_db()
@@ -382,12 +382,12 @@ class IdempotenciaPorDiaTest(MatrizDobladasTestCase):
         self.assertEqual(activa.estado, 'cancelada')
 
     def test_dias_distintos_si_cobran_por_separado(self):
-        from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
+        from solicitudes.services.deuda_corporativa_repository import DeudaCorporativaRepository
 
         sol = self._solicitud('única')
         for f in (FECHA_CESION, FECHA_PAGO):
-            DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+            DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
                 explorador=self.emisor, minutos=30, fecha_doblada=f, solicitud=sol)
 
-        self.assertEqual(DeudaCorporativaService.obtener_deuda_total(self.emisor), 60,
+        self.assertEqual(DeudaCorporativaRepository.obtener_deuda_total(self.emisor), 60,
                          'dos días doblados sí son 60 min')

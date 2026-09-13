@@ -22,6 +22,7 @@ from core.constants import JornadaDisplay, TipoCambioTurno, TipoSolicitud
 from solicitudes.models import ReprogramacionDiaDoblada, SolicitudCambio
 
 from .d_fds_aplicacion_service import DFDSAplicacionService
+from .deuda_corporativa_repository import DeudaCorporativaRepository
 from .deuda_corporativa_service import DeudaCorporativaService
 from .doblada_aplicacion_service import DobladaAplicacionService
 
@@ -424,7 +425,7 @@ class ReprogramacionDobladaService:
             # Variante IDEMPOTENTE (patrón #21): clave explorador+fecha_doblada+solicitud. Si el
             # supervisor vuelve a programar el mismo día de pago —o el flujo se re-ejecuta— no se
             # cobran 60 min por un solo día doblado. Es el guard compartido: no usar la cruda.
-            DeudaCorporativaService.crear_deuda_corporativa_idempotente(
+            DeudaCorporativaRepository.crear_deuda_corporativa_idempotente(
                 explorador=reprog.explorador, minutos=30,
                 fecha_doblada=fecha_nueva, solicitud=reprog.doblada_origen,
                 comentario=f'Pago reprogramado por inasistencia del {reprog.fecha_original.strftime("%d/%m/%Y")}',
