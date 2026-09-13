@@ -1,5 +1,13 @@
 # Análisis de Principios SOLID - AppTurnos
 
+> ⚠️ **DOCUMENTO HISTÓRICO (2025-01).** Lo que dice sobre Strategy, Factory y vistas delgadas
+> sigue siendo cierto, pero la foto se quedó vieja: `solicitudes/services/` creció después hasta
+> ~20.500 líneas y aparecieron problemas que este documento no podía ver (una clase de 1130
+> líneas, un orquestador que rompía OCP, métodos con 12 parámetros).
+>
+> La referencia vigente es **[AUDITORIA_PATRONES_DISENO_2026-09.md](AUDITORIA_PATRONES_DISENO_2026-09.md)**,
+> que audita el código actual y documenta la resolución de esos hallazgos.
+
 ## Fecha: 2025-01-XX
 
 ## RESUMEN EJECUTIVO
