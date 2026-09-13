@@ -58,6 +58,15 @@ class CambioDescansoStrategy(SolicitudStrategy, EstrategiaFinDeSemana):
     def __init__(self):
         super().__init__("CAMBIO DESCANSO")
 
+    def flujo_creacion_propio(self, post):
+        """Cobertura de día completo con DOS compañeros: uno cubre la AM y otro la PM.
+
+        Son dos solicitudes que solo tienen sentido juntas, así que van por un flujo propio y
+        atómico. Solo cuando el POST trae el segundo receptor: con uno solo es un cambio de
+        descanso normal.
+        """
+        return 'cobertura_dos' if post.get('empleado_receptor_2') else None
+
     @staticmethod
     def _parse(fecha):
         if not fecha:

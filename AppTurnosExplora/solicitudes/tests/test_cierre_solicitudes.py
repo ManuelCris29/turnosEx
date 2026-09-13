@@ -170,9 +170,10 @@ class CierreIntegracionTest(TestCase):
 
     def test_fechas_objetivo_ct_permanente_expande(self):
         from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator as SO
+        from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
         post = {'fecha_inicio': '2026-08-03', 'fecha_fin': '2026-08-12',
                 'dias_seleccionados': '{"dias_semana": [0]}'}  # solo lunes
-        fechas = SO._fechas_objetivo(post, 'CT PERMANENTE')
+        fechas = SO._fechas_objetivo(post, CTPermanenteStrategy())
         self.assertIn(date(2026, 8, 3), fechas)   # lunes
         self.assertIn(date(2026, 8, 10), fechas)  # lunes
         self.assertNotIn(date(2026, 8, 5), fechas)  # miércoles no
@@ -186,10 +187,11 @@ class CierreIntegracionTest(TestCase):
         aunque el cambio nunca se aplique en sábado ni domingo.
         """
         from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator as SO
+        from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
         post = {'fecha_inicio': '2026-08-03', 'fecha_fin': '2026-08-12',
                 'dias_seleccionados':
                     '{"dias_semana": [], "fechas_especificas": ["2026-08-03", "2026-08-11"]}'}
-        fechas = SO._fechas_objetivo(post, 'CT PERMANENTE')
+        fechas = SO._fechas_objetivo(post, CTPermanenteStrategy())
         self.assertEqual(fechas, [date(2026, 8, 3), date(2026, 8, 11)])
         # Ningún fin de semana del rango entra: son los días que activaban el falso bloqueo.
         self.assertNotIn(date(2026, 8, 8), fechas)   # sábado
@@ -199,9 +201,10 @@ class CierreIntegracionTest(TestCase):
         """Sin días seleccionados se expande el rango, pero SOLO lunes-viernes: un CT permanente
         no se aplica nunca en fin de semana, así que tampoco debe medirse el cierre contra ellos."""
         from solicitudes.services.solicitud_orchestrator import SolicitudOrchestrator as SO
+        from solicitudes.services.strategies.ct_permanente_strategy import CTPermanenteStrategy
         post = {'fecha_inicio': '2026-08-03', 'fecha_fin': '2026-08-12',
                 'dias_seleccionados': '{}'}
-        fechas = SO._fechas_objetivo(post, 'CT PERMANENTE')
+        fechas = SO._fechas_objetivo(post, CTPermanenteStrategy())
         self.assertTrue(fechas)
         self.assertTrue(all(f.weekday() < 5 for f in fechas), fechas)
 

@@ -90,34 +90,16 @@ class SolicitudOrchestrator:
         return None
 
     @staticmethod
-    def _fechas_objetivo(post, tipo_nombre: str) -> list:
-        """Fechas concretas que la solicitud agenda (para el cierre semanal). CT PERMANENTE expande
-        el rango con la MISMA función que usan la validación, la vista previa y la aplicación; el
-        resto usa las fechas puntuales del POST.
+    def _fechas_objetivo(post, strategy) -> list:
+        """Fechas concretas que la solicitud agenda, para comprobar el cierre semanal.
 
-        Antes esto reexpandía el rango por su cuenta leyendo SOLO `dias_semana`. Cuando el
-        compañero tiene compatibilidad parcial, el formulario envía `dias_semana: []` +
-        `fechas_especificas` (la ruta habitual), así que el conjunto quedaba vacío y se caía en el
-        `not dias` → se expandía el rango entero, fines de semana incluidos. Como la ventana de
-        cierre es justamente jueves→primer día hábil, cualquier CT permanente cuyo rango cruzara un
-        finde se bloqueaba, aunque el cambio nunca se aplique en sábado ni domingo.
+        Se lo pregunta a la estrategia: los tipos cuyo POST no trae las fechas ya resueltas
+        (CT PERMANENTE manda un rango + días) las expanden en su `fechas_objetivo`. El resto
+        devuelve None y aquí se usan las fechas puntuales del POST.
         """
-        if tipo_nombre == 'CT PERMANENTE':
-            from .cambios_permanentes_helper import generar_fechas_candidatas_ct_permanente
-            try:
-                d0 = DateUtils.parse_date(post.get('fecha_inicio'))
-                d1 = DateUtils.parse_date(post.get('fecha_fin'))
-            except (ValueError, TypeError):
-                return SolicitudRequestParser.get_fechas_del_post(post)
-            if not d0 or not d1:
-                return SolicitudRequestParser.get_fechas_del_post(post)
-            try:
-                dias_seleccionados = json.loads(post.get('dias_seleccionados', '{}') or '{}')
-            except (json.JSONDecodeError, TypeError):
-                dias_seleccionados = {}
-            if not isinstance(dias_seleccionados, dict):
-                dias_seleccionados = {}
-            return generar_fechas_candidatas_ct_permanente(d0, d1, dias_seleccionados)
+        propias = strategy.fechas_objetivo(post) if strategy else None
+        if propias is not None:
+            return propias
         return SolicitudRequestParser.get_fechas_del_post(post)
 
     @staticmethod
@@ -600,13 +582,34 @@ class SolicitudOrchestrator:
     # Punto de entrada principal
     # ------------------------------------------------------------------
 
+    #: Flujos de creación propios, por el nombre que declara cada estrategia en
+    #: `flujo_creacion_propio`. Registro en vez de `if tipo_nombre == ...`: un tipo nuevo con
+    #: flujo propio se añade aquí y en su estrategia, sin tocar `procesar()`.
+    _FLUJOS_PROPIOS = {
+        'doblada_permanente_multi': '_procesar_doblada_permanente_multi',
+        'cobertura_dos': '_procesar_cobertura_dos',
+    }
+
+    @classmethod
+    def _flujo_propio(cls, strategy, post):
+        """El flujo de creación propio que pide la estrategia, ya resuelto a método, o None."""
+        nombre = strategy.flujo_creacion_propio(post) if strategy else None
+        if not nombre:
+            return None
+        metodo = cls._FLUJOS_PROPIOS.get(nombre)
+        if not metodo:
+            logger.error("Estrategia %s pide el flujo '%s', que no está registrado en "
+                         "_FLUJOS_PROPIOS", type(strategy).__name__, nombre)
+            return None
+        return getattr(cls, metodo)
+
     @classmethod
     def procesar(cls, post, tipo_solicitud: TipoSolicitudCambio, solicitante) -> ResultadoSolicitud:
         """
         Flujo principal de creación de solicitud:
           1. Verificar sanción
-          2. Despachar DOBLADA PERMANENTE (flujo propio multi-compañero)
-          3. Verificar restricción médica
+          2. Despachar el flujo propio que declare la estrategia (si comprueba el cierre él mismo)
+          3. Verificar cierre semanal y restricción médica
           4. Resolver receptor
           5. Parsear datos según tipo
           6. Validar con Factory
@@ -614,6 +617,7 @@ class SolicitudOrchestrator:
         """
         tipo_nombre = tipo_solicitud.nombre
         comentario = post.get('comentarios', '')
+        strategy = SolicitudFactory.get_strategy(tipo_solicitud)
 
         # 0. Dedupe de doble-clic/doble-submit: un POST idéntico (mismo solicitante, tipo
         # y datos) que llega dos veces en un margen de segundos no debe crear dos solicitudes
@@ -629,30 +633,31 @@ class SolicitudOrchestrator:
         if sancion_resp:
             return sancion_resp
 
-        # 2. DOBLADA PERMANENTE multi-compañero (flujo independiente)
-        if tipo_nombre == "DOBLADA PERMANENTE":
-            # Con try/except propio: este flujo valida dentro de un bucle por compañero y no
-            # tenía manejo genérico. Ahora que la validación propaga los fallos inesperados en
+        # 2. Flujo de creación propio, si la estrategia declara uno (doblada permanente
+        # multi-compañero, cobertura de día completo con dos…). Los que comprueban el cierre
+        # por su cuenta van ANTES del chequeo genérico, porque calculan sus propias fechas.
+        flujo_propio = cls._flujo_propio(strategy, post)
+        if flujo_propio and strategy.flujo_propio_verifica_cierre:
+            # Con try/except propio: estos flujos validan dentro de un bucle por compañero y no
+            # tenían manejo genérico. Ahora que la validación propaga los fallos inesperados en
             # vez de devolverlos como rechazo de negocio, hace falta convertirlos aquí en un 500
             # logueado en lugar de dejar escapar un traceback sin controlar.
             try:
-                return cls._procesar_doblada_permanente_multi(
-                    post, tipo_solicitud, solicitante, comentario)
+                return flujo_propio(post, tipo_solicitud, solicitante, comentario)
             except Exception:
-                logger.exception('Error procesando doblada permanente multi — solicitante=%s',
-                                 solicitante.id)
+                logger.exception('Error procesando el flujo propio de %s — solicitante=%s',
+                                 tipo_nombre, solicitante.id)
                 return ResultadoSolicitud.error(_MSG_ERROR_INTERNO, status=500,
                                   code='internal_error')
 
         # 2b. Cierre semanal (programación del fin de semana ya cerrada)
-        cierre_resp = cls.verificar_cierre(cls._fechas_objetivo(post, tipo_nombre))
+        cierre_resp = cls.verificar_cierre(cls._fechas_objetivo(post, strategy))
         if cierre_resp:
             return cierre_resp
 
-        # 2c. CAMBIO DESCANSO — cobertura de día completo con DOS compañeros: son dos
-        # solicitudes (AM y PM) que solo tienen sentido juntas. Flujo propio y atómico.
-        if tipo_nombre == 'CAMBIO DESCANSO' and post.get('empleado_receptor_2'):
-            return cls._procesar_cobertura_dos(post, tipo_solicitud, solicitante, comentario)
+        # 2c. El resto de flujos propios, ya con el cierre comprobado.
+        if flujo_propio:
+            return flujo_propio(post, tipo_solicitud, solicitante, comentario)
 
         # 3. Restricción médica
         confirmar = str(post.get('confirmar_restriccion', '')).lower() in ('1', 'true', 'si', 'sí')

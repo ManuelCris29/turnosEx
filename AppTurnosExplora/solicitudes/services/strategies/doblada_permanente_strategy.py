@@ -64,6 +64,14 @@ class DobladaPermanenteStrategy(SolicitudStrategy):
     def __init__(self):
         super().__init__("DOBLADA PERMANENTE")
 
+    #: Su flujo multi-compañero calcula sus propias fechas y comprueba el cierre dentro,
+    #: así que el orquestador lo despacha antes del chequeo genérico.
+    flujo_propio_verifica_cierre = True
+
+    def flujo_creacion_propio(self, post):
+        """Siempre usa el flujo multi-compañero: una solicitud por cada compañero del acuerdo."""
+        return 'doblada_permanente_multi'
+
     @staticmethod
     def _parse(fecha):
         if not fecha:

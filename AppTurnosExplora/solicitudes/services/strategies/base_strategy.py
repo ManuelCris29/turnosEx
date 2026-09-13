@@ -89,6 +89,41 @@ class SolicitudStrategy(ABC):
         falla cerrado. Ver `revalidar_para_aprobar`.
         """
 
+    # ------------------------------------------------------------------
+    # Creación: lo que cada tipo puede pedirle al orquestador
+    # ------------------------------------------------------------------
+    # Estos dos hooks existen para que el orquestador NO tenga que preguntar por el nombre
+    # del tipo. `procesar()` llegó a tener tres `if tipo_nombre == '...'` incrustados en
+    # medio del pipeline, así que añadir un tipo con un flujo de creación propio obligaba a
+    # editar el orquestador — justo lo que el Strategy Pattern ya había resuelto para
+    # validar, aplicar y mostrar el detalle. Ahora cada estrategia lo DECLARA y el
+    # orquestador solo obedece.
+
+    def fechas_objetivo(self, post) -> Optional[list]:
+        """Fechas concretas que esta solicitud agenda, para comprobar el cierre semanal.
+
+        `None` (lo normal) significa "usa las fechas puntuales del POST". Solo la sobrescriben
+        los tipos cuyo POST no lleva las fechas ya resueltas y hay que expandirlas.
+        """
+        return None
+
+    def flujo_creacion_propio(self, post) -> Optional[str]:
+        """Nombre del flujo de creación propio de este tipo, o `None` para el flujo estándar.
+
+        Un tipo puede necesitar crear VARIAS solicitudes que solo tienen sentido juntas
+        (doblada permanente con varios compañeros, cobertura de día completo con dos). El
+        nombre que se devuelva debe estar registrado en `SolicitudOrchestrator._FLUJOS_PROPIOS`.
+
+        Depende del POST a propósito: el mismo tipo puede tener flujo propio o no según lo
+        que llegue (CAMBIO DESCANSO solo lo necesita cuando hay un segundo receptor).
+        """
+        return None
+
+    #: ¿El flujo propio comprueba el cierre semanal por su cuenta? Cuando es True el
+    #: orquestador lo despacha ANTES del chequeo genérico de cierre, porque ese flujo calcula
+    #: sus propias fechas (si lo dejara al genérico, se saltaría el cierre entero).
+    flujo_propio_verifica_cierre = False
+
     def revalidar_para_aprobar(self, solicitud: SolicitudCambio) -> Tuple[bool, str]:
         """
         Re-valida la solicitud con el estado ACTUAL, justo antes de aplicarla al aprobar.

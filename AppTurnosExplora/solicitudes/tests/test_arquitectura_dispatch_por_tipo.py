@@ -43,11 +43,13 @@ APPS = ('solicitudes', 'turnos', 'permisos', 'empleados', 'core')
 # Base conocida, congelada el 2026-08-21. Formato: 'ruta/relativa.py'.
 # Solo puede menguar. Cada una lleva por qué sigue ahí.
 PERMITIDAS = {
-    # Enruta a flujos de orquestación completos, no calcula una regla de negocio:
-    #   :95  precalcula las fechas candidatas antes de existir la solicitud
-    #   :637 alta multi-compañero, con su propio manejo de errores por bucle
-    #   :658 dos solicitudes (AM y PM) que solo tienen sentido juntas y atómicas
-    'solicitudes/services/solicitud_orchestrator.py': 3,
+    # El orquestador llegó a cero el 2026-09-12: las tres comparaciones que quedaban
+    # (fechas candidatas de CT PERMANENTE, alta multi-compañero de DOBLADA PERMANENTE y
+    # cobertura con dos de CAMBIO DESCANSO) se migraron a los hooks `fechas_objetivo` y
+    # `flujo_creacion_propio` de la estrategia. El orquestador ya no pregunta por el nombre
+    # del tipo: pregunta a la estrategia. La entrada se queda a propósito, en 0, para que el
+    # trinquete siga vigilando el archivo en vez de dejar de mirarlo.
+    'solicitudes/services/solicitud_orchestrator.py': 0,
     # Bandera de presentación para la plantilla, no una decisión de negocio.
     'solicitudes/views/reprogramacion_views.py': 1,
     # DEUDA RECONOCIDA, y la única de esta lista que SÍ debería migrar algún día.

@@ -33,6 +33,39 @@ class CTPermanenteStrategy(SolicitudStrategy):
     def __init__(self):
         super().__init__("CT PERMANENTE")
 
+    def fechas_objetivo(self, post):
+        """Expande el rango con la MISMA función que usan la validación, la vista previa y
+        la aplicación, para que el cierre semanal mire exactamente los días que se agendan.
+
+        Reexpandir el rango por cuenta propia leyendo SOLO `dias_semana` estuvo mal una vez:
+        cuando el compañero tiene compatibilidad parcial el formulario manda `dias_semana: []`
+        + `fechas_especificas`, el conjunto quedaba vacío y se expandía el rango entero, findes
+        incluidos. Como la ventana de cierre es jueves→primer día hábil, cualquier CT
+        permanente cuyo rango cruzara un finde se bloqueaba, aunque nunca se aplique en
+        sábado ni domingo.
+        """
+        import json
+
+        from core.utils.date_utils import DateUtils
+
+        from ..cambios_permanentes_helper import generar_fechas_candidatas_ct_permanente
+        from ..solicitud_request_parser import SolicitudRequestParser
+
+        try:
+            d0 = DateUtils.parse_date(post.get('fecha_inicio'))
+            d1 = DateUtils.parse_date(post.get('fecha_fin'))
+        except (ValueError, TypeError):
+            return SolicitudRequestParser.get_fechas_del_post(post)
+        if not d0 or not d1:
+            return SolicitudRequestParser.get_fechas_del_post(post)
+        try:
+            dias_seleccionados = json.loads(post.get('dias_seleccionados', '{}') or '{}')
+        except (json.JSONDecodeError, TypeError):
+            dias_seleccionados = {}
+        if not isinstance(dias_seleccionados, dict):
+            dias_seleccionados = {}
+        return generar_fechas_candidatas_ct_permanente(d0, d1, dias_seleccionados)
+
     def _datos_desde_solicitud(self, solicitud):
         """Reconstruye los datos para re-validar al aprobar (ver base). Rearma
         dias_seleccionados desde los CambioPermanenteDia del detalle."""
