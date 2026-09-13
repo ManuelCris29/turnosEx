@@ -6,6 +6,8 @@ cedida y fallback legacy) y el pago residual en semana. DobladaAplicacionService
 delega en este servicio; dependencia en un solo sentido.
 """
 import logging
+from dataclasses import dataclass
+from datetime import date
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -18,6 +20,37 @@ from turnos.services.doblada_turno_service import DobladaTurnoService
 from turnos.services.jornada_service import JornadaService
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ContextoPago:
+    """Los datos del pago que las seis ramas de `aplicar_doblada_pago` necesitan por igual.
+
+    Las seis repetían la misma firma de seis argumentos —solicitud, detalle, fecha_pago,
+    solicitante, receptor y la fecha en texto—, de los cuales cuatro se derivan de los dos
+    primeros. Agruparlos evita que añadir un dato al pago obligue a tocar seis firmas y sus
+    seis llamadas, que es justo donde se cuela un argumento en el orden equivocado.
+    """
+
+    solicitud: SolicitudCambio
+    detalle: DobladaDetalle
+    fecha_pago: date
+    solicitante: object
+    receptor: object
+
+    @classmethod
+    def desde_solicitud(cls, solicitud: SolicitudCambio, detalle: DobladaDetalle) -> 'ContextoPago':
+        return cls(
+            solicitud=solicitud,
+            detalle=detalle,
+            fecha_pago=detalle.fecha_pago,
+            solicitante=solicitud.explorador_solicitante,
+            receptor=solicitud.explorador_receptor,
+        )
+
+    @property
+    def fecha_pago_str(self) -> str:
+        return self.fecha_pago.strftime('%Y-%m-%d')
 
 
 class DobladaPagoService:
@@ -42,12 +75,9 @@ class DobladaPagoService:
         Raises:
             ValidationError: Si hay errores al aplicar los cambios
         """
-        fecha_pago = detalle.fecha_pago
-        solicitante = solicitud.explorador_solicitante
-        receptor = solicitud.explorador_receptor
-        
-        fecha_pago_str = fecha_pago.strftime('%Y-%m-%d')
-        
+        ctx = ContextoPago.desde_solicitud(solicitud, detalle)
+        fecha_pago = ctx.fecha_pago
+
         # ===========================
         # Caso especial: Pago en Sábado
         # ===========================
@@ -62,7 +92,7 @@ class DobladaPagoService:
         # - Asegurar que el receptor tenga SOLO la jornada contraria.
         #
         if fecha_pago.weekday() == 5 and detalle.jornada_pago_sabado:
-            return DobladaPagoService._aplicar_pago_sabado(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str)
+            return DobladaPagoService._aplicar_pago_sabado(ctx)
         # ===========================
         # jornada_cubre_en_pago: elección explícita del deudor (AM / PM / AMBAS)
         # ===========================
@@ -71,9 +101,9 @@ class DobladaPagoService:
         jcp = (getattr(detalle, 'jornada_cubre_en_pago', None) or '').strip().upper()
 
         if jcp == 'AMBAS':
-            return DobladaPagoService._aplicar_pago_jcp_ambas(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str)
+            return DobladaPagoService._aplicar_pago_jcp_ambas(ctx)
         if jcp in ('AM', 'PM'):
-            return DobladaPagoService._aplicar_pago_jcp_media(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str, jcp)
+            return DobladaPagoService._aplicar_pago_jcp_media(ctx, jcp)
         # ===========================
         # Cesión parcial SIN jornada_cubre_en_pago
         # ===========================
@@ -83,7 +113,7 @@ class DobladaPagoService:
         #   - si el deudor ya trabajaba la otra jornada → queda con AM+PM (dobla).
         #   - si el deudor NO tenía turno ese día → trabaja SOLO la jornada del acreedor.
         if detalle.tipo_cesion in ('cesion_parcial_am', 'cesion_parcial_pm'):
-            return DobladaPagoService._aplicar_pago_cesion_parcial(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str)
+            return DobladaPagoService._aplicar_pago_cesion_parcial(ctx)
         # ===========================
         # Pago con jornada_cedida conocida (quirúrgico: unión de jornadas del deudor)
         # ===========================
@@ -92,8 +122,8 @@ class DobladaPagoService:
         # MÁS la jornada cedida (doblada completa), y el acreedor descansa o pierde
         # solo la jornada cedida según su configuración.
         if detalle.jornada_cedida:
-            return DobladaPagoService._aplicar_pago_jornada_cedida(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str)
-        return DobladaPagoService._aplicar_pago_fallback(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str)
+            return DobladaPagoService._aplicar_pago_jornada_cedida(ctx)
+        return DobladaPagoService._aplicar_pago_fallback(ctx)
 
     @staticmethod
     def _mitad_contraria_cubierta_por_otra_doblada(solicitud, receptor, fecha_pago, jornada_sel) -> bool:
@@ -123,7 +153,9 @@ class DobladaPagoService:
         ).exclude(id=solicitud.id).exists()
 
     @staticmethod
-    def _aplicar_pago_sabado(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str) -> None:
+    def _aplicar_pago_sabado(ctx: ContextoPago) -> None:
+        solicitud, detalle, fecha_pago = ctx.solicitud, ctx.detalle, ctx.fecha_pago
+        solicitante, receptor = ctx.solicitante, ctx.receptor
         jornada_sel = detalle.jornada_pago_sabado.upper()
 
         # El reparto de sábado da por sentado que el receptor TRABAJA ese día: se le quita la mitad
@@ -252,7 +284,8 @@ class DobladaPagoService:
 
 
     @staticmethod
-    def _aplicar_pago_jcp_ambas(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str) -> None:
+    def _aplicar_pago_jcp_ambas(ctx: ContextoPago) -> None:
+        fecha_pago, solicitante, receptor = ctx.fecha_pago, ctx.solicitante, ctx.receptor
         jornadas_cache = _obtener_jornadas_cache()
         Turno.objects.filter(explorador=receptor, fecha=fecha_pago).delete()
         for jn in ('AM', 'PM'):
@@ -276,7 +309,8 @@ class DobladaPagoService:
 
 
     @staticmethod
-    def _aplicar_pago_jcp_media(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str, jcp) -> None:
+    def _aplicar_pago_jcp_media(ctx: ContextoPago, jcp) -> None:
+        fecha_pago, solicitante, receptor = ctx.fecha_pago, ctx.solicitante, ctx.receptor
         # jcp = jornada del ACREEDOR (que tiene doblada) que el deudor CUBRE al pagar.
         # El acreedor pierde la jornada cubierta y conserva la otra. Del lado del deudor:
         #   - si ESE día TRABAJA su propia jornada (la contraria a jcp) → DOBLA (su jornada + jcp).
@@ -350,7 +384,9 @@ class DobladaPagoService:
 
 
     @staticmethod
-    def _aplicar_pago_cesion_parcial(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str) -> None:
+    def _aplicar_pago_cesion_parcial(ctx: ContextoPago) -> None:
+        fecha_pago, solicitante = ctx.fecha_pago, ctx.solicitante
+        receptor, fecha_pago_str = ctx.receptor, ctx.fecha_pago_str
         # Jornadas que el acreedor trabaja ese día = lo que el deudor va a cubrir.
         jornadas_acreedor = list(
             Turno.objects.filter(explorador=receptor, fecha=fecha_pago)
@@ -444,7 +480,9 @@ class DobladaPagoService:
 
 
     @staticmethod
-    def _aplicar_pago_jornada_cedida(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str) -> None:
+    def _aplicar_pago_jornada_cedida(ctx: ContextoPago) -> None:
+        detalle, fecha_pago, solicitante = ctx.detalle, ctx.fecha_pago, ctx.solicitante
+        receptor, fecha_pago_str = ctx.receptor, ctx.fecha_pago_str
         _jc_nombre = detalle.jornada_cedida.upper()
         _jcache = _obtener_jornadas_cache()
         _jc_obj = _jcache[_jc_nombre]
@@ -564,7 +602,9 @@ class DobladaPagoService:
     
 
     @staticmethod
-    def _aplicar_pago_fallback(solicitud, detalle, fecha_pago, solicitante, receptor, fecha_pago_str) -> None:
+    def _aplicar_pago_fallback(ctx: ContextoPago) -> None:
+        fecha_pago, solicitante = ctx.fecha_pago, ctx.solicitante
+        receptor, fecha_pago_str = ctx.receptor, ctx.fecha_pago_str
         # ===========================
         # Caso fallback: Pago sin jornada_cedida (legacy)
         # ===========================
