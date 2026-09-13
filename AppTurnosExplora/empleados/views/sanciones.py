@@ -13,6 +13,7 @@ from core.mixins import AdminRequiredMixin, es_supervisor
 
 from ..forms import SancionEmpleadoForm, SancionLevantarForm
 from ..models import Empleado, SancionEmpleado
+from ..sancion_utils import invalidar_cache_turnos
 
 logger = logging.getLogger(__name__)
 
@@ -188,25 +189,6 @@ def _horas_que_se_condonan(sancion) -> float:
         return 0.0
 
 
-def _invalidar_turnos_cache_sancion(sancion):
-    """Refresca Mis Turnos del explorador para que la sanción se vea al instante."""
-    try:
-        from datetime import timedelta
-
-        from core.services.cache_service import CacheService
-        hoy = timezone.localdate()
-        # Para indefinidas, cubrir hasta el mes actual (no solo +365 días desde inicio)
-        fin = sancion.fecha_fin or max(sancion.fecha_inicio + timedelta(days=365), hoy)
-        meses = set()
-        d = sancion.fecha_inicio
-        while d <= fin:
-            meses.add((d.month, d.year))
-            d += timedelta(days=28)
-        meses.add((fin.month, fin.year))
-        for m, y in meses:
-            CacheService.invalidar_cache_turnos_empleado(sancion.explorador.id, m, y)
-    except Exception:
-        logger.warning("Error invalidando caché de turnos por sanción (explorador=%s)", sancion.explorador_id, exc_info=True)
 
 
 class _SancionFormViewMixin:
@@ -232,7 +214,7 @@ class _SancionFormViewMixin:
 
     def form_valid(self, form):
         resp = super().form_valid(form)
-        _invalidar_turnos_cache_sancion(self.object)
+        invalidar_cache_turnos(self.object)
         return resp
 
 
@@ -306,7 +288,7 @@ class SancionLevantarView(LoginRequiredMixin, AdminRequiredMixin, FormView):
             motivo=form.cleaned_data['motivo'],
             supervisor=getattr(self.request.user, 'empleado', None),
         )
-        _invalidar_turnos_cache_sancion(sancion)
+        invalidar_cache_turnos(sancion)
         logger.info('Sanción %s de %s levantada por %s', sancion.id,
                     sancion.explorador_id, getattr(self.request.user, 'username', '?'))
         # Lo REALMENTE condonado, leído de lo que quedó escrito, no la estimación que se

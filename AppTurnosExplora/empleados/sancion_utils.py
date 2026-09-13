@@ -13,6 +13,42 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 
+def invalidar_cache_turnos(sancion):
+    """Refresca Mis Turnos del explorador en todos los meses que la sanción puede afectar.
+
+    IMPLEMENTACIÓN ÚNICA a propósito. Había dos, y ya habían divergido: la de la vista de
+    sanciones llegaba hasta `fecha_fin`, y la del servicio de deuda extendía SIEMPRE un año
+    hacia adelante. Cuál se ejecutaba dependía de por dónde entrara el usuario (levantar la
+    sanción a mano o la revisión automática), así que el mismo hecho dejaba la caché en dos
+    estados distintos.
+
+    Se conserva la versión que cubre más: invalidar de MÁS solo cuesta un recálculo, mientras
+    que invalidar de MENOS deja a alguien viendo unos turnos que ya no son los suyos. El año
+    extra es el que necesitan las sanciones indefinidas —se muestran en todos los meses
+    futuros— y las que acaban de levantarse, cuyos meses cacheados hay que refrescar.
+
+    Nunca lanza: que falle un borrado de caché no puede tumbar el guardado de la sanción.
+    """
+    try:
+        from datetime import date, timedelta
+
+        from core.services.cache_service import CacheService
+
+        hoy = timezone.localdate()
+        desde = sancion.fecha_inicio
+        hasta = max(sancion.fecha_fin or hoy, hoy + timedelta(days=365))
+        meses = set()
+        d = date(desde.year, desde.month, 1)
+        while d <= hasta:
+            meses.add((d.month, d.year))
+            d = date(d.year + 1, 1, 1) if d.month == 12 else date(d.year, d.month + 1, 1)
+        for m, y in meses:
+            CacheService.invalidar_cache_turnos_empleado(sancion.explorador_id, m, y)
+    except Exception:
+        logger.warning('Error invalidando caché de turnos por sanción (explorador=%s)',
+                       getattr(sancion, 'explorador_id', '?'), exc_info=True)
+
+
 def vigentes_en(fecha=None):
     """
     Filtro ÚNICO de "sanción que bloquea en `fecha`". Toda comprobación de sanción

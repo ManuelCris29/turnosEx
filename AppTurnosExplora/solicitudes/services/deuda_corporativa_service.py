@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from core.constants import JornadaDisplay
 from empleados.models import Empleado
+from empleados.sancion_utils import invalidar_cache_turnos
 from solicitudes.models import ConfiguracionSanciones, DeudaCorporativa, SolicitudCambio
 from solicitudes.services.sancion_deuda_calculo import (
     DURACION_BASE_DIAS as _DURACION_BASE_DIAS,
@@ -510,7 +511,7 @@ class DeudaCorporativaService:
                 ),
             )
             DeudaCorporativaService._notificar_sancion(explorador, nueva, sancion)
-            DeudaCorporativaService._invalidar_cache_mis_turnos_sancion(nueva)
+            invalidar_cache_turnos(nueva)
             logger.info('Sanción automática creada para %s por %s: %s -> %s (%s días, nivel %s)',
                         explorador.id, sancion.periodo, inicio, fin,
                         sancion.duracion_dias, sancion.nivel)
@@ -901,34 +902,6 @@ class DeudaCorporativaService:
         except Exception:
             logger.warning("Error creando notificación de sanción por deuda", exc_info=True)
 
-    @staticmethod
-    def _invalidar_cache_mis_turnos_sancion(sancion) -> None:
-        """
-        Invalida la caché de Mis Turnos del explorador en TODOS los meses que la sanción
-        pudo afectar. Para sanciones indefinidas (o recién levantadas que antes lo eran),
-        se cubre además un año hacia adelante, porque una sanción indefinida se muestra en
-        todos los meses futuros y, al levantarla, esos meses cacheados deben refrescarse.
-        """
-        try:
-            from core.services.cache_service import CacheService
-            hoy = timezone.localdate()
-            desde = sancion.fecha_inicio
-            # Cubrir hasta el mayor entre su fecha_fin y un año adelante (para indefinidas/levantadas).
-            hasta = max(sancion.fecha_fin or hoy, hoy + timedelta(days=365))
-            meses = set()
-            d = date(desde.year, desde.month, 1)
-            while d <= hasta:
-                meses.add((d.month, d.year))
-                # avanzar al primer día del mes siguiente
-                if d.month == 12:
-                    d = date(d.year + 1, 1, 1)
-                else:
-                    d = date(d.year, d.month + 1, 1)
-            for m, y in meses:
-                CacheService.invalidar_cache_turnos_empleado(sancion.explorador_id, m, y)
-        except Exception:
-            # La invalidación de caché nunca debe romper el flujo principal.
-            logger.warning("Error invalidando caché de turnos por sanción (explorador=%s)", sancion.explorador_id, exc_info=True)
 
     @staticmethod
     def crear_deuda_corporativa(
