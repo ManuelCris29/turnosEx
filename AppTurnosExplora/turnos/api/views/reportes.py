@@ -1,5 +1,6 @@
 import logging
 import math
+from dataclasses import dataclass, field
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import JsonResponse
@@ -8,6 +9,33 @@ from django.views.generic import View
 from core.mixins import SupervisorApiRequiredMixin
 from core.services.cache_service import CACHE_TTL_SHORT, CacheService
 from core.utils.date_utils import DateUtils
+
+from .reporte_excel_estilos import (
+    AZUL_CLARO,
+    AZUL_MEDIO,
+    AZUL_OSCURO,
+    BLANCO,
+    GRIS_CLARO,
+    GRIS_MED,
+    GRIS_OSC,
+    MORADO_CL,
+    NARANJA_CL,
+    NARANJA_MED,
+    NARANJA_OSC,
+    PALETA_AM,
+    PALETA_CAMBIOS,
+    PALETA_DESCANSAN,
+    PALETA_DEUDA,
+    PALETA_PM,
+    ROJO_OSC,
+    VERDE_CL,
+    VERDE_OSC,
+    borde,
+    centrado,
+    fill,
+    fuente,
+    izquierda,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -288,6 +316,27 @@ class ReporteMesDiasView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             return _error_500('ReporteMesDiasView', e)
 
 
+@dataclass(frozen=True)
+class _DatosDia:
+    """Los datos del día ya resueltos y clasificados, listos para maquetar.
+
+    Las seis hojas necesitan casi el mismo conjunto (la fecha en dos formatos, quién
+    trabaja en cada jornada, quién descansa y la deuda al corte). Pasarlo como un objeto
+    evita repetir esa lista en la firma de cada hoja, y deja explícito que las hojas solo
+    FORMATEAN: aquí no hay nada que consultar, todo llega resuelto desde `get`.
+    """
+
+    fecha: object
+    fecha_legible: str
+    trabajando: list
+    descansando: list
+    am: list
+    pm: list
+    dia_info: dict
+    filas_deuda: list = field(default_factory=list)
+    resumen_deuda: dict = field(default_factory=dict)
+
+
 class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
     """Exporta el reporte operacional del día como archivo Excel (.xlsx)."""
 
@@ -311,58 +360,62 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
 
         from django.http import HttpResponse
         from openpyxl import Workbook
-        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-        fecha_legible = (f'{DIAS_ES[fecha.weekday()]} {fecha.day} de '
-                         f'{MESES_ES[fecha.month]} de {fecha.year}')
-
-        trabajando  = data.get('trabajando', [])
-        descansando = data.get('descansando', [])
-        dia_info    = data.get('dia_info', {})
-
-        am   = [e for e in trabajando if e.get('jornada_dia') in ('AM', 'DOBLADA')]
-        pm   = [e for e in trabajando if e.get('jornada_dia') in ('PM', 'DOBLADA')]
-        desc = descansando
-
-        # ── Estilos ──────────────────────────────────────────────────────────
-        def fill(hex_color):
-            return PatternFill('solid', fgColor=hex_color)
-
-        AZUL_OSCURO  = '1E3A5F'
-        AZUL_MEDIO   = '2563EB'
-        AZUL_CLARO   = 'DBEAFE'
-        NARANJA_OSC  = '92400E'
-        NARANJA_MED  = 'D97706'
-        NARANJA_CL   = 'FEF3C7'
-        GRIS_OSC     = '334155'
-        GRIS_MED     = '64748B'
-        GRIS_CLARO   = 'F1F5F9'
-        VERDE_CL     = 'DCFCE7'
-        MORADO_CL    = 'EDE9FE'
-        ROJO_OSC     = '7F1D1D'
-        ROJO_MED     = 'DC2626'
-        BLANCO       = 'FFFFFF'
-
-        def fuente(bold=False, color='000000', size=10, italic=False):
-            return Font(bold=bold, color=color, size=size, italic=italic)
-
-        def borde_fino():
-            s = Side(style='thin', color='CBD5E1')
-            return Border(left=s, right=s, top=s, bottom=s)
-
-        def centrado(wrap=False):
-            return Alignment(horizontal='center', vertical='center', wrap_text=wrap)
-
-        def izquierda(wrap=False):
-            return Alignment(horizontal='left', vertical='center', wrap_text=wrap)
+        trabajando = data.get('trabajando', [])
+        dd = _DatosDia(
+            fecha=fecha,
+            fecha_legible=(f'{DIAS_ES[fecha.weekday()]} {fecha.day} de '
+                           f'{MESES_ES[fecha.month]} de {fecha.year}'),
+            trabajando=trabajando,
+            descansando=data.get('descansando', []),
+            am=[e for e in trabajando if e.get('jornada_dia') in ('AM', 'DOBLADA')],
+            pm=[e for e in trabajando if e.get('jornada_dia') in ('PM', 'DOBLADA')],
+            dia_info=data.get('dia_info', {}),
+            filas_deuda=filas_deuda or [],
+            resumen_deuda=resumen_deuda or {},
+        )
 
         wb = Workbook()
         wb.remove(wb.active)  # quitar hoja vacía por defecto
 
-        # ════════════════════════════════════════════════════════════════════
-        # HOJA 1 — RESUMEN
-        # ════════════════════════════════════════════════════════════════════
-        ws = wb.create_sheet('Resumen')
+        self._hoja_resumen(wb.create_sheet('Resumen'), dd)
+        self._hoja_trabajan(wb.create_sheet('Trabajan AM'), 'TRABAJAN AM ☀️',
+                            dd.am, PALETA_AM, dd)
+        self._hoja_trabajan(wb.create_sheet('Trabajan PM'), 'TRABAJAN PM 🌙',
+                            dd.pm, PALETA_PM, dd)
+        self._hoja_descansan(wb.create_sheet('Descansan'), dd)
+        self._hoja_cambios(wb.create_sheet('Cambios y permisos'), dd)
+        self._hoja_deuda(wb.create_sheet('Deuda pendiente'), dd)
+
+        # ── Respuesta HTTP ───────────────────────────────────────────────────
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        nombre_archivo = f'reporte_operacion_{fecha}.xlsx'
+        response = HttpResponse(
+            buf.read(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
+        return response
+
+    def _hoja_resumen(self, ws, dd):
+        """Hoja 1: titulares del día, mini-lista por persona y leyenda de cómo leerlo.
+
+        Los tres bloques se leen de arriba abajo y comparten la numeración de filas, así que
+        cada uno devuelve la fila en la que se quedó.
+        """
+        self._resumen_titulares(ws, dd)
+        fila = self._resumen_lista_por_persona(ws, dd)
+        self._resumen_leyenda(ws, fila)
+
+    def _resumen_titulares(self, ws, dd):
+        """Cabecera de la hoja Resumen: fecha, tipo de día, contadores y titular de deuda."""
+        fecha, fecha_legible, dia_info = dd.fecha, dd.fecha_legible, dd.dia_info
+        trabajando, descansando = dd.trabajando, dd.descansando
+        am, pm, desc = dd.am, dd.pm, dd.descansando
+        resumen_deuda = dd.resumen_deuda
+
         ws.sheet_view.showGridLines = False
         ws.column_dimensions['A'].width = 30
         ws.column_dimensions['B'].width = 18
@@ -418,14 +471,14 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             lbl.font = fuente(bold=True, color=fg, size=10)
             lbl.fill = fill(bg)
             lbl.alignment = centrado()
-            lbl.border = borde_fino()
+            lbl.border = borde()
             ws.row_dimensions[5].height = 20
             # Número
             num = ws.cell(row=6, column=col, value=v)
             num.font = fuente(bold=True, color=fg, size=16)
             num.fill = fill(bg)
             num.alignment = centrado()
-            num.border = borde_fino()
+            num.border = borde()
             ws.row_dimensions[6].height = 36
 
         # ── Deuda pendiente del mes hasta esta fecha ─────────────────────────
@@ -446,10 +499,16 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             c.font = fuente(bold=True, color='991B1B', size=10)
             c.fill = fill('FEE2E2')
         c.alignment = centrado()
-        c.border = borde_fino()
+        c.border = borde()
         ws.row_dimensions[7].height = 20
 
-        # Mini-lista resumen: por persona, etiqueta corta + frase explicativa + flags
+    def _resumen_lista_por_persona(self, ws, dd):
+        """Mini-lista del Resumen: una fila por persona, agrupada en AM / PM / descansan.
+
+        Devuelve la primera fila libre, que es donde arranca la leyenda.
+        """
+        am, pm, desc, dia_info = dd.am, dd.pm, dd.descansando, dd.dia_info
+
         TIPO_BG = {'oficial': 'DBEAFE', 'cambio': 'FEF9C3', 'doblada': 'EDE9FE'}
         TIPO_FG = {'oficial': '1D4ED8', 'cambio': '92400E', 'doblada': '5B21B6'}
         TIPO_LBL = {'oficial': 'Turno normal', 'cambio': 'Cambio', 'doblada': 'Dobla'}
@@ -465,7 +524,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             c.font = fuente(bold=True, color=fg_h, size=10)
             c.fill = fill(bg_h)
             c.alignment = izquierda()
-            c.border = borde_fino()
+            c.border = borde()
             ws.row_dimensions[fila].height = 18
             fila += 1
             for emp in empleados_sec:
@@ -490,31 +549,33 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                 c.font = fuente(bold=True, size=10)
                 c.fill = fill(nombre_bg)
                 c.alignment = izquierda()
-                c.border = borde_fino()
+                c.border = borde()
                 # Col B: etiqueta corta de situación
                 cb = ws.cell(row=fila, column=2, value=etiqueta)
                 cb.font = fuente(bold=True, color=et_fg, size=9)
                 cb.fill = fill(et_bg)
                 cb.alignment = centrado(True)
-                cb.border = borde_fino()
+                cb.border = borde()
                 # Col C:D: frase + flags
                 ws.merge_cells(f'C{fila}:D{fila}')
                 c2 = ws.cell(row=fila, column=3, value=detalle)
                 c2.font = fuente(color='334155', size=9)
                 c2.alignment = izquierda(True)
-                c2.border = borde_fino()
-                ws.cell(row=fila, column=4).border = borde_fino()
+                c2.border = borde()
+                ws.cell(row=fila, column=4).border = borde()
                 ws.row_dimensions[fila].height = _altura((detalle, 68), (etiqueta, 18))
                 fila += 1
             fila += 1  # separador entre secciones
+        return fila
 
-        # ── Leyenda: "CÓMO LEER ESTE REPORTE" ────────────────────────────────
+    def _resumen_leyenda(self, ws, fila):
+        """Leyenda "CÓMO LEER ESTE REPORTE": qué significa cada etiqueta de la mini-lista."""
         ws.merge_cells(f'A{fila}:D{fila}')
         c = ws.cell(row=fila, column=1, value='📖  CÓMO LEER ESTE REPORTE')
         c.font = fuente(bold=True, color=BLANCO, size=11)
         c.fill = fill(AZUL_OSCURO)
         c.alignment = centrado()
-        c.border = borde_fino()
+        c.border = borde()
         ws.row_dimensions[fila].height = 22
         fila += 1
         leyenda = [
@@ -542,79 +603,18 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             cb.font = fuente(bold=True, color=fg, size=9)
             cb.fill = fill(bg)
             cb.alignment = centrado(True)
-            cb.border = borde_fino()
+            cb.border = borde()
             ws.merge_cells(f'B{fila}:D{fila}')
             cd = ws.cell(row=fila, column=2, value=desc_txt)
             cd.font = fuente(color='334155', size=9)
             cd.alignment = izquierda(True)
-            cd.border = borde_fino()
+            cd.border = borde()
             for cc in (3, 4):
-                ws.cell(row=fila, column=cc).border = borde_fino()
+                ws.cell(row=fila, column=cc).border = borde()
             ws.row_dimensions[fila].height = _altura((desc_txt, 68))
             fila += 1
 
-        # ════════════════════════════════════════════════════════════════════
-        # HOJA 2 — TRABAJAN AM
-        # ════════════════════════════════════════════════════════════════════
-        ws_am = wb.create_sheet('Trabajan AM')
-        self._hoja_trabajan(ws_am, 'TRABAJAN AM ☀️', am, fecha_legible,
-                            AZUL_MEDIO, AZUL_CLARO, AZUL_OSC=AZUL_OSCURO,
-                            fill=fill, fuente=fuente, borde=borde_fino,
-                            centrado=centrado, izquierda=izquierda, dia_info=dia_info)
-
-        # ════════════════════════════════════════════════════════════════════
-        # HOJA 3 — TRABAJAN PM
-        # ════════════════════════════════════════════════════════════════════
-        ws_pm = wb.create_sheet('Trabajan PM')
-        self._hoja_trabajan(ws_pm, 'TRABAJAN PM 🌙', pm, fecha_legible,
-                            NARANJA_MED, NARANJA_CL, AZUL_OSC=NARANJA_OSC,
-                            fill=fill, fuente=fuente, borde=borde_fino,
-                            centrado=centrado, izquierda=izquierda, dia_info=dia_info)
-
-        # ════════════════════════════════════════════════════════════════════
-        # HOJA 4 — DESCANSAN
-        # ════════════════════════════════════════════════════════════════════
-        ws_desc = wb.create_sheet('Descansan')
-        self._hoja_descansan(ws_desc, desc, fecha_legible,
-                             fill=fill, fuente=fuente, borde=borde_fino,
-                             centrado=centrado, izquierda=izquierda,
-                             GRIS_OSC=GRIS_OSC, GRIS_MED=GRIS_MED,
-                             GRIS_CLARO=GRIS_CLARO, VERDE_CL=VERDE_CL,
-                             MORADO_CL=MORADO_CL)
-
-        # ════════════════════════════════════════════════════════════════════
-        # HOJA 5 — CAMBIOS Y PERMISOS DEL DÍA
-        # ════════════════════════════════════════════════════════════════════
-        ws_cambios = wb.create_sheet('Cambios y permisos')
-        self._hoja_cambios(ws_cambios, trabajando, descansando, fecha_legible,
-                           fill=fill, fuente=fuente, borde=borde_fino,
-                           centrado=centrado, izquierda=izquierda,
-                           VERDE_OSC='065F46', VERDE_MED='0D9488')
-
-        # ════════════════════════════════════════════════════════════════════
-        # HOJA 6 — DEUDA PENDIENTE AL CORTE
-        # ════════════════════════════════════════════════════════════════════
-        ws_deuda = wb.create_sheet('Deuda pendiente')
-        self._hoja_deuda(ws_deuda, filas_deuda or [], resumen_deuda or {},
-                         fecha, fecha_legible,
-                         fill=fill, fuente=fuente, borde=borde_fino,
-                         centrado=centrado, izquierda=izquierda,
-                         ROJO_OSC=ROJO_OSC, ROJO_MED=ROJO_MED)
-
-        # ── Respuesta HTTP ───────────────────────────────────────────────────
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        nombre_archivo = f'reporte_operacion_{fecha}.xlsx'
-        response = HttpResponse(
-            buf.read(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        response['Content-Disposition'] = f'attachment; filename="{nombre_archivo}"'
-        return response
-
-    def _encabezado_hoja(self, ws, titulo, fecha_legible, color_fondo, color_texto,
-                          fill, fuente, centrado, cols):
+    def _encabezado_hoja(self, ws, titulo, fecha_legible, paleta, cols):
         from openpyxl.utils import get_column_letter
         ws.sheet_view.showGridLines = False
         ultima = get_column_letter(len(cols))
@@ -622,20 +622,19 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         c = ws['A1']
         c.value = titulo
         c.font = fuente(bold=True, color='FFFFFF', size=13)
-        c.fill = fill(color_fondo)
+        c.fill = fill(paleta.oscuro)
         c.alignment = centrado()
         ws.row_dimensions[1].height = 28
         ws.merge_cells(f'A2:{ultima}2')
         c = ws['A2']
         c.value = fecha_legible.capitalize()
         c.font = fuente(italic=True, color='FFFFFF', size=10)
-        c.fill = fill(color_texto)
+        c.fill = fill(paleta.medio)
         c.alignment = centrado()
         ws.row_dimensions[2].height = 18
         ws.row_dimensions[3].height = 6
 
-    def _fila_header(self, ws, fila, cols, color_fondo, color_texto,
-                     fill, fuente, centrado, borde):
+    def _fila_header(self, ws, fila, cols, color_fondo):
         from openpyxl.utils import get_column_letter
         for col, (ancho, label) in enumerate(cols, 1):
             c = ws.cell(row=fila, column=col, value=label)
@@ -646,9 +645,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             ws.row_dimensions[fila].height = 26
             ws.column_dimensions[get_column_letter(col)].width = ancho
 
-    def _hoja_trabajan(self, ws, titulo, empleados, fecha_legible,
-                       color_enc, color_sub, AZUL_OSC,
-                       fill, fuente, borde, centrado, izquierda, dia_info):
+    def _hoja_trabajan(self, ws, titulo, empleados, paleta, dd):
         from openpyxl.utils import get_column_letter
         COLS = [(5, '#'), (20, 'Nombre'), (16, 'Apellido'), (12, 'Jornada hoy'),
                 (54, '¿Por qué trabaja hoy?'),
@@ -660,17 +657,15 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         # hardcodeado, así que insertar una columna en medio descolocaba en silencio todos
         # los colores. Derivándolos de COLS, añadir o mover una columna es cambiar una línea.
         IDX = {label: n for n, (_, label) in enumerate(COLS, 1)}
-        self._encabezado_hoja(ws, titulo, fecha_legible, AZUL_OSC, color_enc,
-                               fill, fuente, centrado, COLS)
-        self._fila_header(ws, 4, COLS, color_enc, 'FFFFFF',
-                          fill, fuente, centrado, borde)
+        self._encabezado_hoja(ws, titulo, dd.fecha_legible, paleta, COLS)
+        self._fila_header(ws, 4, COLS, paleta.medio)
         TIPO_BG = {'oficial': 'DBEAFE', 'cambio': 'FEF9C3', 'doblada': 'EDE9FE'}
         TIPO_FG = {'oficial': '1D4ED8', 'cambio': '92400E', 'doblada': '5B21B6'}
         for i, emp in enumerate(empleados, 5):
             bg = 'FFFFFF' if i % 2 == 1 else 'F8FAFC'
             tipo = emp.get('tipo', 'oficial')
             deuda = emp.get('deuda_reprogramacion') or {}
-            frase = _frase_trabaja(emp, dia_info)
+            frase = _frase_trabaja(emp, dd.dia_info)
             acu = _celdas_acuerdo(emp)
             hay_acuerdo = bool(emp.get('acuerdo'))
             t_perm, t_rest, t_sanc, t_deuda = (_txt_permiso(emp), _txt_restriccion(emp),
@@ -715,10 +710,9 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             c.font = fuente(italic=True, color='94A3B8', size=10)
             c.alignment = centrado()
 
-    def _hoja_descansan(self, ws, empleados, fecha_legible,
-                        fill, fuente, borde, centrado, izquierda,
-                        GRIS_OSC, GRIS_MED, GRIS_CLARO, VERDE_CL, MORADO_CL):
+    def _hoja_descansan(self, ws, dd):
         from openpyxl.utils import get_column_letter
+        empleados = dd.descansando
         COLS = [(5, '#'), (20, 'Nombre'), (16, 'Apellido'), (11, 'Jornada base'),
                 (56, '¿Por qué descansa hoy?'),
                 (24, 'Con quién'), (20, 'Tipo de cambio'), (17, 'Su papel'),
@@ -726,10 +720,8 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                 (34, 'Permiso'), (34, 'Restricción'), (30, 'Sanción'),
                 (36, 'Doblada pendiente')]
         IDX = {label: n for n, (_, label) in enumerate(COLS, 1)}
-        self._encabezado_hoja(ws, 'DESCANSAN 🛌', fecha_legible, GRIS_OSC, GRIS_MED,
-                               fill, fuente, centrado, COLS)
-        self._fila_header(ws, 4, COLS, GRIS_MED, 'FFFFFF',
-                          fill, fuente, centrado, borde)
+        self._encabezado_hoja(ws, 'DESCANSAN 🛌', dd.fecha_legible, PALETA_DESCANSAN, COLS)
+        self._fila_header(ws, 4, COLS, PALETA_DESCANSAN.medio)
         MOTIVO_BG = {
             'cedió su jornada':          MORADO_CL,
             'paga doblada':              MORADO_CL,
@@ -791,8 +783,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
             c.font = fuente(italic=True, color='94A3B8', size=10)
             c.alignment = centrado()
 
-    def _hoja_cambios(self, ws, trabajando, descansando, fecha_legible,
-                      fill, fuente, borde, centrado, izquierda, VERDE_OSC, VERDE_MED):
+    def _hoja_cambios(self, ws, dd):
         """UNA fila por MOVIMIENTO del día: qué se movió, entre quiénes y cuándo se aprobó.
 
         Las otras hojas contestan "¿qué hace fulano hoy?". Esta contesta la pregunta del
@@ -804,14 +795,14 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         movimiento, no dos. La columna "Qué pasa hoy" junta los dos lados en una frase.
         """
         from openpyxl.utils import get_column_letter
+        trabajando, descansando = dd.trabajando, dd.descansando
         COLS = [(5, '#'), (20, 'Tipo'), (22, 'Quién pidió'), (22, 'Con quién'),
                 (52, 'Qué pasa hoy'), (16, 'Fecha relacionada'),
                 (18, 'Solicitado el'), (18, 'Aprobado el'), (22, 'Aprobado por'),
                 (13, 'N° solicitud')]
-        self._encabezado_hoja(ws, 'CAMBIOS Y PERMISOS DEL DÍA 🔄', fecha_legible,
-                              VERDE_OSC, VERDE_MED, fill, fuente, centrado, COLS)
-        self._fila_header(ws, 4, COLS, VERDE_MED, 'FFFFFF',
-                          fill, fuente, centrado, borde)
+        self._encabezado_hoja(ws, 'CAMBIOS Y PERMISOS DEL DÍA 🔄', dd.fecha_legible,
+                              PALETA_CAMBIOS, COLS)
+        self._fila_header(ws, 4, COLS, PALETA_CAMBIOS.medio)
 
         def _persona(emp):
             return f'{emp["nombre"]} {emp["apellido"]}'.strip()
@@ -897,8 +888,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         c.alignment = izquierda(True)
         ws.row_dimensions[fila].height = _altura((c.value, 120))
 
-    def _hoja_deuda(self, ws, filas, resumen, fecha, fecha_legible,
-                    fill, fuente, borde, centrado, izquierda, ROJO_OSC, ROJO_MED):
+    def _hoja_deuda(self, ws, dd):
         """
         Deuda todavía sin pagar generada del día 1 de ese mes hasta la fecha elegida.
 
@@ -913,6 +903,7 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
         """
         from openpyxl.utils import get_column_letter
 
+        filas, resumen, fecha = dd.filas_deuda, dd.resumen_deuda, dd.fecha
         proyectada = bool(resumen.get('proyectada'))
         periodo = f'del 1 al {fecha.day} de {MESES_ES[fecha.month]} de {fecha.year}'
 
@@ -920,10 +911,8 @@ class ReporteDiaExcelView(LoginRequiredMixin, SupervisorApiRequiredMixin, View):
                 (12, 'Debe (h)'), (12, 'Debe (min)'), (18, 'Dobladas (min)'),
                 (18, 'Permisos (min)'), (12, 'Ocasiones'), (14, 'Desde')]
         titulo = (f'DEUDA {"PROYECTADA ⏳" if proyectada else "PENDIENTE 💸"}  ·  {periodo}')
-        self._encabezado_hoja(ws, titulo, fecha_legible, ROJO_OSC, ROJO_MED,
-                              fill, fuente, centrado, COLS)
-        self._fila_header(ws, 4, COLS, ROJO_MED, 'FFFFFF',
-                          fill, fuente, centrado, borde)
+        self._encabezado_hoja(ws, titulo, dd.fecha_legible, PALETA_DEUDA, COLS)
+        self._fila_header(ws, 4, COLS, PALETA_DEUDA.medio)
 
         ultima = get_column_letter(len(COLS))
         for i, f in enumerate(filas, 5):
