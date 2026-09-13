@@ -145,8 +145,8 @@ class SancionAutomaticaPorDeudaTest(TestCase):
         """
         from decimal import Decimal
 
-        from permisos.deuda_permiso_service import sincronizar
         from permisos.models import PermisoEspecial
+        from permisos.services.deuda_permiso_service import sincronizar
 
         viejo = Periodo.de_fecha(self.hoy.replace(day=1) - timedelta(days=40))
         dia = date(viejo.anio, viejo.mes, 10)

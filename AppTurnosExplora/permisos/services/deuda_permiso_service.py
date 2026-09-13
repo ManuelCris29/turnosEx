@@ -16,7 +16,7 @@ import logging
 
 from django.db import transaction
 
-from .models import DeudaPermisoMes, PermisoEspecial
+from ..models import DeudaPermisoMes, PermisoEspecial
 
 logger = logging.getLogger(__name__)
 

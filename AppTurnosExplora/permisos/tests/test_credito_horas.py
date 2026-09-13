@@ -18,10 +18,10 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from empleados.models import Empleado, SancionEmpleado
-from permisos.credito_horas_service import CreditoHorasService
-from permisos.deuda_permiso_service import sincronizar
 from permisos.models import PDH, ConsumoCreditoHoras, CreditoHoras, PermisoEspecial
-from permisos.pago_horas_service import PagoHorasService
+from permisos.services.credito_horas_service import CreditoHorasService
+from permisos.services.deuda_permiso_service import sincronizar
+from permisos.services.pago_horas_service import PagoHorasService
 
 
 class CreditoHorasBase(TestCase):

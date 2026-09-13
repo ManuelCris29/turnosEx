@@ -162,8 +162,8 @@ class DeudaCorporativaService:
                 sancion_consumidora=sancion, fecha_consumo=hoy)
 
         if permisos_tocados:
-            from permisos.deuda_permiso_service import recalcular_roll_up
             from permisos.models import PermisoEspecial
+            from permisos.services.deuda_permiso_service import recalcular_roll_up
             for permiso in PermisoEspecial.objects.filter(id__in=permisos_tocados):
                 try:
                     recalcular_roll_up(permiso)
@@ -239,8 +239,8 @@ class DeudaCorporativaService:
         # rehacerlo, un permiso con todos sus meses ya extinguidos seguiría figurando como
         # impagado en las pantallas que leen el agregado y no el detalle.
         if permisos_tocados:
-            from permisos.deuda_permiso_service import recalcular_roll_up
             from permisos.models import PermisoEspecial
+            from permisos.services.deuda_permiso_service import recalcular_roll_up
             for permiso in PermisoEspecial.objects.filter(id__in=permisos_tocados):
                 try:
                     recalcular_roll_up(permiso)

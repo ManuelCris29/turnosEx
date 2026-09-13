@@ -16,8 +16,8 @@ from django.views import View
 from django.views.generic import ListView
 
 from core.mixins import AdminRequiredMixin
-from permisos.credito_horas_service import CreditoHorasService
 from permisos.models import CreditoHoras
+from permisos.services.credito_horas_service import CreditoHorasService
 
 from ..forms import CreditoHorasForm
 from ..models import Empleado

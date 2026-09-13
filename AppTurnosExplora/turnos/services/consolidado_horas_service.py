@@ -287,7 +287,7 @@ class ConsolidadoHorasService:
         # --- Horas a favor: lo que la corporación le debe A ÉL ---
         # No se restan de `total_horas`: esa clave es la deuda pendiente y la consultan la
         # vista de morosos y las plantillas. El neto va aparte, en `saldo_neto`.
-        from permisos.credito_horas_service import CreditoHorasService
+        from permisos.services.credito_horas_service import CreditoHorasService
         creditos = [
             {
                 'fecha': c.fecha_hecho,

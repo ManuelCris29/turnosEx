@@ -18,9 +18,9 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from empleados.models import Empleado
-from permisos.deuda_permiso_service import sincronizar
 from permisos.models import PDH, PermisoEspecial
-from permisos.pago_horas_service import PagoHorasService
+from permisos.services.deuda_permiso_service import sincronizar
+from permisos.services.pago_horas_service import PagoHorasService
 from solicitudes.models import DeudaCorporativa
 from solicitudes.services.sancion_deuda_calculo import Periodo
 

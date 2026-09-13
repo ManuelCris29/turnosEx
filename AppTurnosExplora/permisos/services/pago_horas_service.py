@@ -31,7 +31,7 @@ from django.db import transaction
 from solicitudes.models import DeudaCorporativa
 from solicitudes.services.sancion_deuda_calculo import Periodo
 
-from .models import PDH, DeudaPermisoMes, PagoDeudaPermisoMes
+from ..models import PDH, DeudaPermisoMes, PagoDeudaPermisoMes
 
 logger = logging.getLogger(__name__)
 
@@ -339,8 +339,8 @@ class PagoHorasService:
         """Rehace el `pagado` de los permisos afectados a partir de sus meses."""
         if not permiso_ids:
             return
+        from ..models import PermisoEspecial
         from .deuda_permiso_service import recalcular_roll_up
-        from .models import PermisoEspecial
         for permiso in PermisoEspecial.objects.filter(id__in=permiso_ids):
             try:
                 recalcular_roll_up(permiso)

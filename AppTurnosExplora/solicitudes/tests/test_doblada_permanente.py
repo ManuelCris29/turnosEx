@@ -469,7 +469,7 @@ class DobladaPermanenteMultiMesTest(DobladaPermanenteBaseTest):
         self.assertEqual(meses, {(l1.year, l1.month), (l2.year, l2.month)})
 
     def test_pdh_agrupa_la_deuda_del_rango_largo_por_mes(self):
-        from permisos.pago_horas_service import PagoHorasService
+        from permisos.services.pago_horas_service import PagoHorasService
 
         l1, m1, l2, m2 = self._rango_dos_meses()
         self._aprobar_y_aplicar(self._datos_dos_meses())

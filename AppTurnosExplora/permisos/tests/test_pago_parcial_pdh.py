@@ -14,9 +14,9 @@ from django.test import Client, TestCase
 from django.urls import reverse
 
 from empleados.models import Empleado
-from permisos.deuda_permiso_service import sincronizar
 from permisos.models import PDH, PagoDeudaPermisoMes, PermisoEspecial
-from permisos.pago_horas_service import PagoHorasService
+from permisos.services.deuda_permiso_service import sincronizar
+from permisos.services.pago_horas_service import PagoHorasService
 
 
 class PagoParcialBase(TestCase):
@@ -63,7 +63,7 @@ class PagoParcialBase(TestCase):
 
     @staticmethod
     def _etiqueta_mes_actual():
-        from permisos.pago_horas_service import _MESES
+        from permisos.services.pago_horas_service import _MESES
         hoy = date.today()
         return f'{_MESES[hoy.month - 1]} {hoy.year}'
 

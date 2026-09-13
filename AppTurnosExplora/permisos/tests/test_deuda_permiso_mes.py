@@ -13,12 +13,12 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from empleados.models import Empleado
-from permisos.deuda_permiso_service import (
+from permisos.models import DeudaPermisoMes, PermisoEspecial
+from permisos.services.deuda_permiso_service import (
     desglose_mensual,
     recalcular_roll_up,
     sincronizar,
 )
-from permisos.models import DeudaPermisoMes, PermisoEspecial
 
 
 class DeudaPermisoMesTestBase(TestCase):

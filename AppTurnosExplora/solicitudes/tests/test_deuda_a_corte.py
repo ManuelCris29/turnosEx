@@ -13,8 +13,8 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from empleados.models import Empleado
-from permisos.deuda_permiso_service import sincronizar
 from permisos.models import PermisoEspecial
+from permisos.services.deuda_permiso_service import sincronizar
 from solicitudes.models import DeudaCorporativa
 from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
 

@@ -12,7 +12,7 @@ from django.urls import reverse
 
 from empleados.models import Empleado
 from permisos.models import PDH, PermisoEspecial
-from permisos.pago_horas_service import PagoHorasService
+from permisos.services.pago_horas_service import PagoHorasService
 from solicitudes.models import DeudaCorporativa
 
 
@@ -116,7 +116,7 @@ class AplicarPagoTest(PagoHorasBase):
         Un permiso ya no se paga como un bloque: se paga MES a mes. La clave del formulario
         es la deuda mensual, y el `pagado` del permiso pasa a derivarse de sus meses.
         """
-        from permisos.deuda_permiso_service import sincronizar
+        from permisos.services.deuda_permiso_service import sincronizar
 
         p = PermisoEspecial.objects.create(
             empleado=self.explorador, tipo='PERSONAL', fecha_inicio=self.ayer,

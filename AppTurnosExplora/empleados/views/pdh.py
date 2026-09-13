@@ -62,7 +62,7 @@ class PDHListView(LoginRequiredMixin, AdminRequiredMixin, ListView):
 class DeudasPendientesExploradorView(LoginRequiredMixin, AdminRequiredMixin, View):
     """AJAX: devuelve las deudas pendientes (dobladas + permisos) de un explorador."""
     def get(self, request):
-        from permisos.pago_horas_service import PagoHorasService
+        from permisos.services.pago_horas_service import PagoHorasService
         explorador_id = request.GET.get('explorador_id')
         if not explorador_id or not explorador_id.isdigit():
             return JsonResponse({'success': False, 'deudas': [], 'total_horas': 0})
@@ -70,7 +70,7 @@ class DeudasPendientesExploradorView(LoginRequiredMixin, AdminRequiredMixin, Vie
             emp = Empleado.objects.get(id=int(explorador_id))
         except Empleado.DoesNotExist:
             return JsonResponse({'success': False, 'deudas': [], 'total_horas': 0})
-        from permisos.credito_horas_service import CreditoHorasService
+        from permisos.services.credito_horas_service import CreditoHorasService
         grupos = PagoHorasService.deudas_pendientes(emp)
         # `fecha` es un objeto date y no viaja a JSON; la pantalla usa `fecha_str`.
         data = [
@@ -114,7 +114,7 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         return render(request, self.template_name, self._context(datos))
 
     def post(self, request):
-        from permisos.pago_horas_service import PagoHorasService
+        from permisos.services.pago_horas_service import PagoHorasService
         explorador_id = request.POST.get('explorador', '')
         fecha_str = request.POST.get('fecha', '')
         comentario = (request.POST.get('comentario') or '').strip()
@@ -171,7 +171,7 @@ class PDHCreateView(LoginRequiredMixin, AdminRequiredMixin, View):
         # —`transaction.atomic` en el bloque— para no dejar un PDH sin el crédito que el
         # supervisor creía estar usando.
         if horas_credito_str:
-            from permisos.credito_horas_service import CreditoHorasService
+            from permisos.services.credito_horas_service import CreditoHorasService
             try:
                 minutos_credito = round(float(horas_credito_str.replace(',', '.')) * 60)
             except (TypeError, ValueError):
@@ -218,7 +218,7 @@ class PDHUpdateView(LoginRequiredMixin, AdminRequiredMixin, UpdateView):
     def form_valid(self, form):
         # Solo se editan fecha/comentario; las horas y deudas vinculadas no cambian aquí
         # (para cambiar las deudas pagadas, se borra el pago y se vuelve a registrar).
-        from permisos.pago_horas_service import PagoHorasService
+        from permisos.services.pago_horas_service import PagoHorasService
         form.instance.tipo_registro = 'pago_horas'
         resp = super().form_valid(form)
         # La fecha del pago manda: las deudas que salda deben decir lo mismo.
@@ -235,8 +235,8 @@ class PDHDeleteView(LoginRequiredMixin, AdminRequiredMixin, DeleteView):
         # Al borrar el pago, reactivar las deudas que saldaba (vuelven a pendientes).
         # Todo en una transacción: si el DELETE falla tras revertir, las deudas quedarían
         # reactivadas con el PDH todavía vivo y se contarían dos veces.
-        from permisos.credito_horas_service import CreditoHorasService
-        from permisos.pago_horas_service import PagoHorasService
+        from permisos.services.credito_horas_service import CreditoHorasService
+        from permisos.services.pago_horas_service import PagoHorasService
         from solicitudes.services.deuda_corporativa_service import DeudaCorporativaService
         pdh = self.object
         explorador = pdh.explorador

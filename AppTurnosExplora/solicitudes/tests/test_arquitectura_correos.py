@@ -47,7 +47,7 @@ CORREOS = [
 # `render_to_string` de un correo aquí dentro, entra solo en la comprobación.
 MODULOS_QUE_ENVIAN = [
     'solicitudes/services/email_service.py',
-    'permisos/services.py',
+    'permisos/services/permiso_service.py',
     'core/services/aviso_seguridad_service.py',
 ]
 
