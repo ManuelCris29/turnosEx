@@ -100,6 +100,15 @@ ninguna.
   `python manage.py verificar_efecto_aplicado` lista las solicitudes aprobadas cuyo efecto ya no
   está en los turnos, y `--reparar` las re-materializa. Funciona precisamente porque el resultante
   de la omitida no se refrescó (ver arriba).
+- **La reparación no puede pisar una decisión deliberada del supervisor.** Un día ANULADO por
+  inasistencia también tiene los turnos distintos de lo que dejó su solicitud, pero eso no es un
+  descuadre: es que la persona no cumplió, el turno quedó en soft-delete y la deuda vive en la
+  `ReprogramacionDiaDoblada`. Reconciliar RE-CREA turnos, así que repararlo deshacía la anulación y
+  dejaba la reprogramación pendiente sin día que compensar. El comando descarta esos días vía
+  `ReprogramacionDobladaService.dias_anulados_por_inasistencia`, que decide por la reprogramación
+  vigente y no por el texto libre de `motivo_anulacion`. Cubierto por
+  `solicitudes/tests/test_reprogramacion_doblada.py::DiaAnuladoNoEsDescuadreTest`. Medido sobre la
+  base de desarrollo: 3 de las 11 solicitudes marcadas eran anulaciones deliberadas.
 - **El log de ERROR es la señal en caliente**, con id, tipo, fechas y motivo: suficiente para
   reparar a mano sin reconstruir el caso.
 - El invariante queda registrado como patrón #40 en `PROTECTION_PATTERNS.md`, con los dos avisos que

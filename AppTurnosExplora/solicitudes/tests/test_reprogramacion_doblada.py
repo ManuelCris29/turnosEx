@@ -683,3 +683,79 @@ class JornadaDebidaTest(MatrizDobladasTestCase):
         self.assertEqual(TS.estado_dia(self.receptor, dia).get('jornada'), 'PM')
         self.assertEqual(RS._jornada_debida(self.receptor, dia), 'AM',
                          'debe la contraria de la REAL (PM), no la contraria de la base (AM)')
+
+
+class DiaAnuladoNoEsDescuadreTest(MatrizDobladasTestCase):
+    """
+    Un día anulado por inasistencia NO es un descuadre de turnos, y la auditoría no debe
+    tratarlo como tal.
+
+    `verificar_efecto_aplicado` compara el `snapshot_turnos_resultantes` de cada solicitud
+    aprobada contra los turnos que HAY. Tras registrar una inasistencia los turnos de ese día
+    quedan anulados, así que la comparación fallaba y la solicitud salía como "su efecto ya no
+    está en los turnos". Dos problemas, y el segundo es el grave:
+
+      1. Falso positivo: ensucia el informe con días que están exactamente como deben.
+      2. `--reparar` reconcilia, y reconciliar RE-CREA los turnos: deshacía la anulación del
+         supervisor y dejaba la `ReprogramacionDiaDoblada` pendiente sin día que compensar.
+
+    Medido en la base de desarrollo: 3 de las 11 solicitudes marcadas eran anulaciones
+    deliberadas por inasistencia.
+    """
+
+    def _crear_aplicar_doblada(self):
+        self._asignar_jornada_base(self.emisor, self.jornada_pm)
+        self._asignar_jornada_base(self.receptor, self.jornada_am)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.emisor, sala=self.sala)
+        CompetenciaEmpleado.objects.get_or_create(empleado=self.receptor, sala=self.sala)
+        sol, msg = self.strategy.crear_solicitud(self._datos(tipo_cambio=self.tipo_doblada))
+        self.assertIsNotNone(sol, msg)
+        sol.estado = 'aprobada'
+        sol.fecha_resolucion = timezone.now()
+        sol.save()
+        sol = SolicitudCambio.objects.select_related('doblada').get(id=sol.id)
+        ok, m = self.strategy.aplicar_cambios(sol)
+        self.assertTrue(ok, m)
+        return sol
+
+    def test_el_dia_anulado_se_reconoce_como_deliberado(self):
+        sol = self._crear_aplicar_doblada()
+        par = (self.receptor.id, FECHA_CESION)
+
+        self.assertEqual(RS.dias_anulados_por_inasistencia([par]), set(),
+                         'antes de la inasistencia el día no está anulado')
+
+        RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor, motivo='Enfermedad')
+        self.assertEqual(RS.dias_anulados_por_inasistencia([par]), {par})
+
+        # Y no arrastra días ajenos: el emisor sigue doblando su día de pago.
+        self.assertEqual(
+            RS.dias_anulados_por_inasistencia([(self.emisor.id, FECHA_PAGO)]), set())
+
+    def test_una_reprogramacion_cancelada_deja_de_tapar_el_dia(self):
+        """Si la reprogramación se cancela, el día vuelve a ser auditable como cualquier otro."""
+        sol = self._crear_aplicar_doblada()
+        par = (self.receptor.id, FECHA_CESION)
+        RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor, motivo='Enfermedad')
+        self.assertEqual(RS.dias_anulados_por_inasistencia([par]), {par})
+
+        ReprogramacionDiaDoblada.objects.filter(
+            explorador=self.receptor, fecha_original=FECHA_CESION).update(estado='cancelada')
+        self.assertEqual(RS.dias_anulados_por_inasistencia([par]), set())
+
+    def test_la_auditoria_no_marca_el_dia_anulado(self):
+        """El comando completo: tras la inasistencia, la solicitud no sale como descuadrada."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        sol = self._crear_aplicar_doblada()
+        RS.registrar_inasistencia(sol, self.receptor, supervisor=self.emisor, motivo='Enfermedad')
+
+        salida = StringIO()
+        call_command('verificar_efecto_aplicado',
+                     desde=(FECHA_CESION - timedelta(days=30)).isoformat(),
+                     stdout=salida)
+        texto = salida.getvalue()
+        self.assertNotIn(f'#{sol.id} ', texto,
+                         f'la doblada {sol.id} está anulada por inasistencia, no descuadrada:\n{texto}')
