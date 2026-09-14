@@ -417,6 +417,7 @@ class TurnoService(ITurnoService):
         """
         from turnos.models import AsignarJornadaExplorador, DiaEspecial, Turno
         from turnos.services.descanso_semana_service import DescansoSemanaService
+        from turnos.services.turno_vigente import turnos_que_mandan
 
         if isinstance(fecha, str):
             fecha = DateUtils.parse_date(fecha)
@@ -433,7 +434,7 @@ class TurnoService(ITurnoService):
         # festivo-por-festivo) se respeta por encima.
         if fecha.weekday() < 5 and es_festivo:
             turnos_fv = list(Turno.objects.filter(explorador=empleado, fecha=fecha).select_related('jornada'))
-            explicitos = [t for t in turnos_fv if t.tipo_cambio]
+            explicitos = turnos_que_mandan(fecha, turnos_fv, es_festivo)
             if explicitos:
                 js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
                 jornada = ('DOBLADA' if {'AM', 'PM'} <= js else ('AM' if 'AM' in js else ('PM' if 'PM' in js else None)))
@@ -567,6 +568,7 @@ class TurnoService(ITurnoService):
         from solicitudes.services.descanso_solicitud_service import DescansoPorSolicitudService
         from turnos.models import AsignarJornadaExplorador, DescansoSemanaManual, DiaEspecial, Turno
         from turnos.services.asignacion_especial_service import AsignacionEspecialService
+        from turnos.services.turno_vigente import turnos_que_mandan
 
         if isinstance(ini, str):
             ini = DateUtils.parse_date(ini)
@@ -645,7 +647,7 @@ class TurnoService(ITurnoService):
                 # L5 FESTIVO entre semana: la jornada que dobla trabaja AM+PM; la otra descansa.
                 # Manda sobre el predeterminado; un cambio EXPLÍCITO (tipo_cambio) se respeta.
                 if d.weekday() < 5 and es_festivo:
-                    explicitos = [t for t in turnos_por_fecha.get(d, []) if t.tipo_cambio]
+                    explicitos = turnos_que_mandan(d, turnos_por_fecha.get(d, []), es_festivo)
                     if explicitos:
                         js = {t.jornada.nombre.upper() for t in explicitos if t.jornada}
                         jornada = ('DOBLADA' if {'AM', 'PM'} <= js
