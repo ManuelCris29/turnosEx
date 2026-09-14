@@ -26,6 +26,7 @@ from django.utils import timezone
 
 from solicitudes.models import SolicitudCambio
 from solicitudes.services.doblada_snapshot_service import DobladaSnapshotService
+from solicitudes.services.reprogramacion_doblada_service import ReprogramacionDobladaService
 from solicitudes.use_cases.cancelar_solicitud import CancelarSolicitudUseCase
 from turnos.models import Turno
 
@@ -126,9 +127,15 @@ class Command(BaseCommand):
 
     @staticmethod
     def _conflictos(resultantes: dict) -> dict:
-        """{explorador_id: {fechas}} donde el estado real no coincide con lo que la solicitud dejó."""
+        """{explorador_id: {fechas}} donde el estado real no coincide con lo que la solicitud dejó.
+
+        Un día ANULADO por inasistencia no cuenta como descuadre aunque sus turnos ya no estén:
+        ahí el supervisor decidió que la persona no cumplió, y la deuda vive en la
+        `ReprogramacionDiaDoblada`. Marcarlo era un falso positivo, y repararlo —la reparación
+        RE-CREA los turnos— deshacía esa decisión y dejaba la reprogramación sin sentido.
+        """
         uc = CancelarSolicitudUseCase
-        conflictos = {}
+        candidatos = set()
         for clave, filas in resultantes.items():
             try:
                 emp_id, fecha_str = clave.split(':', 1)
@@ -140,7 +147,12 @@ class Command(BaseCommand):
             actual = {uc._huella_turno(t) for t in
                       Turno.objects.filter(explorador_id=emp_id, fecha=fecha).select_related('jornada')}
             if esperado != actual:
-                conflictos.setdefault(emp_id, set()).add(fecha)
+                candidatos.add((emp_id, fecha))
+
+        anulados = ReprogramacionDobladaService.dias_anulados_por_inasistencia(candidatos)
+        conflictos = {}
+        for (emp_id, fecha) in candidatos - anulados:
+            conflictos.setdefault(emp_id, set()).add(fecha)
         return conflictos
 
     def _reportar(self, desajustadas, sin_snapshot, desde):

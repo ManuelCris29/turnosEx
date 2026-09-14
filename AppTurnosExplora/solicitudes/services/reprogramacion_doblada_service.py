@@ -96,6 +96,34 @@ class ReprogramacionDobladaService:
         return [f for f in fechas if f in activas]
 
     @staticmethod
+    def dias_anulados_por_inasistencia(pares) -> set:
+        """De `[(explorador_id, fecha)]`, los que están anulados A PROPÓSITO por inasistencia.
+
+        Un día así NO es un descuadre: el supervisor registró que la persona no cumplió, el
+        turno quedó anulado (soft-delete) y la deuda vive en la `ReprogramacionDiaDoblada`.
+        Quien audite el estado de los turnos tiene que distinguirlo de "alguien pisó el día",
+        porque la reparación de un descuadre RE-CREA los turnos: sobre un día anulado
+        desharía la decisión del supervisor y dejaría la reprogramación colgando.
+
+        El criterio es la reprogramación vigente, no el texto de `motivo_anulacion`: ese es
+        un campo libre y no sirve como fuente de verdad.
+
+        Una sola consulta para todo el lote, para poder usarse en auditorías de la plantilla
+        entera. Devuelve `{(explorador_id, fecha)}`.
+        """
+        pares = set(pares or ())
+        if not pares:
+            return set()
+        # El producto cartesiano de exploradores × fechas puede traer filas de más (un par que
+        # no se preguntó); la intersección final lo recorta. A cambio, una sola consulta.
+        vigentes = (ReprogramacionDiaDoblada.objects
+                    .filter(explorador_id__in={e for e, _f in pares},
+                            fecha_original__in={f for _e, f in pares})
+                    .exclude(estado='cancelada')
+                    .values_list('explorador_id', 'fecha_original'))
+        return pares & set(vigentes)
+
+    @staticmethod
     def participantes_y_dias(solicitud: SolicitudCambio) -> list:
         """[(rol, explorador, [fechas de doblada reprogramables])] para DOBLADA, D FDS o DOBLADA
         PERMANENTE. En las sencillas cada uno tiene 1 día; en permanente, varias fechas específicas.
