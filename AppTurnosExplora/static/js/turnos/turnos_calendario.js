@@ -182,6 +182,18 @@
     return out;
   }
 
+  // El permiso es el MISMO dato en las dos columnas, así que lo pinta una sola función:
+  // "Trabajan" lo sacaba con horas pero SIN el estado (un permiso pendiente se leía como
+  // concedido) y "Descansan" no lo sacaba en absoluto.
+  //
+  // QUÉ decir lo decide `PermisoChip` —lógica pura, probada en `tests_js/`—; aquí solo se
+  // pinta y se escapa, que es lo que sí necesita el DOM.
+  function chipPermiso(emp){
+    const chip = window.PermisoChip && window.PermisoChip.describir(emp.permiso);
+    if(!chip) return '';
+    return `<span class="tag ${chip.clase}" title="${esc(chip.detalle)}">${esc(chip.etiqueta)}</span>`;
+  }
+
   function fmtFecha(iso){
     if(!iso) return '';
     const p = String(iso).split('-');
@@ -195,7 +207,7 @@
     if(emp.tipo === 'doblada')     tags += '<span class="tag tag-doblada">Dobló</span>';
     else if(emp.tipo === 'cambio') tags += '<span class="tag tag-cambio">Cambio</span>';
     else                           tags += '<span class="tag tag-oficial">Oficial</span>';
-    if(emp.permiso) tags += `<span class="tag tag-permiso">${esc(emp.permiso.horas)}h permiso</span>`;
+    tags += chipPermiso(emp);
     tags += chipsAviso(emp);
     let detalle = '';
     if(emp.jornada_dia === 'DOBLADA') detalle += '<div class="emp-detalle" style="color:#7c3aed;font-weight:600;">AM + PM (dobló)</div>';
@@ -220,7 +232,9 @@
     let detalle = `<div class="emp-detalle"><span class="${tagCls}">${esc(capitalizar(motivo))}</span></div>`;
     if(emp.companero) detalle += `<div class="emp-detalle">Con: <b>${esc(emp.companero.nombre)}</b></div>`;
     if(emp.permiso && emp.permiso.especificacion) detalle += `<div class="emp-detalle" style="color:#15803d;">${esc(emp.permiso.tipo)}: ${esc(emp.permiso.especificacion)}</div>`;
-    const avisos = chipsAviso(emp);
+    // El chip de permiso también aquí: quien descansa puede tener permiso ese día (un rango
+    // que abarca su descanso), y sin él la columna solo lo delataba si traía especificación.
+    const avisos = chipPermiso(emp) + chipsAviso(emp);
     if(avisos) detalle += `<div class="emp-tags">${avisos}</div>`;
     return `
       <div class="emp-card">

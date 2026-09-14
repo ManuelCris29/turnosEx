@@ -56,6 +56,10 @@
 .tag-cambio   { background: #fef9c3; color: #92400e; }
 .tag-doblada  { background: #ede9fe; color: #5b21b6; }
 .tag-permiso  { background: #dcfce7; color: #15803d; }
+/* Un permiso SIN aprobar no puede parecerse a uno concedido: el supervisor planea
+   sobre estas tarjetas y llegó a ver ambos idénticos. Mismo criterio que el Excel,
+   que sí imprime el estado. */
+.tag-permiso-pend { background: #fef3c7; color: #92400e; cursor: help; }
 .tag-motivo   { background: #f1f5f9; color: #475569; }
 .tag-sinplan  { background: #fee2e2; color: #991b1b; }
 /* Avisos por persona: los mismos que el Excel pinta en sus columnas. El detalle
