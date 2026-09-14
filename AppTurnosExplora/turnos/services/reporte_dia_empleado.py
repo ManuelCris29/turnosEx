@@ -32,6 +32,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from turnos.services.turno_vigente import turnos_que_mandan
+
 #: Lo que se le dice al supervisor de un dia cuyo grupo de finde/festivo aun no se ha
 #: publicado. Vive aqui, con la rama que lo usa; `reporte_dia_service` lo reexporta
 #: para que los tests fijen el CASO y no la redaccion.
@@ -139,7 +141,7 @@ def clasifica(emp, ctx: ContextoDia, trabajando: list, descansando: list) -> Non
     # — L5 FESTIVO entre semana: la regla del festivo manda sobre el horario base;
     #   solo un cambio EXPLÍCITO (turno con tipo_cambio) se respeta por encima. —
     if ctx.es_festivo and ctx.fecha.weekday() < 5:
-        explicitos = [t for t in turnos if t.tipo_cambio]
+        explicitos = turnos_que_mandan(ctx.fecha, turnos, ctx.es_festivo)
         if explicitos:
             jornada_dia = _jornada_de(explicitos)
             trabaja = True

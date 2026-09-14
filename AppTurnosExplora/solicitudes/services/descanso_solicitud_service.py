@@ -100,6 +100,12 @@ class DescansoPorSolicitudService:
 
         qini, qfin = ini - timedelta(days=2), fin + timedelta(days=2)
 
+        # Festivos del rango. Los usan DOS cosas: la guarda de realidad de aquí abajo (un
+        # festivo entre semana cambia qué turno cuenta) y la rama de DOBLADA PERMANENTE
+        # (que nunca compromete un festivo). Una sola consulta para las dos.
+        festivos = set(DiaEspecial.objects.filter(
+            fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True))
+
         # GUARDA DE REALIDAD (L1 manda sobre L2): si ese día hay un Turno REAL, el empleado
         # TRABAJA y no se reporta descanso, aunque una solicitud aprobada antigua diga que
         # cedió/le pagan ese día. Al aplicar una doblada se BORRAN los turnos de quien queda
@@ -108,12 +114,19 @@ class DescansoPorSolicitudService:
         # vigente. Sin esta guarda, un día ya "descansado" quedaba bloqueado para siempre —
         # p. ej. te pagan una doblada el día X (descansas) y luego tomas la jornada de otro
         # ese mismo día X como pago de otra doblada: trabajas de verdad y sí puedes cederla.
+        #
+        # QUÉ turno cuenta como realidad NO se decide aquí: lo dice `turno_manda_en`, la misma
+        # función que usa la capa L5 del festivo. Cuando este criterio estaba escrito dos veces
+        # se contradecían, y en un festivo entre semana un turno plano silenciaba esta guarda
+        # mientras L5 lo descartaba: la solicitud aprobada desaparecía. Ver `turno_vigente`.
         from turnos.models import Turno as _TurnoReal
+        from turnos.services.turno_vigente import turno_manda_en
         con_turno_real = {eid: set() for eid in emp_ids}
-        for _eid, _f in _TurnoReal.objects.filter(
+        for _eid, _f, _tc in _TurnoReal.objects.filter(
                 explorador_id__in=emp_ids, fecha__range=(ini, fin)
-        ).values_list('explorador_id', 'fecha'):
-            con_turno_real[_eid].add(_f)
+        ).values_list('explorador_id', 'fecha', 'tipo_cambio'):
+            if turno_manda_en(_f, _tc, _f in festivos):
+                con_turno_real[_eid].add(_f)
 
         # Un INTERCAMBIO de dobladas es SIEMPRE día completo por los dos lados: ambos tenían
         # DOBLADA (AM+PM) y se cambian el día entero (`aplicar_intercambio` borra todos los turnos
@@ -305,8 +318,7 @@ class DescansoPorSolicitudService:
         # específicas, solo en ESAS fechas; si no (legacy), por patrón de día de la semana.
         # Guarda: si ese día hay un Turno REAL (el empleado trabaja de verdad, p. ej. una
         # doblada), la realidad manda sobre el patrón recurrente y NO se reporta descanso.
-        festivos = set(DiaEspecial.objects.filter(
-            fecha__range=(ini, fin), tipo='festivo', activo=True).values_list('fecha', flat=True))
+        # (`festivos` se calculó arriba, junto a la guarda de realidad, que lo comparte.)
         for sp in _exc(SolicitudCambio.objects
                        .filter(tipo_cambio__nombre='DOBLADA PERMANENTE', estado='aprobada')
                        .filter(Q(explorador_solicitante_id__in=emp_ids) | Q(explorador_receptor_id__in=emp_ids))
