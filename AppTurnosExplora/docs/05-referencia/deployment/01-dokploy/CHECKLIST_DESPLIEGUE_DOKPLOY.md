@@ -41,8 +41,8 @@ pytest -n 4                          # debe estar en verde
 pytest -n 4 --dias-en-el-futuro=45   # ¿algo se pondrá rojo solo dentro de mes y medio?
 ```
 
-- [x ] Las dos corridas salen en verde.
-- [x ] **Si la segunda sale roja, eso es el hallazgo, no un error de la corrida.** Contexto
+- [x] Las dos corridas salen en verde.
+- [x] **Si la segunda sale roja, eso es el hallazgo, no un error de la corrida.** Contexto
       en [MANUAL_TESTS_QUE_CADUCAN.md](../03-operacion/MANUAL_TESTS_QUE_CADUCAN.md).
 
 ### 0.2 Ensayo local de los estáticos con `DEBUG=False`
@@ -57,9 +57,9 @@ python manage.py collectstatic --noinput
 python manage.py runserver
 ```
 
-- [ x] Login, dashboard, Mis Turnos y los 6 formularios **se ven con estilos**.
-- [ x] Consola del navegador: **ningún 404** de CSS/JS y **ningún bloqueo de CSP**.
-- [x ] Volver a dejar `DEBUG=True`.
+- [x] Login, dashboard, Mis Turnos y los 6 formularios **se ven con estilos**.
+- [x] Consola del navegador: **ningún 404** de CSS/JS y **ningún bloqueo de CSP**.
+- [x] Volver a dejar `DEBUG=True`.
 
 ### 0.3 Generar la `SECRET_KEY`
 
@@ -67,7 +67,7 @@ python manage.py runserver
 python -c "import secrets; print(secrets.token_hex(50))"
 ```
 
-- [ x] Guardada donde no dependa de una persona.
+- [x] Guardada donde no dependa de una persona.
 
 > Se usa `token_hex` y no el `get_random_secret_key()` de Django a propósito: aquel puede
 > incluir `$`, `%` y `(`, y ese mismo valor acaba pegado en ficheros compose y en shells
@@ -109,16 +109,16 @@ Antes de crear nada, mirar en el panel:
 
 ### 1.2 Recursos
 
-- [ x] **Disco libre.** El build hace `pip install` + `collectstatic` de **143 MB** de
+- [x] **Disco libre.** El build hace `pip install` + `collectstatic` de **143 MB** de
       estáticos, y las imágenes viejas se acumulan. Quedarse sin disco **tumba también a
       las otras aplicaciones**.
-- [ x] **Docker Cleanup activado** en Dokploy.
-- [ x] **RAM libre** suficiente para MySQL (~400 MB–1 GB) + Redis (~100 MB) + 3 workers de
+- [x] **Docker Cleanup activado** en Dokploy.
+- [x] **RAM libre** suficiente para MySQL (~400 MB–1 GB) + Redis (~100 MB) + 3 workers de
       gunicorn (~450 MB).
 
 ### 1.3 La pregunta para IT que conviene hacer hoy
 
-- [x ] **¿Qué hay por debajo del Windows Server: una VM Linux o WSL2?**
+- [x] **¿Qué hay por debajo del Windows Server: una VM Linux o WSL2?**
 
       No cambia nada de este plan —Dokploy corre y eso significa que hay un Linux
       debajo—, pero sí cambia el riesgo operativo: **sobre WSL2, Docker no arranca solo
@@ -131,9 +131,9 @@ Antes de crear nada, mirar en el panel:
 
 ### 2.1 Crear el servicio
 
-- [x ] *Databases → Create → MySQL*, versión **8.4**.
-- [ x] Base `bdturnosex`, charset `utf8mb4`.
-- [x ] Anotar de *Internal Credentials*: **host interno**, usuario y contraseña. El host es
+- [x] *Databases → Create → MySQL*, versión **8.4**.
+- [x] Base `bdturnosex`, charset `utf8mb4`.
+- [x] Anotar de *Internal Credentials*: **host interno**, usuario y contraseña. El host es
       un nombre de la red overlay — **no** una IP y **no** `localhost`.
 
 > **Por qué 8.4 y no 8.0:** el soporte comunitario de MySQL 8.0 terminó en abril de 2026.
@@ -149,12 +149,12 @@ fecha con `CONVERT_TZ`, y `CONVERT_TZ` con **nombres** de zona necesita las tabl
 `CONVERT_TZ` devuelve `NULL` y **el admin de Django revienta al filtrar por fecha** — el
 mismo error que ya apareció en el MySQL local durante el desarrollo.
 
-- [ x] Crear un Schedule de tipo **Dokploy Server**, pegar
+- [x] Crear un Schedule de tipo **Dokploy Server**, pegar
       [`infra/dokploy/cargar-zonas-horarias.sh`](../../../../infra/dokploy/cargar-zonas-horarias.sh),
       definir `CONTENEDOR_MYSQL` y **ejecutarlo a mano una vez**. No se programa: no es un
       cron.
 
-- [ x] **Verificar.** El script lo hace solo, pero conviene verlo:
+- [x] **Verificar.** El script lo hace solo, pero conviene verlo:
 
       ```sql
       SELECT COUNT(*) FROM mysql.time_zone_name;        -- ≈ 1795, nunca 0
@@ -170,9 +170,9 @@ mismo error que ya apareció en el MySQL local durante el desarrollo.
 
 ## FASE 3 — Redis
 
-- [ ] *Databases → Create → Redis*.
-- [ ] Anotar host interno y contraseña.
-- [ ] `CACHE_URL=redis://:LA-CONTRASEÑA@host-interno:6379/1`
+- [x] *Databases → Create → Redis*.
+- [x] Anotar host interno y contraseña.
+- [x] `CACHE_URL=redis://:LA-CONTRASEÑA@host-interno:6379/1`
 
 > **Por qué Redis ahora sí.** En AWS se eligió `db://cache_appturnos` porque ElastiCache
 > costaba ~$12/mes y meter Redis en la EC2 se comía 200–400 MB del único GB de RAM.
