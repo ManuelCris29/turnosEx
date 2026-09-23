@@ -76,3 +76,6 @@ AppTurnosExplora/logs/
 # Estaticos recolectados por collectstatic (copia generada, la sirve WhiteNoise/Nginx).
 # Nunca se versiona: se regenera en cada despliegue y son cientos de archivos.
 AppTurnosExplora/staticfiles/
+
+# Material de negocio (docx/mwb/sql): solo local, no se versiona.
+instructivos/
