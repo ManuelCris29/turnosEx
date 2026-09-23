@@ -154,3 +154,72 @@ test('paraFormulario ignora el token CSRF y agrupa los multi-select', () => {
 test('paraFormulario sin form ni boton devuelve el guardia inerte', () => {
   assert.equal(guardadoAtomico.paraFormulario(null, null).sucio(), true);
 });
+
+
+// ---------------------------------------------------------------------------
+// `referencia`: lo mostrado no siempre es lo guardado
+// ---------------------------------------------------------------------------
+// La pantalla de festivos/mantenimiento pinta una PROPUESTA calculada cuando el ano
+// no tiene nada guardado, y la anuncia como "Sugerencia automatica (aun NO
+// guardada)". Sin declarar la referencia, esa propuesta se tomaba como el estado ya
+// publicado: el boton nacia apagado y el `submit` se cancelaba, asi que la unica
+// forma de guardar la sugerencia era marcar un dia a mano y desmarcarlo. El ano se
+// quedaba sin mantenimientos y nadie se enteraba hasta que "Mis Turnos" mostraba
+// descansos que no eran.
+
+test('sin nada guardado, la propuesta que se muestra cuenta como cambio', () => {
+  const boton = botonFalso();
+  // Lo que la vista pinto: 36 dias de mantenimiento propuestos. En la base, NADA.
+  let estado = { 1: [5, 12, 19, 26], 2: [2, 9, 16, 23] };
+
+  const guardia = guardadoAtomico({
+    boton,
+    instantanea: () => estado,
+    referencia: {},          // el ano esta vacio en la base
+  });
+
+  assert.equal(boton.disabled, false, 'hay algo que guardar: la propuesta');
+  assert.equal(guardia.sucio(), true);
+});
+
+test('con el ano ya guardado, la referencia sigue siendo lo mostrado', () => {
+  const boton = botonFalso();
+  let estado = { 1: [5, 12] };
+
+  // Sin `referencia`: lo mostrado ES lo guardado (comportamiento de siempre).
+  const guardia = guardadoAtomico({ boton, instantanea: () => estado });
+
+  assert.equal(boton.disabled, true, 'nada tocado, nada que guardar');
+
+  estado = { 1: [5, 12, 19] };
+  guardia.revisar();
+  assert.equal(boton.disabled, false, 'anadir un dia si es un cambio');
+});
+
+test('con referencia declarada, volver al estado guardado vuelve a apagar el boton', () => {
+  const boton = botonFalso();
+  let estado = {};
+  const guardia = guardadoAtomico({ boton, instantanea: () => estado, referencia: {} });
+
+  assert.equal(boton.disabled, true, 'vacio y vacio: nada que guardar');
+
+  estado = { 3: [7] };
+  guardia.revisar();
+  assert.equal(boton.disabled, false);
+
+  // Se deshace la seleccion: vuelve a coincidir con lo guardado (nada).
+  estado = {};
+  guardia.revisar();
+  assert.equal(boton.disabled, true, 'deshacer devuelve el boton a apagado');
+});
+
+test('referencia: undefined es una referencia declarada, no una ausente', () => {
+  // `Object.assign({...}, {referencia: undefined})` es un error facil de cometer al
+  // construir las opciones de forma condicional. Si el modulo mirara `!= null` en vez
+  // de `hasOwnProperty`, caeria silenciosamente al comportamiento viejo y el bug
+  // volveria sin que ningun test lo notara.
+  const boton = botonFalso();
+  const estado = { 1: [1] };
+  guardadoAtomico({ boton, instantanea: () => estado, referencia: undefined });
+  assert.equal(boton.disabled, false, 'undefined significa "no hay nada guardado"');
+});

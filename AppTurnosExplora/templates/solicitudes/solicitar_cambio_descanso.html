@@ -264,7 +264,7 @@
 {% block extra_js %}
 <script>window.MI_JORNADA = "{{ mi_jornada|escapejs }}";
 window.MI_EMPLEADO_ID = "{{ request.user.empleado.id|escapejs }}";</script>
-<script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_cambio_descanso.js' %}"></script>
 {% endblock %}
 

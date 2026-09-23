@@ -917,7 +917,20 @@ class DobladaPermanenteDiasCalendarioTest(DobladaPermanenteBaseTest):
         self.assertIn(self.l1.strftime('%Y-%m-%d'), despues, 'el resto del rango no se toca')
 
     def test_preview_explica_la_temporada(self):
-        """La fecha omitida debe llevar su motivo real, no 'descansas o no tienes turno'."""
+        """El motivo debe ser el real y NEUTRO: el día es de temporada, no "descansas".
+
+        Dos cosas distintas, y las dos importan:
+
+        1. Que lleve su motivo real y no el genérico "descansas o no tienes turno".
+        2. Que ese motivo NO afirme que la persona descansa. En temporada no todos
+           descansan: quien conserva su jornada trabaja con normalidad. El día se
+           omite porque una doblada permanente no opera en temporada, que es una
+           regla del CALENDARIO y no dice nada de esta persona en concreto.
+
+        Decía "Descanso de temporada" a todo el mundo. Reportado desde producción
+        (isabel.parra, 05 y 06/oct de 2026): el formulario le decía que descansaba y
+        "Mis Turnos" le mostraba su jornada, y parecía que el sistema se contradecía.
+        """
         from turnos.models import DiaEspecial
         DiaEspecial.objects.create(fecha=self.l2, tipo='temporada', es_temporada=True, activo=True)
 
@@ -930,7 +943,16 @@ class DobladaPermanenteDiasCalendarioTest(DobladaPermanenteBaseTest):
         d = d.get('data', d)
 
         excluidas = {e['fecha']: e['razon'] for e in d['excluidas']}
-        self.assertEqual(excluidas.get(self.l2.strftime('%Y-%m-%d')), 'Descanso de temporada')
+        razon = excluidas.get(self.l2.strftime('%Y-%m-%d'))
+
+        self.assertEqual(razon, 'Día de temporada')
+        # Lo que de verdad se está fijando: la etiqueta habla del DÍA, no de la persona.
+        # Si alguien vuelve a redactarla en primera persona, este test lo dice sin rodeos.
+        self.assertNotIn(
+            'escans', razon,
+            'La etiqueta no puede afirmar que la persona descansa: en temporada quien '
+            'conserva su jornada TRABAJA, y el día se omite por la regla del calendario.',
+        )
 
     def test_rango_avisa_cuando_lo_corta_la_temporada(self):
         """

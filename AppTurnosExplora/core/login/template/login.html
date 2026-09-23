@@ -1,4 +1,4 @@
-{% load static %}
+{% load static static_version %}
 {% load widget_tweaks %}
 <!DOCTYPE html>
 <html lang="es">
@@ -7,10 +7,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ title }} · SWALP — Parque Explora</title>
 
-  <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,600,700,800&display=fallback">
-  <link rel="stylesheet" href="{% static 'plugins/fontawesome-free/css/all.min.css' %}">
-  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+  <link rel="icon" type="image/x-icon" href="{% static_v 'img/favicon.ico' %}">
+  <!-- Sin tipografia web (retirada el 2026-09-20): la pila del sistema
+       -apple-system / Segoe UI / Roboto pinta al instante y no cuesta dos
+       handshakes TLS. Importa mas aqui que en ninguna otra pantalla: el login
+       es la primera pagina que ve todo el mundo y la unica que se abre sin nada
+       en cache. Pedia SEIS grosores (300-800), mas que base.html. -->
+  <link rel="stylesheet" href="{% static_v 'plugins/fontawesome-free/css/all.min.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/auth.css' %}">
 </head>
 <body class="auth-body">
 <div class="auth-wrap">
@@ -36,7 +40,7 @@
     <div class="auth-card">
 
       <div class="auth-card__logo">
-        <img src="{% static 'img/parque-explora-logo.svg' %}" alt="Parque Explora">
+        <img src="{% static_v 'img/parque-explora-logo.svg' %}" alt="Parque Explora">
       </div>
 
       <h1 class="auth-title">Bienvenido</h1>

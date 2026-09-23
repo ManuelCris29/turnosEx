@@ -6,8 +6,8 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static_v 'css/paginas_gestion.css' %}">
 <!-- DataTables -->
-<link rel="stylesheet" href="/static/plugins/datatables-bs4/css/dataTables.bootstrap4.min.css">
-<link rel="stylesheet" href="/static/plugins/datatables-responsive/css/responsive.bootstrap4.min.css">
+<link rel="stylesheet" href="{% static_v 'plugins/datatables-bs4/css/dataTables.bootstrap4.min.css' %}">
+<link rel="stylesheet" href="{% static_v 'plugins/datatables-responsive/css/responsive.bootstrap4.min.css' %}">
 {% endblock %}
 
 {% block content %}
@@ -121,8 +121,8 @@
 
 {% block extra_js %}
 <!-- DataTables -->
-<script src="/static/plugins/datatables/jquery.dataTables.min.js"></script>
-<script src="/static/plugins/datatables-bs4/js/dataTables.bootstrap4.min.js"></script>
-<script src="/static/plugins/datatables-responsive/js/dataTables.responsive.min.js"></script>
+<script src="{% static_v 'plugins/datatables/jquery.dataTables.min.js' %}"></script>
+<script src="{% static_v 'plugins/datatables-bs4/js/dataTables.bootstrap4.min.js' %}"></script>
+<script src="{% static_v 'plugins/datatables-responsive/js/dataTables.responsive.min.js' %}"></script>
 <script src="{% static_v 'js/empleados/empleados_lista.js' %}"></script>
 {% endblock %}

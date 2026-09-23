@@ -30,10 +30,22 @@
 
     // Guardar reescribe el año entero (borra y vuelve a crear los días), así que sin
     // ningún día tocado el botón queda apagado: ver `utils/guardado_atomico.js`.
-    window.guardiaGuardadoAnual = window.guardadoAtomico({
-        boton: document.getElementById('btn-guardar'),
-        instantanea: obtenerDiasSeleccionados,
-    });
+    //
+    // 🔴 `referencia` NO es lo que se ve en pantalla, es lo que hay GUARDADO.
+    // Cuando el año no tiene nada guardado (`tieneDias` falso), la vista pinta una
+    // PROPUESTA calculada —la plantilla la anuncia como "Sugerencia automática (aún
+    // NO guardada)"—. Sin esta línea, esa propuesta se tomaba como referencia y el
+    // guardia concluía que no había nada que guardar: el botón nacía apagado, el
+    // `submit` se cancelaba, y la única forma de guardar la sugerencia era marcar un
+    // día a mano. Es decir, la pantalla pedía pulsar Guardar con Guardar apagado, y
+    // el año se quedaba sin mantenimientos sin que nadie se enterara.
+    window.guardiaGuardadoAnual = window.guardadoAtomico(Object.assign(
+        {
+            boton: document.getElementById('btn-guardar'),
+            instantanea: obtenerDiasSeleccionados,
+        },
+        cfg.tieneDias ? {} : { referencia: {} }
+    ));
 
     const hayDatos = diasPorMes && Object.keys(diasPorMes).length > 0;
     if (!hayDatos) cargarDiasExistentes(tipoSeleccionado, anioSeleccionado);

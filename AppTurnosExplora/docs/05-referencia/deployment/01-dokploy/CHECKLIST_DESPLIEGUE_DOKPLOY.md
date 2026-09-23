@@ -196,10 +196,10 @@ mismo error que ya apareció en el MySQL local durante el desarrollo.
 
 ### 4.1 Origen
 
-- [ ] *Create → Application*. Provider **GitHub**, repositorio `ManuelCris29/turnosEx`,
+- [x] *Create → Application*. Provider **GitHub**, repositorio `ManuelCris29/turnosEx`,
       rama `main`.
-- [ ] **Auto Deploy: OFF.** Ver FASE 12.
-- [ ] Build Type: **Dockerfile**
+- [x] **Auto Deploy: OFF.** Ver FASE 12.
+- [x] Build Type: **Dockerfile**
       - **Dockerfile Path:** `AppTurnosExplora/Dockerfile`
       - **Docker Context Path:** `AppTurnosExplora`
 
@@ -214,11 +214,11 @@ mismo error que ya apareció en el MySQL local durante el desarrollo.
 
 ### 4.2 Recursos y arranque
 
-- [ ] **Replicas: 1.** El `CMD` del `Dockerfile` corre `migrate --noinput` al arrancar;
+- [x] **Replicas: 1.** El `CMD` del `Dockerfile` corre `migrate --noinput` al arrancar;
       con 2+ réplicas migrarían dos a la vez. Si algún día hace falta escalar, las
       migraciones salen antes a un job aparte.
 
-- [ ] **Límite de memoria** en *Advanced → Resources*. En servidor compartido no es
+- [x] **Límite de memoria** en *Advanced → Resources*. En servidor compartido no es
       opcional: sin límite, un pico de la aplicación se lleva a las demás.
 
       ```json
@@ -227,7 +227,7 @@ mismo error que ya apareció en el MySQL local durante el desarrollo.
          "Reservations":{"MemoryBytes":536870912}}}}
       ```
 
-- [ ] **Update config** en *Swarm Settings*, para que un despliegue no deje la app abajo:
+- [x] **Update config** en *Swarm Settings*, para que un despliegue no deje la app abajo:
 
       ```json
       {"Parallelism":1,"Delay":10000000000,"FailureAction":"rollback","Order":"start-first"}

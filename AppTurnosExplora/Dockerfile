@@ -62,19 +62,28 @@ EXPOSE 8000
 #
 # Se usa python y no curl porque la imagen slim no lo trae y no compensa instalarlo.
 #
-# OJO con el criterio: se acepta CUALQUIER respuesta HTTP < 500, no solo un 200.
-# Motivo: en producción ALLOWED_HOSTS lleva el dominio público, así que una
-# petición a 127.0.0.1 responde 400 (DisallowedHost). Ese 400 demuestra que
-# Django está vivo y sirviendo, que es justo lo que mide un liveness; exigir 200
-# marcaría el contenedor como enfermo y ECS lo mataría en bucle. Si quieres el
-# chequeo estricto, añade 127.0.0.1 a ALLOWED_HOSTS.
-# De la readiness (¿puede además trabajar?) responde el ALB con /health/ready/.
+# 🔴 REQUISITO: `127.0.0.1` TIENE QUE ESTAR EN ALLOWED_HOSTS.
+# El chequeo entra por 127.0.0.1, y si ese host no está permitido Django responde
+# 400 (DisallowedHost) a cada pasada. Con el criterio laxo de antes (`< 500`) eso
+# no rompía nada… y ahí estaba el problema: el contenedor se reportaba `healthy`
+# mientras la única petición que lo demostraba devolvía un error. Un chequeo que
+# aprueba con la aplicación rota no es un chequeo. Además cada fallo imprimía la
+# traza completa: ~2.880 al día, unos 40 MB de log (medido en el despliegue de
+# Dokploy, 2026-09-18; con el host permitido bajó a ~46 KB).
+#
+# Por eso el criterio es `< 400`: un 4xx también marca el contenedor enfermo.
+# Si algún día se quita 127.0.0.1 de ALLOWED_HOSTS, esto entra en bucle de
+# reinicios — es deliberado, un despliegue que se cae fuerte es mejor que uno
+# que miente en verde.
+#
+# De la readiness (¿puede además trabajar?) responde el balanceador con
+# /health/ready/.
 # Se usa http.client y no urllib a propósito: urllib lanza excepción ante un 4xx,
 # lo que obligaría a un try/except imposible de escribir en una sola línea. Con
 # http.client el código de estado se lee tal cual, y si el proceso no acepta la
 # conexión la excepción sale sola y el chequeo falla, que es lo correcto.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD python -c "import sys, http.client as h; c = h.HTTPConnection('127.0.0.1', 8000, timeout=4); c.request('GET', '/health/'); sys.exit(0 if c.getresponse().status < 500 else 1)"
+    CMD python -c "import sys, http.client as h; c = h.HTTPConnection('127.0.0.1', 8000, timeout=4); c.request('GET', '/health/'); sys.exit(0 if c.getresponse().status < 400 else 1)"
 
 # Arranque. migrate en el CMD es cómodo con 1 task; con ≥2 tasks conviene
 # ejecutar las migraciones en un task ECS aparte para evitar carreras.

@@ -7,11 +7,16 @@
     <title>{% block title %}AppTurnos{% endblock %}</title>
     
     <!-- Favicon -->
-    <link rel="icon" type="image/x-icon" href="/static/img/favicon.ico">
-    <link rel="shortcut icon" type="image/x-icon" href="/static/img/favicon.ico">
+    <link rel="icon" type="image/x-icon" href="{% static_v 'img/favicon.ico' %}">
+    <link rel="shortcut icon" type="image/x-icon" href="{% static_v 'img/favicon.ico' %}">
 
-    <!-- Google Font: Source Sans Pro -->
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+    <!-- Sin tipografia web: AdminLTE ya declara la pila del sistema
+         (-apple-system / Segoe UI / Roboto) como reserva de "Source Sans Pro".
+         Se retiro Google Fonts el 2026-09-20 por rendimiento en movil: eran dos
+         origenes externos (fonts.googleapis.com y fonts.gstatic.com), cada uno
+         con su DNS y su handshake TLS antes del primer byte, mas ~58 KB de
+         woff2, para un texto que tardaba en pintar. La fuente del sistema pinta
+         al instante y no cuesta ni una conexion. -->
     <!-- Font Awesome -->
     <link rel="stylesheet" href="{% static_v 'plugins/fontawesome-free/css/all.min.css' %}">
     <!-- Theme style -->
@@ -58,7 +63,7 @@
         <aside class="main-sidebar sidebar-dark-primary elevation-4">
             <!-- Brand Logo -->
             <a href="/" class="brand-link">
-                <img src="/static/img/parque-explora-logo.svg" alt="AppTurnos Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
+                <img src="{% static_v 'img/parque-explora-logo.svg' %}" alt="AppTurnos Logo" class="brand-image img-circle elevation-3" style="opacity: .8">
                 <span class="brand-text font-weight-light">SWALP</span>
             </a>
 

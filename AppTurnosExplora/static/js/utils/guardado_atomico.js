@@ -11,6 +11,10 @@
  *   const guardia = guardadoAtomico({ boton, instantanea: () => estado });
  *   ...tras cada cambio:  guardia.revisar();
  *
+ * Si lo que la pantalla MUESTRA no es lo que hay guardado (una propuesta automatica
+ * sobre un ano vacio, por ejemplo), hay que decirlo con `referencia`:
+ *   guardadoAtomico({ boton, instantanea, referencia: {} });
+ *
  * `instantanea()` devuelve el estado actual; se compara contra el que había al cargar
  * la página, normalizado (claves ordenadas y arrays ordenados), de modo que volver a
  * dejar un día como estaba cuenta como "sin cambios" y vuelve a deshabilitar el botón.
@@ -48,7 +52,19 @@
       return { revisar() {}, reiniciar() {}, sucio: () => true };
     }
 
-    let referencia = huella(instantanea());
+    // La referencia es LO QUE HAY GUARDADO, que no siempre es lo que se muestra.
+    // Las pantallas anuales pintan una PROPUESTA calculada cuando el ano todavia no
+    // tiene nada guardado ("Sugerencia automatica (aun NO guardada)"). Si la referencia
+    // se tomara de lo mostrado, esa propuesta contaria como "ya guardado": el boton
+    // nacia apagado y no habia forma de guardarla salvo tocar un dia a mano y
+    // destocarlo. La pantalla pedia pulsar Guardar con Guardar deshabilitado.
+    // Por eso quien sabe que lo mostrado NO esta guardado pasa `referencia` (para un
+    // ano vacio, `{}`) y cualquier propuesta cuenta como cambio.
+    let referencia = huella(
+      Object.prototype.hasOwnProperty.call(opciones, 'referencia')
+        ? opciones.referencia
+        : instantanea()
+    );
     const tituloOriginal = boton.title || '';
 
     function sucio() {

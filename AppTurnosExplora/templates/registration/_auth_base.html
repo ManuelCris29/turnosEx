@@ -1,4 +1,4 @@
-{% load static %}
+{% load static static_version %}
 {% comment %}
 Esqueleto de las pantallas PÚBLICAS de contraseña (las cuatro del flujo de
 recuperación). Reutiliza el diseño y el CSS de `login.html` en vez de duplicarlo
@@ -17,9 +17,9 @@ Font Awesome, ya locales, para no tener que tocar la allowlist de CSP.
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Contraseña{% endblock %} · SWALP — Parque Explora</title>
 
-  <link rel="icon" type="image/x-icon" href="{% static 'img/favicon.ico' %}">
-  <link rel="stylesheet" href="{% static 'plugins/fontawesome-free/css/all.min.css' %}">
-  <link rel="stylesheet" href="{% static 'css/auth.css' %}">
+  <link rel="icon" type="image/x-icon" href="{% static_v 'img/favicon.ico' %}">
+  <link rel="stylesheet" href="{% static_v 'plugins/fontawesome-free/css/all.min.css' %}">
+  <link rel="stylesheet" href="{% static_v 'css/auth.css' %}">
 </head>
 <body class="auth-body">
 <div class="auth-wrap">
@@ -37,7 +37,7 @@ Font Awesome, ya locales, para no tener que tocar la allowlist de CSP.
     <div class="auth-card">
 
       <div class="auth-card__logo">
-        <img src="{% static 'img/parque-explora-logo.svg' %}" alt="Parque Explora">
+        <img src="{% static_v 'img/parque-explora-logo.svg' %}" alt="Parque Explora">
       </div>
 
       <h1 class="auth-title">{% block encabezado %}{% endblock %}</h1>

@@ -1,4 +1,11 @@
 asgiref==3.11.0
+# Brotli comprime entre un 15 y un 20 % mejor que gzip en texto, y lo entienden
+# todos los navegadores desde 2017. WhiteNoise NO lo usa por tenerlo declarado:
+# lo usa si puede IMPORTARLO, y entonces `collectstatic` escribe un .br junto a
+# cada .gz. Sin este paquete generaba 2.242 .gz y CERO .br (medido en produccion
+# el 2026-09-20): el navegador pedia `br` y recibia gzip.
+# No comprime en cada peticion: solo en el build.
+Brotli==1.2.0
 cffi==2.0.0
 cryptography==50.0.0
 Django==5.2.17

@@ -64,6 +64,22 @@ class CspTestCase(TestCase):
         for cdn in ('jsdelivr', 'cdnjs', 'ionicframework', 'unpkg'):
             self.assertNotIn(cdn, csp, f'{cdn} volvió a la política')
 
+    def test_google_fonts_no_vuelve(self):
+        """Se retiró por rendimiento, no por seguridad, y por eso es frágil.
+
+        Los otros CDN se autohospedaron: si alguien los reintrodujera, el
+        recurso ya está en `static/` y se notaría. Este NO: la tipografía se
+        eliminó y se dejó la pila del sistema. Basta con que alguien copie un
+        <link> de Google Fonts de cualquier plantilla de AdminLTE para devolver
+        los dos orígenes externos —y con ellos el DNS y el handshake TLS que
+        costaban ~300-800 ms en datos móviles— sin que nada falle ni se vea mal.
+        """
+        r = self.client.get('/')
+        csp = r.headers.get('Content-Security-Policy', '')
+
+        for origen in ('fonts.googleapis.com', 'fonts.gstatic.com'):
+            self.assertNotIn(origen, csp, f'{origen} volvió a la política')
+
     def test_la_politica_de_observacion_ya_no_se_publica(self):
         """
         La report-only sirvió para migrar sin romper nada. Terminada la
@@ -88,7 +104,18 @@ class CspTestCase(TestCase):
 
         for html in BASE.rglob('*.html'):
             # `scripts/` son pruebas manuales sueltas, no se sirven a nadie.
-            if 'scripts' in html.parts or 'node_modules' in html.parts:
+            #
+            # `site-packages` excluye las plantillas de las DEPENDENCIAS (Django,
+            # debug_toolbar, coverage...). No son nuestras, no las servimos, y sus
+            # enlaces a docs o a GitHub no tienen por qué estar en nuestra CSP.
+            # Se filtra por `site-packages` y no por el nombre del entorno virtual
+            # porque ese nombre lo elige cada quien (`venv`, `.venv`, `venvturnos`):
+            # mientras el entorno viva FUERA del proyecto el test pasa igual, pero
+            # en cuanto alguien lo crea dentro —la convención más común— el test se
+            # llenaba de falsos positivos de terceros.
+            if ('scripts' in html.parts
+                    or 'node_modules' in html.parts
+                    or 'site-packages' in html.parts):
                 continue
             texto = html.read_text(encoding='utf-8', errors='ignore')
             for url in re.findall(r'https://[a-zA-Z0-9.-]+', texto):

@@ -839,10 +839,22 @@ def motivo_no_doblada_perm(explorador: Empleado, fecha: date):
     if calendario:
         # Mismo veredicto que `jornada_doblada_perm`, con el motivo del calendario. Va primero
         # porque en temporada el estado del día puede seguir siendo una jornada normal.
+        #
+        # 🔴 POR ESO TEMPORADA SE REDACTA EN NEUTRO, y no como "Descanso de temporada".
+        # Esta rama se dispara por el CALENDARIO: el día es de temporada para todo el mundo.
+        # Pero en temporada NO todos descansan —quien conserva su jornada trabaja con
+        # normalidad—, que es justo el motivo por el que no se consulta `estado_dia` aquí.
+        # Decirle "descansas" a quien ese día trabaja no es un matiz: manda a esa persona a
+        # "Mis Turnos", donde ve su jornada, y la deja creyendo que el sistema se contradice.
+        # Pasó en producción (isabel.parra, 05 y 06/oct de 2026).
+        # El día se omite porque una doblada permanente no opera en temporada, no porque
+        # quien lo pide descanse. Mismo criterio que `motivo_no_cubre_companero` ("ese día es
+        # de temporada") y que `razones_exclusion_ct_permanente` ("Temporada"): la etiqueta de
+        # una regla de calendario habla del DÍA, nunca de la persona.
         return {
             'mantenimiento': 'Mantenimiento',
             'festivo': 'Festivo',
-            'temporada': 'Descanso de temporada',
+            'temporada': 'Día de temporada',
         }[calendario]
     st = estado_ct(explorador, fecha)
     if not st:

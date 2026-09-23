@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 import environ
+from whitenoise.compress import Compressor as _CompresorWhiteNoise
 
 # ---------------------------------------------------------------------------
 # Rutas base
@@ -73,6 +74,36 @@ MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',       # debe ir primero
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',   # sirve estáticos sin Nginx (contenedores)
+    # Comprime el HTML. Los estáticos ya iban comprimidos (WhiteNoise los sirve
+    # pregenerados), pero la respuesta de gunicorn viajaba EN CRUDO: medido en
+    # producción el 2026-09-20, ni un `Content-Encoding` en la respuesta de una
+    # página. Y el HTML no se cachea nunca (`no-store`, lleva datos de sesión),
+    # así que ese coste se paga ENTERO en cada navegación. En estas plantillas
+    # pesa: el sidebar de base.html son ~300 líneas de menú que se repiten en
+    # todas las páginas y comprimen muy bien.
+    #
+    # VA DEBAJO DE WHITENOISE A PROPÓSITO. WhiteNoise atiende las peticiones de
+    # estáticos y devuelve ahí mismo, sin bajar más: así este middleware nunca
+    # las ve. Puesto por encima, intentaría recomprimir lo ya comprimido y, peor,
+    # gastaría CPU comprimiendo PNG y woff2, que no se comprimen más.
+    #
+    # SOBRE BREACH: es el motivo por el que la documentación de Django avisa
+    # sobre este middleware. Desde Django 4.2 el propio framework aplica
+    # «Heal The Breach», que añade bytes aleatorios a la respuesta comprimida
+    # para romper la correlación tamaño↔contenido de la que vive ese ataque.
+    # Además el token CSRF ya va enmascarado por petición. Con eso, el riesgo
+    # residual no compensa servir el HTML sin comprimir a 300 empleados que
+    # entran desde el celular.
+    'django.middleware.gzip.GZipMiddleware',
+    # `Cache-Control: no-store` en las respuestas que NO son HTML (las 81
+    # JsonResponse del proyecto). Va aquí arriba a propósito: las respuestas
+    # suben por la lista, así que este es de los últimos en mirarlas y ve el
+    # `Cache-Control` que haya puesto cualquiera por debajo, incluido el
+    # `@never_cache` de las vistas. Y va DEBAJO de WhiteNoise porque los
+    # estáticos ni llegan hasta aquí: WhiteNoise los resuelve y devuelve arriba.
+    # Ver el docstring en core/middleware.py, que explica por qué el HTML se
+    # queda fuera (bfcache).
+    'core.middleware.SinCacheEnDatosMiddleware',
     'csp.middleware.CSPMiddleware',                 # aplica Content-Security-Policy
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -87,7 +118,14 @@ MIDDLEWARE = [
 ]
 
 if not IS_PRODUCTION:
-    MIDDLEWARE.insert(0, 'debug_toolbar.middleware.DebugToolbarMiddleware')
+    # Va JUSTO DESPUES de GZipMiddleware, no al principio de la lista.
+    # debug_toolbar inyecta su panel en el HTML de la respuesta, asi que necesita
+    # verla SIN COMPRIMIR: por encima del gzip solo veria bytes comprimidos y no
+    # podria insertar nada. El propio paquete lo comprueba y avisa (W003).
+    # Se busca por nombre en vez de fijar un indice para que mover cualquier otro
+    # middleware no vuelva a descolocarlo en silencio.
+    _i_gzip = MIDDLEWARE.index('django.middleware.gzip.GZipMiddleware')
+    MIDDLEWARE.insert(_i_gzip + 1, 'debug_toolbar.middleware.DebugToolbarMiddleware')
 
 ROOT_URLCONF = 'config.urls'
 
@@ -223,6 +261,103 @@ STATIC_URL = 'static/'
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# WhiteNoise sirve los estáticos (no hay Nginx dentro del contenedor), pero su
+# middleware por sí solo los entrega SIN COMPRIMIR y con caché débil. Medido en
+# producción antes de este cambio: 2,3 MB por carga, `transferred` practicamente
+# igual que `resources` (cero compresión) y estáticos respondiendo 200 en cada
+# navegación, es decir, redescargados enteros en cada clic del menú.
+#
+# `CompressedManifestStaticFilesStorage` arregla las dos cosas en `collectstatic`:
+#   - Pregenera versiones gzip/brotli: el CSS y el JS bajan a una fracción.
+#   - Renombra cada archivo con un hash de su contenido, lo que permite servirlos
+#     con caché inmutable: el navegador deja de preguntar por ellos. Importa
+#     especialmente para los 300 empleados que entran desde el celular.
+#
+# POR QUE LA VARIANTE SIN `Manifest`
+# Se probó primero `CompressedManifestStaticFilesStorage`, que además del gzip/brotli
+# renombra cada archivo con un hash y permite servirlo con caché inmutable. Es la
+# opción mejor, pero es ESTRICTA: verifica todas las referencias entre estáticos y
+# `collectstatic` falla si alguna no resuelve. Con los plugins de terceros que trae
+# `static/` aparecieron varias, y la última (jquery-ui) no es ni siquiera un archivo
+# que falte —la imagen existe— sino el analizador de Django tragándose las comillas
+# de `url("images/...")`. No compensa bloquear el despliegue por eso.
+#
+# Esta variante comprime igual (que era el problema medido: 2,3 MB por carga sin
+# comprimir) y no toca las referencias.
+STORAGES = {
+    'default': {'BACKEND': 'django.core.files.storage.FileSystemStorage'},
+    'staticfiles': {'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage'},
+}
+
+# ---------------------------------------------------------------------------
+# Caché de estáticos: un año — y por qué aquí SÍ se puede
+# ---------------------------------------------------------------------------
+# Sin nombres con hash, WhiteNoise aplica `max-age=60`. Es su criterio prudente y
+# es el correcto por defecto: si no puede distinguir una versión de otra, no se
+# atreve a dejar que el navegador se quede nada. Medido en producción el
+# 2026-09-20, antes de este cambio:
+#
+#     $ curl -I https://swalp.parqueexplora.org/static/css/adminlte.min.css
+#     Cache-Control: max-age=60, public
+#     Content-Encoding: gzip
+#
+# La compresión ya estaba (commit e519771). Lo que quedaba era esto: al minuto de
+# navegar, el navegador vuelve a preguntar por los ~14 estáticos de CADA página.
+# Responden 304 y casi no gastan bytes, así que en una gráfica de tamaño no se
+# ven — pero cada uno cuesta un viaje de ida y vuelta completo. Ahí está la
+# diferencia que se reportó: en wifi un viaje son ~20 ms y nadie lo nota; en
+# datos móviles son 100-200 ms, y catorce seguidos son segundos de espera en
+# cada clic del menú. El problema nunca fue el ancho de banda: era la latencia
+# multiplicada por el número de recursos.
+#
+# POR QUÉ UN AÑO NO ES TEMERARIO AQUÍ
+# Normalmente, caché larga sin hash en el nombre es una forma segura de servir
+# una versión vieja para siempre. Aquí no, porque el versionado ya existe por
+# otra vía: `static_v` añade `?v=<mtime>` a la URL (ver
+# solicitudes/templatetags/static_version.py). Si el archivo cambia, cambia su
+# mtime, cambia la URL, y para el navegador es un recurso distinto que tiene que
+# bajar. La caché larga no puede dejar servido nada viejo.
+#
+# 🔴 LA CONDICIÓN, Y ES ESTRICTA
+# Esto solo se sostiene si TODA referencia a un estático pasa por `static_v`. Un
+# `{% static %}` a secas, o un "/static/..." escrito a mano en el HTML, produce
+# una URL fija que ahora se cachea un año: ese archivo se congela en el navegador
+# de cada empleado y NO hay despliegue que lo actualice. Es el modo de fallo de
+# este cambio, y es silencioso.
+# Las 29 referencias que quedaban sueltas se convirtieron junto con este commit,
+# y `core/tests/test_estaticos_versionados.py` falla si alguien reintroduce una.
+#
+# Subir a `CompressedManifestStaticFilesStorage` (hash en el nombre, que haría
+# innecesaria esa disciplina) sigue siendo la opción de libro, y sigue bloqueada
+# por lo mismo que la tumbó la vez pasada: las referencias rotas de los plugins
+# vendorizados hacen fallar `collectstatic`. Esta ruta da el mismo resultado
+# medible sin ese riesgo en el build.
+WHITENOISE_MAX_AGE = 31536000  # 1 año
+
+# ---------------------------------------------------------------------------
+# No comprimir los source maps
+# ---------------------------------------------------------------------------
+# WhiteNoise se salta por defecto lo que ya viene comprimido (png, woff2, zip…).
+# Los .map no están en esa lista, y hace bien en no asumirlo: son JSON y
+# comprimen muy bien. Pero en ESTE proyecto son 64 MB de mapas de AdminLTE y
+# pdfmake que ningún empleado descarga jamás — el navegador solo los pide con
+# las herramientas de desarrollo abiertas.
+#
+# Comprimirlos cuesta, medido aquí el 2026-09-20: brotli en calidad 11 tarda
+# ~73 s sobre esos 64 MB (gzip, ~1 s; brotli q11 es lento a propósito). Son 73 s
+# añadidos a CADA build de la imagen, y a cambio nadie descarga el resultado.
+# Antes no se notaba porque sin el paquete `brotli` esa compresión ni ocurría.
+#
+# Los .map SE SIGUEN SIRVIENDO, solo que sin versión pregenerada: si alguien
+# depura en producción, los recibe igual (sin comprimir, y le da igual).
+#
+# Se parte de la lista de la propia librería en vez de copiarla, para heredar
+# los formatos que añada en el futuro sin tener que enterarse.
+WHITENOISE_SKIP_COMPRESS_EXTENSIONS = (
+    *_CompresorWhiteNoise.SKIP_COMPRESS_EXTENSIONS,
+    'map',
+)
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ---------------------------------------------------------------------------
@@ -264,6 +399,28 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
 # Timeout para que un SMTP colgado no congele el request (segundos).
 EMAIL_TIMEOUT = env.int('EMAIL_TIMEOUT', default=10)
+
+# ---------------------------------------------------------------------------
+# Saludo HELO/EHLO propio, para el relay SMTP de Google Workspace
+# ---------------------------------------------------------------------------
+# El relay autenticado por IP de Workspace exige ADEMÁS que el saludo
+# HELO/EHLO presente uno de los dominios registrados de la cuenta. El backend
+# SMTP de Django, si no se le indica nada, usa `socket.getfqdn()` para ese
+# saludo — y dentro de un contenedor Docker eso devuelve el hostname
+# aleatorio del contenedor (p. ej. '9e409ec3e672'), no un dominio de la
+# empresa. Google lo rechaza con:
+#
+#   550-5.7.1 Invalid credentials for relay [IP]. [...] you must configure
+#   your mail server [...] to present one of your domain names in the HELO
+#   or EHLO command.
+#
+# `django.core.mail.utils.DNS_NAME` es el objeto que el backend SMTP consulta
+# para ese saludo (cachea el resultado en `_fqdn` la primera vez que se pide).
+# Fijarlo aquí, una sola vez al arrancar, evita escribir un backend SMTP
+# propio solo para cambiar una línea del protocolo.
+from django.core.mail.utils import DNS_NAME  # noqa: E402
+
+DNS_NAME._fqdn = env('EMAIL_LOCAL_HOSTNAME', default='parqueexplora.org')
 
 # Enviar los correos fuera del request (tras commit, en un hilo) para no
 # bloquear la respuesta ~20 s con los handshakes SMTP. Se activa en producción;
@@ -362,15 +519,36 @@ CORS_ALLOW_CREDENTIALS = True
 AXES_FAILURE_LIMIT = 5
 AXES_COOLOFF_TIME = 1
 
+# 🔴 EL BLOQUEO POR IP ES OPCIONAL Y VIENE APAGADO. NO SE ENCIENDE SIN MEDIRLO.
+#
 # Lista PLANA = cada criterio cuenta por separado (bloqueo por usuario O por IP).
 # NO confundir con la anidada [['username', 'ip_address']], que cuenta la PAREJA:
 # esa no frena a quien rota nombres de usuario desde la misma IP, que es
 # justamente el ataque que se quiere cortar (credential stuffing).
 #
-# Antes era solo ['username']. Esa opción está documentada por axes como elección
-# válida por privacidad/GDPR —evita almacenar IPs—, pero deja la puerta abierta:
-# con 5 intentos por usuario y una lista de nombres, no hay límite efectivo.
-AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
+# Añadir 'ip_address' solo protege si la aplicación ve IPs DISTINTAS para personas
+# distintas. Si las ve iguales, ese criterio deja de discriminar y se convierte en
+# su contrario: cinco fallos de cualquiera bloquean a TODA la plantilla una hora.
+# Una denegación de servicio provocada por la propia protección.
+#
+# Medido en el despliegue de Dokploy el 2026-09-18: el cortafuegos corporativo
+# enmascara el origen (NAT de origen) y no reenvía la IP real, así que Traefik pone
+# en X-Forwarded-For la puerta de enlace `10.1.0.1` PARA TODO EL MUNDO. Ahí el
+# criterio de IP no protegía de nada y solo podía hacer daño. Ver la nota de
+# AXES_IPWARE_PROXY_COUNT, más abajo, para las dos causas que hubo que descartar
+# antes de llegar a esta.
+#
+# Por eso el valor por defecto es APAGADO y no encendido: una protección que puede
+# dejar fuera a los 300 empleados no se activa por inercia, se activa después de
+# comprobar que distingue. El procedimiento está en:
+#   python manage.py verificar_ip_cliente
+# y lo único que cierra el asunto es entrar desde DOS REDES DISTINTAS y ver dos IPs
+# públicas diferentes en /admin/axes/accesslog/.
+#
+# Para reactivarlo cuando IT deje de enmascarar el origen:  AXES_BLOQUEAR_POR_IP=True
+AXES_BLOQUEAR_POR_IP = env.bool('AXES_BLOQUEAR_POR_IP', default=False)
+AXES_LOCKOUT_PARAMETERS = (['username', 'ip_address'] if AXES_BLOQUEAR_POR_IP
+                           else ['username'])
 
 # ⚠ CRÍTICO cuando hay un intermediario delante (Nginx en EC2, ALB en Fargate).
 #
@@ -396,12 +574,36 @@ AXES_IPWARE_PROXY_COUNT = env.int('AXES_IPWARE_PROXY_COUNT', default=1 if IS_PRO
 # mundo. Se detectó al escribir `verificar_ip_cliente`: la configuración "correcta"
 # resolvía la IP del ALB.
 #
-# Se activa SOLO cuando hay un intermediario declarado, y el motivo es de seguridad,
-# no de limpieza: si se confía en X-Forwarded-For sin proxy delante, cualquier cliente
-# puede inventarse la cabecera y cambiar de "IP" en cada intento, con lo que el bloqueo
-# por IP deja de existir. Con proxy, el balanceador reescribe la cabecera y el cliente
-# no la controla.
-if AXES_IPWARE_PROXY_COUNT:
+# Se activa SOLO cuando hay un intermediario delante, y el motivo es de seguridad, no
+# de limpieza: si se confía en X-Forwarded-For sin proxy, cualquier cliente puede
+# inventarse la cabecera y cambiar de "IP" en cada intento, con lo que el bloqueo por
+# IP deja de existir. Con proxy, el balanceador reescribe la cabecera y el cliente no
+# la controla.
+#
+# 🔴 ANTES ESTO COLGABA DE `AXES_IPWARE_PROXY_COUNT`, Y ERA UN ERROR.
+# Son dos preguntas distintas y acoplarlas rompió el bloqueo por IP en producción:
+#
+#   ¿HAY un proxy delante?          -> decide si se mira X-Forwarded-For
+#   ¿CUÁNTAS direcciones trae?      -> es `AXES_IPWARE_PROXY_COUNT`
+#
+# ipware valida en modo ESTRICTO con una igualdad exacta
+# (`len(ips) - 1 == proxy_count`, python_ipware.py), y Traefik pone en la cabecera
+# UNA sola dirección: la del cliente. O sea CERO proxies por delante del cliente
+# dentro del propio encabezado, aunque físicamente haya un proxy. Medido en el
+# despliegue de Dokploy el 2026-09-18:
+#
+#   PROXY_COUNT=1  -> ipware descarta la cabecera (1-1=0, esperaba 1) y también
+#                     REMOTE_ADDR -> devuelve NULO. Todos los intentos quedaron con
+#                     ip_address vacía, o sea TODOS en el mismo grupo.
+#   PROXY_COUNT=0  -> con el acoplamiento viejo, esta línea no se ejecutaba y axes
+#                     volvía a su valor por defecto ("REMOTE_ADDR",): la IP interna
+#                     de Traefik (10.0.1.4) para toda la plantilla.
+#
+# Las dos ramas terminaban en el mismo desastre por caminos distintos: cinco fallos
+# de cualquiera bloqueando a los 300. Por eso ahora depende de IS_PRODUCTION, que es
+# la respuesta a "¿hay proxy delante?", y el conteo se ajusta aparte y SE MIDE.
+AXES_LEER_IP_REENVIADA = env.bool('AXES_LEER_IP_REENVIADA', default=IS_PRODUCTION)
+if AXES_LEER_IP_REENVIADA:
     AXES_IPWARE_META_PRECEDENCE_ORDER = ['HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR']
 
 AXES_RESET_ON_SUCCESS = True
@@ -424,13 +626,22 @@ if 'test' in _sys.argv or 'pytest' in _sys.modules:
 # página, el navegador se NIEGA a ejecutarlo porque ese origen no está aquí.
 # No sustituye al escapado de plantillas: lo respalda.
 #
-# MIGRACIÓN A ESTÁTICOS LOCALES: TERMINADA
+# MIGRACIÓN A ESTÁTICOS LOCALES: TERMINADA, Y AHORA SIN NINGÚN ORIGEN EXTERNO
 # jsDelivr (flatpickr, chart.js, sweetalert2, fullcalendar), cdnjs (Font Awesome)
 # e ionicons se autohospedan en static/plugins/ y ya no los referencia ninguna
 # plantilla. La política estuvo en observación con una segunda cabecera
-# REPORT-ONLY hasta confirmarlo; barridas las 116 plantillas, el ÚNICO origen
-# externo que queda es Google Fonts, así que la report-only se borró y sus
-# valores son ahora los que se aplican de verdad.
+# REPORT-ONLY hasta confirmarlo; barridas las 116 plantillas, la report-only se
+# borró y sus valores son ahora los que se aplican de verdad.
+#
+# El último que quedaba, Google Fonts, se retiró el 2026-09-20 —no se
+# autohospedó: se eliminó—. AdminLTE ya declaraba la pila del sistema como
+# reserva, así que no hacía falta descargar 58 KB de woff2 para que el texto se
+# viera bien; se ahorran además los dos handshakes TLS que costaba. Por eso
+# `style-src` y `font-src` ya no admiten nada de fuera.
+#
+# CONSECUENCIA: `default-src 'self'` es ahora literal. Ningún recurso de la
+# aplicación sale del propio dominio. Si mañana algo necesita salir, hay que
+# añadirlo aquí a mano y el test de abajo lo recordará.
 #
 # ---------------------------------------------------------------------------
 # POR QUÉ SE QUEDA 'unsafe-inline' EN script-src (decisión, no pendiente)
@@ -471,14 +682,8 @@ CONTENT_SECURITY_POLICY = {
         'script-src': [
             "'self'", "'unsafe-inline'",
         ],
-        'style-src': [
-            "'self'", "'unsafe-inline'",
-            'https://fonts.googleapis.com',
-        ],
-        'font-src': [
-            "'self'", 'data:',
-            'https://fonts.gstatic.com',
-        ],
+        'style-src': ["'self'", "'unsafe-inline'"],
+        'font-src': ["'self'", 'data:'],
         'img-src': ["'self'", 'data:'],
         'connect-src': ["'self'"],
         'frame-ancestors': ["'none'"],

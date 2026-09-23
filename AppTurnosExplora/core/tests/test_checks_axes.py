@@ -95,15 +95,36 @@ class TestParametrosDeBloqueo:
 class TestConfiguracionRealDelProyecto:
     """La configuración que se despliega de verdad, no una inventada por el test."""
 
-    def test_bloquea_por_usuario_y_por_ip(self):
+    def test_siempre_bloquea_por_usuario(self):
+        """El criterio que nunca se negocia: sin él no hay freno a la fuerza bruta."""
+        assert 'username' in _parametros_de_bloqueo()
+
+    def test_el_bloqueo_por_ip_viene_apagado_y_es_una_decision_explicita(self):
         """
-        Si alguien vuelve a dejarlo en solo 'username', este test lo caza: con 5
-        intentos por usuario y una lista de nombres, no hay límite efectivo.
+        Este test cambió de bando el 2026-09-18, y el motivo importa más que el valor.
+
+        Antes exigía que 'ip_address' estuviera SIEMPRE, para que nadie lo quitara por
+        descuido. Resultó ser la exigencia equivocada: el criterio de IP solo protege
+        si la aplicación ve IPs DISTINTAS para personas distintas. Cuando las ve
+        iguales no discrimina nada y se vuelve su contrario —cinco fallos de
+        cualquiera bloquean a los 300 empleados una hora—, y aun así este test daba
+        verde, porque miraba el ajuste y no lo que el ajuste consigue.
+
+        En el despliegue de Dokploy se midió que el cortafuegos corporativo enmascara
+        el origen: todas las peticiones llegan como `10.1.0.1`. Por eso ahora el valor
+        por defecto es APAGADO: una protección capaz de dejar fuera a toda la plantilla
+        se enciende tras comprobar que distingue, no por inercia.
+
+        Lo que este test protege, entonces, es que encenderlo siga siendo una decisión
+        deliberada (`AXES_BLOQUEAR_POR_IP=True`) y no vuelva a ser el defecto.
         """
         from django.conf import settings
 
-        assert 'ip_address' in _parametros_de_bloqueo()
-        assert 'username' in _parametros_de_bloqueo()
+        if settings.AXES_BLOQUEAR_POR_IP:
+            assert 'ip_address' in _parametros_de_bloqueo()
+        else:
+            assert 'ip_address' not in _parametros_de_bloqueo()
+
         # Plana, no anidada: la anidada cuenta la pareja y no frena la rotación
         # de usuarios desde una misma IP.
         assert all(isinstance(p, str) for p in settings.AXES_LOCKOUT_PARAMETERS)

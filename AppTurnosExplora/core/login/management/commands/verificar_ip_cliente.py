@@ -31,43 +31,74 @@ class Command(BaseCommand):
         self.stdout.write(f'AXES_LOCKOUT_PARAMETERS = {getattr(settings, "AXES_LOCKOUT_PARAMETERS", None)}')
         self.stdout.write('')
 
-        peticion = RequestFactory().post('/login/')
-        peticion.META['REMOTE_ADDR'] = BALANCEADOR
-        peticion.META['HTTP_X_FORWARDED_FOR'] = f'{CLIENTE}, {BALANCEADOR}'
-
-        try:
-            resuelta = get_client_ip_address(peticion)
-        except Exception as exc:  # noqa: BLE001 - queremos ver cualquier fallo, no ocultarlo
-            self.stderr.write(self.style.ERROR(f'axes no pudo resolver la IP: {exc!r}'))
-            return
-
-        self.stdout.write(f'Cabecera simulada : X-Forwarded-For: {CLIENTE}, {BALANCEADOR}')
-        self.stdout.write(f'REMOTE_ADDR       : {BALANCEADOR}')
-        self.stdout.write(f'axes resuelve     : {resuelta}')
+        self.stdout.write(
+            f'AXES_IPWARE_META_PRECEDENCE_ORDER = '
+            f'{getattr(settings, "AXES_IPWARE_META_PRECEDENCE_ORDER", ("REMOTE_ADDR",))}')
         self.stdout.write('')
 
-        # El veredicto depende del entorno: con 0 proxies configurados, resolver el
-        # REMOTE_ADDR es lo CORRECTO (la app recibe tráfico directo, como en local).
-        # La cabecera simulada es precisamente la mentira contra la que protege ese 0.
-        if resuelta == CLIENTE:
+        # Se prueban las DOS formas de cabecera que existen en la práctica, y no una
+        # sola, porque probar únicamente la del ALB fue lo que dejó pasar el fallo del
+        # despliegue en Dokploy (2026-09-18): la configuración parecía correcta contra
+        # una cabecera que ese servidor nunca manda.
+        #
+        # ipware valida en modo estricto con una igualdad exacta
+        # (`len(ips) - 1 == AXES_IPWARE_PROXY_COUNT`), así que el número que hay que
+        # poner NO es "cuántos proxies hay" sino "cuántas direcciones trae la cabecera
+        # por delante de la del cliente". Un proxy que reescribe la cabecera —Traefik,
+        # y también Nginx con `$remote_addr`— deja UNA sola: ahí el número es 0.
+        escenarios = [
+            ('Traefik / Nginx que REESCRIBE la cabecera', CLIENTE, 0),
+            ('ALB o proxy que AÑADE a la cabecera', f'{CLIENTE}, {BALANCEADOR}', 1),
+        ]
+
+        aciertos = []
+        for titulo, cabecera, cuenta_correcta in escenarios:
+            peticion = RequestFactory().post('/login/')
+            peticion.META['REMOTE_ADDR'] = BALANCEADOR
+            peticion.META['HTTP_X_FORWARDED_FOR'] = cabecera
+
+            try:
+                resuelta = get_client_ip_address(peticion)
+            except Exception as exc:  # noqa: BLE001 - queremos ver el fallo, no ocultarlo
+                resuelta = f'ERROR: {exc!r}'
+
+            ok = resuelta == CLIENTE
+            if ok:
+                aciertos.append(titulo)
+
+            marca = 'ok' if ok else '!!'
+            self.stdout.write(f'[{marca}] {titulo}')
+            self.stdout.write(f'       X-Forwarded-For: {cabecera}')
+            self.stdout.write(f'       axes resuelve  : {resuelta}')
+            if not ok:
+                self.stdout.write(f'       (para este caso AXES_IPWARE_PROXY_COUNT seria {cuenta_correcta})')
+            self.stdout.write('')
+
+        if aciertos:
             self.stdout.write(self.style.SUCCESS(
-                'CORRECTO: axes ve la IP del cliente. El bloqueo por IP afecta solo a quien falla.'))
-        elif not proxies:
+                f'CORRECTO para: {", ".join(aciertos)}. Con esa forma de cabecera axes ve la IP '
+                f'del cliente y el bloqueo por IP alcanza solo a quien falla.'))
+        elif not proxies and 'HTTP_X_FORWARDED_FOR' not in tuple(
+                getattr(settings, 'AXES_IPWARE_META_PRECEDENCE_ORDER', ('REMOTE_ADDR',))):
             self.stdout.write(self.style.WARNING(
-                'Configurado SIN intermediarios (0): axes ignora X-Forwarded-For y usa REMOTE_ADDR. '
-                'Es lo correcto en local y en cualquier despliegue con tráfico directo —y además '
-                'impide que un cliente se invente la cabecera para falsear su IP—. '
-                'PERO detrás del ALB de Fargate o de Nginx en EC2 hay que subirlo a 1, o axes verá '
-                'la IP del intermediario para TODO el mundo. Vuelve a ejecutar esto allí.'))
+                'Sin intermediarios y sin leer X-Forwarded-For: axes usa REMOTE_ADDR. Es lo '
+                'correcto en local, donde el trafico llega directo, y ademas impide que un '
+                'cliente se invente la cabecera. DETRAS DE UN PROXY hay que volver a ejecutar '
+                'esto: alli REMOTE_ADDR es el proxy, igual para todo el mundo.'))
         else:
             self.stdout.write(self.style.ERROR(
-                f'PELIGRO: con {proxies} proxy(s) configurados axes ve {resuelta}, que no es el '
-                f'cliente. El bloqueo por IP alcanzaría a TODA la plantilla. Ajusta '
-                f'AXES_IPWARE_PROXY_COUNT al número real (ALB solo = 1; ALB + CloudFront = 2).'))
+                'PELIGRO: con esta configuracion axes NO resuelve la IP del cliente en NINGUNA '
+                'de las dos formas de cabecera. O devuelve nulo, o devuelve la del intermediario '
+                '—y en los dos casos TODA la plantilla comparte grupo: cinco fallos de cualquiera '
+                'bloquean a todos. Ajusta AXES_IPWARE_PROXY_COUNT al numero que indica el caso '
+                'que corresponda a tu servidor.'))
 
         self.stdout.write('')
-        self.stdout.write('Esto valida la ARITMÉTICA de la configuración. Para cerrarlo del todo en')
-        self.stdout.write('staging, con tráfico real:')
-        self.stdout.write('  1. Falla el login 5 veces desde un equipo.')
-        self.stdout.write('  2. Comprueba que OTRO equipo, en otra red, sí puede entrar.')
-        self.stdout.write('  3. Limpia el bloqueo:  python manage.py axes_reset')
+        self.stdout.write('Esto valida la ARITMETICA contra cabeceras SIMULADAS, y eso NO BASTA:')
+        self.stdout.write('no sabe cual manda de verdad tu servidor. Con trafico real, y antes de')
+        self.stdout.write('dar la URL a nadie:')
+        self.stdout.write('  1. Entra desde DOS REDES DISTINTAS (una con datos moviles).')
+        self.stdout.write('  2. Mira /admin/axes/accesslog/: tienen que salir DOS IPs PUBLICAS')
+        self.stdout.write('     distintas. Si sale la misma, o una 10.x/172.x, o vacia, esta roto.')
+        self.stdout.write('  3. Recien ahi: falla 5 veces desde una red y comprueba que la otra entra.')
+        self.stdout.write('  4. Limpia el bloqueo:  python manage.py axes_reset')

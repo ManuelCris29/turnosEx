@@ -120,7 +120,7 @@
 
 {% block extra_js %}
 <script>window.MI_JORNADA = "{{ mi_jornada|escapejs }}";</script>
-<script src="{% static 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
+<script src="{% static_v 'js/cambio-turno/restriccion_advertencia.js' %}"></script>
 <script src="{% static_v 'js/cambio-turno/solicitar_d_fds.js' %}"></script>
 {% endblock %}
 
